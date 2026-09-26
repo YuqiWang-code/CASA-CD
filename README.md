@@ -121,10 +121,12 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 2. 服务器启动（`nohup`，每脚本带断点续训重试循环），脚本在 `train_scripts/baseline/Run1/`：
    ```bash
    cd /home/yqwang/projects/CASA-CD/train_scripts/baseline/Run1
-   nohup bash train_LEVIR-CD-256.sh > /dev/null 2>&1 &
+   nohup bash run_queue.sh > /dev/null 2>&1 &   # CDD → LEVIR → SYSU → WHU 串行
    ```
+   **注意必须串行**：ChangeViT-T batch 16 单任务 ~15.7GB（FeatureInjector 对 c2 全 token
+   交叉注意力 ~8.6GB 注意力矩阵），两个任务并跑会超过单张 5090 的 32GB 导致 OOM。
 3. 训练日志格式：
-   - 开头：全部配置 + 总参数量 + 可训练参数量 + FLOPs(G)。
+   - 开头：全部配置 + 总参数量 + 有效参数量（论文口径）+ 可训练参数量 + FLOPs(G)。
    - 每个 epoch 一行：Loss + Recall / Precision / OA / F1 / IoU / Kappa 六项指标（test 集）。
    - 结尾：`=== TEST RESULTS ===` 参数量 + FLOPs + 六项指标（best checkpoint 正式测试）。
 4. checkpoint：每 run 一个文件夹，只放 `last.pth`（断点续训，含优化器）与 `best_F1=xxx.pth`（测试用）。

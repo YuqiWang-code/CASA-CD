@@ -11,6 +11,7 @@ source /home/yqwang/miniforge3/etc/profile.d/conda.sh
 conda activate casacd
 
 export CUDA_VISIBLE_DEVICES=${GPU}
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 PROJ=/home/yqwang/projects/CASA-CD
 MODELS=${PROJ}/models
