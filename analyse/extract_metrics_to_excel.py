@@ -45,12 +45,14 @@ def parse_block(block):
         d["Recall"], d["Precision"], d["OA"], d["F1"], d["IoU"], d["Kappa"] = [
             float(x) for x in m.groups()
         ]
-    # 参数/FLOPs 行
+    # 参数/FLOPs 行（EFFECTIVE-PARAMS 优先，其次 TOTAL-PARAMS 等）
     def _num(pattern):
         mm = re.search(pattern + r"\s+([0-9.]+)", block)
         return float(mm.group(1)) if mm else None
 
-    d["Params(M)"] = _num(r"\[(?:TOTAL-PARAMS|PARAMS|DEPLOY-PARAMS|TOTAL-TRAIN-GRAPH-PARAMS)\]")
+    d["Params(M)"] = _num(r"\[EFFECTIVE-PARAMS\]")
+    if d["Params(M)"] is None:
+        d["Params(M)"] = _num(r"\[(?:TOTAL-PARAMS|PARAMS|DEPLOY-PARAMS|TOTAL-TRAIN-GRAPH-PARAMS)\]")
     d["Trainable(M)"] = _num(r"\[TRAINABLE-PARAMS\]")
     d["FLOPs(G)"] = _num(r"\[(?:FLOPS|DEPLOY-FLOPS)\]")
     mm = re.search(r"\[MODE\]\s+(\S+)", block)

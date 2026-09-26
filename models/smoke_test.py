@@ -24,6 +24,16 @@ def measure_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward)."""
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
 def measure_flops(model, size=256):
     from fvcore.nn import flop_count
 
@@ -51,7 +61,8 @@ def main():
         model = model.cuda()
 
     n_params = measure_params(model)
-    print(f"[SMOKE] total params = {n_params / 1e6:.3f} M")
+    n_eff = measure_effective_params(model)
+    print(f"[SMOKE] total params = {n_params / 1e6:.3f} M, effective = {n_eff / 1e6:.3f} M")
 
     pre = torch.randn(2, 3, 256, 256)
     post = torch.randn(2, 3, 256, 256)

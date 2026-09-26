@@ -52,6 +52,20 @@ def measure_trainable_params(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward).
+
+    The paper's 11.68M for ChangeViT-T counts effective params only; the released
+    code keeps the full ResNet18 module (~8.9M dead params).
+    """
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
 def measure_flops(model, size=256):
     """Return flops (G) for a (1,3,size,size) bi-temporal pair (fvcore)."""
     from fvcore.nn import flop_count
@@ -293,6 +307,7 @@ class ChangeViTTrainer(object):
 
         total_params = measure_params(self.model)
         trainable = measure_trainable_params(self.model)
+        effective_params = measure_effective_params(self.model)
         flops, n_unsup = measure_flops(self.model, size=self.args.inWidth)
 
         test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
@@ -302,6 +317,7 @@ class ChangeViTTrainer(object):
         self.log(f"[MODEL] ChangeViT-{self.args.model_type.upper()} baseline")
         self.log("[MODE] baseline")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
+        self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
         self.log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{self.args.inWidth}x{self.args.inHeight}, unsupported_ops={n_unsup})")
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
@@ -367,6 +383,7 @@ def main():
     trainer = ChangeViTTrainer(args, log)
 
     log("[TOTAL-PARAMS] " + fmt_params(measure_params(trainer.model)) + " M")
+    log("[EFFECTIVE-PARAMS] " + fmt_params(measure_effective_params(trainer.model)) + " M")
     log("[TRAINABLE-PARAMS] " + fmt_params(measure_trainable_params(trainer.model)) + " M")
     flops, n_unsup = measure_flops(trainer.model, size=args.inWidth)
     log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")

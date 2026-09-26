@@ -57,6 +57,16 @@ def measure_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward)."""
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
 def measure_flops(model, size=256):
     from fvcore.nn import flop_count
 
@@ -131,6 +141,7 @@ def main():
     print(f"[MODEL] ChangeViT-{args.model_type.upper()} baseline")
     print("[MODE] baseline")
     print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
+    print(f"[EFFECTIVE-PARAMS] {measure_effective_params(model) / 1e6:.3f} M")
     print(f"[FLOPS] {flops:.4f} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
     print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
           f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
