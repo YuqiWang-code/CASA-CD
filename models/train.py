@@ -341,7 +341,7 @@ def main():
     parser.add_argument('--step_loss', type=int, default=100, help='Decrease learning rate after how many epochs (step mode)')
     parser.add_argument('--lr', type=float, default=2e-4, help='Initial learning rate')
     parser.add_argument('--lr_mode', default='poly', help='Learning rate policy, step or poly')
-    parser.add_argument('--seed', default=16, help='initialization seed number')
+    parser.add_argument('--seed', type=int, default=16, help='initialization seed number')
     parser.add_argument('--resume', default=None, help='Use this checkpoint to continue training (auto: ckpt_dir/last.pth)')
     parser.add_argument('--resnet_pretrained', type=int, default=1, help='load ImageNet ResNet18 weights for detail branch')
     parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'),

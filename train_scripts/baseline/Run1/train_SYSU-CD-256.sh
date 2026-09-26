@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # ChangeViT-T baseline / Run1 — SYSU-CD-256
-GPU=1
+GPU=0
 DATASET=SYSU-CD-256
 MAX_STEPS=80000
 BATCH=16

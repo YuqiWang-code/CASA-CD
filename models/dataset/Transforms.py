@@ -200,7 +200,7 @@ class ToTensor(object):
         image = image[:, :, ::-1].copy()  # .copy() is to solve "torch does not support negative index"
         image = image.transpose((2, 0, 1))
         image_tensor = torch.from_numpy(image)
-        label_tensor = torch.LongTensor(np.array(label, dtype=np.int)).unsqueeze(dim=0)
+        label_tensor = torch.LongTensor(np.array(label, dtype=np.int64)).unsqueeze(dim=0)
 
         return [image_tensor, label_tensor]
 

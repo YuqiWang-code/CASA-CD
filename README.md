@@ -36,7 +36,11 @@ binary change detection in remote sensing images.
 ## 方法
 
 - **Baseline：ChangeViT-Tiny**（Pattern Recognition 2025）：Plain ViT（DeiT-Tiny 预训练）+
-  ResNet18 detail-capture branch + Feature Injector + Decoder；官方 11.68M Params / 27.15G FLOPs。
+  ResNet18 detail-capture branch + Feature Injector + Decoder。
+- **参数量口径**：官方代码的 ResNet18 含未参与前向的 `layer4+fc`（死参数 ~8.9M），
+  我们复现保持官方代码原样，日志报总参数 **20.66M** / FLOPs **26.32G**；
+  论文表格的 11.68M 是按有效参数统计（ViT 5.54M + ResNet≤layer3 2.78M + Decoder 3.44M ≈ 11.76M），
+  两者前向计算完全一致，FLOPs 吻合（26.32G ≈ 论文 27.15G）。CASA-CD 轻量化时再删死参数。
 - **CASA-CD 计划（baseline 复现后推进）**：
   - **CASAA**（Change-Aware Asymmetric Token Modeling，灵感来自 SAT, CVPR 2026）：
     完整保留 Query（逐像素判别位置），只压缩提供上下文的 K/V；疑似变化 token 保留、
