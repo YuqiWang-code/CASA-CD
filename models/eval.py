@@ -1,0 +1,141 @@
+"""Standalone evaluation of a trained ChangeViT checkpoint.
+
+Loads `best_F1=x.pth` (or an explicit --resume path) from --ckpt_dir, runs the test
+set, and prints a `=== TEST RESULTS ===` block in the same format as train.py.
+"""
+import os
+import sys
+import argparse
+
+import torch
+import torch.backends.cudnn as cudnn
+
+_MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _MODELS_ROOT not in sys.path:
+    sys.path.insert(0, _MODELS_ROOT)
+
+from model.trainer import Trainer
+from model.metric_tool import ConfuseMatrixMeter
+from model.utils import BCEDiceLoss
+
+import dataset.dataset as myDataLoader
+import dataset.Transforms as myTransforms
+
+
+@torch.no_grad()
+def val(args, val_loader, model):
+    model.eval()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+    epoch_loss = []
+
+    for iter, batched_inputs in enumerate(val_loader):
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        if args.onGPU:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        output = model(pre_img.float(), post_img.float())
+        loss = BCEDiceLoss(output, target.float())
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        epoch_loss.append(loss.data.item())
+        salEvalVal.update_cm(pr=pred.cpu().numpy(), gt=target.cpu().numpy())
+
+    average_epoch_loss_val = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_val, scores
+
+
+def measure_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def measure_flops(model, size=256):
+    from fvcore.nn import flop_count
+
+    model.eval()
+    pre = torch.randn(1, 3, size, size).cuda()
+    post = torch.randn(1, 3, size, size).cuda()
+    with torch.no_grad():
+        counts, unsupported = flop_count(model, (pre, post))
+    return sum(counts.values()), len(unsupported)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="ChangeViT standalone evaluation")
+    parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--dataset_root', type=str, required=True)
+    parser.add_argument('--test_list', type=str, required=True)
+    parser.add_argument('--pretrained_weight_path', type=str, required=True)
+    parser.add_argument('--ckpt_dir', type=str, required=True)
+    parser.add_argument('--inWidth', type=int, default=256)
+    parser.add_argument('--inHeight', type=int, default=256)
+    parser.add_argument('--model_type', type=str, default='tiny')
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--resume', default=None, help='explicit checkpoint; default: ckpt_dir/best_F1=*.pth')
+    parser.add_argument('--resnet_pretrained', type=int, default=0,
+                        help='load ImageNet ResNet18 weights (0: not needed for eval)')
+    parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--gpu_id', default=0, type=int)
+    parser.add_argument('--mean', type=float, nargs=6,
+                        default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
+    parser.add_argument('--std', type=float, nargs=6,
+                        default=[0.225, 0.224, 0.229, 0.225, 0.224, 0.229])
+    args = parser.parse_args()
+
+    if args.onGPU:
+        torch.cuda.set_device(args.gpu_id)
+    torch.backends.cudnn.benchmark = True
+
+    # pick best checkpoint if not explicitly given
+    if args.resume is None:
+        import glob as _glob
+        cands = sorted(_glob.glob(os.path.join(args.ckpt_dir, "best_F1=*.pth")))
+        if not cands:
+            raise FileNotFoundError(f"no best_F1=*.pth found in {args.ckpt_dir}")
+        args.resume = cands[-1]
+
+    model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
+                    resnet_pretrained=bool(args.resnet_pretrained)).float()
+    if args.onGPU:
+        model = model.cuda()
+
+    state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
+    model.load_state_dict(state_dict)
+    print(f"[RESUME] loaded {args.resume}")
+
+    val_transform = myTransforms.Compose([
+        myTransforms.Normalize(mean=args.mean, std=args.std),
+        myTransforms.Scale(args.inWidth, args.inHeight),
+        myTransforms.ToTensor(),
+    ])
+    test_data = myDataLoader.Dataset(file_root=args.dataset_root, list_path=args.test_list, transform=val_transform)
+    test_loader = torch.utils.data.DataLoader(
+        test_data, shuffle=False, batch_size=args.batch_size,
+        num_workers=args.num_workers, pin_memory=True)
+
+    loss_test, score_test = val(args, test_loader, model)
+
+    total_params = measure_params(model)
+    flops, n_unsup = measure_flops(model, size=args.inWidth)
+
+    print("=== TEST RESULTS ===")
+    print(f"[MODEL] ChangeViT-{args.model_type.upper()} baseline")
+    print("[MODE] baseline")
+    print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
+    print(f"[FLOPS] {flops:.4f} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
+    print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+          f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+    print("=== END TEST RESULTS ===")
+
+
+if __name__ == "__main__":
+    main()

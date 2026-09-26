@@ -1,0 +1,15 @@
+# CASA-CD baseline 依赖（服务器 RSML-3 / conda env `casacd`，clone 自 cd_base）
+
+# 基础（cd_base 已含 torch 2.14.0+cu132 / CUDA 13.2，勿降级）
+torch>=2.0
+numpy
+pillow
+
+# ChangeViT 必需
+einops>=0.6
+opencv-python>=4.6
+
+# 参数量 / FLOPs 统计（train.py 用 fvcore.flop_count）
+fvcore
+
+# 可选：xformers 缺失时代码自动回退到原生 attention，可不装
