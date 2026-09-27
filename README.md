@@ -57,18 +57,22 @@ binary change detection in remote sensing images.
 ## 实验结果（Baseline Run1）
 
 > ChangeViT-T（官方协议：BCE+Dice、poly LR、max_steps=80000、batch 16、seed 16，加载
-> `deit_tiny_patch16_224-a1311bcf.pth`）在 4 数据集的复现。CDD / LEVIR 已完成，SYSU / WHU 进行中。
+> `deit_tiny_patch16_224-a1311bcf.pth`）在 4 数据集的复现，**全部完成**。
 
 | 数据集 | ChangeViT-T 官方 (F1) | 复现 F1 | IoU | OA | Kappa | 说明 |
 |---|---|---|---|---|---|---|
 | CDD | — | **97.75** | 95.60 | 99.44 | 97.43 | 官方未评测 CDD |
 | LEVIR | 91.81 | **91.95** | 85.10 | 99.18 | 91.52 | 建筑小目标、极不平衡 |
-| SYSU | — | | | | | 官方未评测 SYSU |
-| WHU | 94.53 | | | | | 建筑小目标、极不平衡 |
+| SYSU | — | **82.48** | 70.19 | 91.91 | 77.23 | 官方未评测 SYSU |
+| WHU | 94.53 | **94.84** | 90.18 | 99.60 | 94.63 | 建筑小目标、极不平衡 |
 
-- LEVIR 复现 F1 91.95 > 官方 91.81（+0.14），IoU 85.10 > 84.86，复现成立（差异主要来自
-  label 阈值 gray≥128 与数据集版本）。
+- 官方评测过的两个数据集复现均略高于论文：LEVIR 91.95 vs 91.81（+0.14，IoU 85.10 vs 84.86）、
+  WHU 94.84 vs 94.53（+0.31，IoU 90.18 vs 89.63）——复现成立（差异主要来自 label 阈值
+  gray≥128 与数据集版本）。
 - 复杂度：TOTAL 20.661M（含死参数）/ **EFFECTIVE 11.754M**（论文口径 11.68M）/ FLOPs 26.32G（论文 27.15G）。
+- SYSU 运行期间与 STR-RepNet 的新任务挤 GPU0，触发 196 次 OOM 自动断点续训（协议未变，
+  每个 epoch 均为完整训练，崩溃只丢半截 epoch），最后在 GPU1 上跑完。该结果为官方协议下
+  的有效结果；如需更干净对照，可在空卡上重跑 SYSU。
 
 ## 参考文献
 
