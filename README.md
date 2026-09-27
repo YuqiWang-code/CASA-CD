@@ -56,14 +56,19 @@ binary change detection in remote sensing images.
 
 ## 实验结果（Baseline Run1）
 
-> 复现进行中。ChangeViT-T（官方协议，加载 `deit_tiny_patch16_224-a1311bcf.pth`）在 4 数据集的结果完成后填入。
+> ChangeViT-T（官方协议：BCE+Dice、poly LR、max_steps=80000、batch 16、seed 16，加载
+> `deit_tiny_patch16_224-a1311bcf.pth`）在 4 数据集的复现。CDD / LEVIR 已完成，SYSU / WHU 进行中。
 
-| 数据集 | ChangeViT-T 官方 (F1) | 复现 F1 | IoU | OA | 说明 |
-|---|---|---|---|---|---|
-| CDD | — | | | | 官方未评测 CDD |
-| LEVIR | 91.81 | | | | 建筑小目标、极不平衡 |
-| SYSU | — | | | | 官方未评测 SYSU |
-| WHU | 94.53 | | | | 建筑小目标、极不平衡 |
+| 数据集 | ChangeViT-T 官方 (F1) | 复现 F1 | IoU | OA | Kappa | 说明 |
+|---|---|---|---|---|---|---|
+| CDD | — | **97.75** | 95.60 | 99.44 | 97.43 | 官方未评测 CDD |
+| LEVIR | 91.81 | **91.95** | 85.10 | 99.18 | 91.52 | 建筑小目标、极不平衡 |
+| SYSU | — | | | | | 官方未评测 SYSU |
+| WHU | 94.53 | | | | | 建筑小目标、极不平衡 |
+
+- LEVIR 复现 F1 91.95 > 官方 91.81（+0.14），IoU 85.10 > 84.86，复现成立（差异主要来自
+  label 阈值 gray≥128 与数据集版本）。
+- 复杂度：TOTAL 20.661M（含死参数）/ **EFFECTIVE 11.754M**（论文口径 11.68M）/ FLOPs 26.32G（论文 27.15G）。
 
 ## 参考文献
 
