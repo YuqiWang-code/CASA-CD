@@ -82,6 +82,8 @@ binary change detection in remote sensing images.
 - 创新点来源：`docs/参考文献/baseline/SAT(CVPR2026).pdf`
   （SAT: Selective Aggregation Transformer for Image Super-Resolution；
   arXiv:2604.07994；https://github.com/PhuTran1005/SAT）
+- SAT 核心机制提取（SAA + 聚类压缩 K/V，去框架化，供 CASAA 直接复用）：
+  [`others/SAT/saa.py`](others/SAT/saa.py)，说明见 [`others/SAT/README.md`](others/SAT/README.md)
 
 ## 目录结构
 
@@ -94,10 +96,12 @@ models/                        # 全部代码（ChangeViT 上游 + 本仓库改�
   model/                       #   encoder / decoder / trainer / layers / resnet
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
-  baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集）
+  baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集 + 串行队列）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
+others/                        # 参考实现（非本仓库模型代码）
+  SAT/                         #   SAT(CVPR2026) 核心机制提取：saa.py（SAA + 聚类压缩）
 outputs/                       # 训练日志（训练结束后下载到这里）
 docs/                          # 项目文档（temporary / 参考文献 / 服务器说明）
 .claude/                       # 服务器部署 skill 与 SSH 辅助脚本（不进 git）
