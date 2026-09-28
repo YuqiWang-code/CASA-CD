@@ -18,7 +18,14 @@ import torch.utils.checkpoint
 from torch.nn.init import trunc_normal_
 from einops import rearrange
 
-from model.layers import Mlp, PatchEmbed, SwiGLUFFNFused, MemEffAttention, NestedTensorBlock as Block
+from model.layers import (
+    Mlp,
+    PatchEmbed,
+    SwiGLUFFNFused,
+    MemEffAttention,
+    CASAAAttention,
+    NestedTensorBlock as Block,
+)
 from model.resnet import resnet18
 
 
@@ -64,6 +71,10 @@ class DinoVisionTransformer(nn.Module):
         num_register_tokens=0,
         interpolate_antialias=False,
         interpolate_offset=0.1,
+        casaa_layers=None,
+        casaa_keep_ratio=0.25,
+        casaa_change_share=0.5,
+        casaa_router='change',
     ):
         """
         Args:
@@ -100,6 +111,12 @@ class DinoVisionTransformer(nn.Module):
         self.num_register_tokens = num_register_tokens
         self.interpolate_antialias = interpolate_antialias
         self.interpolate_offset = interpolate_offset
+        # CASAA（Run1）：指定 block 的 attention 换成变化感知非对称注意力。
+        # qkv/proj 参数名与形状不变，DeiT-Tiny 预训练权重原位继承，零新增参数。
+        self.casaa_layers = list(casaa_layers) if casaa_layers else []
+        self.casaa_keep_ratio = casaa_keep_ratio
+        self.casaa_change_share = casaa_change_share
+        self.casaa_router = casaa_router
 
         self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
         num_patches = self.patch_embed.num_patches
@@ -131,22 +148,33 @@ class DinoVisionTransformer(nn.Module):
         else:
             raise NotImplementedError
 
-        blocks_list = [
-            block_fn(
-                dim=embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias,
-                proj_bias=proj_bias,
-                ffn_bias=ffn_bias,
-                drop_path=dpr[i],
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                ffn_layer=ffn_layer,
-                init_values=init_values,
+        blocks_list = []
+        for i in range(depth):
+            if i in self.casaa_layers:
+                attn_cls = partial(
+                    CASAAAttention,
+                    keep_ratio=casaa_keep_ratio,
+                    change_share=casaa_change_share,
+                    router=casaa_router,
+                )
+            else:
+                attn_cls = MemEffAttention
+            blocks_list.append(
+                block_fn(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                    attn_class=attn_cls,
+                )
             )
-            for i in range(depth)
-        ]
         if block_chunks > 0:
             self.chunked_blocks = True
             chunked_blocks = []
@@ -252,6 +280,25 @@ class DinoVisionTransformer(nn.Module):
         x_norm = self.norm(x)
         return x_norm
 
+    def forward_pair(self, x1, x2):
+        """双时相 paired forward（CASAA）。
+
+        非 CASAA 层两个时相独立过 block；CASAA 层两时相共享变化感知路由
+        一起过 block（Q 完整、K/V 压缩）。无 CASAA 层时与 `forward(x1);
+        forward(x2)` 完全等价（eval 下 bitwise 一致）。
+        """
+        x1 = self.prepare_tokens_with_masks(x1)
+        x2 = self.prepare_tokens_with_masks(x2)
+
+        for i, blk in enumerate(self.blocks):
+            if i in self.casaa_layers:
+                x1, x2 = blk.forward_pair(x1, x2)
+            else:
+                x1 = blk(x1)
+                x2 = blk(x2)
+
+        return self.norm(x1), self.norm(x2)
+
     def _get_intermediate_layers_not_chunked(self, x, n=1):
         x = self.prepare_tokens_with_masks(x)
         # If n is an int, take the n last blocks. If it's a list, take them
@@ -314,8 +361,24 @@ def init_weights_vit_timm(module: nn.Module, name: str = ""):
 
 
 class Encoder(nn.Module):
-    def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True):
+    def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
+                 mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
+                 casaa_change_share=0.5, casaa_router='change'):
         super().__init__()
+        self.mode = mode
+        if mode in ('casaa', 'saa'):
+            if casaa_layers is None:
+                casaa_layers = [8, 9, 10, 11]
+            # mode='saa' 是 A1 SAA-style 内容对照：强制 content router（无变化感知保留）
+            router = 'content' if mode == 'saa' else casaa_router
+            self.casaa_layers = list(casaa_layers)
+        else:
+            router = casaa_router
+            self.casaa_layers = []
+        self.casaa_keep_ratio = casaa_keep_ratio
+        self.casaa_change_share = casaa_change_share
+        self.casaa_router = router
+
         if model_type == 'tiny':
             self.vit = DinoVisionTransformer(
                 img_size=256,
@@ -325,7 +388,11 @@ class Encoder(nn.Module):
                 num_heads=6,
                 mlp_ratio=4,
                 block_fn=partial(Block, attn_class=MemEffAttention),
-                num_register_tokens=0
+                num_register_tokens=0,
+                casaa_layers=self.casaa_layers,
+                casaa_keep_ratio=casaa_keep_ratio,
+                casaa_change_share=casaa_change_share,
+                casaa_router=router,
             )
             if pretrained_path is None:
                 pretrained_path = "checkpoint/deit_tiny_patch16_224-a1311bcf.pth"
@@ -339,7 +406,11 @@ class Encoder(nn.Module):
                 num_heads=6,
                 mlp_ratio=4,
                 block_fn=partial(Block, attn_class=MemEffAttention),
-                num_register_tokens=0
+                num_register_tokens=0,
+                casaa_layers=self.casaa_layers,
+                casaa_keep_ratio=casaa_keep_ratio,
+                casaa_change_share=casaa_change_share,
+                casaa_router=router,
             )
             if pretrained_path is None:
                 pretrained_path = "checkpoint/dinov2_vits14_pretrain.pth"
@@ -373,8 +444,11 @@ class Encoder(nn.Module):
 
 
     def forward(self, x, y):
-        v_x = self.vit(x)
-        v_y = self.vit(y)
+        if self.casaa_layers:
+            v_x, v_y = self.vit.forward_pair(x, y)
+        else:
+            v_x = self.vit(x)
+            v_y = self.vit(y)
 
         v_x = rearrange(v_x, 'b (h w) c -> b c h w', h=16, w=16)
         v_y = rearrange(v_y, 'b (h w) c -> b c h w', h=16, w=16)

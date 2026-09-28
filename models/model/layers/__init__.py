@@ -9,3 +9,9 @@ from .patch_embed import PatchEmbed
 from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
 from .block import NestedTensorBlock
 from .attention import MemEffAttention
+from .casaa import (
+    CASAAAttention,
+    change_score_cosine,
+    deterministic_density_assign,
+    aggregate_with_shared_assignment,
+)

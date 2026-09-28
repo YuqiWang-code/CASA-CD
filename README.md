@@ -43,8 +43,10 @@ binary change detection in remote sensing images.
   两者前向计算完全一致，FLOPs 吻合（26.32G ≈ 论文 27.15G）。CASA-CD 轻量化时再删死参数。
 - **CASA-CD 计划（baseline 复现后推进）**：
   - **CASAA**（Change-Aware Asymmetric Token Modeling，灵感来自 SAT, CVPR 2026）：
-    完整保留 Query（逐像素判别位置），只压缩提供上下文的 K/V；疑似变化 token 保留、
-    稳定背景 token 强聚合，复杂度 `O(N²) → O(NK), K≪N`，且压缩冗余背景可减少背景干扰。
+    完整保留 Query（逐位置判别能力不变），只压缩提供上下文的 K/V；疑似变化 token 保留、
+    稳定背景 token 强聚合，注意力交互量 `O(N²) → O(NK), K≪N`。已实现为 Paired
+    Late-Stage CASAA（ViT blocks 8-11，K=64=Kc32 直保留+Kb32 背景聚类，**零新增参数**），
+    Run1 筛选实验完成，结果见下节。
   - **Ultra-Light Multi-Scale Change Representation**：把 ResNet18 detail branch 与
     decoder 换成轻量结构，目标 `<3M` 参数，在极低参数量等级上 F1/IoU 超过轻量 SOTA。
 
@@ -74,6 +76,34 @@ binary change detection in remote sensing images.
   每个 epoch 均为完整训练，崩溃只丢半截 epoch），最后在 GPU1 上跑完。该结果为官方协议下
   的有效结果；如需更干净对照，可在空卡上重跑 SYSU。
 
+## 实验结果（CASAA Run1）
+
+> Paired Late-Stage CASAA：ChangeViT-T 最后 4 个 ViT block（0-based 8-11）换成
+> 变化感知非对称注意力——**Full Q（N=256，逐位置判别不变）+ 压缩 K/V（K=64）**：
+> A2 主方法 `router=change`（Kc=32 change-score TopK 直保留 + Kb=32 共享背景聚类），
+> A1 对照 `router=content`（K=64 纯内容聚类，SAA-style）。routing 参数自由、
+> 确定性、T1/T2 对称；qkv/proj 原位继承 DeiT-Tiny 预训练，**零新增参数**；
+> 训练协议与 baseline 完全一致（BCE+Dice、poly、80000 steps、batch 16、seed 16）。
+> 实现：`models/model/layers/casaa.py`；脚本：`train_scripts/CASAA/Run1/`。
+> 实验设计与判据：`docs/temporary/CASA-CD_CASAA_Run1_修改与实验设计建议.md`。
+
+| 变体 | LEVIR F1 | LEVIR IoU | SYSU F1 | SYSU IoU | 说明 |
+|---|---:|---:|---:|---:|---|
+| baseline（已有） | **91.95** | 85.10 | 82.48 | 70.19 | ChangeViT-T 复现 |
+| A1 SAA-style（对照） | 91.94 | 85.08 | **82.50** | 70.21 | K=64 纯内容聚类，无变化感知 |
+| A2 CASAA（主方法） | 91.86 | 84.94 | 82.35 | 70.00 | Kc=32 直保留 + Kb=32 背景聚类 |
+
+- 复杂度：参数 11.754M 不变（零新增）；FLOPs 26.2593G（baseline 26.3246G）；
+  4 个 run 均 0 retry、无 OOM。完整日志：`outputs/CASAA/Run1/`。
+- **机制结论**：
+  1. **A1 ≈ baseline**（LEVIR −0.01 / SYSU +0.02）→ 晚阶段把 K/V 压到 25% 基本无损，
+     「压缩冗余上下文」成立；
+  2. **A2 ≈ A1 且略低**（−0.08 / −0.15）→ 参数自由的 cosine 变化路由未带来可测的
+     额外收益，change-aware 的机制价值在 Run1 设定下未被证明（单 seed，±0.15 属噪声量级）。
+- **筛选判据（设计文档 §16）未通过**：A2 未优于 baseline，也未优于 A1，故按预注册
+  规则**未启动** CDD/WHU 补全。下一步候选（§17 预设路径）：keep_ratio 0.5 /
+  只改最后 2 个 block / adaptive change quota / 更换更敏感的 change 信号。
+
 ## 参考文献
 
 - Baseline：`docs/参考文献/baseline/ChangeViT(PR2026).pdf`
@@ -89,14 +119,16 @@ binary change detection in remote sensing images.
 
 ```
 models/                        # 全部代码（ChangeViT 上游 + 本仓库改造）
-  train.py                     #   训练入口（改造：list 格式 + 统一日志/权重/指标）
-  eval.py                      #   独立测试入口
-  smoke_test.py                #   冒烟测试（无需真实数据）
+  train.py                     #   训练入口（baseline / --mode casaa|saa）
+  eval.py                      #   独立测试入口（同款 --mode 参数）
+  smoke_test.py                #   冒烟测试（baseline 等价 + CASAA 机制测试）
   main.py                      #   上游原版（仅参考）
   model/                       #   encoder / decoder / trainer / layers / resnet
+  model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
   baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集 + 串行队列）
+  CASAA/Run1/                  # CASAA Run1（A1/A2 × 4 数据集 + 双卡/单卡串行队列）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
@@ -136,6 +168,8 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
    cd /home/yqwang/projects/CASA-CD/train_scripts/baseline/Run1
    nohup bash run_queue.sh > /dev/null 2>&1 &   # CDD → LEVIR → SYSU → WHU 串行
    ```
+   CASAA 实验脚本在 `train_scripts/CASAA/Run1/`（`run_screen.sh` 双卡并行 /
+   `run_screen_gpu1_serial.sh` 单卡串行，`--mode casaa|saa`，详见该目录 README）。
    **注意必须串行**：ChangeViT-T batch 16 单任务 ~15.7GB（FeatureInjector 对 c2 全 token
    交叉注意力 ~8.6GB 注意力矩阵），两个任务并跑会超过单张 5090 的 32GB 导致 OOM。
 3. 训练日志格式：
@@ -148,10 +182,12 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 ## 运行监控 / 分析
 
 ```bash
-python .claude/_monitor.py              # 查看训练进度 + GPU 占用
+python .claude/_monitor.py              # 查看 baseline 训练进度 + GPU 占用
+python .claude/_monitor_casaa.py        # 查看 CASAA/Run1 训练进度 + GPU 占用
 python .claude/_ssh.py '<cmd>'          # 通用 SSH 执行
 python analyse/extract_metrics_to_excel.py   # outputs → docs/experiment_metrics.xlsx
 python analyse/models_to_txt.py --tag baseline --run Run1  # models 快照 + 指标 → docs/temporary/
+python analyse/models_to_txt.py --tag CASAA --run Run1
 ```
 
 ## 注意事项

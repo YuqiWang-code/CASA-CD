@@ -184,6 +184,11 @@ class ChangeViTTrainer(object):
             args.model_type,
             pretrained_path=args.pretrained_weight_path,
             resnet_pretrained=args.resnet_pretrained,
+            mode=args.mode,
+            casaa_layers=args.casaa_layers,
+            casaa_keep_ratio=args.casaa_keep_ratio,
+            casaa_change_share=args.casaa_change_share,
+            casaa_router=args.casaa_router,
         ).float()
         if args.onGPU:
             self.model = self.model.cuda()
@@ -308,18 +313,28 @@ class ChangeViTTrainer(object):
         total_params = measure_params(self.model)
         trainable = measure_trainable_params(self.model)
         effective_params = measure_effective_params(self.model)
-        flops, n_unsup = measure_flops(self.model, size=self.args.inWidth)
+        try:
+            flops, n_unsup = measure_flops(self.model, size=self.args.inWidth)
+            flops_line = (f"[FLOPS] {fmt_flops(flops)} G   "
+                          f"(input 2x3x{self.args.inWidth}x{self.args.inHeight}, unsupported_ops={n_unsup})")
+        except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞训练
+            flops_line = f"[FLOPS] measurement failed ({type(e).__name__}: {e})"
 
         test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
         _, score_test = val(self.args, test_loader, self.model)
 
         self.log("=== TEST RESULTS ===")
-        self.log(f"[MODEL] ChangeViT-{self.args.model_type.upper()} baseline")
-        self.log("[MODE] baseline")
+        self.log(f"[MODEL] ChangeViT-{self.args.model_type.upper()} {self.args.mode}")
+        self.log(f"[MODE] {self.args.mode}")
+        if self.args.mode != "baseline":
+            self.log(f"[CASAA-LAYERS] {','.join(str(i) for i in self.args.casaa_layers)}")
+            self.log(f"[CASAA-KEEP-RATIO] {self.args.casaa_keep_ratio}")
+            self.log(f"[CASAA-CHANGE-SHARE] {self.args.casaa_change_share}")
+            self.log(f"[CASAA-ROUTER] {self.args.casaa_router}")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
         self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
-        self.log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{self.args.inWidth}x{self.args.inHeight}, unsupported_ops={n_unsup})")
+        self.log(flops_line)
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
@@ -330,17 +345,24 @@ class ChangeViTTrainer(object):
 # Config header
 # -----------------------------------------------------------------------------
 def write_header(args, log):
+    script_tag = "train_scripts/baseline/Run1" if args.mode == "baseline" else "train_scripts/CASAA/Run1"
     log("=" * 72)
-    log(f"ChangeViT-{args.model_type.upper()} baseline  |  train_scripts/baseline/Run1")
+    log(f"ChangeViT-{args.model_type.upper()}  |  mode={args.mode}  |  {script_tag}")
     log("=" * 72)
     log("[CONFIG]")
     for k, v in vars(args).items():
         log(f"  {k}: {v}")
+    if args.mode != "baseline":
+        log("[MODE] " + args.mode)
+        log("[CASAA-LAYERS] " + ",".join(str(i) for i in args.casaa_layers))
+        log(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
+        log(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
+        log(f"[CASAA-ROUTER] {args.casaa_router}")
     log("=" * 72)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ChangeViT baseline training (Run1)")
+    parser = argparse.ArgumentParser(description="ChangeViT training (baseline / CASAA / SAA)")
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--dataset_root', type=str, required=True)
     parser.add_argument('--train_list', type=str, required=True)
@@ -364,6 +386,18 @@ def main():
                         help='Run on CPU or GPU. If TRUE, then GPU.')
     parser.add_argument('--gpu_id', default=0, type=int, help='GPU id number')
 
+    # CASAA (创新主线一)：Full Query + 变化感知压缩 K/V
+    parser.add_argument('--mode', type=str, default='baseline', choices=['baseline', 'saa', 'casaa'],
+                        help='baseline | saa (A1 SAA-style content control) | casaa (A2 change-aware)')
+    parser.add_argument('--casaa_layers', type=str, default='8,9,10,11',
+                        help='0-based ViT block indices replaced by CASAA (comma separated)')
+    parser.add_argument('--casaa_keep_ratio', type=float, default=0.25,
+                        help='K/N compressed K/V token budget')
+    parser.add_argument('--casaa_change_share', type=float, default=0.50,
+                        help='share of K kept as change tokens (router=change)')
+    parser.add_argument('--casaa_router', type=str, default='change', choices=['change', 'content'],
+                        help='change (CASAA change-aware) | content (SAA-style control)')
+
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -372,6 +406,11 @@ def main():
     args = parser.parse_args()
 
     args.resnet_pretrained = bool(args.resnet_pretrained)
+    args.casaa_layers = [int(s) for s in args.casaa_layers.split(',') if s.strip() != ''] \
+        if args.casaa_layers else []
+    # A1 (mode=saa) 固定为 content router，与 --casaa_router 无关
+    if args.mode == 'saa':
+        args.casaa_router = 'content'
     if args.onGPU:
         torch.cuda.set_device(args.gpu_id)
 
@@ -385,8 +424,11 @@ def main():
     log("[TOTAL-PARAMS] " + fmt_params(measure_params(trainer.model)) + " M")
     log("[EFFECTIVE-PARAMS] " + fmt_params(measure_effective_params(trainer.model)) + " M")
     log("[TRAINABLE-PARAMS] " + fmt_params(measure_trainable_params(trainer.model)) + " M")
-    flops, n_unsup = measure_flops(trainer.model, size=args.inWidth)
-    log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
+    try:
+        flops, n_unsup = measure_flops(trainer.model, size=args.inWidth)
+        log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
+    except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞训练
+        log(f"[FLOPS] measurement failed ({type(e).__name__}: {e})")
     log("=" * 72)
 
     trainer.train()

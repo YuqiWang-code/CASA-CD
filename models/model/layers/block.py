@@ -86,6 +86,22 @@ class Block(nn.Module):
 
         self.sample_drop_ratio = drop_path
 
+    def forward_pair(self, x1: Tensor, x2: Tensor) -> Tuple[Tensor, Tensor]:
+        """双时相 paired forward（CASAA）：注意力共享变化感知路由，MLP 各自独立。
+
+        仅当 self.attn 提供 forward_pair（CASAAAttention）时使用；
+        norm1/norm2/mlp/ls/drop_path 全部沿用本 block 原有参数。
+        """
+        x1n = self.norm1(x1)
+        x2n = self.norm1(x2)
+        y1, y2 = self.attn.forward_pair(x1n, x2n)
+        x1 = x1 + self.drop_path1(self.ls1(y1))
+        x2 = x2 + self.drop_path1(self.ls1(y2))
+
+        x1 = x1 + self.drop_path2(self.ls2(self.mlp(self.norm2(x1))))
+        x2 = x2 + self.drop_path2(self.ls2(self.mlp(self.norm2(x2))))
+        return x1, x2
+
     def forward(self, x: Tensor) -> Tensor:
         def attn_residual_func(x: Tensor) -> Tensor:
             return self.ls1(self.attn(self.norm1(x)))

@@ -79,7 +79,7 @@ def measure_flops(model, size=256):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ChangeViT standalone evaluation")
+    parser = argparse.ArgumentParser(description="ChangeViT standalone evaluation (baseline / CASAA / SAA)")
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--dataset_root', type=str, required=True)
     parser.add_argument('--test_list', type=str, required=True)
@@ -95,11 +95,25 @@ def main():
                         help='load ImageNet ResNet18 weights (0: not needed for eval)')
     parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--gpu_id', default=0, type=int)
+
+    # 必须与训练一致（CASAA 零新增参数，state dict 与 baseline 兼容，
+    # 若按 baseline 架构实例化会静默回退成普通 attention —— 这是 P0 正确性问题）
+    parser.add_argument('--mode', type=str, default='baseline', choices=['baseline', 'saa', 'casaa'])
+    parser.add_argument('--casaa_layers', type=str, default='8,9,10,11')
+    parser.add_argument('--casaa_keep_ratio', type=float, default=0.25)
+    parser.add_argument('--casaa_change_share', type=float, default=0.50)
+    parser.add_argument('--casaa_router', type=str, default='change', choices=['change', 'content'])
+
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
     parser.add_argument('--std', type=float, nargs=6,
                         default=[0.225, 0.224, 0.229, 0.225, 0.224, 0.229])
     args = parser.parse_args()
+
+    args.casaa_layers = [int(s) for s in args.casaa_layers.split(',') if s.strip() != ''] \
+        if args.casaa_layers else []
+    if args.mode == 'saa':
+        args.casaa_router = 'content'
 
     if args.onGPU:
         torch.cuda.set_device(args.gpu_id)
@@ -114,7 +128,11 @@ def main():
         args.resume = cands[-1]
 
     model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
-                    resnet_pretrained=bool(args.resnet_pretrained)).float()
+                    resnet_pretrained=bool(args.resnet_pretrained),
+                    mode=args.mode, casaa_layers=args.casaa_layers,
+                    casaa_keep_ratio=args.casaa_keep_ratio,
+                    casaa_change_share=args.casaa_change_share,
+                    casaa_router=args.casaa_router).float()
     if args.onGPU:
         model = model.cuda()
 
@@ -135,14 +153,23 @@ def main():
     loss_test, score_test = val(args, test_loader, model)
 
     total_params = measure_params(model)
-    flops, n_unsup = measure_flops(model, size=args.inWidth)
+    try:
+        flops, n_unsup = measure_flops(model, size=args.inWidth)
+        flops_line = f"{flops:.4f} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})"
+    except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞 eval
+        flops_line = f"measurement failed ({type(e).__name__}: {e})"
 
     print("=== TEST RESULTS ===")
-    print(f"[MODEL] ChangeViT-{args.model_type.upper()} baseline")
-    print("[MODE] baseline")
+    print(f"[MODEL] ChangeViT-{args.model_type.upper()} {args.mode}")
+    print(f"[MODE] {args.mode}")
+    if args.mode != "baseline":
+        print(f"[CASAA-LAYERS] {','.join(str(i) for i in args.casaa_layers)}")
+        print(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
+        print(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
+        print(f"[CASAA-ROUTER] {args.casaa_router}")
     print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
     print(f"[EFFECTIVE-PARAMS] {measure_effective_params(model) / 1e6:.3f} M")
-    print(f"[FLOPS] {flops:.4f} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
+    print(f"[FLOPS] {flops_line}")
     print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
           f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
     print("=== END TEST RESULTS ===")
