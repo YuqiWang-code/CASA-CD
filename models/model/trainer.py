@@ -30,8 +30,9 @@ class Trainer(nn.Module):
         self.decoder = Decoder(in_dim=[64, 128, 256, embed_dim])
         weight_init(self.decoder)
         
-    def forward(self, x, y):
-        fx, fy = self.encoder(x, y)
+    def forward(self, x, y, label=None):
+        # label 仅 router='oracle'（DIAGNOSTIC-ONLY）使用，其余模式忽略
+        fx, fy = self.encoder(x, y, label=label)
         pred = self.decoder(fx, fy)
 
         return pred

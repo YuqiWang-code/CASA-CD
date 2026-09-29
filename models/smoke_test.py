@@ -1,20 +1,24 @@
-"""Smoke test for CASA-CD (baseline / CASAA / SAA modes, no real data needed).
+"""Smoke test for CASA-CD (baseline / CASAA / SAA / ORACLE modes, no real data needed).
 
-Builds ChangeViT-Tiny, loads the pretrained DeiT-Tiny weights, and runs the Run1
-mechanism test suite (docs/temporary/CASA-CD_CASAA_Run1_修改与实验设计建议.md §8.8):
+Builds ChangeViT-Tiny, loads the pretrained DeiT-Tiny weights, and runs the mechanism
+test suite (Run1 设计文档 §8.8 + Run2 决策文档 §13):
 
-  T0 full-network smoke:   3-step forward+backward on random 256x256 bi-temporal input,
+  T0 qkv sliced equivalence: CASAAAttention 的切片投影（full X 只算 Q、压缩上下文只算
+     K/V）必须与整段 fused qkv 后切片数学等价（<1e-6）。
+  T1 full-network smoke:   3-step forward+backward on random 256x256 bi-temporal input,
                            params + FLOPs (per mode).
-  T1 baseline equivalence: with --mode baseline, new vit.forward_pair(x1, x2) must be
+  T2 baseline equivalence: with --mode baseline, new vit.forward_pair(x1, x2) must be
                            identical (eval, <1e-6) to vit(x1), vit(x2).
-  T2 pretrained keys:      CASAA must not add any missing/unexpected key vs baseline
+  T3 pretrained keys:      CASAA must not add any missing/unexpected key vs baseline
                            (qkv/proj in-place inheritance of DeiT-Tiny weights).
-  T3 CASAA mechanism:      output shape, token budget (N=256, K=64, Kc=32, Kb=32),
+  T4 CASAA mechanism:      output shape, token budget (N=256, K=64, Kc=32, Kb=32),
                            T1/T2 swap symmetry of routing, gradients finite & nonzero.
+  T5 oracle router:        GT patch occupancy -> 256 scores；TopK 正确；不进入梯度；
+                           T1/T2 swap 不改变 routing（DIAGNOSTIC-ONLY）。
 
 Usage:
     python smoke_test.py --model_type tiny --pretrained_weight_path <deit_tiny.pth> \
-        [--gpu_id 0] [--mode all|baseline|casaa|saa]
+        [--gpu_id 0] [--mode all|baseline|casaa|saa|oracle]
 """
 import os
 import sys
@@ -29,7 +33,7 @@ if _MODELS_ROOT not in sys.path:
 
 from model.trainer import Trainer
 from model.encoder import DinoVisionTransformer
-from model.layers import MemEffAttention
+from model.layers import MemEffAttention, CASAAAttention
 from model.layers.block import NestedTensorBlock as Block
 from model.utils import BCEDiceLoss
 
@@ -58,16 +62,22 @@ def measure_flops(model, size=256):
     model.eval()
     pre = torch.randn(1, 3, size, size).cuda()
     post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
     with torch.no_grad():
-        counts, unsupported = flop_count(model, (pre, post))
+        counts, unsupported = flop_count(model, (pre, post, label))
     return sum(counts.values()), len(unsupported)
 
 
-def build_trainer(pretrained_path, mode, device):
+def build_trainer(pretrained_path, mode, device, router=None):
+    if mode == "oracle":
+        trainer_mode, router = "casaa", "oracle"
+    else:
+        trainer_mode = mode
+        if router is None:
+            router = "content" if mode == "saa" else "change"
     return Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
-                   mode=mode, casaa_layers=CASAA_LAYERS, casaa_keep_ratio=CASAA_KEEP,
-                   casaa_change_share=CASAA_SHARE,
-                   casaa_router=("content" if mode == "saa" else "change")).float().to(device)
+                   mode=trainer_mode, casaa_layers=CASAA_LAYERS, casaa_keep_ratio=CASAA_KEEP,
+                   casaa_change_share=CASAA_SHARE, casaa_router=router).float().to(device)
 
 
 def build_vit(casaa_layers):
@@ -85,6 +95,42 @@ def load_vit_keys(vit, pretrained_path):
         sd.pop(k, None)
     msg = vit.load_state_dict(sd, strict=False)
     return set(msg.missing_keys), set(msg.unexpected_keys)
+
+
+def t0_qkv_sliced_equivalence(device):
+    """Smoke-0（Run2 §13）：切片 qkv 投影必须与整段 qkv 后切片数学等价。"""
+    print("[T0] qkv sliced projection equivalence (full X -> Q only, context -> K/V only)")
+    torch.manual_seed(0)
+    B, N, C, H = 2, 256, 192, 6
+    x1 = torch.randn(B, N, C, device=device)
+    x2 = torch.randn(B, N, C, device=device)
+
+    def ref_forward_pair(attn, xa, xb):
+        """参考实现：整段 fused qkv 后切片（Run1 旧逻辑）。"""
+        with torch.no_grad():
+            Ca, Cb = attn.compute_contexts(xa, xb)
+            Kref = Ca.shape[1]
+            qkv1 = attn.qkv(xa).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2 = attn.qkv(xb).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv1c = attn.qkv(Ca).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2c = attn.qkv(Cb).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            q1, k1, v1 = qkv1[0] * attn.scale, qkv1[1], qkv1[2]
+            q2, k2, v2 = qkv2[0] * attn.scale, qkv2[1], qkv2[2]
+            _, k1c, v1c = qkv1c
+            _, k2c, v2c = qkv2c
+            y1 = ((q1 @ k1c.transpose(-2, -1)).softmax(-1) @ v1c).transpose(1, 2).reshape(B, N, C)
+            y2 = ((q2 @ k2c.transpose(-2, -1)).softmax(-1) @ v2c).transpose(1, 2).reshape(B, N, C)
+        return attn.proj_drop(attn.proj(y1)), attn.proj_drop(attn.proj(y2))
+
+    for router in ("change", "content"):
+        attn = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router=router).to(device).eval()
+        with torch.no_grad():
+            y1, y2 = attn.forward_pair(x1, x2)
+            yr1, yr2 = ref_forward_pair(attn, x1, x2)
+        d = max((y1 - yr1).abs().max().item(), (y2 - yr2).abs().max().item())
+        assert d < 1e-6, f"router={router} sliced vs full-qkv mismatch: {d}"
+        print(f"  router={router}: sliced == full-qkv, max_abs_err = {d:.2e}")
+    del attn
 
 
 def t1_baseline_equivalence(pretrained_path, device):
@@ -180,8 +226,49 @@ def t3_mechanism(pretrained_path, mode, device):
     del model
 
 
+def t5_oracle_router(pretrained_path, device):
+    """Smoke-2（Run2 §13）：oracle router 的 GT patch occupancy 机制测试。"""
+    print("[T5] oracle router: GT occupancy -> TopK, no grad, swap-invariant")
+    model = build_trainer(pretrained_path, "oracle", device).eval()
+    vit = model.encoder.vit
+    x1 = torch.randn(2, 3, 256, 256, device=device)
+    x2 = torch.randn(2, 3, 256, 256, device=device)
+    # 假 label：只让特定 patch 区域有变化（patch 16 -> 16x16 grid）
+    label = torch.zeros(2, 1, 256, 256, device=device)
+    label[:, :, 0:32, 0:32] = 1.0          # 4 个 patch 有变化
+    label[:, :, 48:80, 160:192] = 1.0      # 4 个 patch 有变化
+    g_ref = torch.nn.functional.avg_pool2d(label, 16).view(2, -1)   # (B, 256)
+
+    with torch.no_grad():
+        out = model(x1, x2, label)
+    assert out.shape == (2, 1, 256, 256)
+
+    r = vit.blocks[8].attn._routing
+    assert (r["N"], r["K"], r["Kc"], r["Kb"]) == (256, 64, 32, 32)
+    assert torch.equal(r["s"], g_ref), "oracle score must equal GT patch occupancy"
+    assert torch.equal(r["Ic"], torch.topk(g_ref, 32, dim=-1).indices), "TopK indices wrong"
+
+    # T1/T2 交换：routing 只依赖 GT hint，不变
+    with torch.no_grad():
+        _ = vit.forward_pair(x2, x1, score_hint=g_ref)
+        r_sw = vit.blocks[8].attn._routing
+    assert torch.equal(r["Ic"], r_sw["Ic"]) and torch.equal(r["assign"], r_sw["assign"])
+
+    # 不进入梯度：score 路径 no-grad（label 无 requires_grad，输出对 label 无梯度）
+    model.train()
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    out = model(x1, x2, label)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    attn = vit.blocks[8].attn
+    assert attn.qkv.weight.grad is not None and torch.isfinite(attn.qkv.weight.grad).all()
+    assert attn.qkv.weight.grad.norm() > 0
+    print("  occupancy -> score OK; TopK OK; swap-invariant; grads finite & nonzero")
+    del model
+
+
 def full_smoke(pretrained_path, mode, device):
-    print(f"[T0] full-network smoke (mode={mode})")
+    print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
     n_params = measure_params(model)
     n_eff = measure_effective_params(model)
@@ -194,7 +281,7 @@ def full_smoke(pretrained_path, mode, device):
     optimizer = torch.optim.Adam(model.parameters(), 2e-4)
     model.train()
     for step in range(3):
-        out = model(pre, post)
+        out = model(pre, post, target) if mode == "oracle" else model(pre, post)
         assert out.shape == (2, 1, 256, 256), f"bad output shape {out.shape}"
         loss = BCEDiceLoss(out, target)
         optimizer.zero_grad()
@@ -217,8 +304,8 @@ def main():
     parser.add_argument('--pretrained_weight_path', type=str, required=True)
     parser.add_argument('--gpu_id', type=int, default=0)
     parser.add_argument('--mode', type=str, default='all',
-                        choices=['all', 'baseline', 'casaa', 'saa'],
-                        help='all | baseline | casaa | saa')
+                        choices=['all', 'baseline', 'casaa', 'saa', 'oracle'],
+                        help='all | baseline | casaa | saa | oracle')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -226,6 +313,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[SMOKE] mode={args.mode} device={device}")
 
+    t0_qkv_sliced_equivalence(device)
     if args.mode in ("baseline", "all"):
         t1_baseline_equivalence(args.pretrained_weight_path, device)
         t2_pretrained_keys(args.pretrained_weight_path)
@@ -236,6 +324,9 @@ def main():
     if args.mode in ("saa", "all"):
         t3_mechanism(args.pretrained_weight_path, "saa", device)
         full_smoke(args.pretrained_weight_path, "saa", device)
+    if args.mode in ("oracle", "all"):
+        t5_oracle_router(args.pretrained_weight_path, device)
+        full_smoke(args.pretrained_weight_path, "oracle", device)
 
     print("[SMOKE] ALL OK")
 

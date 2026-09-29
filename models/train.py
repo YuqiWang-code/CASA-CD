@@ -67,14 +67,18 @@ def measure_effective_params(model):
 
 
 def measure_flops(model, size=256):
-    """Return flops (G) for a (1,3,size,size) bi-temporal pair (fvcore)."""
+    """Return flops (G) for a (1,3,size,size) bi-temporal pair (fvcore).
+
+    附带一张全零 label（仅 router='oracle' 需要，其余模式忽略）。
+    """
     from fvcore.nn import flop_count
 
     model.eval()
     pre = torch.randn(1, 3, size, size).cuda()
     post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
     with torch.no_grad():
-        counts, unsupported = flop_count(model, (pre, post))
+        counts, unsupported = flop_count(model, (pre, post, label))
     total = sum(counts.values())
     return total, len(unsupported)
 
@@ -112,7 +116,7 @@ def val(args, val_loader, model):
         post_img_var = post_img.float()
         target_var = target.float()
 
-        output = model(pre_img_var, post_img_var)
+        output = model(pre_img_var, post_img_var, target_var)
         loss = BCEDiceLoss(output, target_var)
 
         pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
@@ -149,7 +153,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         post_img_var = post_img.float()
         target_var = target.float()
 
-        output = model(pre_img_var, post_img_var)
+        output = model(pre_img_var, post_img_var, target_var)
         loss = BCEDiceLoss(output, target_var)
 
         pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
@@ -193,8 +197,21 @@ class ChangeViTTrainer(object):
         if args.onGPU:
             self.model = self.model.cuda()
 
+        # Run2 起：ViT 崩溃保护（见 train_scripts/CASAA/Run2/README.md）。
+        # 实测 ChangeViT 官方协议（统一 lr=2e-4）在 LEVIR 上 ~1600 steps 内把 ViT
+        # 训练成精确零权重（pos_embed 4.43→0.0007、patch_embed 8.0→0.03），
+        # 一旦归零即无梯度（吸收态），checkpoint 的 ViT 全零且不可恢复。
+        # --freeze_vit 1：冻结 ViT（Run2 机制实验用）；--vit_lr_ratio 可调小 ViT lr。
+        if args.freeze_vit:
+            for n, p in self.model.named_parameters():
+                if n.startswith("encoder.vit"):
+                    p.requires_grad_(False)
+        vit_params = [p for n, p in self.model.named_parameters() if n.startswith("encoder.vit")]
+        rest_params = [p for n, p in self.model.named_parameters() if not n.startswith("encoder.vit")]
         self.optimizer = torch.optim.Adam(
-            self.model.parameters(), args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+            [{"params": rest_params, "lr": args.lr},
+             {"params": vit_params, "lr": args.lr * args.vit_lr_ratio}],
+            args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
 
         self.start_epoch = 0
         self.best_f1 = -1.0
@@ -331,6 +348,10 @@ class ChangeViTTrainer(object):
             self.log(f"[CASAA-KEEP-RATIO] {self.args.casaa_keep_ratio}")
             self.log(f"[CASAA-CHANGE-SHARE] {self.args.casaa_change_share}")
             self.log(f"[CASAA-ROUTER] {self.args.casaa_router}")
+            if self.args.casaa_router == "oracle":
+                self.log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+        self.log(f"[FREEZE-VIT] {int(self.args.freeze_vit)}")
+        self.log(f"[VIT-LR-RATIO] {self.args.vit_lr_ratio}")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
         self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
@@ -345,7 +366,14 @@ class ChangeViTTrainer(object):
 # Config header
 # -----------------------------------------------------------------------------
 def write_header(args, log):
-    script_tag = "train_scripts/baseline/Run1" if args.mode == "baseline" else "train_scripts/CASAA/Run1"
+    # 从 ckpt_dir 推导实验路径（如 .../CASA-CD/CASAA/Run2/... -> train_scripts/CASAA/Run2）
+    script_tag = None
+    if "CASA-CD/" in args.ckpt_dir:
+        tail = args.ckpt_dir.split("CASA-CD/")[-1].split("/")
+        if len(tail) >= 2:
+            script_tag = f"train_scripts/{tail[0]}/{tail[1]}"
+    if script_tag is None:
+        script_tag = "train_scripts/baseline/Run1" if args.mode == "baseline" else "train_scripts/CASAA/Run1"
     log("=" * 72)
     log(f"ChangeViT-{args.model_type.upper()}  |  mode={args.mode}  |  {script_tag}")
     log("=" * 72)
@@ -358,6 +386,10 @@ def write_header(args, log):
         log(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
         log(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
         log(f"[CASAA-ROUTER] {args.casaa_router}")
+        if args.casaa_router == "oracle":
+            log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+    log(f"[FREEZE-VIT] {int(args.freeze_vit)}")
+    log(f"[VIT-LR-RATIO] {args.vit_lr_ratio}")
     log("=" * 72)
 
 
@@ -395,8 +427,15 @@ def main():
                         help='K/N compressed K/V token budget')
     parser.add_argument('--casaa_change_share', type=float, default=0.50,
                         help='share of K kept as change tokens (router=change)')
-    parser.add_argument('--casaa_router', type=str, default='change', choices=['change', 'content'],
-                        help='change (CASAA change-aware) | content (SAA-style control)')
+    parser.add_argument('--casaa_router', type=str, default='change',
+                        choices=['change', 'content', 'oracle'],
+                        help='change (CASAA cosine) | content (SAA-style control) | oracle (GT diagnostic, not deployable)')
+
+    # ViT 崩溃保护（Run2）
+    parser.add_argument('--freeze_vit', type=int, default=0,
+                        help='freeze the ViT backbone (1 = freeze; prevents ViT collapse on real data)')
+    parser.add_argument('--vit_lr_ratio', type=float, default=1.0,
+                        help='ViT learning-rate multiplier relative to base lr (1.0 = official protocol)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,
@@ -406,6 +445,7 @@ def main():
     args = parser.parse_args()
 
     args.resnet_pretrained = bool(args.resnet_pretrained)
+    args.freeze_vit = bool(args.freeze_vit)
     args.casaa_layers = [int(s) for s in args.casaa_layers.split(',') if s.strip() != ''] \
         if args.casaa_layers else []
     # A1 (mode=saa) 固定为 content router，与 --casaa_router 无关

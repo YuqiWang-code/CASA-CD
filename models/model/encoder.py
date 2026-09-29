@@ -14,6 +14,7 @@ from typing import Sequence, Tuple, Union, Callable
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch.nn.init import trunc_normal_
 from einops import rearrange
@@ -280,19 +281,20 @@ class DinoVisionTransformer(nn.Module):
         x_norm = self.norm(x)
         return x_norm
 
-    def forward_pair(self, x1, x2):
+    def forward_pair(self, x1, x2, score_hint=None):
         """双时相 paired forward（CASAA）。
 
         非 CASAA 层两个时相独立过 block；CASAA 层两时相共享变化感知路由
         一起过 block（Q 完整、K/V 压缩）。无 CASAA 层时与 `forward(x1);
         forward(x2)` 完全等价（eval 下 bitwise 一致）。
+        score_hint: (B, N) 外部变化 score（仅 router='oracle' 诊断使用）。
         """
         x1 = self.prepare_tokens_with_masks(x1)
         x2 = self.prepare_tokens_with_masks(x2)
 
         for i, blk in enumerate(self.blocks):
             if i in self.casaa_layers:
-                x1, x2 = blk.forward_pair(x1, x2)
+                x1, x2 = blk.forward_pair(x1, x2, score_hint=score_hint)
             else:
                 x1 = blk(x1)
                 x2 = blk(x2)
@@ -443,9 +445,24 @@ class Encoder(nn.Module):
         return [x2, x3, x4]
 
 
-    def forward(self, x, y):
+    def label_to_occupancy(self, label):
+        """把 (B,1,H,W) 二值 label 转成与 ViT token 对齐的连续 patch occupancy。
+
+        avg_pool(kernel=patch_size) -> (B,1,16,16) -> (B,256)。
+        仅 router='oracle'（DIAGNOSTIC-ONLY）使用。
+        """
+        g = F.avg_pool2d(label.float(), kernel_size=self.vit.patch_size)
+        return g.view(label.shape[0], -1)
+
+
+    def forward(self, x, y, label=None):
         if self.casaa_layers:
-            v_x, v_y = self.vit.forward_pair(x, y)
+            score_hint = None
+            if self.casaa_router == 'oracle':
+                # DIAGNOSTIC-ONLY：GT patch occupancy 作为变化 score 上界
+                assert label is not None, "oracle router requires the GT label"
+                score_hint = self.label_to_occupancy(label)
+            v_x, v_y = self.vit.forward_pair(x, y, score_hint=score_hint)
         else:
             v_x = self.vit(x)
             v_y = self.vit(y)

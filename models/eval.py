@@ -39,7 +39,7 @@ def val(args, val_loader, model):
             target = target.cuda()
             post_img = post_img.cuda()
 
-        output = model(pre_img.float(), post_img.float())
+        output = model(pre_img.float(), post_img.float(), target.float())
         loss = BCEDiceLoss(output, target.float())
 
         pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
@@ -73,8 +73,9 @@ def measure_flops(model, size=256):
     model.eval()
     pre = torch.randn(1, 3, size, size).cuda()
     post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
     with torch.no_grad():
-        counts, unsupported = flop_count(model, (pre, post))
+        counts, unsupported = flop_count(model, (pre, post, label))
     return sum(counts.values()), len(unsupported)
 
 
@@ -102,7 +103,8 @@ def main():
     parser.add_argument('--casaa_layers', type=str, default='8,9,10,11')
     parser.add_argument('--casaa_keep_ratio', type=float, default=0.25)
     parser.add_argument('--casaa_change_share', type=float, default=0.50)
-    parser.add_argument('--casaa_router', type=str, default='change', choices=['change', 'content'])
+    parser.add_argument('--casaa_router', type=str, default='change',
+                        choices=['change', 'content', 'oracle'])
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -167,6 +169,8 @@ def main():
         print(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
         print(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
         print(f"[CASAA-ROUTER] {args.casaa_router}")
+        if args.casaa_router == "oracle":
+            print("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
     print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
     print(f"[EFFECTIVE-PARAMS] {measure_effective_params(model) / 1e6:.3f} M")
     print(f"[FLOPS] {flops_line}")

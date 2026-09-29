@@ -10,26 +10,26 @@
 与 SAT SAA（others/SAT/saa.py）的关系——复用其思想，不照搬参数化：
   - 复用：density-peak 选心、token-to-center 分配、簇内均值、Full Q / 压缩 K/V
     的注意力结构、norm preservation。
-  - 改动（按 docs/temporary/CASA-CD_CASAA_Run1_修改与实验设计建议.md §7）：
-    1. 随机子采样 -> deterministic stratified sampling（eval routing 与 RNG 无关）；
-    2. 单流聚类 -> 双时相共享路由（change score + 共享 background assignment）；
-    3. 全部 token 聚类 -> 疑似变化 token 原位保留 + 稳定背景 token 强聚合；
-    4. SAT 独立 q/k/v + c_ratio=0.5 -> 原 DeiT-Tiny fused qkv 权重切片，qkv/proj
-       参数名与形状不变，预训练权重原位继承，**不新增任何参数**；
-    5. M=0.03 -> keep_ratio=0.25（N=256 时 K=64：Kc=32 + Kb=32）。
+  - 改动：deterministic stratified sampling（eval routing 与 RNG 无关）；
+    双时相共享路由；疑似变化 token 原位保留 + 稳定背景 token 强聚合；
+    原 DeiT-Tiny fused qkv 权重切片（qkv/proj 参数名与形状不变，零新增参数）。
 
 router 模式：
   - 'change'  (CASAA, A2)：Kc=change_share*K 个 change-score TopK token 原位保留，
     Kb=K-Kc 个稳定背景 token 按共享内容聚类；C_t = [X_t[Ic]; mean_cluster(X_t_bg)]。
+    change score = 1 - cos(x1_i, x2_i)（参数自由、T1/T2 对称）。
   - 'content' (SAA-style 对照, A1)：Kc=0，全部 token 按共享内容聚类成 K 个原型。
-    与 A2 的唯一区别是「变化感知 token 保留」，用于把收益归因到 change awareness。
+  - 'oracle'  (A3, 仅诊断)：change score 直接用 GT patch occupancy
+    （Encoder 从 label 计算后以 score_hint 传入）。用于把「机制问题」与
+    「scorer 问题」拆开——DIAGNOSTIC-ONLY，不可部署，绝不作方法结果。
 
 设计要点：
-  - change score s_i = 1 - cos(x1_i, x2_i)：参数自由、T1/T2 交换对称、无新 loss、
-    inference 直接可用。
+  - 切片 qkv 投影：对 full X 只算 Q，对压缩上下文只算 K/V（权重仍为原 fused
+    qkv 的行切片，数学与原「整段 qkv 后切片」等价，不白算 full K/V 与 compressed Q）。
   - routing 索引（TopK / assignment）在 torch.no_grad() 下计算；聚合/收集仍使用
     带梯度的原 feature tensor，梯度可回传到背景 token。
-  - 索引与聚类拓扑 T1/T2 共享，特征不混时相（不做 cross-value mixing）。
+  - _routing 记录上一次 forward_pair 的诊断统计（score / 索引 / 聚类大小 /
+    bank 范数 / 注意力质量），供 analyse/casaa_router_diagnostic.py 做 Router Audit。
 """
 import torch
 import torch.nn as nn
@@ -169,11 +169,14 @@ class CASAAAttention(Attention):
     DeiT-Tiny 预训练 Q/K/V 权重可原位加载；单时相 `forward(x)` 仍是原
     self-attention（用于回归/对照）。
 
+    前向只做切片投影：对 full X 只算 Q、对压缩上下文只算 K/V（权重是 fused qkv
+    的行切片，数学与整段 qkv 后切片等价，不白算 full K/V 与 compressed Q）。
+
     Args:
         dim, num_heads, qkv_bias, proj_bias, attn_drop, proj_drop: 与 Attention 一致。
-        keep_ratio: K/N，K/V 压缩 token 总数比例（Run1: 0.25）。
-        change_share: K 中「疑似变化 token 直保留」占比（router='change' 时）。
-        router: 'change'（CASAA）或 'content'（SAA-style 对照）。
+        keep_ratio: K/N，K/V 压缩 token 总数比例（Run1/2: 0.25）。
+        change_share: K 中「疑似变化 token 直保留」占比（router='change'/'oracle' 时）。
+        router: 'change'（cosine score）/ 'content'（A1 对照）/ 'oracle'（GT 诊断）。
         norm_preserve: 是否对聚合原型做范数保持。
     """
 
@@ -183,14 +186,47 @@ class CASAAAttention(Attention):
                  norm_preserve=True):
         super().__init__(dim, num_heads=num_heads, qkv_bias=qkv_bias,
                          proj_bias=proj_bias, attn_drop=attn_drop, proj_drop=proj_drop)
-        assert router in ('change', 'content'), f"unknown router {router}"
+        assert router in ('change', 'content', 'oracle'), f"unknown router {router}"
+        self.dim = dim
         self.keep_ratio = keep_ratio
         self.change_share = change_share
         self.router = router
         self.norm_preserve = norm_preserve
-        self._routing = None   # 上一次 forward_pair 的 routing 统计（供 smoke/监控）
+        self._routing = None   # 上一次 forward_pair 的 routing 统计（供 smoke/诊断）
 
-    def compute_contexts(self, x1, x2):
+    # ------------------------------------------------------------------
+    # 切片 qkv 投影（Run2 等价优化：只算需要的 Q / K / V）
+    # ------------------------------------------------------------------
+    def _proj_q(self, x):
+        """只算 full X 的 Q：qkv.weight[0:C] / qkv.bias[0:C]。"""
+        w = self.qkv.weight[: self.dim]
+        b = self.qkv.bias[: self.dim] if self.qkv.bias is not None else None
+        return F.linear(x, w, b)
+
+    def _proj_kv(self, c):
+        """只算压缩上下文的 K/V：qkv.weight[C:3C] / qkv.bias[C:3C]。
+
+        Returns:
+            kv: (B, K, 2*C)，[..., :C] 为 K，[..., C:] 为 V。
+        """
+        w = self.qkv.weight[self.dim:]
+        b = self.qkv.bias[self.dim:] if self.qkv.bias is not None else None
+        return F.linear(c, w, b)
+
+    # ------------------------------------------------------------------
+    # 变化 score 接口
+    # ------------------------------------------------------------------
+    def _change_score(self, x1, x2, score_hint):
+        if self.router == 'oracle':
+            # DIAGNOSTIC-ONLY：score 来自 GT patch occupancy（Encoder 传入）
+            assert score_hint is not None, "oracle router requires the GT score_hint"
+            return score_hint
+        return change_score_cosine(x1, x2)
+
+    # ------------------------------------------------------------------
+    # 路由与上下文构造
+    # ------------------------------------------------------------------
+    def compute_contexts(self, x1, x2, score_hint=None):
         """计算两个时相的压缩上下文 (C1, C2) 与 routing 统计。
 
         routing（change score / TopK / assignment）在 no_grad 下计算；
@@ -200,14 +236,14 @@ class CASAAAttention(Attention):
         # 显式转 int：JIT 追踪下 shape 是符号量，Python 侧整数运算需要真 int
         B, N, C = int(B), int(N), int(C)
         K = max(int(round(self.keep_ratio * N)), 1)
-        if self.router == 'change':
+        if self.router in ('change', 'oracle'):
             Kc = min(int(round(self.change_share * K)), K)
         else:
             Kc = 0
         Kb = K - Kc
 
         with torch.no_grad():
-            s = change_score_cosine(x1, x2)              # (B, N)
+            s = self._change_score(x1, x2, score_hint)   # (B, N)
             if Kc > 0:
                 Ic = torch.topk(s, Kc, dim=-1).indices   # (B, Kc) 疑似变化位置
                 # int scatter（fvcore tracer 不支持 bool scalar 的 scatter_.value）
@@ -245,42 +281,61 @@ class CASAAAttention(Attention):
         else:
             C1, C2 = c1_change, c2_change
 
+        # 诊断统计（Router Audit 用；no_grad 下已是常量）
+        cluster_size = None
+        if assign is not None:
+            cluster_size = F.one_hot(assign, num_classes=Kb).sum(dim=1).float()   # (B, Kb)
+        c_norm_mean = torch.norm(C1[:, :Kc], dim=-1).mean().item() if Kc > 0 else float("nan")
+        bg_norm_mean = torch.norm(C1[:, Kc:], dim=-1).mean().item() if Kb > 0 else float("nan")
+
         self._routing = {"N": N, "K": K, "Kc": Kc, "Kb": Kb,
-                         "Ic": Ic, "assign": assign}
+                         "s": s, "Ic": Ic, "assign": assign,
+                         "cluster_size": cluster_size,
+                         "c_norm_mean": c_norm_mean, "bg_norm_mean": bg_norm_mean,
+                         "attn_mass_change": None, "attn_mass_bg": None}
         return C1, C2
 
-    def forward_pair(self, x1, x2):
+    def forward_pair(self, x1, x2, score_hint=None):
         """双时相 paired attention：Q 完整，K/V 来自压缩上下文，输出 N 不变。
 
         Args:
             x1, x2: (B, N, C)
+            score_hint: (B, N) 外部变化 score（仅 router='oracle' 使用）。
         Returns:
             y1, y2: (B, N, C)
         """
         B, N, C = x1.shape
-        C1, C2 = self.compute_contexts(x1, x2)
+        C1, C2 = self.compute_contexts(x1, x2, score_hint=score_hint)
         K = C1.shape[1]
+        H = self.num_heads
+        hd = C // H
+        Kc = self._routing["Kc"]
 
-        # 原 fused qkv 权重切片：Q 来自完整 x，K/V 来自压缩上下文
-        qkv1 = self.qkv(x1).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        qkv2 = self.qkv(x2).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        qkv1c = self.qkv(C1).reshape(B, K, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        qkv2c = self.qkv(C2).reshape(B, K, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        # 切片投影：full X -> Q only；压缩上下文 -> K/V only
+        q1 = self._proj_q(x1).reshape(B, N, H, hd).permute(0, 2, 1, 3) * self.scale
+        q2 = self._proj_q(x2).reshape(B, N, H, hd).permute(0, 2, 1, 3) * self.scale
+        kv1 = self._proj_kv(C1).reshape(B, K, 2, H, hd).permute(2, 0, 3, 1, 4)
+        kv2 = self._proj_kv(C2).reshape(B, K, 2, H, hd).permute(2, 0, 3, 1, 4)
+        k1, v1 = kv1[0], kv1[1]
+        k2, v2 = kv2[0], kv2[1]
 
-        q1, k1, v1 = qkv1[0] * self.scale, qkv1[1], qkv1[2]
-        q2, k2, v2 = qkv2[0] * self.scale, qkv2[1], qkv2[2]
-        _, k1c, v1c = qkv1c
-        _, k2c, v2c = qkv2c
-
-        a1 = (q1 @ k1c.transpose(-2, -1)).softmax(dim=-1)
-        a1 = self.attn_drop(a1)
-        y1 = (a1 @ v1c).transpose(1, 2).reshape(B, N, C)
-        a2 = (q2 @ k2c.transpose(-2, -1)).softmax(dim=-1)
-        a2 = self.attn_drop(a2)
-        y2 = (a2 @ v2c).transpose(1, 2).reshape(B, N, C)
+        a1 = (q1 @ k1.transpose(-2, -1))
+        a1_s = a1.softmax(dim=-1)
+        a1 = self.attn_drop(a1_s)
+        y1 = (a1 @ v1).transpose(1, 2).reshape(B, N, C)
+        a2 = (q2 @ k2.transpose(-2, -1))
+        a2_s = a2.softmax(dim=-1)
+        a2 = self.attn_drop(a2_s)
+        y2 = (a2 @ v2).transpose(1, 2).reshape(B, N, C)
 
         y1 = self.proj_drop(self.proj(y1))
         y2 = self.proj_drop(self.proj(y2))
+
+        # 注意力质量统计：query 对 change bank / bg bank 的平均 attention mass
+        m_change = (a1_s[..., :Kc].mean() + a2_s[..., :Kc].mean()) / 2.0 if Kc > 0 else None
+        m_bg = (a1_s[..., Kc:].mean() + a2_s[..., Kc:].mean()) / 2.0 if K > Kc else None
+        self._routing["attn_mass_change"] = float(m_change.item()) if m_change is not None else float("nan")
+        self._routing["attn_mass_bg"] = float(m_bg.item()) if m_bg is not None else float("nan")
         return y1, y2
 
 
@@ -298,13 +353,42 @@ if __name__ == "__main__":
     assert torch.allclose(s12, s21), "change score must be T1/T2 symmetric"
     print(f"  symmetric OK, shape {tuple(s12.shape)}")
 
-    print("== CASAA (router=change) ==")
+    print("== qkv sliced projection equivalence ==")
     attn = CASAAAttention(dim=C, num_heads=H, qkv_bias=True)
+    with torch.no_grad():
+        # 参考实现：整段 qkv 后切片（旧逻辑）
+        def ref_forward_pair(a, xa, xb):
+            Ca, Cb = a.compute_contexts(xa, xb)
+            Kref = Ca.shape[1]
+            qkv1 = a.qkv(xa).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2 = a.qkv(xb).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv1c = a.qkv(Ca).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2c = a.qkv(Cb).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            q1, k1, v1 = qkv1[0] * a.scale, qkv1[1], qkv1[2]
+            q2, k2, v2 = qkv2[0] * a.scale, qkv2[1], qkv2[2]
+            _, k1c, v1c = qkv1c
+            _, k2c, v2c = qkv2c
+            y1 = ((q1 @ k1c.transpose(-2, -1)).softmax(-1) @ v1c).transpose(1, 2).reshape(B, N, C)
+            y2 = ((q2 @ k2c.transpose(-2, -1)).softmax(-1) @ v2c).transpose(1, 2).reshape(B, N, C)
+            return a.proj_drop(a.proj(y1)), a.proj_drop(a.proj(y2))
+
+        for r in ("change", "content"):
+            aa = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router=r)
+            aa.load_state_dict(attn.state_dict())
+            y1, y2 = aa.forward_pair(x1, x2)
+            yr1, yr2 = ref_forward_pair(aa, x1, x2)
+            d = max((y1 - yr1).abs().max().item(), (y2 - yr2).abs().max().item())
+            assert d < 1e-6, f"router={r} sliced vs full qkv mismatch: {d}"
+            print(f"  router={r}: sliced == full-qkv, max_abs_err = {d:.2e}")
+
+    print("== CASAA (router=change) ==")
     y1, y2 = attn.forward_pair(x1, x2)
     assert y1.shape == y2.shape == (B, N, C), (y1.shape, y2.shape)
     r = attn._routing
     print(f"  N={r['N']} K={r['K']} Kc={r['Kc']} Kb={r['Kb']}  output {tuple(y1.shape)}")
     assert (r["N"], r["K"], r["Kc"], r["Kb"]) == (256, 64, 32, 32)
+    assert r["s"].shape == (B, N) and r["cluster_size"].shape == (B, 32)
+    assert r["attn_mass_change"] is not None and r["attn_mass_bg"] is not None
     assert torch.isfinite(y1).all() and torch.isfinite(y2).all()
     # 确定性：同一输入两次 routing 一致
     _ = attn.forward_pair(x1, x2)
@@ -332,6 +416,25 @@ if __name__ == "__main__":
     print(f"  N={rc['N']} K={rc['K']} Kc={rc['Kc']} Kb={rc['Kb']}")
     assert (rc["K"], rc["Kc"], rc["Kb"]) == (64, 0, 64)
     assert rc["Ic"] is None
+
+    print("== Oracle router (DIAGNOSTIC-ONLY) ==")
+    attn_o = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router='oracle')
+    hint = torch.rand(B, N)
+    with torch.no_grad():
+        _, _ = attn_o.forward_pair(x1, x2, score_hint=hint)
+        ro1 = attn_o._routing
+        _, _ = attn_o.forward_pair(x2, x1, score_hint=hint)
+        ro2 = attn_o._routing
+    assert (ro1["K"], ro1["Kc"], ro1["Kb"]) == (64, 32, 32)
+    assert torch.equal(ro1["s"], hint), "oracle score must equal the GT hint"
+    assert torch.equal(ro1["Ic"], torch.topk(hint, 32, dim=-1).indices)
+    assert torch.equal(ro1["Ic"], ro2["Ic"]) and torch.equal(ro1["assign"], ro2["assign"])
+    try:
+        attn_o.forward_pair(x1, x2)   # 无 hint 必须报错
+        raise AssertionError("oracle without hint should raise")
+    except AssertionError:
+        pass
+    print("  oracle score == hint, TopK correct, swap-invariant, requires hint")
 
     print("== single-phase forward (pretrained-path regression) ==")
     y = attn(x1)

@@ -104,6 +104,42 @@ binary change detection in remote sensing images.
   规则**未启动** CDD/WHU 补全。下一步候选（§17 预设路径）：keep_ratio 0.5 /
   只改最后 2 个 block / adaptive change quota / 更换更敏感的 change 信号。
 
+- **⚠️ Run1 重要勘误（2026-09-28 发现）**：官方协议（统一 lr=2e-4）会把 ViT 在
+  ~1600 steps 内训练成**精确零权重**（Adam 小梯度全步长 + 归零后梯度消失的吸收态）。
+  核验全部 Run1 checkpoint：LEVIR/CDD/WHU 的 ViT 150/150 键全零（optimizer 矩也全零），
+  SYSU 仅 best 检查点健康——**Run1 的 LEVIR 数字全部来自「死 ViT」模型，不检验
+  CASAA**；SYSU 的比较仅在 best（epoch 9）附近有效。Run2 起全部改为
+  `--freeze_vit 1`（冻结 ViT）重做机制实验。详见
+  [`docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`](docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md)。
+
+## 实验结果（CASAA Run2）
+
+> 冻结 ViT 的 Oracle 机制诊断（A3，DIAGNOSTIC-ONLY，GT patch occupancy 路由）。
+> 背景：Run1 后证实官方协议会把 ViT 训练成零权重（见上节勘误与
+> `docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`），Run2 起全部 `--freeze_vit 1`，
+> 唯一变量 = router。实现：`models/model/layers/casaa.py`（qkv 切片投影 + oracle
+> 路由 + 诊断统计）、`analyse/casaa_router_diagnostic.py`（Router Audit）；
+> 脚本：`train_scripts/CASAA/Run2/`。
+
+| 变体 | LEVIR F1 / IoU | SYSU F1 / IoU | 说明 |
+|---|---:|---:|---|
+| baseline Run1（训练 ViT） | 91.95 / 85.10 | 82.48 / 70.19 | LEVIR 死 ViT，SYSU best 有效 |
+| A1 content-only（冻结 ViT） | 91.84 / 84.91 | 82.04 / 69.55 | Run2 有效对照 |
+| **A3 Oracle（冻结 ViT，诊断）** | 91.88 / 84.98 | **83.52 / 71.70** | GT occupancy 路由，不可部署 |
+
+- **判据（决策文档 §4.5）：通过。** Oracle 相对 A1：SYSU **F1 +1.48**（门槛 +0.30）、
+  IoU +2.15 同向；LEVIR +0.04（未降超 0.15）。冻结 ViT + Oracle（83.52）甚至超过
+  完全训练的 baseline（82.48）——「知道变化在哪」比训练 ViT 本身更值钱。
+- **收益分布**：只在 SYSU（密集变化，中位变化 patch 50）出现；LEVIR（54% 图像零变化）
+  上 Oracle 几乎无增益——机制在「变化真正存在且多」时有效。
+- **Router Audit（冻结健康 ViT）**：cosine 分数质量明显不足——Spearman 0.10-0.29、
+  Top32 precision 0.13-0.39；SYSU 真实变化 patch 数 P10=11/P50=50/P90=182，
+  固定 Kc=32 严重错配。→ 结论：**机制有价值，瓶颈在 deployable change signal**。
+- **下一步（预注册分支 A）**：CASAA-v2 = Detail-guided parameter-free score
+  （已有 1/8 detail 特征 32×32→AvgPool→16×16 的 `1−cos(d̄1,d̄2)` 与 ViT cosine 分数
+  rank 归一化 1:1 融合，零新增参数/零新 loss），仍 K=64/Kc=32、冻结 ViT，
+  `train_scripts/CASAA/Run3/`，LEVIR+SYSU。
+
 ## 参考文献
 
 - Baseline：`docs/参考文献/baseline/ChangeViT(PR2026).pdf`
@@ -188,6 +224,7 @@ python .claude/_ssh.py '<cmd>'          # 通用 SSH 执行
 python analyse/extract_metrics_to_excel.py   # outputs → docs/experiment_metrics.xlsx
 python analyse/models_to_txt.py --tag baseline --run Run1  # models 快照 + 指标 → docs/temporary/
 python analyse/models_to_txt.py --tag CASAA --run Run1
+python analyse/models_to_txt.py --tag CASAA --run Run2
 ```
 
 ## 注意事项

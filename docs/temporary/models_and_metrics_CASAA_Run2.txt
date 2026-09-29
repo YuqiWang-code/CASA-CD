@@ -1,0 +1,4009 @@
+# CASA-CD models snapshot + metrics
+# tag=CASAA  run=Run2
+
+================================================================================
+## MODELS CODE (22 files)
+================================================================================
+
+================================================================================
+# FILE: models/eval.py
+================================================================================
+"""Standalone evaluation of a trained ChangeViT checkpoint.
+
+Loads `best_F1=x.pth` (or an explicit --resume path) from --ckpt_dir, runs the test
+set, and prints a `=== TEST RESULTS ===` block in the same format as train.py.
+"""
+import os
+import sys
+import argparse
+
+import torch
+import torch.backends.cudnn as cudnn
+
+_MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _MODELS_ROOT not in sys.path:
+    sys.path.insert(0, _MODELS_ROOT)
+
+from model.trainer import Trainer
+from model.metric_tool import ConfuseMatrixMeter
+from model.utils import BCEDiceLoss
+
+import dataset.dataset as myDataLoader
+import dataset.Transforms as myTransforms
+
+
+@torch.no_grad()
+def val(args, val_loader, model):
+    model.eval()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+    epoch_loss = []
+
+    for iter, batched_inputs in enumerate(val_loader):
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        if args.onGPU:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        output = model(pre_img.float(), post_img.float(), target.float())
+        loss = BCEDiceLoss(output, target.float())
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        epoch_loss.append(loss.data.item())
+        salEvalVal.update_cm(pr=pred.cpu().numpy(), gt=target.cpu().numpy())
+
+    average_epoch_loss_val = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_val, scores
+
+
+def measure_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward)."""
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
+def measure_flops(model, size=256):
+    from fvcore.nn import flop_count
+
+    model.eval()
+    pre = torch.randn(1, 3, size, size).cuda()
+    post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
+    with torch.no_grad():
+        counts, unsupported = flop_count(model, (pre, post, label))
+    return sum(counts.values()), len(unsupported)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="ChangeViT standalone evaluation (baseline / CASAA / SAA)")
+    parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--dataset_root', type=str, required=True)
+    parser.add_argument('--test_list', type=str, required=True)
+    parser.add_argument('--pretrained_weight_path', type=str, required=True)
+    parser.add_argument('--ckpt_dir', type=str, required=True)
+    parser.add_argument('--inWidth', type=int, default=256)
+    parser.add_argument('--inHeight', type=int, default=256)
+    parser.add_argument('--model_type', type=str, default='tiny')
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--resume', default=None, help='explicit checkpoint; default: ckpt_dir/best_F1=*.pth')
+    parser.add_argument('--resnet_pretrained', type=int, default=0,
+                        help='load ImageNet ResNet18 weights (0: not needed for eval)')
+    parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--gpu_id', default=0, type=int)
+
+    # 必须与训练一致（CASAA 零新增参数，state dict 与 baseline 兼容，
+    # 若按 baseline 架构实例化会静默回退成普通 attention —— 这是 P0 正确性问题）
+    parser.add_argument('--mode', type=str, default='baseline', choices=['baseline', 'saa', 'casaa'])
+    parser.add_argument('--casaa_layers', type=str, default='8,9,10,11')
+    parser.add_argument('--casaa_keep_ratio', type=float, default=0.25)
+    parser.add_argument('--casaa_change_share', type=float, default=0.50)
+    parser.add_argument('--casaa_router', type=str, default='change',
+                        choices=['change', 'content', 'oracle'])
+
+    parser.add_argument('--mean', type=float, nargs=6,
+                        default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
+    parser.add_argument('--std', type=float, nargs=6,
+                        default=[0.225, 0.224, 0.229, 0.225, 0.224, 0.229])
+    args = parser.parse_args()
+
+    args.casaa_layers = [int(s) for s in args.casaa_layers.split(',') if s.strip() != ''] \
+        if args.casaa_layers else []
+    if args.mode == 'saa':
+        args.casaa_router = 'content'
+
+    if args.onGPU:
+        torch.cuda.set_device(args.gpu_id)
+    torch.backends.cudnn.benchmark = True
+
+    # pick best checkpoint if not explicitly given
+    if args.resume is None:
+        import glob as _glob
+        cands = sorted(_glob.glob(os.path.join(args.ckpt_dir, "best_F1=*.pth")))
+        if not cands:
+            raise FileNotFoundError(f"no best_F1=*.pth found in {args.ckpt_dir}")
+        args.resume = cands[-1]
+
+    model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
+                    resnet_pretrained=bool(args.resnet_pretrained),
+                    mode=args.mode, casaa_layers=args.casaa_layers,
+                    casaa_keep_ratio=args.casaa_keep_ratio,
+                    casaa_change_share=args.casaa_change_share,
+                    casaa_router=args.casaa_router).float()
+    if args.onGPU:
+        model = model.cuda()
+
+    state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
+    model.load_state_dict(state_dict)
+    print(f"[RESUME] loaded {args.resume}")
+
+    val_transform = myTransforms.Compose([
+        myTransforms.Normalize(mean=args.mean, std=args.std),
+        myTransforms.Scale(args.inWidth, args.inHeight),
+        myTransforms.ToTensor(),
+    ])
+    test_data = myDataLoader.Dataset(file_root=args.dataset_root, list_path=args.test_list, transform=val_transform)
+    test_loader = torch.utils.data.DataLoader(
+        test_data, shuffle=False, batch_size=args.batch_size,
+        num_workers=args.num_workers, pin_memory=True)
+
+    loss_test, score_test = val(args, test_loader, model)
+
+    total_params = measure_params(model)
+    try:
+        flops, n_unsup = measure_flops(model, size=args.inWidth)
+        flops_line = f"{flops:.4f} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})"
+    except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞 eval
+        flops_line = f"measurement failed ({type(e).__name__}: {e})"
+
+    print("=== TEST RESULTS ===")
+    print(f"[MODEL] ChangeViT-{args.model_type.upper()} {args.mode}")
+    print(f"[MODE] {args.mode}")
+    if args.mode != "baseline":
+        print(f"[CASAA-LAYERS] {','.join(str(i) for i in args.casaa_layers)}")
+        print(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
+        print(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
+        print(f"[CASAA-ROUTER] {args.casaa_router}")
+        if args.casaa_router == "oracle":
+            print("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+    print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
+    print(f"[EFFECTIVE-PARAMS] {measure_effective_params(model) / 1e6:.3f} M")
+    print(f"[FLOPS] {flops_line}")
+    print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+          f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+    print("=== END TEST RESULTS ===")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: models/main.py
+================================================================================
+import sys
+
+from model.trainer import Trainer
+
+sys.path.insert(0, '.')
+
+import torch
+import torch.nn.functional as F
+import torch.backends.cudnn as cudnn
+from torch.nn.parallel import gather
+import torch.optim.lr_scheduler
+
+import dataset.dataset as myDataLoader
+import dataset.Transforms as myTransforms
+from model.metric_tool import ConfuseMatrixMeter
+from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
+
+import os, time
+import numpy as np
+from argparse import ArgumentParser
+
+
+
+@torch.no_grad()
+def val(args, val_loader, model):
+    model.eval()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+
+    epoch_loss = []
+
+    total_batches = len(val_loader)
+    print(len(val_loader))
+    for iter, batched_inputs in enumerate(val_loader):
+
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        start_time = time.time()
+
+        if args.onGPU == True:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        pre_img_var = torch.autograd.Variable(pre_img).float()
+        post_img_var = torch.autograd.Variable(post_img).float()
+        target_var = torch.autograd.Variable(target).float()
+
+        # run the mdoel
+        output = model(pre_img_var, post_img_var)
+        loss = BCEDiceLoss(output, target_var)
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        # torch.cuda.synchronize()
+        time_taken = time.time() - start_time
+
+        epoch_loss.append(loss.data.item())
+
+        # compute the confusion matrix
+        if args.onGPU and torch.cuda.device_count() > 1:
+            output = gather(pred, 0, dim=0)
+        # salEvalVal.addBatch(pred, target_var)
+        f1 = salEvalVal.update_cm(pr=pred.cpu().numpy(), gt=target_var.cpu().numpy())
+        if iter % 5 == 0:
+            print('\r[%d/%d] F1: %3f loss: %.3f time: %.3f' % (iter, total_batches, f1, loss.data.item(), time_taken),
+                  end='')
+
+    average_epoch_loss_val = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_val, scores
+
+
+def train(args, train_loader, model, optimizer, epoch, max_batches, cur_iter=0, lr_factor=1.):
+    # switch to train mode
+    model.train()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+    epoch_loss = []
+
+    for iter, batched_inputs in enumerate(train_loader):
+
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        start_time = time.time()
+
+        # adjust the learning rate
+        lr = adjust_learning_rate(args, optimizer, epoch, iter + cur_iter, max_batches, lr_factor=lr_factor)
+
+        if args.onGPU == True:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        pre_img_var = torch.autograd.Variable(pre_img).float()
+        post_img_var = torch.autograd.Variable(post_img).float()
+        target_var = torch.autograd.Variable(target).float()
+
+        # run the model
+        output = model(pre_img_var, post_img_var)
+        loss = BCEDiceLoss(output, target_var)
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss.append(loss.data.item())
+        time_taken = time.time() - start_time
+        res_time = (max_batches * args.max_epochs - iter - cur_iter) * time_taken / 3600
+
+        if args.onGPU and torch.cuda.device_count() > 1:
+            output = gather(pred, 0, dim=0)
+
+        # Computing F-measure and IoU on GPU
+        with torch.no_grad():
+            f1 = salEvalVal.update_cm(pr=pred.cpu().numpy(), gt=target_var.cpu().numpy())
+
+        if iter % 5 == 0:
+            print('\riteration: [%d/%d] f1: %.3f lr: %.7f loss: %.3f time:%.3f h' % (
+                iter + cur_iter, max_batches * args.max_epochs, f1, lr, loss.data.item(),
+                res_time),
+                  end='')
+
+    average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_train, scores, lr
+
+
+def trainValidateSegmentation(args):
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu_id)
+    
+    torch.backends.cudnn.benchmark = True
+
+    init_seed(args.seed)
+
+    args.savedir = args.savedir + '_' + args.file_root + '_iter_' + str(args.max_steps) + '_lr_' + str(args.lr) + '/'
+
+    if args.file_root == 'LEVIR':
+         args.file_root = './levir_cd_256'
+    elif args.file_root == 'WHU':
+        args.file_root = './whu_cd_256'
+    elif args.file_root == 'CLCD':
+        args.file_root = './clcd_256'
+    elif args.file_root == 'OSCD':
+        args.file_root = 'oscd_256'
+    else:
+        raise TypeError('%s has not defined' % args.file_root)
+
+    if not os.path.exists(args.savedir):
+        os.makedirs(args.savedir)
+
+
+    model = Trainer(args.model_type).float()
+    if args.onGPU:
+        model = model.cuda()
+
+    # mean = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    # std = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+    mean = [0.406, 0.456, 0.485, 0.406, 0.456, 0.485]
+    std = [0.225, 0.224, 0.229, 0.225, 0.224, 0.229]
+
+    # compose the data with transforms
+    trainDataset_main = myTransforms.Compose([
+        myTransforms.Normalize(mean=mean, std=std),
+        myTransforms.Scale(args.inWidth, args.inHeight),
+        myTransforms.RandomCropResize(int(7. / 224. * args.inWidth)),
+        myTransforms.RandomFlip(),
+        myTransforms.RandomExchange(),
+        myTransforms.ToTensor()
+    ])
+
+    valDataset = myTransforms.Compose([
+        myTransforms.Normalize(mean=mean, std=std),
+        myTransforms.Scale(args.inWidth, args.inHeight),
+        myTransforms.ToTensor()
+    ])
+
+    train_data = myDataLoader.Dataset(file_root=args.file_root, mode="train", transform=trainDataset_main)
+
+    trainLoader = torch.utils.data.DataLoader(
+        train_data,
+        batch_size=args.batch_size, shuffle=True,
+        num_workers=args.num_workers, pin_memory=True, drop_last=False
+    )
+
+    test_data = myDataLoader.Dataset(file_root=args.file_root, mode="test", transform=valDataset)
+    testLoader = torch.utils.data.DataLoader(
+        test_data, shuffle=False,
+        batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True)
+
+
+    max_batches = len(trainLoader)
+    print('For each epoch, we have {} batches'.format(max_batches))
+
+    if args.onGPU:
+        cudnn.benchmark = True
+
+    args.max_epochs = int(np.ceil(args.max_steps / max_batches))
+    start_epoch = 0
+    cur_iter = 0
+    max_F1_val = 0
+
+    if args.resume is not None:
+        args.resume = args.savedir + 'checkpoint.pth.tar'
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            start_epoch = checkpoint['epoch']
+            cur_iter = start_epoch * len(trainLoader)
+            # args.lr = checkpoint['lr']
+            model.load_state_dict(checkpoint['state_dict'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
+    logFileLoc = args.savedir + args.logFile
+    if os.path.isfile(logFileLoc):
+        logger = open(logFileLoc, 'a')
+    else:
+        logger = open(logFileLoc, 'w')
+        logger.write(
+            "\n%s\t%s\t%s\t%s\t%s\t%s\t%s" % ('Epoch', 'Kappa (val)', 'IoU (val)', 'F1 (val)', 'R (val)', 'P (val)', 'OA (val)'))
+    logger.flush()
+
+    optimizer = torch.optim.Adam(model.parameters(), args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+
+    for epoch in range(start_epoch, args.max_epochs):
+        lossTr, score_tr, lr = \
+            train(args, trainLoader, model, optimizer, epoch, max_batches, cur_iter)
+        cur_iter += len(trainLoader)
+
+        torch.cuda.empty_cache()
+
+        # evaluate on validation set
+        if epoch == 0:
+            continue
+
+        lossVal, score_val = val(args, testLoader, model)
+        torch.cuda.empty_cache()
+        logger.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f" % (epoch, score_val['Kappa'], score_val['IoU'],
+                                                                       score_val['F1'], score_val['recall'],
+                                                                       score_val['precision'], score_val['OA']))
+        logger.flush()
+
+        torch.save({
+            'epoch': epoch + 1,
+            'arch': str(model),
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'lossTr': lossTr,
+            'lossVal': lossVal,
+            'F_Tr': score_tr['F1'],
+            'F_val': score_val['F1'],
+            'lr': lr
+        }, args.savedir + 'checkpoint.pth.tar')
+
+        # save the model also
+        model_file_name = args.savedir + 'best_model.pth'
+        if epoch % 1 == 0 and max_F1_val <= score_val['F1']:
+            max_F1_val = score_val['F1']
+            torch.save(model.state_dict(), model_file_name)
+
+        print("Epoch " + str(epoch) + ': Details')
+        print("\nEpoch No. %d:\tTrain Loss = %.4f\tVal Loss = %.4f\t F1(tr) = %.4f\t F1(val) = %.4f" \
+              % (epoch, lossTr, lossVal, score_tr['F1'], score_val['F1']))
+        torch.cuda.empty_cache()
+
+    state_dict = torch.load(model_file_name)
+    model.load_state_dict(state_dict)
+
+    loss_test, score_test = val(args, testLoader, model)
+    print("\nTest :\t Kappa (te) = %.4f\t IoU (te) = %.4f\t F1 (te) = %.4f\t R (te) = %.4f\t P (te) = %.4f" \
+          % (score_test['Kappa'], score_test['IoU'], score_test['F1'], score_test['recall'], score_test['precision']))
+    logger.write("\n%s\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f" % ('Test', score_test['Kappa'], score_test['IoU'],
+                                                                   score_test['F1'], score_test['recall'],
+                                                                   score_test['precision'], score_test['OA']))
+    logger.flush()
+    logger.close()
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser()
+    parser.add_argument('--file_root', default="LEVIR", help='Data directory | LEVIR | WHU | CLCD | OSCD ')
+    parser.add_argument('--inWidth', type=int, default=256, help='Width of RGB image')
+    parser.add_argument('--inHeight', type=int, default=256, help='Height of RGB image')
+    parser.add_argument('--max_steps', type=int, default=80000, help='Max. number of iterations')
+    parser.add_argument('--num_workers', type=int, default=4, help='No. of parallel threads')
+    parser.add_argument('--model_type', type=str, default='small', help='select vit model type | tiny | small')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
+    parser.add_argument('--step_loss', type=int, default=100, help='Decrease learning rate after how many epochs')
+    parser.add_argument('--lr', type=float, default=2e-4, help='Initial learning rate')
+    parser.add_argument('--lr_mode', default='poly', help='Learning rate policy, step or poly')
+    parser.add_argument('--seed', default=16, help='initialization seed number')
+    parser.add_argument('--savedir', default='./results', help='Directory to save the results')
+    parser.add_argument('--resume', default=None, help='Use this checkpoint to continue training | '
+                                                       './results_ep100/checkpoint.pth.tar')
+    parser.add_argument('--logFile', default='trainValLog.txt',
+                        help='File that stores the training and validation logs')
+    parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'),
+                        help='Run on CPU or GPU. If TRUE, then GPU.')
+    parser.add_argument('--gpu_id', default=0, type=int, help='GPU id number')
+
+    args = parser.parse_args()
+    print('Called with args:')
+    print(args)
+
+    trainValidateSegmentation(args)
+
+================================================================================
+# FILE: models/smoke_test.py
+================================================================================
+"""Smoke test for CASA-CD (baseline / CASAA / SAA / ORACLE modes, no real data needed).
+
+Builds ChangeViT-Tiny, loads the pretrained DeiT-Tiny weights, and runs the mechanism
+test suite (Run1 设计文档 §8.8 + Run2 决策文档 §13):
+
+  T0 qkv sliced equivalence: CASAAAttention 的切片投影（full X 只算 Q、压缩上下文只算
+     K/V）必须与整段 fused qkv 后切片数学等价（<1e-6）。
+  T1 full-network smoke:   3-step forward+backward on random 256x256 bi-temporal input,
+                           params + FLOPs (per mode).
+  T2 baseline equivalence: with --mode baseline, new vit.forward_pair(x1, x2) must be
+                           identical (eval, <1e-6) to vit(x1), vit(x2).
+  T3 pretrained keys:      CASAA must not add any missing/unexpected key vs baseline
+                           (qkv/proj in-place inheritance of DeiT-Tiny weights).
+  T4 CASAA mechanism:      output shape, token budget (N=256, K=64, Kc=32, Kb=32),
+                           T1/T2 swap symmetry of routing, gradients finite & nonzero.
+  T5 oracle router:        GT patch occupancy -> 256 scores；TopK 正确；不进入梯度；
+                           T1/T2 swap 不改变 routing（DIAGNOSTIC-ONLY）。
+
+Usage:
+    python smoke_test.py --model_type tiny --pretrained_weight_path <deit_tiny.pth> \
+        [--gpu_id 0] [--mode all|baseline|casaa|saa|oracle]
+"""
+import os
+import sys
+import argparse
+from functools import partial
+
+import torch
+
+_MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _MODELS_ROOT not in sys.path:
+    sys.path.insert(0, _MODELS_ROOT)
+
+from model.trainer import Trainer
+from model.encoder import DinoVisionTransformer
+from model.layers import MemEffAttention, CASAAAttention
+from model.layers.block import NestedTensorBlock as Block
+from model.utils import BCEDiceLoss
+
+CASAA_LAYERS = [8, 9, 10, 11]
+CASAA_KEEP = 0.25
+CASAA_SHARE = 0.5
+
+
+def measure_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward)."""
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
+def measure_flops(model, size=256):
+    from fvcore.nn import flop_count
+
+    model.eval()
+    pre = torch.randn(1, 3, size, size).cuda()
+    post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
+    with torch.no_grad():
+        counts, unsupported = flop_count(model, (pre, post, label))
+    return sum(counts.values()), len(unsupported)
+
+
+def build_trainer(pretrained_path, mode, device, router=None):
+    if mode == "oracle":
+        trainer_mode, router = "casaa", "oracle"
+    else:
+        trainer_mode = mode
+        if router is None:
+            router = "content" if mode == "saa" else "change"
+    return Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                   mode=trainer_mode, casaa_layers=CASAA_LAYERS, casaa_keep_ratio=CASAA_KEEP,
+                   casaa_change_share=CASAA_SHARE, casaa_router=router).float().to(device)
+
+
+def build_vit(casaa_layers):
+    return DinoVisionTransformer(
+        img_size=256, patch_size=16, embed_dim=192, depth=12, num_heads=6,
+        mlp_ratio=4, block_fn=partial(Block, attn_class=MemEffAttention),
+        num_register_tokens=0, casaa_layers=casaa_layers,
+        casaa_keep_ratio=CASAA_KEEP, casaa_change_share=CASAA_SHARE, casaa_router="change")
+
+
+def load_vit_keys(vit, pretrained_path):
+    """Same load procedure as Encoder.__init__; returns (missing, unexpected) sets."""
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    for k in ["pos_embed", "patch_embed.proj.weight"]:
+        sd.pop(k, None)
+    msg = vit.load_state_dict(sd, strict=False)
+    return set(msg.missing_keys), set(msg.unexpected_keys)
+
+
+def t0_qkv_sliced_equivalence(device):
+    """Smoke-0（Run2 §13）：切片 qkv 投影必须与整段 qkv 后切片数学等价。"""
+    print("[T0] qkv sliced projection equivalence (full X -> Q only, context -> K/V only)")
+    torch.manual_seed(0)
+    B, N, C, H = 2, 256, 192, 6
+    x1 = torch.randn(B, N, C, device=device)
+    x2 = torch.randn(B, N, C, device=device)
+
+    def ref_forward_pair(attn, xa, xb):
+        """参考实现：整段 fused qkv 后切片（Run1 旧逻辑）。"""
+        with torch.no_grad():
+            Ca, Cb = attn.compute_contexts(xa, xb)
+            Kref = Ca.shape[1]
+            qkv1 = attn.qkv(xa).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2 = attn.qkv(xb).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv1c = attn.qkv(Ca).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2c = attn.qkv(Cb).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            q1, k1, v1 = qkv1[0] * attn.scale, qkv1[1], qkv1[2]
+            q2, k2, v2 = qkv2[0] * attn.scale, qkv2[1], qkv2[2]
+            _, k1c, v1c = qkv1c
+            _, k2c, v2c = qkv2c
+            y1 = ((q1 @ k1c.transpose(-2, -1)).softmax(-1) @ v1c).transpose(1, 2).reshape(B, N, C)
+            y2 = ((q2 @ k2c.transpose(-2, -1)).softmax(-1) @ v2c).transpose(1, 2).reshape(B, N, C)
+        return attn.proj_drop(attn.proj(y1)), attn.proj_drop(attn.proj(y2))
+
+    for router in ("change", "content"):
+        attn = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router=router).to(device).eval()
+        with torch.no_grad():
+            y1, y2 = attn.forward_pair(x1, x2)
+            yr1, yr2 = ref_forward_pair(attn, x1, x2)
+        d = max((y1 - yr1).abs().max().item(), (y2 - yr2).abs().max().item())
+        assert d < 1e-6, f"router={router} sliced vs full-qkv mismatch: {d}"
+        print(f"  router={router}: sliced == full-qkv, max_abs_err = {d:.2e}")
+    del attn
+
+
+def t1_baseline_equivalence(pretrained_path, device):
+    print("[T1] baseline equivalence: forward_pair(x1,x2) == (vit(x1), vit(x2))")
+    model = build_trainer(pretrained_path, "baseline", device).eval()
+    vit = model.encoder.vit
+    assert not vit.casaa_layers
+    x1 = torch.randn(2, 3, 256, 256, device=device)
+    x2 = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        p1, p2 = vit.forward_pair(x1, x2)
+        s1, s2 = vit(x1), vit(x2)
+    d = max((p1 - s1).abs().max().item(), (p2 - s2).abs().max().item())
+    assert d < 1e-6, f"baseline forward_pair mismatch: {d}"
+    print(f"  OK, max abs diff = {d:.2e}")
+    del model
+
+
+def t2_pretrained_keys(pretrained_path):
+    print("[T2] pretrained keys parity: CASAA must not add attention-related keys")
+    base_vit = build_vit(casaa_layers=None)
+    m_base, u_base = load_vit_keys(base_vit, pretrained_path)
+    casaa_vit = build_vit(casaa_layers=CASAA_LAYERS)
+    m_casaa, u_casaa = load_vit_keys(casaa_vit, pretrained_path)
+    print(f"  baseline missing ({len(m_base)}): {sorted(m_base)}")
+    print(f"  casaa    missing ({len(m_casaa)}): {sorted(m_casaa)}")
+    assert m_casaa == m_base, f"missing keys differ:\n  only-casaa: {m_casaa - m_base}\n  only-base: {m_base - m_casaa}"
+    assert u_casaa == u_base, f"unexpected keys differ: casaa={u_casaa - u_base} base={u_base - u_casaa}"
+    # 关键验收：qkv/proj 不能出现在 missing 里（预训练注意力参数必须原位继承）
+    for i in CASAA_LAYERS:
+        for key in (f"blocks.{i}.attn.qkv.weight", f"blocks.{i}.attn.qkv.bias",
+                    f"blocks.{i}.attn.proj.weight", f"blocks.{i}.attn.proj.bias"):
+            assert key not in m_casaa, f"pretrained attn key missing: {key}"
+    print("  OK, qkv/proj weights load in place; no new keys")
+
+
+def t3_mechanism(pretrained_path, mode, device):
+    print(f"[T3] CASAA mechanism (mode={mode}): shape / budget / swap symmetry / gradients")
+    model = build_trainer(pretrained_path, mode, device).eval()
+    vit = model.encoder.vit
+    x1 = torch.randn(2, 3, 256, 256, device=device)
+    x2 = torch.randn(2, 3, 256, 256, device=device)
+
+    # shape: final change map Bx1x256x256
+    with torch.no_grad():
+        out = model(x1, x2)
+    assert out.shape == (2, 1, 256, 256), f"bad output shape {out.shape}"
+
+    # token budget + routing swap symmetry
+    with torch.no_grad():
+        _ = vit.forward_pair(x1, x2)
+        r_ab = [vit.blocks[i].attn._routing for i in CASAA_LAYERS]
+        _ = vit.forward_pair(x2, x1)
+        r_ba = [vit.blocks[i].attn._routing for i in CASAA_LAYERS]
+    for i, (ra, rb) in zip(CASAA_LAYERS, zip(r_ab, r_ba)):
+        assert ra is not None and rb is not None
+        assert (ra["N"], ra["K"]) == (256, 64), f"block {i} budget {ra}"
+        print(f"  block {i}: N={ra['N']} K={ra['K']} Kc={ra['Kc']} Kb={ra['Kb']}")
+        if mode == "casaa":
+            assert (ra["Kc"], ra["Kb"]) == (32, 32)
+            assert torch.equal(ra["Ic"], rb["Ic"]), f"block {i} change indices not swap-symmetric"
+        else:
+            assert (ra["Kc"], ra["Kb"]) == (0, 64) and ra["Ic"] is None
+        assert torch.equal(ra["assign"], rb["assign"]), f"block {i} bg assignment not swap-symmetric"
+
+    # ViT-level swap symmetry: routing 一致 + 两个时相输出对应交换。
+    # （不做整网 swap 等价断言：decoder 的 difference modeling 用 1x1 conv 混合
+    #   [x,y,|x-y|] 通道，对 T1/T2 交换并非严格置换对称，baseline 同样如此。）
+    with torch.no_grad():
+        p1, p2 = vit.forward_pair(x1, x2)
+        q1, q2 = vit.forward_pair(x2, x1)
+    d_swap = max((q1 - p2).abs().max().item(), (q2 - p1).abs().max().item())
+    assert d_swap < 1e-6, f"vit swap symmetry broken: {d_swap}"
+    print(f"  vit swap symmetry OK, max abs diff = {d_swap:.2e}")
+    del model
+
+    # gradients: qkv/proj/upstream finite & nonzero
+    model = build_trainer(pretrained_path, mode, device).train()
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    out = model(x1, x2)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    vit = model.encoder.vit
+    for i in CASAA_LAYERS:
+        attn = vit.blocks[i].attn
+        for name, g in (("qkv.weight", attn.qkv.weight.grad), ("proj.weight", attn.proj.weight.grad)):
+            assert g is not None, f"block {i} {name} grad is None"
+            assert torch.isfinite(g).all(), f"block {i} {name} grad has NaN/Inf"
+            assert g.norm() > 0, f"block {i} {name} grad is zero"
+    g_pe = vit.patch_embed.proj.weight.grad
+    assert g_pe is not None and torch.isfinite(g_pe).all() and g_pe.norm() > 0
+    print(f"  gradients OK (qkv/proj per CASAA block + upstream patch_embed)")
+    del model
+
+
+def t5_oracle_router(pretrained_path, device):
+    """Smoke-2（Run2 §13）：oracle router 的 GT patch occupancy 机制测试。"""
+    print("[T5] oracle router: GT occupancy -> TopK, no grad, swap-invariant")
+    model = build_trainer(pretrained_path, "oracle", device).eval()
+    vit = model.encoder.vit
+    x1 = torch.randn(2, 3, 256, 256, device=device)
+    x2 = torch.randn(2, 3, 256, 256, device=device)
+    # 假 label：只让特定 patch 区域有变化（patch 16 -> 16x16 grid）
+    label = torch.zeros(2, 1, 256, 256, device=device)
+    label[:, :, 0:32, 0:32] = 1.0          # 4 个 patch 有变化
+    label[:, :, 48:80, 160:192] = 1.0      # 4 个 patch 有变化
+    g_ref = torch.nn.functional.avg_pool2d(label, 16).view(2, -1)   # (B, 256)
+
+    with torch.no_grad():
+        out = model(x1, x2, label)
+    assert out.shape == (2, 1, 256, 256)
+
+    r = vit.blocks[8].attn._routing
+    assert (r["N"], r["K"], r["Kc"], r["Kb"]) == (256, 64, 32, 32)
+    assert torch.equal(r["s"], g_ref), "oracle score must equal GT patch occupancy"
+    assert torch.equal(r["Ic"], torch.topk(g_ref, 32, dim=-1).indices), "TopK indices wrong"
+
+    # T1/T2 交换：routing 只依赖 GT hint，不变
+    with torch.no_grad():
+        _ = vit.forward_pair(x2, x1, score_hint=g_ref)
+        r_sw = vit.blocks[8].attn._routing
+    assert torch.equal(r["Ic"], r_sw["Ic"]) and torch.equal(r["assign"], r_sw["assign"])
+
+    # 不进入梯度：score 路径 no-grad（label 无 requires_grad，输出对 label 无梯度）
+    model.train()
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    out = model(x1, x2, label)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    attn = vit.blocks[8].attn
+    assert attn.qkv.weight.grad is not None and torch.isfinite(attn.qkv.weight.grad).all()
+    assert attn.qkv.weight.grad.norm() > 0
+    print("  occupancy -> score OK; TopK OK; swap-invariant; grads finite & nonzero")
+    del model
+
+
+def full_smoke(pretrained_path, mode, device):
+    print(f"[T1] full-network smoke (mode={mode})")
+    model = build_trainer(pretrained_path, mode, device)
+    n_params = measure_params(model)
+    n_eff = measure_effective_params(model)
+    print(f"  total params = {n_params / 1e6:.3f} M, effective = {n_eff / 1e6:.3f} M")
+
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+
+    optimizer = torch.optim.Adam(model.parameters(), 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post, target) if mode == "oracle" else model(pre, post)
+        assert out.shape == (2, 1, 256, 256), f"bad output shape {out.shape}"
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item())), "loss is NaN/Inf"
+        print(f"  step {step + 1}/3 ok, loss = {loss.item():.4f}")
+
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_type', type=str, default='tiny')
+    parser.add_argument('--pretrained_weight_path', type=str, required=True)
+    parser.add_argument('--gpu_id', type=int, default=0)
+    parser.add_argument('--mode', type=str, default='all',
+                        choices=['all', 'baseline', 'casaa', 'saa', 'oracle'],
+                        help='all | baseline | casaa | saa | oracle')
+    args = parser.parse_args()
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(args.gpu_id)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[SMOKE] mode={args.mode} device={device}")
+
+    t0_qkv_sliced_equivalence(device)
+    if args.mode in ("baseline", "all"):
+        t1_baseline_equivalence(args.pretrained_weight_path, device)
+        t2_pretrained_keys(args.pretrained_weight_path)
+        full_smoke(args.pretrained_weight_path, "baseline", device)
+    if args.mode in ("casaa", "all"):
+        t3_mechanism(args.pretrained_weight_path, "casaa", device)
+        full_smoke(args.pretrained_weight_path, "casaa", device)
+    if args.mode in ("saa", "all"):
+        t3_mechanism(args.pretrained_weight_path, "saa", device)
+        full_smoke(args.pretrained_weight_path, "saa", device)
+    if args.mode in ("oracle", "all"):
+        t5_oracle_router(args.pretrained_weight_path, device)
+        full_smoke(args.pretrained_weight_path, "oracle", device)
+
+    print("[SMOKE] ALL OK")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: models/train.py
+================================================================================
+"""Train ChangeViT (Tiny/Small) baseline for binary remote-sensing change detection.
+
+Adapted from the official ChangeViT main.py
+(https://github.com/zhuduowang/ChangeViT). Training protocol is kept faithful to the
+official repo:
+
+- Loss: BCE + Dice (BCEDiceLoss)
+- Optimizer: Adam(lr=2e-4, betas=(0.9, 0.99), eps=1e-8, weight_decay=1e-4)
+- Schedule: poly LR (power 0.9) over `max_steps`, with a 200-iteration linear warmup
+- Budget: `max_steps` iterations (official 80000), batch 16, input 256x256
+- Protocol: test set is used as the validation set; the best checkpoint is selected by
+  test F1 (same as the official repo), and the final test is re-run on that checkpoint.
+
+Adaptations for this repo (CASA-CD):
+- A/B/label + list/*.txt dataset format (lab contract, label threshold gray>=128)
+- Pretrained DeiT-Tiny / DINOv2 path passed via `--pretrained_weight_path`
+- Logging: full config header + params/FLOPs at start; one line per epoch
+  (loss + Recall/Precision/OA/F1/IoU/Kappa); final `=== TEST RESULTS ===` block
+- Checkpoints: `last.pth` (resume, includes optimizer) + `best_F1=x.pth` (state dict)
+"""
+import os
+import sys
+import time
+import argparse
+import random
+
+import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
+
+# Make the repo importable (train.py lives at models/ root).
+_MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _MODELS_ROOT not in sys.path:
+    sys.path.insert(0, _MODELS_ROOT)
+
+from model.trainer import Trainer
+from model.metric_tool import ConfuseMatrixMeter
+from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
+
+import dataset.dataset as myDataLoader
+import dataset.Transforms as myTransforms
+
+
+# -----------------------------------------------------------------------------
+# Params / FLOPs measurement
+# -----------------------------------------------------------------------------
+def measure_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def measure_trainable_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def measure_effective_params(model):
+    """Params excluding unused ResNet head (layer4 + fc + avgpool never run in forward).
+
+    The paper's 11.68M for ChangeViT-T counts effective params only; the released
+    code keeps the full ResNet18 module (~8.9M dead params).
+    """
+    total = measure_params(model)
+    dead = 0
+    for name, mod in model.named_modules():
+        if name in ("encoder.resnet.layer4", "encoder.resnet.fc", "encoder.resnet.avgpool"):
+            dead += sum(p.numel() for p in mod.parameters())
+    return total - dead
+
+
+def measure_flops(model, size=256):
+    """Return flops (G) for a (1,3,size,size) bi-temporal pair (fvcore).
+
+    附带一张全零 label（仅 router='oracle' 需要，其余模式忽略）。
+    """
+    from fvcore.nn import flop_count
+
+    model.eval()
+    pre = torch.randn(1, 3, size, size).cuda()
+    post = torch.randn(1, 3, size, size).cuda()
+    label = torch.zeros(1, 1, size, size).cuda()
+    with torch.no_grad():
+        counts, unsupported = flop_count(model, (pre, post, label))
+    total = sum(counts.values())
+    return total, len(unsupported)
+
+
+def fmt_flops(total):
+    # fvcore.flop_count already returns counts in giga-flops.
+    return f"{total:.4f}"
+
+
+def fmt_params(n):
+    return f"{n / 1e6:.3f}"
+
+
+# -----------------------------------------------------------------------------
+# Train / val steps (faithful to the official ChangeViT main.py)
+# -----------------------------------------------------------------------------
+@torch.no_grad()
+def val(args, val_loader, model):
+    model.eval()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+    epoch_loss = []
+
+    for iter, batched_inputs in enumerate(val_loader):
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        if args.onGPU:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        pre_img_var = pre_img.float()
+        post_img_var = post_img.float()
+        target_var = target.float()
+
+        output = model(pre_img_var, post_img_var, target_var)
+        loss = BCEDiceLoss(output, target_var)
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        epoch_loss.append(loss.data.item())
+        salEvalVal.update_cm(pr=pred.cpu().numpy(), gt=target_var.cpu().numpy())
+
+    average_epoch_loss_val = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_val, scores
+
+
+def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_iter=0, lr_factor=1.):
+    model.train()
+
+    salEvalVal = ConfuseMatrixMeter(n_class=2)
+    epoch_loss = []
+
+    for iter, batched_inputs in enumerate(train_loader):
+        img, target = batched_inputs
+        pre_img = img[:, 0:3]
+        post_img = img[:, 3:6]
+
+        # adjust the learning rate (poly + warmup, official schedule)
+        lr = adjust_learning_rate(args, optimizer, epoch, iter + cur_iter, max_batches, lr_factor=lr_factor)
+
+        if args.onGPU:
+            pre_img = pre_img.cuda()
+            target = target.cuda()
+            post_img = post_img.cuda()
+
+        pre_img_var = pre_img.float()
+        post_img_var = post_img.float()
+        target_var = target.float()
+
+        output = model(pre_img_var, post_img_var, target_var)
+        loss = BCEDiceLoss(output, target_var)
+
+        pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss.append(loss.data.item())
+
+        # computing F-measure on GPU, then accumulate the confusion matrix
+        salEvalVal.update_cm(pr=pred.detach().cpu().numpy(), gt=target_var.detach().cpu().numpy())
+
+    average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
+    scores = salEvalVal.get_scores()
+
+    return average_epoch_loss_train, scores, lr
+
+
+# -----------------------------------------------------------------------------
+# Trainer
+# -----------------------------------------------------------------------------
+class ChangeViTTrainer(object):
+    def __init__(self, args, log):
+        self.args = args
+        self.log = log
+
+        init_seed(args.seed)
+        torch.backends.cudnn.benchmark = True
+
+        self.model = Trainer(
+            args.model_type,
+            pretrained_path=args.pretrained_weight_path,
+            resnet_pretrained=args.resnet_pretrained,
+            mode=args.mode,
+            casaa_layers=args.casaa_layers,
+            casaa_keep_ratio=args.casaa_keep_ratio,
+            casaa_change_share=args.casaa_change_share,
+            casaa_router=args.casaa_router,
+        ).float()
+        if args.onGPU:
+            self.model = self.model.cuda()
+
+        # Run2 起：ViT 崩溃保护（见 train_scripts/CASAA/Run2/README.md）。
+        # 实测 ChangeViT 官方协议（统一 lr=2e-4）在 LEVIR 上 ~1600 steps 内把 ViT
+        # 训练成精确零权重（pos_embed 4.43→0.0007、patch_embed 8.0→0.03），
+        # 一旦归零即无梯度（吸收态），checkpoint 的 ViT 全零且不可恢复。
+        # --freeze_vit 1：冻结 ViT（Run2 机制实验用）；--vit_lr_ratio 可调小 ViT lr。
+        if args.freeze_vit:
+            for n, p in self.model.named_parameters():
+                if n.startswith("encoder.vit"):
+                    p.requires_grad_(False)
+        vit_params = [p for n, p in self.model.named_parameters() if n.startswith("encoder.vit")]
+        rest_params = [p for n, p in self.model.named_parameters() if not n.startswith("encoder.vit")]
+        self.optimizer = torch.optim.Adam(
+            [{"params": rest_params, "lr": args.lr},
+             {"params": vit_params, "lr": args.lr * args.vit_lr_ratio}],
+            args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+
+        self.start_epoch = 0
+        self.best_f1 = -1.0
+        self.best_epoch = -1
+        self.cur_iter = 0
+
+        # auto-resume from ckpt_dir/last.pth (or an explicit --resume tar)
+        resume_path = args.resume
+        if resume_path is None:
+            auto = os.path.join(args.ckpt_dir, "last.pth")
+            if os.path.isfile(auto):
+                resume_path = auto
+        if resume_path is not None and os.path.isfile(resume_path):
+            self._load_resume(resume_path)
+
+        os.makedirs(args.ckpt_dir, exist_ok=True)
+
+    def _load_resume(self, path):
+        self.log(f"[RESUME] loading {path}")
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        self.model.load_state_dict(checkpoint["state_dict"])
+        if "optimizer" in checkpoint and checkpoint["optimizer"] is not None:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.start_epoch = checkpoint.get("epoch", 0)
+        self.best_f1 = checkpoint.get("best_f1", -1.0)
+        self.best_epoch = checkpoint.get("best_epoch", -1)
+        self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
+
+    def _save_last(self, epoch, iters_per_epoch):
+        torch.save({
+            "state_dict": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "epoch": epoch + 1,
+            "best_f1": self.best_f1,
+            "best_epoch": self.best_epoch,
+            "iters_per_epoch": iters_per_epoch,
+        }, os.path.join(self.args.ckpt_dir, "last.pth"))
+
+    def _make_loader(self, list_path, batch_size, shuffle):
+        if shuffle:
+            transform = myTransforms.Compose([
+                myTransforms.Normalize(mean=self.args.mean, std=self.args.std),
+                myTransforms.Scale(self.args.inWidth, self.args.inHeight),
+                myTransforms.RandomCropResize(int(7. / 224. * self.args.inWidth)),
+                myTransforms.RandomFlip(),
+                myTransforms.RandomExchange(),
+                myTransforms.ToTensor(),
+            ])
+        else:
+            transform = myTransforms.Compose([
+                myTransforms.Normalize(mean=self.args.mean, std=self.args.std),
+                myTransforms.Scale(self.args.inWidth, self.args.inHeight),
+                myTransforms.ToTensor(),
+            ])
+        dataset = myDataLoader.Dataset(file_root=self.args.dataset_root, list_path=list_path, transform=transform)
+        return torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle,
+            num_workers=self.args.num_workers, pin_memory=True, drop_last=False)
+
+    def train(self):
+        train_loader = self._make_loader(self.args.train_list, self.args.batch_size, True)
+        test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
+
+        max_batches = len(train_loader)
+        self.args.max_epochs = int(np.ceil(self.args.max_steps / max_batches))
+        self.log(f"[MAX-STEPS] {self.args.max_steps}  [train_iters/epoch] {max_batches}  [max_epochs] {self.args.max_epochs}")
+        self.log("EPOCH | Loss | Recall | Precision | OA | F1 | IoU | Kappa | t(s)")
+
+        cur_iter = self.cur_iter
+        for epoch in range(self.start_epoch, self.args.max_epochs):
+            t0 = time.time()
+            loss_tr, score_tr, lr = train_epoch(
+                self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter)
+            cur_iter += max_batches
+
+            torch.cuda.empty_cache()
+
+            # official protocol: skip evaluation after the first epoch
+            if epoch == 0:
+                self._save_last(epoch, max_batches)
+                continue
+
+            loss_val, score_val = val(self.args, test_loader, self.model)
+            torch.cuda.empty_cache()
+
+            line = (f"Epoch {epoch}/{self.args.max_epochs} | Loss={loss_val:.4f} | "
+                    f"Recall={score_val['recall']:.4f} | Precision={score_val['precision']:.4f} | "
+                    f"OA={score_val['OA']:.4f} | F1={score_val['F1']:.4f} | "
+                    f"IoU={score_val['IoU']:.4f} | Kappa={score_val['Kappa']:.4f} | "
+                    f"t={time.time() - t0:.0f}s")
+            self.log(line)
+
+            # save last (resume) + best (test F1)
+            self._save_last(epoch, max_batches)
+
+            if score_val["F1"] > self.best_f1:
+                prev_best = os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth")
+                if self.best_f1 >= 0 and os.path.isfile(prev_best):
+                    os.remove(prev_best)
+                self.best_f1 = score_val["F1"]
+                self.best_epoch = epoch
+                torch.save(self.model.state_dict(),
+                           os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth"))
+
+        self.log(f"[BEST] F1={self.best_f1:.4f} at epoch {self.best_epoch}")
+
+    def test_best(self):
+        best_path = os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth")
+        if not os.path.isfile(best_path):
+            self.log("[TEST] best checkpoint not found, skipping final test")
+            return
+
+        self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
+        self.model = self.model.cuda()
+
+        total_params = measure_params(self.model)
+        trainable = measure_trainable_params(self.model)
+        effective_params = measure_effective_params(self.model)
+        try:
+            flops, n_unsup = measure_flops(self.model, size=self.args.inWidth)
+            flops_line = (f"[FLOPS] {fmt_flops(flops)} G   "
+                          f"(input 2x3x{self.args.inWidth}x{self.args.inHeight}, unsupported_ops={n_unsup})")
+        except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞训练
+            flops_line = f"[FLOPS] measurement failed ({type(e).__name__}: {e})"
+
+        test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
+        _, score_test = val(self.args, test_loader, self.model)
+
+        self.log("=== TEST RESULTS ===")
+        self.log(f"[MODEL] ChangeViT-{self.args.model_type.upper()} {self.args.mode}")
+        self.log(f"[MODE] {self.args.mode}")
+        if self.args.mode != "baseline":
+            self.log(f"[CASAA-LAYERS] {','.join(str(i) for i in self.args.casaa_layers)}")
+            self.log(f"[CASAA-KEEP-RATIO] {self.args.casaa_keep_ratio}")
+            self.log(f"[CASAA-CHANGE-SHARE] {self.args.casaa_change_share}")
+            self.log(f"[CASAA-ROUTER] {self.args.casaa_router}")
+            if self.args.casaa_router == "oracle":
+                self.log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+        self.log(f"[FREEZE-VIT] {int(self.args.freeze_vit)}")
+        self.log(f"[VIT-LR-RATIO] {self.args.vit_lr_ratio}")
+        self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
+        self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
+        self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
+        self.log(flops_line)
+        self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+                 f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+        self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
+        self.log("=== END TEST RESULTS ===")
+
+
+# -----------------------------------------------------------------------------
+# Config header
+# -----------------------------------------------------------------------------
+def write_header(args, log):
+    # 从 ckpt_dir 推导实验路径（如 .../CASA-CD/CASAA/Run2/... -> train_scripts/CASAA/Run2）
+    script_tag = None
+    if "CASA-CD/" in args.ckpt_dir:
+        tail = args.ckpt_dir.split("CASA-CD/")[-1].split("/")
+        if len(tail) >= 2:
+            script_tag = f"train_scripts/{tail[0]}/{tail[1]}"
+    if script_tag is None:
+        script_tag = "train_scripts/baseline/Run1" if args.mode == "baseline" else "train_scripts/CASAA/Run1"
+    log("=" * 72)
+    log(f"ChangeViT-{args.model_type.upper()}  |  mode={args.mode}  |  {script_tag}")
+    log("=" * 72)
+    log("[CONFIG]")
+    for k, v in vars(args).items():
+        log(f"  {k}: {v}")
+    if args.mode != "baseline":
+        log("[MODE] " + args.mode)
+        log("[CASAA-LAYERS] " + ",".join(str(i) for i in args.casaa_layers))
+        log(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
+        log(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
+        log(f"[CASAA-ROUTER] {args.casaa_router}")
+        if args.casaa_router == "oracle":
+            log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+    log(f"[FREEZE-VIT] {int(args.freeze_vit)}")
+    log(f"[VIT-LR-RATIO] {args.vit_lr_ratio}")
+    log("=" * 72)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="ChangeViT training (baseline / CASAA / SAA)")
+    parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--dataset_root', type=str, required=True)
+    parser.add_argument('--train_list', type=str, required=True)
+    parser.add_argument('--test_list', type=str, required=True)
+    parser.add_argument('--pretrained_weight_path', type=str, required=True)
+    parser.add_argument('--ckpt_dir', type=str, required=True)
+    parser.add_argument('--inWidth', type=int, default=256, help='Width of RGB image')
+    parser.add_argument('--inHeight', type=int, default=256, help='Height of RGB image')
+    parser.add_argument('--max_steps', type=int, default=80000, help='Max. number of iterations')
+    parser.add_argument('--num_workers', type=int, default=4, help='No. of parallel threads')
+    parser.add_argument('--model_type', type=str, default='tiny', help='select vit model type | tiny | small')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
+    parser.add_argument('--test_batch_size', type=int, default=16, help='Test batch size')
+    parser.add_argument('--step_loss', type=int, default=100, help='Decrease learning rate after how many epochs (step mode)')
+    parser.add_argument('--lr', type=float, default=2e-4, help='Initial learning rate')
+    parser.add_argument('--lr_mode', default='poly', help='Learning rate policy, step or poly')
+    parser.add_argument('--seed', type=int, default=16, help='initialization seed number')
+    parser.add_argument('--resume', default=None, help='Use this checkpoint to continue training (auto: ckpt_dir/last.pth)')
+    parser.add_argument('--resnet_pretrained', type=int, default=1, help='load ImageNet ResNet18 weights for detail branch')
+    parser.add_argument('--onGPU', default=True, type=lambda x: (str(x).lower() == 'true'),
+                        help='Run on CPU or GPU. If TRUE, then GPU.')
+    parser.add_argument('--gpu_id', default=0, type=int, help='GPU id number')
+
+    # CASAA (创新主线一)：Full Query + 变化感知压缩 K/V
+    parser.add_argument('--mode', type=str, default='baseline', choices=['baseline', 'saa', 'casaa'],
+                        help='baseline | saa (A1 SAA-style content control) | casaa (A2 change-aware)')
+    parser.add_argument('--casaa_layers', type=str, default='8,9,10,11',
+                        help='0-based ViT block indices replaced by CASAA (comma separated)')
+    parser.add_argument('--casaa_keep_ratio', type=float, default=0.25,
+                        help='K/N compressed K/V token budget')
+    parser.add_argument('--casaa_change_share', type=float, default=0.50,
+                        help='share of K kept as change tokens (router=change)')
+    parser.add_argument('--casaa_router', type=str, default='change',
+                        choices=['change', 'content', 'oracle'],
+                        help='change (CASAA cosine) | content (SAA-style control) | oracle (GT diagnostic, not deployable)')
+
+    # ViT 崩溃保护（Run2）
+    parser.add_argument('--freeze_vit', type=int, default=0,
+                        help='freeze the ViT backbone (1 = freeze; prevents ViT collapse on real data)')
+    parser.add_argument('--vit_lr_ratio', type=float, default=1.0,
+                        help='ViT learning-rate multiplier relative to base lr (1.0 = official protocol)')
+
+    # official ChangeViT normalization (BGR order, ImageNet stats x2)
+    parser.add_argument('--mean', type=float, nargs=6,
+                        default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
+    parser.add_argument('--std', type=float, nargs=6,
+                        default=[0.225, 0.224, 0.229, 0.225, 0.224, 0.229])
+    args = parser.parse_args()
+
+    args.resnet_pretrained = bool(args.resnet_pretrained)
+    args.freeze_vit = bool(args.freeze_vit)
+    args.casaa_layers = [int(s) for s in args.casaa_layers.split(',') if s.strip() != ''] \
+        if args.casaa_layers else []
+    # A1 (mode=saa) 固定为 content router，与 --casaa_router 无关
+    if args.mode == 'saa':
+        args.casaa_router = 'content'
+    if args.onGPU:
+        torch.cuda.set_device(args.gpu_id)
+
+    def log(msg):
+        print(msg, flush=True)
+
+    write_header(args, log)
+
+    trainer = ChangeViTTrainer(args, log)
+
+    log("[TOTAL-PARAMS] " + fmt_params(measure_params(trainer.model)) + " M")
+    log("[EFFECTIVE-PARAMS] " + fmt_params(measure_effective_params(trainer.model)) + " M")
+    log("[TRAINABLE-PARAMS] " + fmt_params(measure_trainable_params(trainer.model)) + " M")
+    try:
+        flops, n_unsup = measure_flops(trainer.model, size=args.inWidth)
+        log(f"[FLOPS] {fmt_flops(flops)} G   (input 2x3x{args.inWidth}x{args.inHeight}, unsupported_ops={n_unsup})")
+    except Exception as e:  # fvcore 对 CASAA 动态 routing 覆盖不全时不阻塞训练
+        log(f"[FLOPS] measurement failed ({type(e).__name__}: {e})")
+    log("=" * 72)
+
+    trainer.train()
+    trainer.test_best()
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: models/dataset\Transforms.py
+================================================================================
+import numpy
+import numpy as np
+import torch
+import random
+import cv2
+
+
+class Scale(object):
+    """
+    Resize the given image to a fixed scale
+    """
+
+    def __init__(self, wi, he):
+        '''
+        :param wi: width after resizing
+        :param he: height after reszing
+        '''
+        self.w = wi
+        self.h = he
+
+    # modified from torchvision to add support for max size
+
+    def __call__(self, img, label):
+        '''
+        :param img: RGB image
+        :param label: semantic label image
+        :return: resized images
+        '''
+        # bilinear interpolation for RGB image
+        img = cv2.resize(img, (self.w, self.h))
+        # nearest neighbour interpolation for label image
+        label = cv2.resize(label, (self.w, self.h), interpolation=cv2.INTER_NEAREST)
+        return [img, label]
+
+
+class Resize(object):
+    def __init__(self, min_size, max_size, strict=False):
+        if not isinstance(min_size, (list, tuple)):
+            min_size = (min_size,)
+        self.min_size = min_size
+        self.max_size = max_size
+        self.strict = strict
+
+    # modified from torchvision to add support for max size
+    def get_size(self, image_size):
+        w, h = image_size
+        if not self.strict:
+            size = random.choice(self.min_size)
+            max_size = self.max_size
+            if max_size is not None:
+                min_original_size = float(min((w, h)))
+                max_original_size = float(max((w, h)))
+                if max_original_size / min_original_size * size > max_size:
+                    size = int(round(max_size * min_original_size / max_original_size))
+
+            if (w <= h and w == size) or (h <= w and h == size):
+                return (h, w)
+
+            if w < h:
+                ow = size
+                oh = int(size * h / w)
+            else:
+                oh = size
+                ow = int(size * w / h)
+
+            return (oh, ow)
+        else:
+            if w < h:
+                return (self.max_size, self.min_size[0])
+            else:
+                return (self.min_size[0], self.max_size)
+
+    def __call__(self, image, label):
+        size = self.get_size(image.shape[:2])
+        image = cv2.resize(image, size)
+        # I confirm that the output size is right, not reversed
+        label = cv2.resize(label, size, interpolation=cv2.INTER_NEAREST)
+        return (image, label)
+
+
+class RandomCropResize(object):
+    """
+    Randomly crop and resize the given image with a probability of 0.5
+    """
+
+    def __init__(self, crop_area):
+        '''
+        :param crop_area: area to be cropped (this is the max value and we select between 0 and crop area
+        '''
+        self.cw = crop_area
+        self.ch = crop_area
+
+    def __call__(self, img, label):
+        if random.random() < 0.5:
+            h, w = img.shape[:2]
+            x1 = random.randint(0, self.ch)
+            y1 = random.randint(0, self.cw)
+
+            img_crop = img[y1:h - y1, x1:w - x1]
+            label_crop = label[y1:h - y1, x1:w - x1]
+
+            img_crop = cv2.resize(img_crop, (w, h))
+            label_crop = cv2.resize(label_crop, (w, h), interpolation=cv2.INTER_NEAREST)
+
+            return img_crop, label_crop
+        else:
+            return [img, label]
+
+
+class RandomFlip(object):
+    """
+    Randomly flip the given Image with a probability of 0.5
+    """
+
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+                image = cv2.flip(image, 0)  # horizontal flip
+                label = cv2.flip(label, 0)  # horizontal flip
+        if random.random() < 0.5:
+                image = cv2.flip(image, 1)  # veritcal flip
+                label = cv2.flip(label, 1)  # veritcal flip
+        return [image, label]
+
+
+class RandomExchange(object):
+    """
+    Randomly flip the given Image with a probability of 0.5
+    """
+
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+            pre_img = image[:, :, 0:3]
+            post_img = image[:, :, 3:6]
+            image = numpy.concatenate((post_img, pre_img), axis=2)
+        return [image, label]
+
+
+class Normalize(object):
+    """
+    Given mean: (B, G, R) and std: (B, G, R),
+    will normalize each channel of the torch.*Tensor, i.e.
+    channel = (channel - mean) / std
+    """
+
+    def __init__(self, mean, std):
+        '''
+        :param mean: global mean computed from dataset
+        :param std: global std computed from dataset
+        '''
+        self.mean = mean
+        self.std = std
+        self.depth_mean = [0.5]
+        self.depth_std = [0.5]
+
+    def __call__(self, image, label):
+        image = image.astype(np.float32)
+        image = image / 255
+        # lab contract: binarize labels with threshold gray >= 128
+        # (CDD labels are JPEG with intermediate gray values)
+        label = (label >= 128).astype(np.float32)
+        for i in range(6):
+            image[:, :, i] -= self.mean[i]
+        for i in range(6):
+            image[:, :, i] /= self.std[i]
+
+        return [image, label]
+
+
+class GaussianNoise(object):
+    def __init__(self, std=0.05):
+        '''
+        :param mean: global mean computed from dataset
+        :param std: global std computed from dataset
+        '''
+        self.std = std
+
+    def __call__(self, image, label):
+        noise = np.random.normal(loc=0, scale=self.std, size=image.shape)
+        image = image + noise.astype(np.float32)
+        return [image, label]
+
+
+class ToTensor(object):
+    '''
+    This class converts the data to tensor so that it can be processed by PyTorch
+    '''
+
+    def __init__(self, scale=1):
+        '''
+        :param scale: set this parameter according to the output scale
+        '''
+        self.scale = scale
+
+    def __call__(self, image, label):
+        if self.scale != 1:
+            h, w = label.shape[:2]
+            image = cv2.resize(image, (int(w), int(h)))
+            label = cv2.resize(label, (int(w / self.scale), int(h / self.scale)), \
+                               interpolation=cv2.INTER_NEAREST)
+        image = image[:, :, ::-1].copy()  # .copy() is to solve "torch does not support negative index"
+        image = image.transpose((2, 0, 1))
+        image_tensor = torch.from_numpy(image)
+        label_tensor = torch.LongTensor(np.array(label, dtype=np.int64)).unsqueeze(dim=0)
+
+        return [image_tensor, label_tensor]
+
+
+class Compose(object):
+    """
+    Composes several transforms together.
+    """
+
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, *args):
+        for t in self.transforms:
+            args = t(*args)
+        return args
+
+================================================================================
+# FILE: models/dataset\dataset.py
+================================================================================
+import cv2
+import os
+from os.path import join as osp
+import numpy
+import torch.utils.data
+
+
+def read_list(list_path):
+    """Read a list/*.txt file: one sample name per line (no extension).
+
+    The server-side dataset layout is `<root>/{A,B,label}/` + `<root>/list/*.txt`.
+    """
+    with open(list_path, "r") as f:
+        names = [line.strip() for line in f if line.strip()]
+    return names
+
+
+class Dataset(torch.utils.data.Dataset):
+    """Bi-temporal change detection dataset in A/B/label + list format.
+
+    Args:
+        file_root: dataset root containing A/ B/ label/ dirs
+        list_path: path to list/*.txt with sample names (no extension)
+        transform: Compose of Transforms
+    """
+    def __init__(self, file_root='data/', list_path=None, mode='train', transform=None):
+        if list_path is not None and os.path.isfile(list_path):
+            self.file_list = read_list(list_path)
+        else:
+            # legacy mode: file_root/<mode>/{A,B,label} with natural order
+            self.file_list = os.listdir(osp(file_root, mode, 'A'))
+            file_root = osp(file_root, mode)
+
+        self.pre_images = [osp(file_root, 'A', x) for x in self.file_list]
+        self.post_images = [osp(file_root, 'B', x) for x in self.file_list]
+        self.gts = [osp(file_root, 'label', x) for x in self.file_list]
+
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.pre_images)
+
+    def __getitem__(self, idx):
+        pre_image_name = self.pre_images[idx]
+        label_name = self.gts[idx]
+        post_image_name = self.post_images[idx]
+
+        pre_image = cv2.imread(pre_image_name)
+        label = cv2.imread(label_name, 0)
+        post_image = cv2.imread(post_image_name)
+
+        img = numpy.concatenate((pre_image, post_image), axis=2)
+
+        if self.transform:
+            [img, label] = self.transform(img, label)
+
+        return img, label
+
+    def get_img_info(self, idx):
+        img = cv2.imread(self.pre_images[idx])
+        return {"height": img.shape[0], "width": img.shape[1]}
+
+================================================================================
+# FILE: models/model\decoder.py
+================================================================================
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from einops import rearrange
+
+from model.utils import weight_init
+
+
+def drop_path(x, drop_prob: float = 0., training: bool = False):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+
+    """
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()  # binarize
+    output = x.div(keep_prob) * random_tensor
+    return output
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
+    """
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+class Mlp(nn.Module):
+    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
+    """
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+class CrossAttention(nn.Module):
+    def __init__(self, dim1, dim2, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim1 // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.q = nn.Linear(dim1, dim1, bias=qkv_bias)
+        self.kv = nn.Linear(dim2, dim1 * 2, bias=qkv_bias)
+
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim1, dim1)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x, y):
+        B1, N1, C1 = x.shape
+        B2, N2, C2 = y.shape
+
+        q = self.q(x).reshape(B1, N1, self.num_heads, C1 // self.num_heads).permute(0, 2, 1, 3)
+        kv = self.kv(y).reshape(B2, N2, 2, self.num_heads, C1 // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        k, v = kv[0], kv[1]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B1, N1, C1)
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x
+
+
+class Block(nn.Module):
+    def __init__(self, dim1, dim2, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim1)        
+        self.norm2 = norm_layer(dim2)
+        self.attn = CrossAttention(dim1, dim2, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm3 = norm_layer(dim1)
+        mlp_hidden_dim = int(dim1 * mlp_ratio)
+        self.mlp = Mlp(in_features=dim1, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, x, y):
+        x = x + self.drop_path(self.attn(self.norm1(x), self.norm2(y)))
+        x = x + self.drop_path(self.mlp(self.norm3(x)))
+        return x
+
+
+class FeatureInjector(nn.Module):
+    def __init__(self, dim1=384, dim2=[64, 128, 256], num_heads=8, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+                    drop_path=0., act_layer=nn.ReLU, norm_layer=nn.LayerNorm):
+        super().__init__()
+
+        self.c2_c5 = Block(dim1, dim2[0], num_heads, mlp_ratio, qkv_bias, drop, attn_drop, drop_path, act_layer, norm_layer)
+        self.c3_c5 = Block(dim1, dim2[1], num_heads, mlp_ratio, qkv_bias, drop, attn_drop, drop_path, act_layer, norm_layer)
+        self.c4_c5 = Block(dim1, dim2[2], num_heads, mlp_ratio, qkv_bias, drop, attn_drop, drop_path, act_layer, norm_layer)
+
+        self.fuse = nn.Conv2d(dim1*3, dim1, 1, bias=False)
+
+        weight_init(self)
+
+
+    def base_forward(self, c2, c3, c4, c5):
+        H, W = c5.shape[2:]
+
+        c2 = rearrange(c2, 'b c h w -> b (h w) c')
+        c3 = rearrange(c3, 'b c h w -> b (h w) c')
+        c4 = rearrange(c4, 'b c h w -> b (h w) c')
+        c5 = rearrange(c5, 'b c h w -> b (h w) c')
+
+        _c2 = self.c2_c5(c5, c2)
+        _c2 = rearrange(_c2, 'b (h w) c -> b c h w', h=H, w=W)
+
+        _c3 = self.c3_c5(c5, c3)
+        _c3 = rearrange(_c3, 'b (h w) c -> b c h w', h=H, w=W)
+
+        _c4 = self.c4_c5(c5, c4)
+        _c4 = rearrange(_c4, 'b (h w) c -> b c h w', h=H, w=W)
+
+        _c5 = self.fuse(torch.cat([_c2, _c3, _c4], dim=1))
+
+        return _c5
+
+    def forward(self, fx, fy):
+        _c5x = self.base_forward(fx[0], fx[1], fx[2], fx[3])
+        _c5y = self.base_forward(fy[0], fy[1], fy[2], fy[3])
+
+        return _c5x, _c5y
+
+
+class Decoder(nn.Module):
+    def __init__(self, in_dim=[64, 128, 256, 384], decay=4, num_class=1):
+        super().__init__()
+        c2_channel, c3_channel, c4_channel, c5_channel = in_dim
+
+        self.structure_enhance = FeatureInjector(dim1=c5_channel)
+
+        self.up_c5 = nn.Sequential(
+            nn.Conv2d(c5_channel, c4_channel, 1, bias=False),
+            nn.ConvTranspose2d(c4_channel, c4_channel, kernel_size=4, stride=2, padding=1)
+        )
+
+        self.up_c4 = nn.Sequential(
+            nn.Conv2d(c4_channel, c3_channel, 1, bias=False),
+            nn.ConvTranspose2d(c3_channel, c3_channel, kernel_size=4, stride=2, padding=1)
+        )
+
+        self.up_c3 = nn.Sequential(
+            nn.Conv2d(c3_channel, c2_channel, 1, bias=False),
+            nn.ConvTranspose2d(c2_channel, c2_channel, kernel_size=4, stride=2, padding=1)
+        )
+
+        self.classfier = nn.Sequential(
+            nn.ConvTranspose2d(c2_channel, c2_channel, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(c2_channel, num_class, 3, 1, padding=1, bias=False)
+        )
+
+        self.mlp = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(dim*3, dim//decay, 1, bias=False),
+                nn.BatchNorm2d(dim//decay),
+                nn.ReLU(),
+                nn.Conv2d(dim//decay, dim//decay, 3, 1, padding=1, bias=False),
+                nn.ReLU(),
+                nn.Conv2d(dim//decay, dim//decay, 3, 1, padding=1, bias=False),
+                nn.ReLU(),
+                nn.Conv2d(dim//decay, dim, 3, 1, padding=1, bias=False)
+            ) for dim in in_dim 
+        ])
+
+    def difference_modeling(self, x, y, block):
+        f = torch.cat([x, y, torch.abs(x-y)], dim=1)
+        f = block(f)
+
+        return f
+
+    def forward(self, fx, fy):
+        c2x, c3x, c4x = fx[:-1]
+        c2y, c3y, c4y = fy[:-1]
+
+        c5x, c5y = self.structure_enhance(fx, fy)
+
+        c2 = self.difference_modeling(c2x, c2y, self.mlp[0])
+        c3 = self.difference_modeling(c3x, c3y, self.mlp[1])
+        c4 = self.difference_modeling(c4x, c4y, self.mlp[2])
+        c5 = self.difference_modeling(c5x, c5y, self.mlp[3])
+
+        c4f = c4 + self.up_c5(c5)
+        c3f = c3 + self.up_c4(c4f)
+        c2f = c2 + self.up_c3(c3f)
+
+        pred = self.classfier(c2f)
+        pred_mask = torch.sigmoid(pred)
+
+        return pred_mask
+
+================================================================================
+# FILE: models/model\encoder.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/main/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
+
+from functools import partial
+import math
+import logging
+from typing import Sequence, Tuple, Union, Callable
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.checkpoint
+from torch.nn.init import trunc_normal_
+from einops import rearrange
+
+from model.layers import (
+    Mlp,
+    PatchEmbed,
+    SwiGLUFFNFused,
+    MemEffAttention,
+    CASAAAttention,
+    NestedTensorBlock as Block,
+)
+from model.resnet import resnet18
+
+
+def named_apply(fn: Callable, module: nn.Module, name="", depth_first=True, include_root=False) -> nn.Module:
+    if not depth_first and include_root:
+        fn(module=module, name=name)
+    for child_name, child_module in module.named_children():
+        child_name = ".".join((name, child_name)) if name else child_name
+        named_apply(fn=fn, module=child_module, name=child_name, depth_first=depth_first, include_root=True)
+    if depth_first and include_root:
+        fn(module=module, name=name)
+    return module
+
+
+class BlockChunk(nn.ModuleList):
+    def forward(self, x):
+        for b in self:
+            x = b(x)
+        return x
+
+
+class DinoVisionTransformer(nn.Module):
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=768,
+        depth=12,
+        num_heads=12,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        ffn_bias=True,
+        proj_bias=True,
+        drop_path_rate=0.0,
+        drop_path_uniform=False,
+        init_values=None,  # for layerscale: None or 0 => no layerscale
+        embed_layer=PatchEmbed,
+        act_layer=nn.GELU,
+        block_fn=Block,
+        ffn_layer="mlp",
+        block_chunks=0,
+        num_register_tokens=0,
+        interpolate_antialias=False,
+        interpolate_offset=0.1,
+        casaa_layers=None,
+        casaa_keep_ratio=0.25,
+        casaa_change_share=0.5,
+        casaa_router='change',
+    ):
+        """
+        Args:
+            img_size (int, tuple): input image size
+            patch_size (int, tuple): patch size
+            in_chans (int): number of input channels
+            embed_dim (int): embedding dimension
+            depth (int): depth of transformer
+            num_heads (int): number of attention heads
+            mlp_ratio (int): ratio of mlp hidden dim to embedding dim
+            qkv_bias (bool): enable bias for qkv if True
+            proj_bias (bool): enable bias for proj in attn if True
+            ffn_bias (bool): enable bias for ffn if True
+            drop_path_rate (float): stochastic depth rate
+            drop_path_uniform (bool): apply uniform drop rate across blocks
+            weight_init (str): weight init scheme
+            init_values (float): layer-scale init values
+            embed_layer (nn.Module): patch embedding layer
+            act_layer (nn.Module): MLP activation layer
+            block_fn (nn.Module): transformer block class
+            ffn_layer (str): "mlp", "swiglu", "swiglufused" or "identity"
+            block_chunks: (int) split block sequence into block_chunks units for FSDP wrap
+            num_register_tokens: (int) number of extra cls tokens (so-called "registers")
+            interpolate_antialias: (str) flag to apply anti-aliasing when interpolating positional embeddings
+            interpolate_offset: (float) work-around offset to apply when interpolating positional embeddings
+        """
+        super().__init__()
+        norm_layer = partial(nn.LayerNorm, eps=1e-6)
+
+        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.n_blocks = depth
+        self.num_heads = num_heads
+        self.patch_size = patch_size
+        self.num_register_tokens = num_register_tokens
+        self.interpolate_antialias = interpolate_antialias
+        self.interpolate_offset = interpolate_offset
+        # CASAA（Run1）：指定 block 的 attention 换成变化感知非对称注意力。
+        # qkv/proj 参数名与形状不变，DeiT-Tiny 预训练权重原位继承，零新增参数。
+        self.casaa_layers = list(casaa_layers) if casaa_layers else []
+        self.casaa_keep_ratio = casaa_keep_ratio
+        self.casaa_change_share = casaa_change_share
+        self.casaa_router = casaa_router
+
+        self.patch_embed = embed_layer(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
+        num_patches = self.patch_embed.num_patches
+
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        assert num_register_tokens >= 0
+        self.register_tokens = (
+            nn.Parameter(torch.zeros(1, num_register_tokens, embed_dim)) if num_register_tokens else None
+        )
+
+        if drop_path_uniform is True:
+            dpr = [drop_path_rate] * depth
+        else:
+            dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+
+        if ffn_layer == "mlp":
+            print("using MLP layer as FFN")
+            ffn_layer = Mlp
+        elif ffn_layer == "swiglufused" or ffn_layer == "swiglu":
+            print("using SwiGLU layer as FFN")
+            ffn_layer = SwiGLUFFNFused
+        elif ffn_layer == "identity":
+            print("using Identity layer as FFN")
+
+            def f(*args, **kwargs):
+                return nn.Identity()
+
+            ffn_layer = f
+        else:
+            raise NotImplementedError
+
+        blocks_list = []
+        for i in range(depth):
+            if i in self.casaa_layers:
+                attn_cls = partial(
+                    CASAAAttention,
+                    keep_ratio=casaa_keep_ratio,
+                    change_share=casaa_change_share,
+                    router=casaa_router,
+                )
+            else:
+                attn_cls = MemEffAttention
+            blocks_list.append(
+                block_fn(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                    attn_class=attn_cls,
+                )
+            )
+        if block_chunks > 0:
+            self.chunked_blocks = True
+            chunked_blocks = []
+            chunksize = depth // block_chunks
+            for i in range(0, depth, chunksize):
+                # this is to keep the block index consistent if we chunk the block list
+                chunked_blocks.append([nn.Identity()] * i + blocks_list[i : i + chunksize])
+            self.blocks = nn.ModuleList([BlockChunk(p) for p in chunked_blocks])
+        else:
+            self.chunked_blocks = False
+            self.blocks = nn.ModuleList(blocks_list)
+
+        self.norm = norm_layer(embed_dim)
+        self.head = nn.Identity()
+
+        self.mask_token = nn.Parameter(torch.zeros(1, embed_dim))
+
+        self.init_weights()
+
+    def init_weights(self):
+        trunc_normal_(self.pos_embed, std=0.02)
+        if self.register_tokens is not None:
+            nn.init.normal_(self.register_tokens, std=1e-6)
+        named_apply(init_weights_vit_timm, self)
+
+    def interpolate_pos_encoding(self, x, w, h):
+        previous_dtype = x.dtype
+        npatch = x.shape[1] - 1
+        N = self.pos_embed.shape[1]
+        if npatch == N and w == h:
+            return self.pos_embed
+        patch_pos_embed = self.pos_embed.float()
+        dim = x.shape[-1]
+        w0 = w // self.patch_size
+        h0 = h // self.patch_size
+        # we add a small number to avoid floating point error in the interpolation
+        # see discussion at https://github.com/facebookresearch/dino/issues/8
+        w0, h0 = w0 + self.interpolate_offset, h0 + self.interpolate_offset
+
+        sqrt_N = math.sqrt(N)
+        sx, sy = float(w0) / sqrt_N, float(h0) / sqrt_N
+        patch_pos_embed = nn.functional.interpolate(
+            patch_pos_embed.reshape(1, int(sqrt_N), int(sqrt_N), dim).permute(0, 3, 1, 2),
+            scale_factor=(sx, sy),
+            mode="bicubic",
+            antialias=self.interpolate_antialias,
+        )
+
+        assert int(w0) == patch_pos_embed.shape[-2]
+        assert int(h0) == patch_pos_embed.shape[-1]
+        patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+        return patch_pos_embed.to(previous_dtype)
+
+    def prepare_tokens_with_masks(self, x, masks=None):
+        B, nc, w, h = x.shape
+        x = self.patch_embed(x)
+        if masks is not None:
+            x = torch.where(masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x)
+
+        x = x + self.interpolate_pos_encoding(x, w, h)
+
+        if self.register_tokens is not None:
+            x = torch.cat(
+                (
+                    x[:, :1],
+                    self.register_tokens.expand(x.shape[0], -1, -1),
+                    x[:, 1:],
+                ),
+                dim=1,
+            )
+
+        return x
+
+    def forward_features_list(self, x_list, masks_list):
+        x = [self.prepare_tokens_with_masks(x, masks) for x, masks in zip(x_list, masks_list)]
+        for blk in self.blocks:
+            x = blk(x)
+
+        all_x = x
+        output = []
+        for x, masks in zip(all_x, masks_list):
+            x_norm = self.norm(x)
+            output.append(
+                {
+                    "x_norm_clstoken": x_norm[:, 0],
+                    "x_norm_regtokens": x_norm[:, 1 : self.num_register_tokens + 1],
+                    "x_norm_patchtokens": x_norm[:, self.num_register_tokens + 1 :],
+                    "x_prenorm": x,
+                    "masks": masks,
+                }
+            )
+        return output
+
+    def forward(self, x, masks=None):
+        if isinstance(x, list):
+            return self.forward_features_list(x, masks)
+
+        x = self.prepare_tokens_with_masks(x, masks)
+
+        for blk in self.blocks:
+            x = blk(x)
+
+        x_norm = self.norm(x)
+        return x_norm
+
+    def forward_pair(self, x1, x2, score_hint=None):
+        """双时相 paired forward（CASAA）。
+
+        非 CASAA 层两个时相独立过 block；CASAA 层两时相共享变化感知路由
+        一起过 block（Q 完整、K/V 压缩）。无 CASAA 层时与 `forward(x1);
+        forward(x2)` 完全等价（eval 下 bitwise 一致）。
+        score_hint: (B, N) 外部变化 score（仅 router='oracle' 诊断使用）。
+        """
+        x1 = self.prepare_tokens_with_masks(x1)
+        x2 = self.prepare_tokens_with_masks(x2)
+
+        for i, blk in enumerate(self.blocks):
+            if i in self.casaa_layers:
+                x1, x2 = blk.forward_pair(x1, x2, score_hint=score_hint)
+            else:
+                x1 = blk(x1)
+                x2 = blk(x2)
+
+        return self.norm(x1), self.norm(x2)
+
+    def _get_intermediate_layers_not_chunked(self, x, n=1):
+        x = self.prepare_tokens_with_masks(x)
+        # If n is an int, take the n last blocks. If it's a list, take them
+        output, total_block_len = [], len(self.blocks)
+        blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
+        for i, blk in enumerate(self.blocks):
+            x = blk(x)
+            if i in blocks_to_take:
+                output.append(x)
+        assert len(output) == len(blocks_to_take), f"only {len(output)} / {len(blocks_to_take)} blocks found"
+        return output
+
+    def _get_intermediate_layers_chunked(self, x, n=1):
+        x = self.prepare_tokens_with_masks(x)
+        output, i, total_block_len = [], 0, len(self.blocks[-1])
+        # If n is an int, take the n last blocks. If it's a list, take them
+        blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
+        for block_chunk in self.blocks:
+            for blk in block_chunk[i:]:  # Passing the nn.Identity()
+                x = blk(x)
+                if i in blocks_to_take:
+                    output.append(x)
+                i += 1
+        assert len(output) == len(blocks_to_take), f"only {len(output)} / {len(blocks_to_take)} blocks found"
+        return output
+
+    def get_intermediate_layers(
+        self,
+        x: torch.Tensor,
+        n: Union[int, Sequence] = 1,  # Layers or n last layers to take
+        reshape: bool = False,
+        return_class_token: bool = False,
+        norm=True,
+    ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
+        if self.chunked_blocks:
+            outputs = self._get_intermediate_layers_chunked(x, n)
+        else:
+            outputs = self._get_intermediate_layers_not_chunked(x, n)
+        if norm:
+            outputs = [self.norm(out) for out in outputs]
+        class_tokens = [out[:, 0] for out in outputs]
+        outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
+        if reshape:
+            B, _, w, h = x.shape
+            outputs = [
+                out.reshape(B, w // self.patch_size, h // self.patch_size, -1).permute(0, 3, 1, 2).contiguous()
+                for out in outputs
+            ]
+        if return_class_token:
+            return tuple(zip(outputs, class_tokens))
+        return tuple(outputs)
+
+
+def init_weights_vit_timm(module: nn.Module, name: str = ""):
+    """ViT weight initialization, original timm impl (for reproducibility)"""
+    if isinstance(module, nn.Linear):
+        trunc_normal_(module.weight, std=0.02)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+
+
+class Encoder(nn.Module):
+    def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
+                 mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
+                 casaa_change_share=0.5, casaa_router='change'):
+        super().__init__()
+        self.mode = mode
+        if mode in ('casaa', 'saa'):
+            if casaa_layers is None:
+                casaa_layers = [8, 9, 10, 11]
+            # mode='saa' 是 A1 SAA-style 内容对照：强制 content router（无变化感知保留）
+            router = 'content' if mode == 'saa' else casaa_router
+            self.casaa_layers = list(casaa_layers)
+        else:
+            router = casaa_router
+            self.casaa_layers = []
+        self.casaa_keep_ratio = casaa_keep_ratio
+        self.casaa_change_share = casaa_change_share
+        self.casaa_router = router
+
+        if model_type == 'tiny':
+            self.vit = DinoVisionTransformer(
+                img_size=256,
+                patch_size=16,
+                embed_dim=192,
+                depth=12,
+                num_heads=6,
+                mlp_ratio=4,
+                block_fn=partial(Block, attn_class=MemEffAttention),
+                num_register_tokens=0,
+                casaa_layers=self.casaa_layers,
+                casaa_keep_ratio=casaa_keep_ratio,
+                casaa_change_share=casaa_change_share,
+                casaa_router=router,
+            )
+            if pretrained_path is None:
+                pretrained_path = "checkpoint/deit_tiny_patch16_224-a1311bcf.pth"
+
+        elif model_type == 'small':
+            self.vit = DinoVisionTransformer(
+                img_size=256,
+                patch_size=16,
+                embed_dim=384,
+                depth=12,
+                num_heads=6,
+                mlp_ratio=4,
+                block_fn=partial(Block, attn_class=MemEffAttention),
+                num_register_tokens=0,
+                casaa_layers=self.casaa_layers,
+                casaa_keep_ratio=casaa_keep_ratio,
+                casaa_change_share=casaa_change_share,
+                casaa_router=router,
+            )
+            if pretrained_path is None:
+                pretrained_path = "checkpoint/dinov2_vits14_pretrain.pth"
+            
+        else:
+            assert False, r'Encoder: check the vit model type'
+
+        state_dict = torch.load(pretrained_path, map_location='cpu')['model'] \
+            if model_type == 'tiny' else torch.load(pretrained_path, map_location='cpu')
+
+        for k in ['pos_embed', 'patch_embed.proj.weight']:
+            del state_dict[k]
+        msg = self.vit.load_state_dict(state_dict, strict=False)
+        print(' missing_keys:{},\n unexpected_keys:{}'.format(msg.missing_keys, msg.unexpected_keys))
+        print('model_type: {},\n checkpoint_path: {}'.format(model_type, pretrained_path))
+
+        self.resnet = resnet18(pretrained=resnet_pretrained)
+        self.drop = nn.Dropout(p=0.01)
+
+
+    def detail_capture(self, x):
+        x = self.resnet.conv1(x)
+        x = self.resnet.bn1(x)
+        x = self.resnet.relu(x)
+
+        x2 = self.drop(self.resnet.layer1(x))
+        x3 = self.resnet.layer2(x2)
+        x4 = self.resnet.layer3(x3)
+
+        return [x2, x3, x4]
+
+
+    def label_to_occupancy(self, label):
+        """把 (B,1,H,W) 二值 label 转成与 ViT token 对齐的连续 patch occupancy。
+
+        avg_pool(kernel=patch_size) -> (B,1,16,16) -> (B,256)。
+        仅 router='oracle'（DIAGNOSTIC-ONLY）使用。
+        """
+        g = F.avg_pool2d(label.float(), kernel_size=self.vit.patch_size)
+        return g.view(label.shape[0], -1)
+
+
+    def forward(self, x, y, label=None):
+        if self.casaa_layers:
+            score_hint = None
+            if self.casaa_router == 'oracle':
+                # DIAGNOSTIC-ONLY：GT patch occupancy 作为变化 score 上界
+                assert label is not None, "oracle router requires the GT label"
+                score_hint = self.label_to_occupancy(label)
+            v_x, v_y = self.vit.forward_pair(x, y, score_hint=score_hint)
+        else:
+            v_x = self.vit(x)
+            v_y = self.vit(y)
+
+        v_x = rearrange(v_x, 'b (h w) c -> b c h w', h=16, w=16)
+        v_y = rearrange(v_y, 'b (h w) c -> b c h w', h=16, w=16)
+
+        c_x = self.detail_capture(x)
+        c_y = self.detail_capture(y)
+
+        return c_x + [v_x], c_y + [v_y]
+
+================================================================================
+# FILE: models/model\metric_tool.py
+================================================================================
+import numpy as np
+
+
+###################       metrics      ###################
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.initialized = False
+        self.val = None
+        self.avg = None
+        self.sum = None
+        self.count = None
+
+    def initialize(self, val, weight):
+        self.val = val
+        self.avg = val
+        self.sum = val * weight
+        self.count = weight
+        self.initialized = True
+
+    def update(self, val, weight=1):
+        if not self.initialized:
+            self.initialize(val, weight)
+        else:
+            self.add(val, weight)
+
+    def add(self, val, weight):
+        self.val = val
+        self.sum += val * weight
+        self.count += weight
+        self.avg = self.sum / self.count
+
+    def value(self):
+        return self.val
+
+    def average(self):
+        return self.avg
+
+    def get_scores(self):
+        scores_dict = cm2score(self.sum)
+        return scores_dict
+
+    def clear(self):
+        self.initialized = False
+
+
+###################      cm metrics      ###################
+class ConfuseMatrixMeter(AverageMeter):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, n_class):
+        super(ConfuseMatrixMeter, self).__init__()
+        self.n_class = n_class
+
+    def update_cm(self, pr, gt, weight=1):
+        """获得当前混淆矩阵，并计算当前F1得分，并更新混淆矩阵"""
+        val = get_confuse_matrix(num_classes=self.n_class, label_gts=gt, label_preds=pr)
+        self.update(val, weight)
+        current_score = cm2F1(val)
+        return current_score
+
+    def get_scores(self):
+        scores_dict = cm2score(self.sum)
+        return scores_dict
+
+
+def harmonic_mean(xs):
+    harmonic_mean = len(xs) / sum((x + 1e-6) ** -1 for x in xs)
+    return harmonic_mean
+
+
+def cm2F1(confusion_matrix):
+    hist = confusion_matrix
+    tp = hist[1, 1]
+    fn = hist[1, 0]
+    fp = hist[0, 1]
+    tn = hist[0, 0]
+    # recall
+    recall = tp / (tp + fn + np.finfo(np.float32).eps)
+    # precision
+    precision = tp / (tp + fp + np.finfo(np.float32).eps)
+    # F1 score
+    f1 = 2 * recall * precision / (recall + precision + np.finfo(np.float32).eps)
+    return f1
+
+
+def cm2score(confusion_matrix):
+    hist = confusion_matrix
+    tp = hist[1, 1]
+    fn = hist[1, 0]
+    fp = hist[0, 1]
+    tn = hist[0, 0]
+    # acc
+    oa = (tp + tn) / (tp + fn + fp + tn + np.finfo(np.float32).eps)
+    # recall
+    recall = tp / (tp + fn + np.finfo(np.float32).eps)
+    # precision
+    precision = tp / (tp + fp + np.finfo(np.float32).eps)
+    # F1 score
+    f1 = 2 * recall * precision / (recall + precision + np.finfo(np.float32).eps)
+    # IoU
+    iou = tp / (tp + fp + fn + np.finfo(np.float32).eps)
+    # pre
+    pre = ((tp + fn) * (tp + fp) + (tn + fp) * (tn + fn)) / (tp + fp + tn + fn) ** 2
+    # kappa
+    kappa = (oa - pre) / (1 - pre)
+    score_dict = {'Kappa': kappa, 'IoU': iou, 'F1': f1, 'OA': oa, 'recall': recall, 'precision': precision, 'Pre': pre}
+    return score_dict
+
+
+def get_confuse_matrix(num_classes, label_gts, label_preds):
+    """计算一组预测的混淆矩阵"""
+
+    def __fast_hist(label_gt, label_pred):
+        """
+        Collect values for Confusion Matrix
+        For reference, please see: https://en.wikipedia.org/wiki/Confusion_matrix
+        :param label_gt: <np.array> ground-truth
+        :param label_pred: <np.array> prediction
+        :return: <np.ndarray> values for confusion matrix
+        """
+        mask = (label_gt >= 0) & (label_gt < num_classes)
+        hist = np.bincount(num_classes * label_gt[mask].astype(int) + label_pred[mask],
+                           minlength=num_classes ** 2).reshape(num_classes, num_classes)
+        return hist
+
+    confusion_matrix = np.zeros((num_classes, num_classes))
+    for lt, lp in zip(label_gts, label_preds):
+        confusion_matrix += __fast_hist(lt.flatten(), lp.flatten())
+    return confusion_matrix
+
+================================================================================
+# FILE: models/model\resnet.py
+================================================================================
+import torch.nn as nn
+import math
+import torch
+try:
+    from torch.hub import load_state_dict_from_url
+except ImportError:  # very old torch
+    from torch.utils.model_zoo import load_url as load_state_dict_from_url
+import torch.nn.functional as F
+from einops import rearrange
+
+
+__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
+           'resnet152']
+
+
+model_urls = {
+    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
+    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+}
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+
+
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, num_classes=1000):
+        self.inplanes = 64
+        super(ResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return x
+
+
+def resnet18(pretrained=False, **kwargs):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        model.load_state_dict(load_state_dict_from_url(model_urls['resnet18']), strict=False)
+    return model
+
+
+def resnet34(pretrained=False, **kwargs):
+    """Constructs a ResNet-34 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(load_state_dict_from_url(model_urls['resnet34']))
+    return model
+
+
+def resnet50(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(load_state_dict_from_url(model_urls['resnet50']))
+    return model
+
+
+def resnet101(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(load_state_dict_from_url(model_urls['resnet101']))
+    return model
+
+
+def resnet152(pretrained=False, **kwargs):
+    """Constructs a ResNet-152 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(load_state_dict_from_url(model_urls['resnet152']))
+    return model
+
+
+if __name__ == '__main__':
+    m = resnet18(pretrained=True, vit_dim=768)
+    x = torch.rand(1, 3, 256, 256)
+    vit = [torch.rand(1, 256, 768), torch.rand(1, 256, 768), torch.rand(1, 256, 768)]
+    x2, x3, x4 = m(x, vit)
+    print(x2.shape, x3.shape, x4.shape)
+================================================================================
+# FILE: models/model\trainer.py
+================================================================================
+import torch
+import torch.nn as nn
+
+from model.encoder import Encoder
+from model.decoder import Decoder
+
+from model.utils import weight_init
+
+
+class Trainer(nn.Module):
+    def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
+                 mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
+                 casaa_change_share=0.5, casaa_router='change'):
+        super().__init__()
+        if model_type == 'tiny':
+            embed_dim = 192
+        elif model_type == 'small':
+            embed_dim = 384
+        else:
+            assert False, r'Trainer: check the vit model type'
+
+        self.mode = mode
+        self.encoder = Encoder(model_type, pretrained_path=pretrained_path,
+                               resnet_pretrained=resnet_pretrained,
+                               mode=mode, casaa_layers=casaa_layers,
+                               casaa_keep_ratio=casaa_keep_ratio,
+                               casaa_change_share=casaa_change_share,
+                               casaa_router=casaa_router)
+
+        self.decoder = Decoder(in_dim=[64, 128, 256, embed_dim])
+        weight_init(self.decoder)
+        
+    def forward(self, x, y, label=None):
+        # label 仅 router='oracle'（DIAGNOSTIC-ONLY）使用，其余模式忽略
+        fx, fy = self.encoder(x, y, label=label)
+        pred = self.decoder(fx, fy)
+
+        return pred
+        
+================================================================================
+# FILE: models/model\utils.py
+================================================================================
+import torch
+import torch.nn.functional as F
+import numpy as np
+import torch.nn as nn
+import random
+
+
+def weight_init(module):
+    for n, m in module.named_children():
+        print('initialize: '+n)
+        if isinstance(m, nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.ones_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Sequential):
+            for f, g in m.named_children():
+                print('initialize: ' + f)
+                if isinstance(g, nn.Conv2d):
+                    nn.init.kaiming_normal_(g.weight, mode='fan_in', nonlinearity='relu')
+                    if g.bias is not None:
+                        nn.init.zeros_(g.bias)
+                elif isinstance(g, (nn.BatchNorm2d, nn.GroupNorm)):
+                    nn.init.ones_(g.weight)
+                    if g.bias is not None:
+                        nn.init.zeros_(g.bias)
+                elif isinstance(g, nn.Linear):
+                    nn.init.kaiming_normal_(g.weight, mode='fan_in', nonlinearity='relu')
+                    if g.bias is not None:
+                        nn.init.zeros_(g.bias)
+        elif isinstance(m, nn.AdaptiveAvgPool2d) or isinstance(m, nn.AdaptiveMaxPool2d) or isinstance(m, nn.ModuleList) or isinstance(m, nn.BCELoss):
+            a=1
+        else:
+            pass
+
+
+def init_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def BCEDiceLoss(inputs, targets):
+    # print(inputs.shape, targets.shape)
+    bce = F.binary_cross_entropy(inputs, targets)
+    inter = (inputs * targets).sum()
+    eps = 1e-5
+    dice = (2 * inter + eps) / (inputs.sum() + targets.sum() + eps)
+    # print(bce.item(), inter.item(), inputs.sum().item(), dice.item())
+    return bce + 1 - dice
+
+
+def BCE(inputs, targets):
+    # print(inputs.shape, targets.shape)
+    bce = F.binary_cross_entropy(inputs, targets)
+    return bce
+
+
+def adjust_learning_rate(args, optimizer, epoch, iter, max_batches, lr_factor=1):
+    if args.lr_mode == 'step':
+        lr = args.lr * (0.1 ** (epoch // args.step_loss))
+    elif args.lr_mode == 'poly':
+        cur_iter = iter
+        max_iter = max_batches * args.max_epochs
+        lr = args.lr * (1 - cur_iter * 1.0 / max_iter) ** 0.9
+    else:
+        raise ValueError('Unknown lr mode {}'.format(args.lr_mode))
+    if epoch == 0 and iter < 200:
+        lr = args.lr * 0.9 * (iter + 1) / 200 + 0.1 * args.lr  # warm_up
+    lr *= lr_factor
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
+
+================================================================================
+# FILE: models/model\layers\__init__.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+from .dino_head import DINOHead
+from .mlp import Mlp
+from .patch_embed import PatchEmbed
+from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
+from .block import NestedTensorBlock
+from .attention import MemEffAttention
+from .casaa import (
+    CASAAAttention,
+    change_score_cosine,
+    deterministic_density_assign,
+    aggregate_with_shared_assignment,
+)
+
+================================================================================
+# FILE: models/model\layers\attention.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
+
+import logging
+import os
+import warnings
+
+from torch import Tensor
+from torch import nn
+
+
+logger = logging.getLogger("dinov2")
+
+
+XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
+try:
+    if XFORMERS_ENABLED:
+        from xformers.ops import memory_efficient_attention, unbind
+
+        XFORMERS_AVAILABLE = True
+        warnings.warn("xFormers is available (Attention)")
+    else:
+        warnings.warn("xFormers is disabled (Attention)")
+        raise ImportError
+except ImportError:
+    XFORMERS_AVAILABLE = False
+    warnings.warn("xFormers is not available (Attention)")
+
+
+class Attention(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        proj_bias: bool = True,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim**-0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim, bias=proj_bias)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x: Tensor) -> Tensor:
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
+        attn = q @ k.transpose(-2, -1)
+
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+class MemEffAttention(Attention):
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
+        if not XFORMERS_AVAILABLE:
+            if attn_bias is not None:
+                raise AssertionError("xFormers is required for using nested tensors")
+            return super().forward(x)
+
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
+
+        q, k, v = unbind(qkv, 2)
+
+        x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+        x = x.reshape([B, N, C])
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+================================================================================
+# FILE: models/model\layers\block.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/layers/patch_embed.py
+
+import logging
+import os
+from typing import Callable, List, Any, Tuple, Dict
+import warnings
+
+import torch
+from torch import nn, Tensor
+
+from .attention import Attention, MemEffAttention
+from .drop_path import DropPath
+from .layer_scale import LayerScale
+from .mlp import Mlp
+
+
+logger = logging.getLogger("dinov2")
+
+
+XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
+try:
+    if XFORMERS_ENABLED:
+        from xformers.ops import fmha, scaled_index_add, index_select_cat
+
+        XFORMERS_AVAILABLE = True
+        warnings.warn("xFormers is available (Block)")
+    else:
+        warnings.warn("xFormers is disabled (Block)")
+        raise ImportError
+except ImportError:
+    XFORMERS_AVAILABLE = False
+
+    warnings.warn("xFormers is not available (Block)")
+
+
+class Block(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        qkv_bias: bool = False,
+        proj_bias: bool = True,
+        ffn_bias: bool = True,
+        drop: float = 0.0,
+        attn_drop: float = 0.0,
+        init_values=None,
+        drop_path: float = 0.0,
+        act_layer: Callable[..., nn.Module] = nn.GELU,
+        norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        attn_class: Callable[..., nn.Module] = Attention,
+        ffn_layer: Callable[..., nn.Module] = Mlp,
+    ) -> None:
+        super().__init__()
+        # print(f"biases: qkv: {qkv_bias}, proj: {proj_bias}, ffn: {ffn_bias}")
+        self.norm1 = norm_layer(dim)
+        self.attn = attn_class(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            proj_bias=proj_bias,
+            attn_drop=attn_drop,
+            proj_drop=drop,
+        )
+        self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = ffn_layer(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=act_layer,
+            drop=drop,
+            bias=ffn_bias,
+        )
+        self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
+        self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+
+        self.sample_drop_ratio = drop_path
+
+    def forward_pair(self, x1: Tensor, x2: Tensor, score_hint=None) -> Tuple[Tensor, Tensor]:
+        """双时相 paired forward（CASAA）：注意力共享变化感知路由，MLP 各自独立。
+
+        仅当 self.attn 提供 forward_pair（CASAAAttention）时使用；
+        norm1/norm2/mlp/ls/drop_path 全部沿用本 block 原有参数。
+        score_hint 仅 router='oracle'（GT 诊断）使用，其余模式为 None。
+        """
+        x1n = self.norm1(x1)
+        x2n = self.norm1(x2)
+        y1, y2 = self.attn.forward_pair(x1n, x2n, score_hint=score_hint)
+        x1 = x1 + self.drop_path1(self.ls1(y1))
+        x2 = x2 + self.drop_path1(self.ls1(y2))
+
+        x1 = x1 + self.drop_path2(self.ls2(self.mlp(self.norm2(x1))))
+        x2 = x2 + self.drop_path2(self.ls2(self.mlp(self.norm2(x2))))
+        return x1, x2
+
+    def forward(self, x: Tensor) -> Tensor:
+        def attn_residual_func(x: Tensor) -> Tensor:
+            return self.ls1(self.attn(self.norm1(x)))
+
+        def ffn_residual_func(x: Tensor) -> Tensor:
+            return self.ls2(self.mlp(self.norm2(x)))
+
+        if self.training and self.sample_drop_ratio > 0.1:
+            # the overhead is compensated only for a drop path rate larger than 0.1
+            x = drop_add_residual_stochastic_depth(
+                x,
+                residual_func=attn_residual_func,
+                sample_drop_ratio=self.sample_drop_ratio,
+            )
+            x = drop_add_residual_stochastic_depth(
+                x,
+                residual_func=ffn_residual_func,
+                sample_drop_ratio=self.sample_drop_ratio,
+            )
+        elif self.training and self.sample_drop_ratio > 0.0:
+            x = x + self.drop_path1(attn_residual_func(x))
+            x = x + self.drop_path1(ffn_residual_func(x))  # FIXME: drop_path2
+        else:
+            x = x + attn_residual_func(x)
+            x = x + ffn_residual_func(x)
+        return x
+
+
+def drop_add_residual_stochastic_depth(
+    x: Tensor,
+    residual_func: Callable[[Tensor], Tensor],
+    sample_drop_ratio: float = 0.0,
+) -> Tensor:
+    # 1) extract subset using permutation
+    b, n, d = x.shape
+    sample_subset_size = max(int(b * (1 - sample_drop_ratio)), 1)
+    brange = (torch.randperm(b, device=x.device))[:sample_subset_size]
+    x_subset = x[brange]
+
+    # 2) apply residual_func to get residual
+    residual = residual_func(x_subset)
+
+    x_flat = x.flatten(1)
+    residual = residual.flatten(1)
+
+    residual_scale_factor = b / sample_subset_size
+
+    # 3) add the residual
+    x_plus_residual = torch.index_add(x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor)
+    return x_plus_residual.view_as(x)
+
+
+def get_branges_scales(x, sample_drop_ratio=0.0):
+    b, n, d = x.shape
+    sample_subset_size = max(int(b * (1 - sample_drop_ratio)), 1)
+    brange = (torch.randperm(b, device=x.device))[:sample_subset_size]
+    residual_scale_factor = b / sample_subset_size
+    return brange, residual_scale_factor
+
+
+def add_residual(x, brange, residual, residual_scale_factor, scaling_vector=None):
+    if scaling_vector is None:
+        x_flat = x.flatten(1)
+        residual = residual.flatten(1)
+        x_plus_residual = torch.index_add(x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor)
+    else:
+        x_plus_residual = scaled_index_add(
+            x, brange, residual.to(dtype=x.dtype), scaling=scaling_vector, alpha=residual_scale_factor
+        )
+    return x_plus_residual
+
+
+attn_bias_cache: Dict[Tuple, Any] = {}
+
+
+def get_attn_bias_and_cat(x_list, branges=None):
+    """
+    this will perform the index select, cat the tensors, and provide the attn_bias from cache
+    """
+    batch_sizes = [b.shape[0] for b in branges] if branges is not None else [x.shape[0] for x in x_list]
+    all_shapes = tuple((b, x.shape[1]) for b, x in zip(batch_sizes, x_list))
+    if all_shapes not in attn_bias_cache.keys():
+        seqlens = []
+        for b, x in zip(batch_sizes, x_list):
+            for _ in range(b):
+                seqlens.append(x.shape[1])
+        attn_bias = fmha.BlockDiagonalMask.from_seqlens(seqlens)
+        attn_bias._batch_sizes = batch_sizes
+        attn_bias_cache[all_shapes] = attn_bias
+
+    if branges is not None:
+        cat_tensors = index_select_cat([x.flatten(1) for x in x_list], branges).view(1, -1, x_list[0].shape[-1])
+    else:
+        tensors_bs1 = tuple(x.reshape([1, -1, *x.shape[2:]]) for x in x_list)
+        cat_tensors = torch.cat(tensors_bs1, dim=1)
+
+    return attn_bias_cache[all_shapes], cat_tensors
+
+
+def drop_add_residual_stochastic_depth_list(
+    x_list: List[Tensor],
+    residual_func: Callable[[Tensor, Any], Tensor],
+    sample_drop_ratio: float = 0.0,
+    scaling_vector=None,
+) -> Tensor:
+    # 1) generate random set of indices for dropping samples in the batch
+    branges_scales = [get_branges_scales(x, sample_drop_ratio=sample_drop_ratio) for x in x_list]
+    branges = [s[0] for s in branges_scales]
+    residual_scale_factors = [s[1] for s in branges_scales]
+
+    # 2) get attention bias and index+concat the tensors
+    attn_bias, x_cat = get_attn_bias_and_cat(x_list, branges)
+
+    # 3) apply residual_func to get residual, and split the result
+    residual_list = attn_bias.split(residual_func(x_cat, attn_bias=attn_bias))  # type: ignore
+
+    outputs = []
+    for x, brange, residual, residual_scale_factor in zip(x_list, branges, residual_list, residual_scale_factors):
+        outputs.append(add_residual(x, brange, residual, residual_scale_factor, scaling_vector).view_as(x))
+    return outputs
+
+
+class NestedTensorBlock(Block):
+    def forward_nested(self, x_list: List[Tensor]) -> List[Tensor]:
+        """
+        x_list contains a list of tensors to nest together and run
+        """
+        assert isinstance(self.attn, MemEffAttention)
+
+        if self.training and self.sample_drop_ratio > 0.0:
+
+            def attn_residual_func(x: Tensor, attn_bias=None) -> Tensor:
+                return self.attn(self.norm1(x), attn_bias=attn_bias)
+
+            def ffn_residual_func(x: Tensor, attn_bias=None) -> Tensor:
+                return self.mlp(self.norm2(x))
+
+            x_list = drop_add_residual_stochastic_depth_list(
+                x_list,
+                residual_func=attn_residual_func,
+                sample_drop_ratio=self.sample_drop_ratio,
+                scaling_vector=self.ls1.gamma if isinstance(self.ls1, LayerScale) else None,
+            )
+            x_list = drop_add_residual_stochastic_depth_list(
+                x_list,
+                residual_func=ffn_residual_func,
+                sample_drop_ratio=self.sample_drop_ratio,
+                scaling_vector=self.ls2.gamma if isinstance(self.ls1, LayerScale) else None,
+            )
+            return x_list
+        else:
+
+            def attn_residual_func(x: Tensor, attn_bias=None) -> Tensor:
+                return self.ls1(self.attn(self.norm1(x), attn_bias=attn_bias))
+
+            def ffn_residual_func(x: Tensor, attn_bias=None) -> Tensor:
+                return self.ls2(self.mlp(self.norm2(x)))
+
+            attn_bias, x = get_attn_bias_and_cat(x_list)
+            x = x + attn_residual_func(x, attn_bias=attn_bias)
+            x = x + ffn_residual_func(x)
+            return attn_bias.split(x)
+
+    def forward(self, x_or_x_list):
+        if isinstance(x_or_x_list, Tensor):
+            return super().forward(x_or_x_list)
+        elif isinstance(x_or_x_list, list):
+            if not XFORMERS_AVAILABLE:
+                raise AssertionError("xFormers is required for using nested tensors")
+            return self.forward_nested(x_or_x_list)
+        else:
+            raise AssertionError
+
+================================================================================
+# FILE: models/model\layers\casaa.py
+================================================================================
+"""CASAA (Change-Aware Selective Aggregation Attention) — CASA-CD 创新主线一。
+
+「完整 Query + 变化感知压缩 K/V」的非对称注意力：
+
+    Y_t = Softmax(Q_t @ K_t^T / sqrt(d)) @ V_t,  t in {1, 2}
+    Q_t: (B, N, C)     —— N 个 query 完整保留（逐位置判别能力不变）
+    K_t/V_t: (B, K, C) —— K = keep_ratio * N 个压缩上下文 token，K << N
+    注意力交互量：O(N^2) -> O(NK)（routing 之外）
+
+与 SAT SAA（others/SAT/saa.py）的关系——复用其思想，不照搬参数化：
+  - 复用：density-peak 选心、token-to-center 分配、簇内均值、Full Q / 压缩 K/V
+    的注意力结构、norm preservation。
+  - 改动：deterministic stratified sampling（eval routing 与 RNG 无关）；
+    双时相共享路由；疑似变化 token 原位保留 + 稳定背景 token 强聚合；
+    原 DeiT-Tiny fused qkv 权重切片（qkv/proj 参数名与形状不变，零新增参数）。
+
+router 模式：
+  - 'change'  (CASAA, A2)：Kc=change_share*K 个 change-score TopK token 原位保留，
+    Kb=K-Kc 个稳定背景 token 按共享内容聚类；C_t = [X_t[Ic]; mean_cluster(X_t_bg)]。
+    change score = 1 - cos(x1_i, x2_i)（参数自由、T1/T2 对称）。
+  - 'content' (SAA-style 对照, A1)：Kc=0，全部 token 按共享内容聚类成 K 个原型。
+  - 'oracle'  (A3, 仅诊断)：change score 直接用 GT patch occupancy
+    （Encoder 从 label 计算后以 score_hint 传入）。用于把「机制问题」与
+    「scorer 问题」拆开——DIAGNOSTIC-ONLY，不可部署，绝不作方法结果。
+
+设计要点：
+  - 切片 qkv 投影：对 full X 只算 Q，对压缩上下文只算 K/V（权重仍为原 fused
+    qkv 的行切片，数学与原「整段 qkv 后切片」等价，不白算 full K/V 与 compressed Q）。
+  - routing 索引（TopK / assignment）在 torch.no_grad() 下计算；聚合/收集仍使用
+    带梯度的原 feature tensor，梯度可回传到背景 token。
+  - _routing 记录上一次 forward_pair 的诊断统计（score / 索引 / 聚类大小 /
+    bank 范数 / 注意力质量），供 analyse/casaa_router_diagnostic.py 做 Router Audit。
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from .attention import Attention
+
+
+def change_score_cosine(x1, x2):
+    """参数自由的双时相变化显著性：s_i = 1 - cos(x1_i, x2_i)。
+
+    Args:
+        x1, x2: (B, N, C)
+    Returns:
+        s: (B, N)，越大越可能是变化区域。
+    """
+    x1_n = F.normalize(x1, dim=-1)
+    x2_n = F.normalize(x2, dim=-1)
+    return 1.0 - (x1_n * x2_n).sum(dim=-1)
+
+
+def deterministic_stratified_subindex(M, K, S, device):
+    """从 M 个 token 里确定性分层取 S 个子采样点（每区均匀分布，与 RNG 无关）。
+
+    只使用整数运算（对 fvcore tracer 友好）。
+    """
+    samples_per_region = S // K
+    sub = []
+    for i in range(K):
+        start = i * (M // K)
+        end = (i + 1) * (M // K) if i < K - 1 else M
+        region_size = end - start
+        if region_size > 0:
+            n = min(samples_per_region, region_size)
+            if n == 1:
+                pos = torch.zeros(1, dtype=torch.long, device=device)
+            else:
+                j = torch.arange(n, dtype=torch.long, device=device)
+                pos = j * (region_size - 1) // (n - 1)   # 整数除法，均匀分布
+            sub.append(start + pos)
+    sub_idx = torch.cat(sub) if sub else torch.zeros(0, dtype=torch.long, device=device)
+    if len(sub_idx) < S:
+        all_idx = torch.arange(M, device=device)
+        mask = torch.ones(M, dtype=torch.bool, device=device)
+        mask[sub_idx] = False
+        sub_idx = torch.cat([sub_idx, all_idx[mask][: S - len(sub_idx)]])
+    return sub_idx
+
+
+def deterministic_density_assign(z, K):
+    """在 M 个（已 L2 归一化的）token 上做确定性 density-peak 聚类。
+
+    算法结构沿用 SAT 的 cluster_and_merge，但子采样是确定性的（分层均匀采样），
+    且只在 background 集合上执行。
+
+    Args:
+        z: (B, M, C) 归一化 token（Run1 为共享背景描述 Norm((x1+x2)/2)）。
+        K: 聚类数。
+    Returns:
+        assign_idx: (B, M) long，每个 token 所属 cluster id ∈ [0, K)。
+    """
+    B, M, C = z.shape
+    # 显式转 int：JIT 追踪下 shape 是符号量，Python 侧整数运算（range/min//）需要真 int
+    B, M, C = int(B), int(M), int(C)
+    device = z.device
+    assert M >= K, f"density assign needs M({M}) >= K({K})"
+
+    S = min(M, max(2 * K, 4 * K))
+    sub_idx = deterministic_stratified_subindex(M, K, S, device)
+
+    z_sub = z[:, sub_idx]                      # (B, S, C)
+    sim_sub = z_sub @ z_sub.transpose(1, 2)    # 余弦相似度 (B, S, S)
+    torch.diagonal(sim_sub, dim1=1, dim2=2).fill_(-1)
+
+    k = min(K, S - 1)
+    sim_topk_sub, _ = torch.topk(sim_sub, k=k, dim=-1)
+    density_sub = sim_topk_sub.mean(dim=-1)    # (B, S) 局部密度 rho
+    # 确定性 tie-break（SAT 用 rand*1e-6 随机扰动；这里用与索引相关的固定扰动）
+    density_sub = density_sub + torch.arange(S, device=device, dtype=z.dtype) * 1e-6
+
+    mask_higher = (density_sub[:, None, :] > density_sub[:, :, None]).float()
+    masked_sim = sim_sub * mask_higher - 1e9 * (1.0 - mask_higher)
+    max_sim_to_higher, _ = masked_sim.max(dim=-1)
+
+    delta_sub = 1.0 - max_sim_to_higher          # 距离 delta
+    max_density_mask = (mask_higher.sum(dim=-1) == 0)
+    min_sim_global = sim_sub.min(dim=-1)[0]
+    delta_sub[max_density_mask] = (1.0 - min_sim_global)[max_density_mask]
+    delta_sub = delta_sub.clamp(min=0.0)
+
+    score_sub = density_sub * delta_sub          # gamma = rho * delta
+    _, center_idx_in_sub = torch.topk(score_sub, k=K, dim=-1)
+    center_idx = sub_idx[center_idx_in_sub]      # (B, K)
+
+    centers = z.gather(1, center_idx[..., None].expand(B, K, C))
+    sim_token_center = z @ centers.transpose(1, 2)   # (B, M, K)
+    assign_idx = sim_token_center.argmax(dim=-1)     # (B, M)
+    return assign_idx
+
+
+def aggregate_with_shared_assignment(x1, x2, assign_idx, K):
+    """按共享 assignment 对两个时相分别做簇内均值（特征不混时相）。
+
+    Args:
+        x1, x2: (B, M, C) 两个时相的 background token。
+        assign_idx: (B, M) 共享 cluster id。
+        K: 聚类数。
+    Returns:
+        agg1, agg2: (B, K, C)
+    """
+    B, M, C = x1.shape
+    one_hot = F.one_hot(assign_idx, num_classes=K).type_as(x1)   # (B, M, K)
+    counts = one_hot.sum(dim=1, keepdim=True).clamp(min=1e-6)    # (B, 1, K)
+    agg1 = torch.einsum("bmc,bmk->bkc", x1, one_hot) / counts.transpose(1, 2)
+    agg2 = torch.einsum("bmc,bmk->bkc", x2, one_hot) / counts.transpose(1, 2)
+    return agg1, agg2
+
+
+def norm_preserve(agg, ref):
+    """把聚合原型范数拉回原 token 的最大范数（沿用 SAT 的 norm preservation）。
+
+    聚合平均会压低原型范数，用原 token 最大范数对其重标定。
+    """
+    norms = torch.norm(ref, dim=-1)                                  # (B, M)
+    max_norm = norms.max(dim=-1, keepdim=True)[0].unsqueeze(-1)      # (B, 1, 1)
+    avg_norm = torch.norm(agg, dim=-1, keepdim=True)                 # (B, K, 1)
+    eps = 1e-6
+    scaled = (agg / (avg_norm + eps)) * max_norm
+    mask = avg_norm > eps
+    return torch.where(mask, scaled, agg)
+
+
+class CASAAAttention(Attention):
+    """变化感知非对称注意力：完整 Q、压缩 K/V；qkv/proj 与 DeiT 完全同名同形。
+
+    继承 Attention 以保留 fused `qkv`（C -> 3C）与 `proj` 的参数名和形状，
+    DeiT-Tiny 预训练 Q/K/V 权重可原位加载；单时相 `forward(x)` 仍是原
+    self-attention（用于回归/对照）。
+
+    前向只做切片投影：对 full X 只算 Q、对压缩上下文只算 K/V（权重是 fused qkv
+    的行切片，数学与整段 qkv 后切片等价，不白算 full K/V 与 compressed Q）。
+
+    Args:
+        dim, num_heads, qkv_bias, proj_bias, attn_drop, proj_drop: 与 Attention 一致。
+        keep_ratio: K/N，K/V 压缩 token 总数比例（Run1/2: 0.25）。
+        change_share: K 中「疑似变化 token 直保留」占比（router='change'/'oracle' 时）。
+        router: 'change'（cosine score）/ 'content'（A1 对照）/ 'oracle'（GT 诊断）。
+        norm_preserve: 是否对聚合原型做范数保持。
+    """
+
+    def __init__(self, dim, num_heads=8, qkv_bias=False, proj_bias=True,
+                 attn_drop=0.0, proj_drop=0.0,
+                 keep_ratio=0.25, change_share=0.5, router='change',
+                 norm_preserve=True):
+        super().__init__(dim, num_heads=num_heads, qkv_bias=qkv_bias,
+                         proj_bias=proj_bias, attn_drop=attn_drop, proj_drop=proj_drop)
+        assert router in ('change', 'content', 'oracle'), f"unknown router {router}"
+        self.dim = dim
+        self.keep_ratio = keep_ratio
+        self.change_share = change_share
+        self.router = router
+        self.norm_preserve = norm_preserve
+        self._routing = None   # 上一次 forward_pair 的 routing 统计（供 smoke/诊断）
+
+    # ------------------------------------------------------------------
+    # 切片 qkv 投影（Run2 等价优化：只算需要的 Q / K / V）
+    # ------------------------------------------------------------------
+    def _proj_q(self, x):
+        """只算 full X 的 Q：qkv.weight[0:C] / qkv.bias[0:C]。"""
+        w = self.qkv.weight[: self.dim]
+        b = self.qkv.bias[: self.dim] if self.qkv.bias is not None else None
+        return F.linear(x, w, b)
+
+    def _proj_kv(self, c):
+        """只算压缩上下文的 K/V：qkv.weight[C:3C] / qkv.bias[C:3C]。
+
+        Returns:
+            kv: (B, K, 2*C)，[..., :C] 为 K，[..., C:] 为 V。
+        """
+        w = self.qkv.weight[self.dim:]
+        b = self.qkv.bias[self.dim:] if self.qkv.bias is not None else None
+        return F.linear(c, w, b)
+
+    # ------------------------------------------------------------------
+    # 变化 score 接口
+    # ------------------------------------------------------------------
+    def _change_score(self, x1, x2, score_hint):
+        if self.router == 'oracle':
+            # DIAGNOSTIC-ONLY：score 来自 GT patch occupancy（Encoder 传入）
+            assert score_hint is not None, "oracle router requires the GT score_hint"
+            return score_hint
+        return change_score_cosine(x1, x2)
+
+    # ------------------------------------------------------------------
+    # 路由与上下文构造
+    # ------------------------------------------------------------------
+    def compute_contexts(self, x1, x2, score_hint=None):
+        """计算两个时相的压缩上下文 (C1, C2) 与 routing 统计。
+
+        routing（change score / TopK / assignment）在 no_grad 下计算；
+        聚合与收集仍用带梯度的原 feature，梯度可回传。
+        """
+        B, N, C = x1.shape
+        # 显式转 int：JIT 追踪下 shape 是符号量，Python 侧整数运算需要真 int
+        B, N, C = int(B), int(N), int(C)
+        K = max(int(round(self.keep_ratio * N)), 1)
+        if self.router in ('change', 'oracle'):
+            Kc = min(int(round(self.change_share * K)), K)
+        else:
+            Kc = 0
+        Kb = K - Kc
+
+        with torch.no_grad():
+            s = self._change_score(x1, x2, score_hint)   # (B, N)
+            if Kc > 0:
+                Ic = torch.topk(s, Kc, dim=-1).indices   # (B, Kc) 疑似变化位置
+                # int scatter（fvcore tracer 不支持 bool scalar 的 scatter_.value）
+                mask = torch.ones(B, N, dtype=torch.long, device=x1.device)
+                mask.scatter_(1, Ic, 0)
+                mask = mask.bool()
+            else:
+                Ic = None
+                mask = torch.ones(B, N, dtype=torch.bool, device=x1.device)
+
+            assign = None
+            if Kb > 0:
+                # 共享背景描述：只在背景 token 上聚类（仅用于算 assignment）
+                x1_bg_n = x1[mask]                       # (B*Nbg, C)
+                x2_bg_n = x2[mask]
+                z_bg = F.normalize((x1_bg_n + x2_bg_n) / 2.0, dim=-1).view(B, N - Kc, C)
+                assign = deterministic_density_assign(z_bg, Kb)   # (B, Nbg)
+
+        # 聚合/收集：使用带梯度的原 feature tensor
+        if Ic is not None:
+            c1_change = x1.gather(1, Ic[..., None].expand(B, Kc, C))
+            c2_change = x2.gather(1, Ic[..., None].expand(B, Kc, C))
+        if Kb > 0:
+            x1_bg = x1[mask].view(B, N - Kc, C)
+            x2_bg = x2[mask].view(B, N - Kc, C)
+            agg1, agg2 = aggregate_with_shared_assignment(x1_bg, x2_bg, assign, Kb)
+            if self.norm_preserve:
+                agg1 = norm_preserve(agg1, x1)
+                agg2 = norm_preserve(agg2, x2)
+            if Ic is not None:
+                C1 = torch.cat([c1_change, agg1], dim=1)   # (B, K, C)
+                C2 = torch.cat([c2_change, agg2], dim=1)
+            else:
+                C1, C2 = agg1, agg2
+        else:
+            C1, C2 = c1_change, c2_change
+
+        # 诊断统计（Router Audit 用；no_grad 下已是常量）
+        cluster_size = None
+        if assign is not None:
+            cluster_size = F.one_hot(assign, num_classes=Kb).sum(dim=1).float()   # (B, Kb)
+        c_norm_mean = torch.norm(C1[:, :Kc], dim=-1).mean().item() if Kc > 0 else float("nan")
+        bg_norm_mean = torch.norm(C1[:, Kc:], dim=-1).mean().item() if Kb > 0 else float("nan")
+
+        self._routing = {"N": N, "K": K, "Kc": Kc, "Kb": Kb,
+                         "s": s, "Ic": Ic, "assign": assign,
+                         "cluster_size": cluster_size,
+                         "c_norm_mean": c_norm_mean, "bg_norm_mean": bg_norm_mean,
+                         "attn_mass_change": None, "attn_mass_bg": None}
+        return C1, C2
+
+    def forward_pair(self, x1, x2, score_hint=None):
+        """双时相 paired attention：Q 完整，K/V 来自压缩上下文，输出 N 不变。
+
+        Args:
+            x1, x2: (B, N, C)
+            score_hint: (B, N) 外部变化 score（仅 router='oracle' 使用）。
+        Returns:
+            y1, y2: (B, N, C)
+        """
+        B, N, C = x1.shape
+        C1, C2 = self.compute_contexts(x1, x2, score_hint=score_hint)
+        K = C1.shape[1]
+        H = self.num_heads
+        hd = C // H
+        Kc = self._routing["Kc"]
+
+        # 切片投影：full X -> Q only；压缩上下文 -> K/V only
+        q1 = self._proj_q(x1).reshape(B, N, H, hd).permute(0, 2, 1, 3) * self.scale
+        q2 = self._proj_q(x2).reshape(B, N, H, hd).permute(0, 2, 1, 3) * self.scale
+        kv1 = self._proj_kv(C1).reshape(B, K, 2, H, hd).permute(2, 0, 3, 1, 4)
+        kv2 = self._proj_kv(C2).reshape(B, K, 2, H, hd).permute(2, 0, 3, 1, 4)
+        k1, v1 = kv1[0], kv1[1]
+        k2, v2 = kv2[0], kv2[1]
+
+        a1 = (q1 @ k1.transpose(-2, -1))
+        a1_s = a1.softmax(dim=-1)
+        a1 = self.attn_drop(a1_s)
+        y1 = (a1 @ v1).transpose(1, 2).reshape(B, N, C)
+        a2 = (q2 @ k2.transpose(-2, -1))
+        a2_s = a2.softmax(dim=-1)
+        a2 = self.attn_drop(a2_s)
+        y2 = (a2 @ v2).transpose(1, 2).reshape(B, N, C)
+
+        y1 = self.proj_drop(self.proj(y1))
+        y2 = self.proj_drop(self.proj(y2))
+
+        # 注意力质量统计：query 对 change bank / bg bank 的平均 attention mass
+        m_change = (a1_s[..., :Kc].mean() + a2_s[..., :Kc].mean()) / 2.0 if Kc > 0 else None
+        m_bg = (a1_s[..., Kc:].mean() + a2_s[..., Kc:].mean()) / 2.0 if K > Kc else None
+        self._routing["attn_mass_change"] = float(m_change.item()) if m_change is not None else float("nan")
+        self._routing["attn_mass_bg"] = float(m_bg.item()) if m_bg is not None else float("nan")
+        return y1, y2
+
+
+if __name__ == "__main__":
+    # CPU 单 block 机制冒烟（无需 GPU / 预训练权重）：
+    #   cd <repo_root> && python -m models.model.layers.casaa
+    torch.manual_seed(0)
+    B, N, C, H = 2, 256, 192, 6
+    x1 = torch.randn(B, N, C, requires_grad=True)
+    x2 = torch.randn(B, N, C, requires_grad=True)
+
+    print("== change score ==")
+    s12 = change_score_cosine(x1, x2)
+    s21 = change_score_cosine(x2, x1)
+    assert torch.allclose(s12, s21), "change score must be T1/T2 symmetric"
+    print(f"  symmetric OK, shape {tuple(s12.shape)}")
+
+    print("== qkv sliced projection equivalence ==")
+    attn = CASAAAttention(dim=C, num_heads=H, qkv_bias=True)
+    with torch.no_grad():
+        # 参考实现：整段 qkv 后切片（旧逻辑）
+        def ref_forward_pair(a, xa, xb):
+            Ca, Cb = a.compute_contexts(xa, xb)
+            Kref = Ca.shape[1]
+            qkv1 = a.qkv(xa).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2 = a.qkv(xb).reshape(B, N, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv1c = a.qkv(Ca).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            qkv2c = a.qkv(Cb).reshape(B, Kref, 3, H, C // H).permute(2, 0, 3, 1, 4)
+            q1, k1, v1 = qkv1[0] * a.scale, qkv1[1], qkv1[2]
+            q2, k2, v2 = qkv2[0] * a.scale, qkv2[1], qkv2[2]
+            _, k1c, v1c = qkv1c
+            _, k2c, v2c = qkv2c
+            y1 = ((q1 @ k1c.transpose(-2, -1)).softmax(-1) @ v1c).transpose(1, 2).reshape(B, N, C)
+            y2 = ((q2 @ k2c.transpose(-2, -1)).softmax(-1) @ v2c).transpose(1, 2).reshape(B, N, C)
+            return a.proj_drop(a.proj(y1)), a.proj_drop(a.proj(y2))
+
+        for r in ("change", "content"):
+            aa = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router=r)
+            aa.load_state_dict(attn.state_dict())
+            y1, y2 = aa.forward_pair(x1, x2)
+            yr1, yr2 = ref_forward_pair(aa, x1, x2)
+            d = max((y1 - yr1).abs().max().item(), (y2 - yr2).abs().max().item())
+            assert d < 1e-6, f"router={r} sliced vs full qkv mismatch: {d}"
+            print(f"  router={r}: sliced == full-qkv, max_abs_err = {d:.2e}")
+
+    print("== CASAA (router=change) ==")
+    y1, y2 = attn.forward_pair(x1, x2)
+    assert y1.shape == y2.shape == (B, N, C), (y1.shape, y2.shape)
+    r = attn._routing
+    print(f"  N={r['N']} K={r['K']} Kc={r['Kc']} Kb={r['Kb']}  output {tuple(y1.shape)}")
+    assert (r["N"], r["K"], r["Kc"], r["Kb"]) == (256, 64, 32, 32)
+    assert r["s"].shape == (B, N) and r["cluster_size"].shape == (B, 32)
+    assert r["attn_mass_change"] is not None and r["attn_mass_bg"] is not None
+    assert torch.isfinite(y1).all() and torch.isfinite(y2).all()
+    # 确定性：同一输入两次 routing 一致
+    _ = attn.forward_pair(x1, x2)
+    r2 = attn._routing
+    assert torch.equal(r["Ic"], r2["Ic"]) and torch.equal(r["assign"], r2["assign"])
+    # T1/T2 交换对称：routing 一致
+    _ = attn.forward_pair(x2, x1)
+    r3 = attn._routing
+    assert torch.equal(r["Ic"], r3["Ic"]) and torch.equal(r["assign"], r3["assign"])
+    print("  deterministic + swap-symmetric routing OK")
+    # 梯度回传（qkv / proj / 上游 token）
+    loss = (y1 * torch.randn_like(y1)).sum() + (y2 * torch.randn_like(y2)).sum()
+    loss.backward()
+    assert attn.qkv.weight.grad is not None and attn.qkv.weight.grad.norm() > 0
+    assert attn.proj.weight.grad is not None and attn.proj.weight.grad.norm() > 0
+    assert torch.isfinite(attn.qkv.weight.grad).all() and torch.isfinite(attn.proj.weight.grad).all()
+    assert x1.grad is not None and x1.grad.norm() > 0 and torch.isfinite(x1.grad).all()
+    print("  gradients OK (qkv/proj/upstream tokens finite & nonzero)")
+
+    print("== SAA-style control (router=content) ==")
+    attn_c = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router='content')
+    with torch.no_grad():
+        _, _ = attn_c.forward_pair(x1, x2)
+    rc = attn_c._routing
+    print(f"  N={rc['N']} K={rc['K']} Kc={rc['Kc']} Kb={rc['Kb']}")
+    assert (rc["K"], rc["Kc"], rc["Kb"]) == (64, 0, 64)
+    assert rc["Ic"] is None
+
+    print("== Oracle router (DIAGNOSTIC-ONLY) ==")
+    attn_o = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router='oracle')
+    hint = torch.rand(B, N)
+    with torch.no_grad():
+        _, _ = attn_o.forward_pair(x1, x2, score_hint=hint)
+        ro1 = attn_o._routing
+        _, _ = attn_o.forward_pair(x2, x1, score_hint=hint)
+        ro2 = attn_o._routing
+    assert (ro1["K"], ro1["Kc"], ro1["Kb"]) == (64, 32, 32)
+    assert torch.equal(ro1["s"], hint), "oracle score must equal the GT hint"
+    assert torch.equal(ro1["Ic"], torch.topk(hint, 32, dim=-1).indices)
+    assert torch.equal(ro1["Ic"], ro2["Ic"]) and torch.equal(ro1["assign"], ro2["assign"])
+    try:
+        attn_o.forward_pair(x1, x2)   # 无 hint 必须报错
+        raise AssertionError("oracle without hint should raise")
+    except AssertionError:
+        pass
+    print("  oracle score == hint, TopK correct, swap-invariant, requires hint")
+
+    print("== single-phase forward (pretrained-path regression) ==")
+    y = attn(x1)
+    assert y.shape == (B, N, C)
+    print("  OK")
+    print("CASAA mechanics smoke ALL OK")
+
+================================================================================
+# FILE: models/model\layers\dino_head.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+import torch
+import torch.nn as nn
+from torch.nn.init import trunc_normal_
+from torch.nn.utils import weight_norm
+
+
+class DINOHead(nn.Module):
+    def __init__(
+        self,
+        in_dim,
+        out_dim,
+        use_bn=False,
+        nlayers=3,
+        hidden_dim=2048,
+        bottleneck_dim=256,
+        mlp_bias=True,
+    ):
+        super().__init__()
+        nlayers = max(nlayers, 1)
+        self.mlp = _build_mlp(nlayers, in_dim, bottleneck_dim, hidden_dim=hidden_dim, use_bn=use_bn, bias=mlp_bias)
+        self.apply(self._init_weights)
+        self.last_layer = weight_norm(nn.Linear(bottleneck_dim, out_dim, bias=False))
+        self.last_layer.weight_g.data.fill_(1)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=0.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        x = self.mlp(x)
+        eps = 1e-6 if x.dtype == torch.float16 else 1e-12
+        x = nn.functional.normalize(x, dim=-1, p=2, eps=eps)
+        x = self.last_layer(x)
+        return x
+
+
+def _build_mlp(nlayers, in_dim, bottleneck_dim, hidden_dim=None, use_bn=False, bias=True):
+    if nlayers == 1:
+        return nn.Linear(in_dim, bottleneck_dim, bias=bias)
+    else:
+        layers = [nn.Linear(in_dim, hidden_dim, bias=bias)]
+        if use_bn:
+            layers.append(nn.BatchNorm1d(hidden_dim))
+        layers.append(nn.GELU())
+        for _ in range(nlayers - 2):
+            layers.append(nn.Linear(hidden_dim, hidden_dim, bias=bias))
+            if use_bn:
+                layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(nn.GELU())
+        layers.append(nn.Linear(hidden_dim, bottleneck_dim, bias=bias))
+        return nn.Sequential(*layers)
+
+================================================================================
+# FILE: models/model\layers\drop_path.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/layers/drop.py
+
+
+from torch import nn
+
+
+def drop_path(x, drop_prob: float = 0.0, training: bool = False):
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    if keep_prob > 0.0:
+        random_tensor.div_(keep_prob)
+    output = x * random_tensor
+    return output
+
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks)."""
+
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+================================================================================
+# FILE: models/model\layers\layer_scale.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# Modified from: https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/vision_transformer.py#L103-L110
+
+from typing import Union
+
+import torch
+from torch import Tensor
+from torch import nn
+
+
+class LayerScale(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        init_values: Union[float, Tensor] = 1e-5,
+        inplace: bool = False,
+    ) -> None:
+        super().__init__()
+        self.inplace = inplace
+        self.gamma = nn.Parameter(init_values * torch.ones(dim))
+
+    def forward(self, x: Tensor) -> Tensor:
+        return x.mul_(self.gamma) if self.inplace else x * self.gamma
+
+================================================================================
+# FILE: models/model\layers\mlp.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/layers/mlp.py
+
+
+from typing import Callable, Optional
+
+from torch import Tensor, nn
+
+
+class Mlp(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        act_layer: Callable[..., nn.Module] = nn.GELU,
+        drop: float = 0.0,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features, bias=bias)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features, bias=bias)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+================================================================================
+# FILE: models/model\layers\patch_embed.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+# References:
+#   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
+#   https://github.com/rwightman/pytorch-image-models/tree/master/timm/layers/patch_embed.py
+
+from typing import Callable, Optional, Tuple, Union
+
+from torch import Tensor
+import torch.nn as nn
+
+
+def make_2tuple(x):
+    if isinstance(x, tuple):
+        assert len(x) == 2
+        return x
+
+    assert isinstance(x, int)
+    return (x, x)
+
+
+class PatchEmbed(nn.Module):
+    """
+    2D image to patch embedding: (B,C,H,W) -> (B,N,D)
+
+    Args:
+        img_size: Image size.
+        patch_size: Patch token size.
+        in_chans: Number of input image channels.
+        embed_dim: Number of linear projection output channels.
+        norm_layer: Normalization layer.
+    """
+
+    def __init__(
+        self,
+        img_size: Union[int, Tuple[int, int]] = 224,
+        patch_size: Union[int, Tuple[int, int]] = 16,
+        in_chans: int = 3,
+        embed_dim: int = 768,
+        norm_layer: Optional[Callable] = None,
+        flatten_embedding: bool = True,
+    ) -> None:
+        super().__init__()
+
+        image_HW = make_2tuple(img_size)
+        patch_HW = make_2tuple(patch_size)
+        patch_grid_size = (
+            image_HW[0] // patch_HW[0],
+            image_HW[1] // patch_HW[1],
+        )
+
+        self.img_size = image_HW
+        self.patch_size = patch_HW
+        self.patches_resolution = patch_grid_size
+        self.num_patches = patch_grid_size[0] * patch_grid_size[1]
+
+        self.in_chans = in_chans
+        self.embed_dim = embed_dim
+
+        self.flatten_embedding = flatten_embedding
+
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_HW, stride=patch_HW)
+        self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
+
+    def forward(self, x: Tensor) -> Tensor:
+        _, _, H, W = x.shape
+        patch_H, patch_W = self.patch_size
+
+        assert H % patch_H == 0, f"Input image height {H} is not a multiple of patch height {patch_H}"
+        assert W % patch_W == 0, f"Input image width {W} is not a multiple of patch width: {patch_W}"
+
+        x = self.proj(x)  # B C H W
+        H, W = x.size(2), x.size(3)
+        x = x.flatten(2).transpose(1, 2)  # B HW C
+        x = self.norm(x)
+        if not self.flatten_embedding:
+            x = x.reshape(-1, H, W, self.embed_dim)  # B H W C
+        return x
+
+    def flops(self) -> float:
+        Ho, Wo = self.patches_resolution
+        flops = Ho * Wo * self.embed_dim * self.in_chans * (self.patch_size[0] * self.patch_size[1])
+        if self.norm is not None:
+            flops += Ho * Wo * self.embed_dim
+        return flops
+
+================================================================================
+# FILE: models/model\layers\swiglu_ffn.py
+================================================================================
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+import os
+from typing import Callable, Optional
+import warnings
+
+from torch import Tensor, nn
+import torch.nn.functional as F
+
+
+class SwiGLUFFN(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        act_layer: Callable[..., nn.Module] = None,
+        drop: float = 0.0,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x12 = self.w12(x)
+        x1, x2 = x12.chunk(2, dim=-1)
+        hidden = F.silu(x1) * x2
+        return self.w3(hidden)
+
+
+XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
+try:
+    if XFORMERS_ENABLED:
+        from xformers.ops import SwiGLU
+
+        XFORMERS_AVAILABLE = True
+        warnings.warn("xFormers is available (SwiGLU)")
+    else:
+        warnings.warn("xFormers is disabled (SwiGLU)")
+        raise ImportError
+except ImportError:
+    SwiGLU = SwiGLUFFN
+    XFORMERS_AVAILABLE = False
+
+    warnings.warn("xFormers is not available (SwiGLU)")
+
+
+class SwiGLUFFNFused(SwiGLU):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        act_layer: Callable[..., nn.Module] = None,
+        drop: float = 0.0,
+        bias: bool = True,
+    ) -> None:
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        hidden_features = (int(hidden_features * 2 / 3) + 7) // 8 * 8
+        super().__init__(
+            in_features=in_features,
+            hidden_features=hidden_features,
+            out_features=out_features,
+            bias=bias,
+        )
+
+================================================================================
+## METRICS (12 results)
+================================================================================
+Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
+CASAA/Run1/A1_SAA/LEVIR-CD-256 | 0.9109 | 0.9280 | 0.9919 | 0.9194 | 0.8508 | 0.9151 | 11.754 | 20.661 | 26.3183 | saa
+CASAA/Run1/A1_SAA/SYSU-CD-256 | 0.8030 | 0.8481 | 0.9196 | 0.8250 | 0.7021 | 0.7729 | 11.754 | 20.661 | 26.3183 | saa
+CASAA/Run1/A2_CASAA/LEVIR-CD-256 | 0.9099 | 0.9275 | 0.9918 | 0.9186 | 0.8494 | 0.9143 | 11.754 | 20.661 | 26.2593 | casaa
+CASAA/Run1/A2_CASAA/SYSU-CD-256 | 0.8055 | 0.8423 | 0.9186 | 0.8235 | 0.7000 | 0.7706 | 11.754 | 20.661 | 26.2593 | casaa
+CASAA/Run2/A1_SAA_FROZEN/LEVIR-CD-256 | 0.9138 | 0.9230 | 0.9917 | 0.9184 | 0.8491 | 0.9140 | 11.754 | 15.125 | 26.1484 | saa
+CASAA/Run2/A1_SAA_FROZEN/SYSU-CD-256 | 0.7840 | 0.8603 | 0.9190 | 0.8204 | 0.6955 | 0.7683 | 11.754 | 15.125 | 26.1484 | saa
+CASAA/Run2/A3_ORACLE_FROZEN/LEVIR-CD-256 | 0.9113 | 0.9265 | 0.9918 | 0.9188 | 0.8498 | 0.9145 | 11.754 | 15.125 | 26.0894 | casaa
+CASAA/Run2/A3_ORACLE_FROZEN/SYSU-CD-256 | 0.8204 | 0.8505 | 0.9236 | 0.8352 | 0.7170 | 0.7855 | 11.754 | 15.125 | 26.0894 | casaa
+baseline/Run1/CDD-CD-256 | 0.9772 | 0.9778 | 0.9944 | 0.9775 | 0.9560 | 0.9743 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/LEVIR-CD-256 | 0.9157 | 0.9233 | 0.9918 | 0.9195 | 0.8510 | 0.9152 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/SYSU-CD-256 | 0.8077 | 0.8427 | 0.9191 | 0.8248 | 0.7019 | 0.7723 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 | 11.754 | 20.661 | 26.3246 | baseline
