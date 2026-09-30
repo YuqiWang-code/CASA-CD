@@ -452,10 +452,11 @@ def main():
     parser.add_argument('--vit_depth', type=int, default=12,
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     # Run4 主线二：detail branch（resnet = 原 ResNet18；light = LightDetail 32/64/128；
-    # light48 = 预注册容量 fallback 48/96/160）
+    # light48 = 预注册容量 fallback 48/96/160；light_bnrelu = R4-2c adapter align（仅 audit 情况 A）；
+    # psd = R4-2d PSD-Detail 0.078M）
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48'],
-                        help='detail branch: resnet (original) | light | light48 (capacity fallback)')
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,

@@ -30,6 +30,7 @@ from model.layers import (
 )
 from model.resnet import resnet18
 from model.light_detail import LightDetail
+from model.psd_detail import PSDDetail
 
 
 def named_apply(fn: Callable, module: nn.Module, name="", depth_first=True, include_root=False) -> nn.Module:
@@ -438,19 +439,35 @@ class Encoder(nn.Module):
 
         self.resnet = resnet18(pretrained=resnet_pretrained) if detail_mode == 'resnet' else None
         self.drop = nn.Dropout(p=0.01)
-        if detail_mode in ('light', 'light48'):
-            # Run4 R4-2/R4-3 脚手架：LightDetail + 通道对齐 adapters，
+        if detail_mode in ('light', 'light48', 'light_bnrelu'):
+            # Run4 R4-2/R4-2c 脚手架：LightDetail + 通道对齐 adapters，
             # 输出兼容原 FeatureInjector 的 [64, 128, 256] 三尺度（不进入最终 UL 模型）。
-            widths = (32, 64, 128) if detail_mode == 'light' else (48, 96, 160)
+            # light_bnrelu = R4-2c（仅 R4-D0 audit 情况 A 允许）：adapter = Conv1×1→BN→ReLU。
+            widths = (32, 64, 128) if detail_mode in ('light', 'light_bnrelu') else (48, 96, 160)
             self.detail = LightDetail(widths=widths)
             c1, c2, c3 = widths
-            self.detail_adapters = nn.ModuleList([
-                nn.Conv2d(c1, 64, 1, bias=False),
-                nn.Conv2d(c2, 128, 1, bias=False),
-                nn.Conv2d(c3, 256, 1, bias=False),
-            ])
+            if detail_mode == 'light_bnrelu':
+                self.detail_adapters = nn.ModuleList([
+                    nn.Sequential(nn.Conv2d(c1, 64, 1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True)),
+                    nn.Sequential(nn.Conv2d(c2, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True)),
+                    nn.Sequential(nn.Conv2d(c3, 256, 1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True)),
+                ])
+            else:
+                self.detail_adapters = nn.ModuleList([
+                    nn.Conv2d(c1, 64, 1, bias=False),
+                    nn.Conv2d(c2, 128, 1, bias=False),
+                    nn.Conv2d(c3, 256, 1, bias=False),
+                ])
+        elif detail_mode == 'psd':
+            # Run4 R4-2d：PSD-Detail（pretrained stem + residual depthwise pyramid），
+            # 输出 64/128/256 与原 FI 直接兼容，不需要 adapters。
+            self.detail = PSDDetail(pretrained=resnet_pretrained)
+            self.detail_adapters = None
         else:
-            self.detail = self.resnet
+            # resnet 模式：detail 走 self.resnet（不注册 self.detail 别名——
+            # 否则 state_dict 会出现 encoder.detail.* 重复 key，导致 R4-0/R4-1
+            # checkpoint 无法 strict 加载）。
+            self.detail = None
             self.detail_adapters = None
 
 
@@ -481,12 +498,16 @@ class Encoder(nn.Module):
 
 
     def detail_capture(self, x):
-        if self.detail_mode in ('light', 'light48'):
+        if self.detail_mode in ('light', 'light48', 'light_bnrelu'):
             d2, d4, d8 = self.detail(x)
             d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
             return [self.detail_adapters[0](d2),
                     self.detail_adapters[1](d4),
                     self.detail_adapters[2](d8)]
+        if self.detail_mode == 'psd':
+            d2, d4, d8 = self.detail(x)
+            d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
+            return [d2, d4, d8]
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         x = self.resnet.relu(x)

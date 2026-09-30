@@ -108,8 +108,8 @@ def main():
     parser.add_argument('--vit_depth', type=int, default=12,
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48'],
-                        help='detail branch: resnet (original) | light | light48 (capacity fallback)')
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d)')
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])

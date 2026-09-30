@@ -36,6 +36,8 @@ from model.encoder import DinoVisionTransformer
 from model.layers import MemEffAttention, CASAAAttention, rank_normalize_per_image
 from model.layers.block import NestedTensorBlock as Block
 from model.utils import BCEDiceLoss
+from model.psd_detail import PSDDetail
+from model.resnet import resnet18
 
 CASAA_LAYERS = [8, 9, 10, 11]
 CASAA_KEEP = 0.25
@@ -426,6 +428,10 @@ def t_run4_light(pretrained_path, device, detail_mode='light'):
     if detail_mode == 'light':
         assert n_detail == 37024, n_detail
         assert n_adapt == 43008, n_adapt
+    elif detail_mode == 'light_bnrelu':
+        # R4-2c：Conv1×1→BN→ReLU adapters（conv 43,008 + BN 896）
+        assert n_detail == 37024, n_detail
+        assert n_adapt == 43904, n_adapt
     else:
         assert n_detail == 64528, n_detail
         assert n_adapt == 56320, n_adapt
@@ -459,6 +465,86 @@ def t_run4_light(pretrained_path, device, detail_mode='light'):
     except Exception as e:
         print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
     del model
+
+
+def t_run4_psd(pretrained_path, device, vit_depth=4):
+    """R4-2d smoke（决策文档 §29 T-PSD0..T-PSD5）：PSD-Detail 全链路。"""
+    print("[RUN4-PSD] VIT4 + PSD-Detail + old FI/decoder smoke")
+
+    # T-PSD0：pretrained stem —— conv1/bn1 与 ImageNet ResNet18 逐位一致
+    psd_ref = PSDDetail(pretrained=True).cpu()
+    ref = resnet18(pretrained=True).cpu()
+    d_conv = (psd_ref.stem_conv.weight.data - ref.conv1.weight.data).abs().max().item()
+    assert d_conv == 0.0, f"stem conv not loaded in place (diff {d_conv})"
+    for k in ref.bn1.state_dict():
+        assert torch.equal(psd_ref.stem_bn.state_dict()[k], ref.bn1.state_dict()[k]), f"stem bn {k} mismatch"
+    print(f"  T-PSD0 pretrained stem OK (conv max_abs_diff == 0; bn affine + running stats == source)")
+    del ref
+
+    # T-PSD1：输出形状（B×64×128×128 / B×128×64×64 / B×256×32×32）
+    x = torch.randn(2, 3, 256, 256)
+    with torch.no_grad():
+        d2, d4, d8 = psd_ref(x)
+    assert [tuple(t.shape) for t in (d2, d4, d8)] == [(2, 64, 128, 128), (2, 128, 64, 64), (2, 256, 32, 32)], \
+        [tuple(t.shape) for t in (d2, d4, d8)]
+    # T-PSD2：参数 == 78,464
+    n_psd = sum(p.numel() for p in psd_ref.parameters())
+    assert n_psd == 78464, n_psd
+    print(f"  T-PSD1 shapes OK; T-PSD2 params = {n_psd}")
+
+    # T-PSD3：完整 Trainer（psd 模式）state dict 无 layer1-4/fc（无隐藏 ResNet）
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=True,
+                    mode="baseline", vit_depth=vit_depth, detail_mode="psd").float().to(device).eval()
+    bad = [k for k in model.state_dict() if "encoder.resnet" in k
+           or any(s in k for s in ("layer1", "layer2", "layer3", "layer4", ".fc."))]
+    assert not bad, f"hidden resnet keys: {bad[:3]}"
+    assert len(model.encoder.vit.blocks) == vit_depth
+    with torch.no_grad():
+        c = model.encoder.detail_capture(torch.randn(2, 3, 256, 256, device=device))
+    assert [tuple(t.shape) for t in c] == [(2, 64, 128, 128), (2, 128, 64, 64), (2, 256, 32, 32)], \
+        [tuple(t.shape) for t in c]
+    print(f"  T-PSD3 no hidden ResNet; blocks={vit_depth}; detail_capture shapes OK")
+
+    # T-PSD4 + T-PSD5：3-step 训练，梯度路径 + 冻结 ViT checksum
+    for n, p in model.named_parameters():
+        if n.startswith("encoder.vit"):
+            p.requires_grad_(False)
+    vit_before = {k: v.detach().clone() for k, v in model.encoder.vit.state_dict().items()}
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if not n.startswith("encoder.vit")], 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post)
+        assert out.shape == (2, 1, 256, 256)
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item()))
+    g_stem = model.encoder.detail.stem_conv.weight.grad
+    g_rds = model.encoder.detail.d2_refine.dw.weight.grad
+    g_mix = model.encoder.detail.down8.pw.weight.grad
+    g_dec = model.decoder.classfier[0].weight.grad
+    for name, g in (("stem", g_stem), ("RDS", g_rds), ("MixDown", g_mix), ("decoder", g_dec)):
+        assert g is not None and torch.isfinite(g).all() and g.norm() > 0, f"{name} grad broken"
+    g_vit = model.encoder.vit.patch_embed.proj.weight.grad
+    assert g_vit is None, "frozen ViT must have no grad"
+    worst = 0.0
+    for k, v in model.encoder.vit.state_dict().items():
+        worst = max(worst, (v.detach() - vit_before[k]).abs().max().item())
+    assert worst == 0.0, f"frozen ViT changed after training steps (diff {worst})"
+    print(f"  T-PSD4 grads OK (stem/RDS/MixDown/decoder; ViT grad None); T-PSD5 frozen ViT checksum max_abs_change == 0")
+
+    total = measure_params(model)
+    print(f"  total params = {total / 1e6:.4f} M (R4-2d 仍含原 FI/decoder，>3M 属预期)")
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del psd_ref, model
 
 
 def full_smoke(pretrained_path, mode, device):
@@ -499,8 +585,8 @@ def main():
     parser.add_argument('--gpu_id', type=int, default=0)
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
-                                 'run4', 'run4_light', 'run4_light48'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48')
+                                 'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -534,6 +620,10 @@ def main():
         t_run4_light(args.pretrained_weight_path, device)
     if args.mode in ("run4_light48", "all"):
         t_run4_light(args.pretrained_weight_path, device, detail_mode='light48')
+    if args.mode in ("run4_light_bnrelu", "all"):
+        t_run4_light(args.pretrained_weight_path, device, detail_mode='light_bnrelu')
+    if args.mode in ("run4_psd", "all"):
+        t_run4_psd(args.pretrained_weight_path, device, vit_depth=4)
 
     print("[SMOKE] ALL OK")
 

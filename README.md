@@ -52,12 +52,16 @@ binary change detection in remote sensing images.
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
   - **Ultra-Light Multi-Scale Change Representation（主线二，Run4 进行中）**：
     目标 `<3M` 有效推理参数（工程目标 ≤2.20M）：TinyViT4-192（DeiT 前 4 block 原位继承，
-    1.98M）+ LightDetail（32/64/128 DSConv，0.037M）+ SABI（scale-aligned bottleneck
+    1.98M）+ 轻量 detail（PSD-Detail 0.078M）+ SABI（scale-aligned bottleneck
     cross-attention，0.035M）+ DFPD（difference-first pyramid decoder，0.065M）。
-    逐组件单变量推进：R4-0（健康 full12 frozen 参考）→ R4-1（depth-4，gate 通过
-    ΔF1 −0.37）→ R4-2/2b（LightDetail 32/64/128 与 48/96/160，gate 未过 ΔF1 −0.47/−0.45，
-    处于决策分叉）。方案见
-    [`docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md`](docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md)。
+    逐组件单变量推进：R4-0（健康 full12 frozen 参考 83.14）→ R4-1（depth-4，gate 通过
+    ΔF1 −0.37）→ R4-2/2b（LightDetail 32/64/128 与 48/96/160，gate 未过
+    ΔF1 −0.47/−0.45）→ R4-D0 无训练 audit（判定 C）→ R4-2d PSD_DETAIL
+    （82.02，gate 未过）→ **按 Stop-3 轻量 detail 路线终止，Run4 收束，下一步
+    Run5 需重新预注册**。决策依据见
+    [`docs/temporary/CASA-CD_Run4_R4-2失败后_下一步决策与PSD-Detail方案.md`](docs/temporary/CASA-CD_Run4_R4-2失败后_下一步决策与PSD-Detail方案.md)、
+    [`docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md`](docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md) 与
+    [`docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md`](docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -177,13 +181,28 @@ binary change detection in remote sensing images.
 | R4-1 VIT4_OLDHEAD | depth 12→4 | 82.77 | 70.61 | 8.195M | 24.10G | **通过**（ΔF1 −0.37 ≥ −0.50） |
 | R4-2 VIT4_LIGHTDETAIL | ResNet→LightDetail 32/64/128 | 82.30 | 69.92 | 5.492M | **10.73G** | 未过（ΔF1 −0.47 > −0.30） |
 | R4-2b LIGHTDETAIL48 | 预注册容量 fallback 48/96/160 | 82.32 | 69.95 | 5.533M | 10.98G | 未过（ΔF1 −0.45） |
+| R4-D0 DETAIL_AUDIT | 无训练 feature interface audit | — | — | — | — | 判定 **C** → 跳过 adapter，走 PSD |
+| R4-2d PSD_DETAIL | PSD-Detail 0.078M（pretrained stem + residual DS） | 82.02 | 69.52 | 5.491M | 11.52G | **未过**（ΔF1 −0.75 > −0.30）→ Stop-3 |
 
 - 关键事实：4-block 冻结 prefix（82.77）已超过 trained baseline（82.48）与全部
   CASAA 冻结模型；corrected loader 的健康 full12 参考 = **83.14**（新基线）。
-- **当前决策分叉**：LightDetail 两次未过 gate 且容量 bump 无效（+0.02 噪声内）——
-  0.037–0.065M detail 分支在旧 FI+decoder 下稳定差 ResNet 约 0.45 F1（省 2.7M 参数、
-  55% FLOPs 的代价）。预注册 fallback 已耗尽，下一步三选一：继续 R4-3（SABI）/
-  诊断性小修（未预注册）/ 带结果问 GPT 重新分配预算。
+- **R4-D0 审计结论（2026-09-30）**：用 R4-1/R4-2/R4-2b best checkpoint 在完整 SYSU
+  test 上对比三尺度 detail feature 的变化判别能力（PR-AUC/Spearman/Top32）——
+  浅层 1/2 尺度 Light raw ≥ ResNet（0.555 vs 0.547），但 1/4、1/8 深层 raw 崩坏
+  （PR-AUC 0.32 量级 vs ResNet 0.63/0.65，仅略高于随机基率）；adapter 前后变化
+  ≤0.03、width bump 远不足以弥补 → **不是 adapter 问题，是随机初始化 + 无 residual +
+  先 DW 降采样后混合的表达力问题**。预注册规则 A=0/3、B=1/3 → 判定 C →
+  按规则直接进入 R4-2d PSD_DETAIL（adapter 修补 R4-2c 永久停止）。详见
+  [`docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md`](docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md)。
+- **R4-2d PSD 最终结果（2026-09-30）**：F1 **82.02** / IoU 69.52（Recall 79.78 /
+  Precision 84.39 / OA 91.75 / Kappa 76.68；5.491M / 11.52G），gate FAIL
+  （ΔF1 −0.75 vs R4-1）——PSD 反而比随机初始化 LightDetail 低 0.28。训练证据排除
+  欠训练（best@epoch64，末段无上升趋势）。**按预注册 Stop-3 终止轻量 detail 路线
+  （不启动 SABI/DFPD），Run4 正式收束**；Run5 候选方向（预算重分配 / 成熟超轻
+  pretrained 子层 / 去掉独立 detail 分支）需重新预注册。详见
+  [`docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md`](docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md)。
+- Run4 留存正面资产：健康 full12 frozen 参考 83.14、depth-4 证据（12→4 block 仅
+  −0.37 F1、−3.56M 参数）、R4-D0 无训练 feature 诊断方法（可复用于 Run5 筛选）。
 
 ## 参考文献
 
@@ -207,6 +226,7 @@ models/                        # 全部代码（ChangeViT 上游 + 本仓库改�
   model/                       #   encoder / decoder / trainer / layers / resnet
   model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
   model/light_detail.py        #   Run4 LightDetail（32/64/128 与 48/96/160 DSConv）
+  model/psd_detail.py          #   Run4 PSD-Detail（pretrained stem + residual DS pyramid，0.078M）
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
   baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集 + 串行队列）
@@ -218,6 +238,7 @@ analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
   casaa_router_diagnostic.py   #   Router Audit（V/D/F 三路 score 对齐 GT）
+  run4_detail_interface_audit.py  #  R4-D0：ResNet vs Light raw/adapted 三尺度对齐 GT
   param_breakdown.py           #   Run4 U1：组件级参数预算
   vit_pretrain_audit.py        #   Run4 U2：corrected DeiT loader 原位继承审计
 others/                        # 参考实现（非本仓库模型代码）
