@@ -20,8 +20,13 @@ router 模式：
     change score = 1 - cos(x1_i, x2_i)（参数自由、T1/T2 对称）。
   - 'content' (SAA-style 对照, A1)：Kc=0，全部 token 按共享内容聚类成 K 个原型。
   - 'oracle'  (A3, 仅诊断)：change score 直接用 GT patch occupancy
-    （Encoder 从 label 计算后以 score_hint 传入）。用于把「机制问题」与
-    「scorer 问题」拆开——DIAGNOSTIC-ONLY，不可部署，绝不作方法结果。
+    （Encoder 从 label 计算后以 score_hint 传入）。DIAGNOSTIC-ONLY，不可部署。
+  - 'detail'  (A4-D)：change score 直接用 rank 归一化的 detail 1/8 cosine
+    （Encoder 计算后经 score_hint 传入；可部署，零新增参数）。
+  - 'detail_fused' (A4, CASAA-v2)：s = 0.5*rank(s_v) + 0.5*rank(s_d)，
+    s_v=ViT 双时相 cosine，s_d=已有 detail branch 1/8（layer3, 32×32→pool→16×16）
+    的双时相 cosine（Encoder 计算并 rank 归一化后经 score_hint 传入）。
+    零新增参数、零新 loss。
 
 设计要点：
   - 切片 qkv 投影：对 full X 只算 Q，对压缩上下文只算 K/V（权重仍为原 fused
@@ -49,6 +54,22 @@ def change_score_cosine(x1, x2):
     x1_n = F.normalize(x1, dim=-1)
     x2_n = F.normalize(x2, dim=-1)
     return 1.0 - (x1_n * x2_n).sum(dim=-1)
+
+
+@torch.no_grad()
+def rank_normalize_per_image(s):
+    """每张图内的 ordinal rank 归一化（stable sort）：最低 score → 0，最高 → 1。
+
+    用于把不同 feature space 的 change score（ViT cosine / detail cosine）
+    拉到同一尺度后做无参数融合。只用于 routing，禁止进入梯度图。
+    """
+    B, N = s.shape
+    order = torch.argsort(s, dim=-1, stable=True)   # 升序
+    rank = torch.empty_like(order, dtype=s.dtype)
+    base = torch.arange(N, device=s.device, dtype=s.dtype)
+    base = base.unsqueeze(0).expand(B, -1)
+    rank.scatter_(1, order, base)
+    return rank / max(N - 1, 1)
 
 
 def deterministic_stratified_subindex(M, K, S, device):
@@ -186,7 +207,8 @@ class CASAAAttention(Attention):
                  norm_preserve=True):
         super().__init__(dim, num_heads=num_heads, qkv_bias=qkv_bias,
                          proj_bias=proj_bias, attn_drop=attn_drop, proj_drop=proj_drop)
-        assert router in ('change', 'content', 'oracle'), f"unknown router {router}"
+        assert router in ('change', 'content', 'oracle', 'detail', 'detail_fused'), \
+            f"unknown router {router}"
         self.dim = dim
         self.keep_ratio = keep_ratio
         self.change_share = change_share
@@ -217,11 +239,24 @@ class CASAAAttention(Attention):
     # 变化 score 接口
     # ------------------------------------------------------------------
     def _change_score(self, x1, x2, score_hint):
+        """返回 (s, extras)。extras 为诊断用分量（仅 detail_fused 非空）。"""
         if self.router == 'oracle':
             # DIAGNOSTIC-ONLY：score 来自 GT patch occupancy（Encoder 传入）
             assert score_hint is not None, "oracle router requires the GT score_hint"
-            return score_hint
-        return change_score_cosine(x1, x2)
+            return score_hint, {}
+        if self.router == 'detail':
+            # A4-D：score = rank 归一化的 detail 1/8 cosine（可部署）
+            assert score_hint is not None, "detail router requires the detail score_hint"
+            return score_hint, {}
+        if self.router == 'detail_fused':
+            # A4：0.5*rank(ViT cosine) + 0.5*rank(detail 1/8 cosine)
+            # score_hint 已由 Encoder 计算为 rank-normalized detail score
+            assert score_hint is not None, "detail_fused router requires the detail score_hint"
+            s_v = change_score_cosine(x1, x2)
+            r_v = rank_normalize_per_image(s_v)
+            s = 0.5 * r_v + 0.5 * score_hint
+            return s, {"s_v_raw": s_v, "s_v_rank": r_v, "s_d_rank": score_hint}
+        return change_score_cosine(x1, x2), {}
 
     # ------------------------------------------------------------------
     # 路由与上下文构造
@@ -236,14 +271,14 @@ class CASAAAttention(Attention):
         # 显式转 int：JIT 追踪下 shape 是符号量，Python 侧整数运算需要真 int
         B, N, C = int(B), int(N), int(C)
         K = max(int(round(self.keep_ratio * N)), 1)
-        if self.router in ('change', 'oracle'):
+        if self.router in ('change', 'oracle', 'detail', 'detail_fused'):
             Kc = min(int(round(self.change_share * K)), K)
         else:
             Kc = 0
         Kb = K - Kc
 
         with torch.no_grad():
-            s = self._change_score(x1, x2, score_hint)   # (B, N)
+            s, extras = self._change_score(x1, x2, score_hint)   # (B, N)
             if Kc > 0:
                 Ic = torch.topk(s, Kc, dim=-1).indices   # (B, Kc) 疑似变化位置
                 # int scatter（fvcore tracer 不支持 bool scalar 的 scatter_.value）
@@ -292,7 +327,8 @@ class CASAAAttention(Attention):
                          "s": s, "Ic": Ic, "assign": assign,
                          "cluster_size": cluster_size,
                          "c_norm_mean": c_norm_mean, "bg_norm_mean": bg_norm_mean,
-                         "attn_mass_change": None, "attn_mass_bg": None}
+                         "attn_mass_change": None, "attn_mass_bg": None,
+                         **{k: v for k, v in extras.items()}}
         return C1, C2
 
     def forward_pair(self, x1, x2, score_hint=None):
@@ -435,6 +471,31 @@ if __name__ == "__main__":
     except AssertionError:
         pass
     print("  oracle score == hint, TopK correct, swap-invariant, requires hint")
+
+    print("== Detail-fused router (A4) ==")
+    attn_d = CASAAAttention(dim=C, num_heads=H, qkv_bias=True, router='detail_fused')
+    hint = rank_normalize_per_image(torch.rand(B, N))
+    with torch.no_grad():
+        _, _ = attn_d.forward_pair(x1, x2, score_hint=hint)
+    rd1 = attn_d._routing
+    sv_ref = change_score_cosine(x1.detach(), x2.detach())
+    rv_ref = rank_normalize_per_image(sv_ref)
+    assert torch.allclose(rd1["s"], 0.5 * rv_ref + 0.5 * hint), "fused score wrong"
+    assert torch.equal(rd1["s_v_raw"], sv_ref) and torch.equal(rd1["s_d_rank"], hint)
+    assert (rd1["K"], rd1["Kc"], rd1["Kb"]) == (64, 32, 32)
+    s_rand = torch.rand(4, 256)
+    r_rand = rank_normalize_per_image(s_rand)
+    assert r_rand.shape == (4, 256)
+    assert r_rand.min().item() == 0.0 and r_rand.max().item() == 1.0
+    assert torch.equal(r_rand, rank_normalize_per_image(s_rand)), "rank must be deterministic"
+    # 单调性：升序位置的 rank 也升序
+    assert (torch.diff(r_rand[0][torch.argsort(s_rand[0])]) >= 0).all()
+    try:
+        attn_d.forward_pair(x1, x2)   # 无 hint 必须报错
+        raise AssertionError("detail_fused without hint should raise")
+    except AssertionError:
+        pass
+    print("  fused=0.5R(sv)+0.5R(sd) OK; rank norm [0,1] deterministic & monotonic")
 
     print("== single-phase forward (pretrained-path regression) ==")
     y = attn(x1)

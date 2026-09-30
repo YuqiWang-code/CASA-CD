@@ -25,9 +25,11 @@ from model.layers import (
     SwiGLUFFNFused,
     MemEffAttention,
     CASAAAttention,
+    rank_normalize_per_image,
     NestedTensorBlock as Block,
 )
 from model.resnet import resnet18
+from model.light_detail import LightDetail
 
 
 def named_apply(fn: Callable, module: nn.Module, name="", depth_first=True, include_root=False) -> nn.Module:
@@ -365,9 +367,11 @@ def init_weights_vit_timm(module: nn.Module, name: str = ""):
 class Encoder(nn.Module):
     def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
                  mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
-                 casaa_change_share=0.5, casaa_router='change'):
+                 casaa_change_share=0.5, casaa_router='change', vit_depth=12,
+                 detail_mode='resnet'):
         super().__init__()
         self.mode = mode
+        self.detail_mode = detail_mode
         if mode in ('casaa', 'saa'):
             if casaa_layers is None:
                 casaa_layers = [8, 9, 10, 11]
@@ -380,13 +384,14 @@ class Encoder(nn.Module):
         self.casaa_keep_ratio = casaa_keep_ratio
         self.casaa_change_share = casaa_change_share
         self.casaa_router = router
+        self.vit_depth = vit_depth
 
         if model_type == 'tiny':
             self.vit = DinoVisionTransformer(
                 img_size=256,
                 patch_size=16,
                 embed_dim=192,
-                depth=12,
+                depth=vit_depth,
                 num_heads=6,
                 mlp_ratio=4,
                 block_fn=partial(Block, attn_class=MemEffAttention),
@@ -420,20 +425,68 @@ class Encoder(nn.Module):
         else:
             assert False, r'Encoder: check the vit model type'
 
-        state_dict = torch.load(pretrained_path, map_location='cpu')['model'] \
-            if model_type == 'tiny' else torch.load(pretrained_path, map_location='cpu')
-
-        for k in ['pos_embed', 'patch_embed.proj.weight']:
-            del state_dict[k]
-        msg = self.vit.load_state_dict(state_dict, strict=False)
+        if model_type == 'tiny':
+            state_dict = torch.load(pretrained_path, map_location='cpu')['model']
+            msg = self._load_pretrained_deit(state_dict, vit_depth)
+        else:
+            state_dict = torch.load(pretrained_path, map_location='cpu')
+            for k in ['pos_embed', 'patch_embed.proj.weight']:
+                del state_dict[k]
+            msg = self.vit.load_state_dict(state_dict, strict=False)
         print(' missing_keys:{},\n unexpected_keys:{}'.format(msg.missing_keys, msg.unexpected_keys))
         print('model_type: {},\n checkpoint_path: {}'.format(model_type, pretrained_path))
 
-        self.resnet = resnet18(pretrained=resnet_pretrained)
+        self.resnet = resnet18(pretrained=resnet_pretrained) if detail_mode == 'resnet' else None
         self.drop = nn.Dropout(p=0.01)
+        if detail_mode in ('light', 'light48'):
+            # Run4 R4-2/R4-3 脚手架：LightDetail + 通道对齐 adapters，
+            # 输出兼容原 FeatureInjector 的 [64, 128, 256] 三尺度（不进入最终 UL 模型）。
+            widths = (32, 64, 128) if detail_mode == 'light' else (48, 96, 160)
+            self.detail = LightDetail(widths=widths)
+            c1, c2, c3 = widths
+            self.detail_adapters = nn.ModuleList([
+                nn.Conv2d(c1, 64, 1, bias=False),
+                nn.Conv2d(c2, 128, 1, bias=False),
+                nn.Conv2d(c3, 256, 1, bias=False),
+            ])
+        else:
+            self.detail = self.resnet
+            self.detail_adapters = None
+
+
+    def _load_pretrained_deit(self, state_dict, vit_depth):
+        """Run4 corrected DeiT pretrain load（决策文档 §3）：
+
+        - patch_embed.proj.weight/bias、norm、blocks.0..vit_depth-1：原位继承（不再删除）；
+        - pos_embed：DeiT-224 的 14×14 网格（去 cls/dist token）bicubic 插值到 16×16；
+        - 其余 key（cls_token/head/更深 block）记入 unexpected，不进入模型。
+        """
+        pe = state_dict.pop('pos_embed')                 # (1, 1+196, C) DeiT-Tiny
+        n_total = pe.shape[1]
+        n_extra = n_total - 196                          # 1（cls）或 2（cls+dist）
+        assert n_extra in (1, 2), f"unexpected DeiT pos_embed length {n_total}"
+        pe_grid = pe[:, n_extra:]                        # (1, 196, C)
+        side = int(math.sqrt(196))
+        pe_map = pe_grid.reshape(1, side, side, -1).permute(0, 3, 1, 2)
+        pe_new = F.interpolate(pe_map.float(), size=(16, 16), mode='bicubic', align_corners=False)
+        state_dict['pos_embed'] = pe_new.permute(0, 2, 3, 1).reshape(1, 256, -1).to(pe.dtype)
+        msg = self.vit.load_state_dict(state_dict, strict=False)
+        # 原位继承验收：depth 内的 block 权重必须逐位等于源权重（不报 missing/unexpected）
+        for i in range(vit_depth):
+            for k in ('norm1.weight', 'attn.qkv.weight'):
+                full = f'blocks.{i}.{k}'
+                assert full not in msg.missing_keys and full not in msg.unexpected_keys, \
+                    f"pretrained block {full} not loaded in place"
+        return msg
 
 
     def detail_capture(self, x):
+        if self.detail_mode in ('light', 'light48'):
+            d2, d4, d8 = self.detail(x)
+            d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
+            return [self.detail_adapters[0](d2),
+                    self.detail_adapters[1](d4),
+                    self.detail_adapters[2](d8)]
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         x = self.resnet.relu(x)
@@ -455,13 +508,37 @@ class Encoder(nn.Module):
         return g.view(label.shape[0], -1)
 
 
+    @torch.no_grad()
+    def detail_score_1_8(self, d1, d2):
+        """1/8 detail change score（CASAA-v2 A4，参数自由，仅用于 routing）。
+
+        d1, d2: (B, C, 32, 32) —— detail_capture 的 layer3 输出（1/8 尺度）。
+        流程：AvgPool2d(2) → 16×16 网格（与 ViT token 对齐）→ 逐位置双时相
+        cosine 距离 → 每图 rank 归一化到 [0,1]。不进入梯度图。
+        """
+        d1 = F.avg_pool2d(d1.detach(), kernel_size=2, stride=2)   # (B, C, 16, 16)
+        d2 = F.avg_pool2d(d2.detach(), kernel_size=2, stride=2)
+        d1 = d1.flatten(2).transpose(1, 2)                        # (B, 256, C)
+        d2 = d2.flatten(2).transpose(1, 2)
+        sd = 1.0 - F.cosine_similarity(d1, d2, dim=-1, eps=1e-8)  # (B, 256)
+        return rank_normalize_per_image(sd)
+
+
     def forward(self, x, y, label=None):
+        detail_pre = None
         if self.casaa_layers:
             score_hint = None
             if self.casaa_router == 'oracle':
                 # DIAGNOSTIC-ONLY：GT patch occupancy 作为变化 score 上界
                 assert label is not None, "oracle router requires the GT label"
                 score_hint = self.label_to_occupancy(label)
+            elif self.casaa_router in ('detail', 'detail_fused'):
+                # A4 / A4-D：detail branch 提前、且只前向一次（c_x/c_y 复用于 decoder）
+                c_x_pre = self.detail_capture(x)
+                c_y_pre = self.detail_capture(y)
+                detail_pre = (c_x_pre, c_y_pre)
+                # c_x_pre[2] = resnet.layer3 输出 = 1/8 尺度 (B,256,32,32)
+                score_hint = self.detail_score_1_8(c_x_pre[2], c_y_pre[2])
             v_x, v_y = self.vit.forward_pair(x, y, score_hint=score_hint)
         else:
             v_x = self.vit(x)
@@ -470,7 +547,10 @@ class Encoder(nn.Module):
         v_x = rearrange(v_x, 'b (h w) c -> b c h w', h=16, w=16)
         v_y = rearrange(v_y, 'b (h w) c -> b c h w', h=16, w=16)
 
-        c_x = self.detail_capture(x)
-        c_y = self.detail_capture(y)
+        if detail_pre is not None:
+            c_x, c_y = detail_pre
+        else:
+            c_x = self.detail_capture(x)
+            c_y = self.detail_capture(y)
 
         return c_x + [v_x], c_y + [v_y]

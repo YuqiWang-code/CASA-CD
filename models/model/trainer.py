@@ -10,7 +10,8 @@ from model.utils import weight_init
 class Trainer(nn.Module):
     def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
                  mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
-                 casaa_change_share=0.5, casaa_router='change'):
+                 casaa_change_share=0.5, casaa_router='change', vit_depth=12,
+                 detail_mode='resnet'):
         super().__init__()
         if model_type == 'tiny':
             embed_dim = 192
@@ -25,7 +26,9 @@ class Trainer(nn.Module):
                                mode=mode, casaa_layers=casaa_layers,
                                casaa_keep_ratio=casaa_keep_ratio,
                                casaa_change_share=casaa_change_share,
-                               casaa_router=casaa_router)
+                               casaa_router=casaa_router,
+                               vit_depth=vit_depth,
+                               detail_mode=detail_mode)
 
         self.decoder = Decoder(in_dim=[64, 128, 256, embed_dim])
         weight_init(self.decoder)

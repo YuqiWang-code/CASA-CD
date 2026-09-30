@@ -33,7 +33,7 @@ if _MODELS_ROOT not in sys.path:
 
 from model.trainer import Trainer
 from model.encoder import DinoVisionTransformer
-from model.layers import MemEffAttention, CASAAAttention
+from model.layers import MemEffAttention, CASAAAttention, rank_normalize_per_image
 from model.layers.block import NestedTensorBlock as Block
 from model.utils import BCEDiceLoss
 
@@ -68,16 +68,21 @@ def measure_flops(model, size=256):
     return sum(counts.values()), len(unsupported)
 
 
-def build_trainer(pretrained_path, mode, device, router=None):
+def build_trainer(pretrained_path, mode, device, router=None, vit_depth=12):
     if mode == "oracle":
         trainer_mode, router = "casaa", "oracle"
+    elif mode == "detail":
+        trainer_mode, router = "casaa", "detail"
+    elif mode == "detail_fused":
+        trainer_mode, router = "casaa", "detail_fused"
     else:
         trainer_mode = mode
         if router is None:
             router = "content" if mode == "saa" else "change"
     return Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
                    mode=trainer_mode, casaa_layers=CASAA_LAYERS, casaa_keep_ratio=CASAA_KEEP,
-                   casaa_change_share=CASAA_SHARE, casaa_router=router).float().to(device)
+                   casaa_change_share=CASAA_SHARE, casaa_router=router,
+                   vit_depth=vit_depth).float().to(device)
 
 
 def build_vit(casaa_layers):
@@ -267,6 +272,195 @@ def t5_oracle_router(pretrained_path, device):
     del model
 
 
+def t6_detail_router(pretrained_path, device):
+    """A4 smoke（决策文档 §12 T6-T10）：detail 1/8 形状、rank 归一化、
+    fused score、梯度图、参数一致。"""
+    print("[T6] detail-fused router: shapes / fused score / rank norm / swap / grads / params")
+    model = build_trainer(pretrained_path, "detail_fused", device).eval()
+    enc = model.encoder
+    x1 = torch.randn(2, 3, 256, 256, device=device)
+    x2 = torch.randn(2, 3, 256, 256, device=device)
+
+    # T6: detail shape alignment（layer3 = 1/8 = 32×32×256）
+    with torch.no_grad():
+        c1 = enc.detail_capture(x1)
+        c2 = enc.detail_capture(x2)
+    assert c1[0].shape == (2, 64, 128, 128) and c1[1].shape == (2, 128, 64, 64) \
+        and c1[2].shape == (2, 256, 32, 32), f"detail shapes {[tuple(t.shape) for t in c1]}"
+    with torch.no_grad():
+        sd = enc.detail_score_1_8(c1[2], c2[2])
+    assert sd.shape == (2, 256), sd.shape
+    assert sd.min().item() >= 0.0 and sd.max().item() <= 1.0
+
+    # T7: rank normalization
+    s_rand = torch.rand(4, 256, device=device)
+    r_rand = rank_normalize_per_image(s_rand)
+    assert r_rand.shape == (4, 256)
+    assert r_rand.min().item() == 0.0 and r_rand.max().item() == 1.0
+    assert torch.equal(r_rand, rank_normalize_per_image(s_rand))
+
+    # 完整前向：fused score == 0.5*R(sv)+0.5*rd，routing 分量被记录
+    with torch.no_grad():
+        out = model(x1, x2)
+    assert out.shape == (2, 1, 256, 256)
+    vit = enc.vit
+    r = vit.blocks[8].attn._routing
+    assert (r["N"], r["K"], r["Kc"], r["Kb"]) == (256, 64, 32, 32)
+    assert "s_v_raw" in r and "s_v_rank" in r and "s_d_rank" in r
+    assert torch.allclose(r["s"], 0.5 * r["s_v_rank"] + 0.5 * r["s_d_rank"], atol=1e-6)
+    assert r["s"].requires_grad is False and r["s"].grad_fn is None   # T9: routing no-grad
+
+    # T8: swap symmetry（detail cosine 与 fused score 对 T1/T2 交换对称）
+    with torch.no_grad():
+        _ = vit.forward_pair(x2, x1, score_hint=enc.detail_score_1_8(c2[2], c1[2]))
+        r_sw = vit.blocks[8].attn._routing
+        _ = vit.forward_pair(x1, x2, score_hint=sd)
+        r_ab = vit.blocks[8].attn._routing
+    assert torch.allclose(r_ab["s"], r_sw["s"], atol=1e-6)
+    assert torch.equal(r_ab["Ic"], r_sw["Ic"])
+
+    # T9: 梯度图——detail branch / decoder 正常反传
+    model = build_trainer(pretrained_path, "detail_fused", device).train()
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    out = model(x1, x2)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    g_layer3 = model.encoder.resnet.layer3[1].conv2.weight.grad
+    g_dec = model.decoder.classfier[0].weight.grad
+    assert g_layer3 is not None and torch.isfinite(g_layer3).all() and g_layer3.norm() > 0
+    assert g_dec is not None and torch.isfinite(g_dec).all() and g_dec.norm() > 0
+    print("  T6 shapes OK; T7 rank OK; T8 swap OK; T9 router no-grad + branch grads OK")
+    del model
+
+    # A4-D（detail-only router）：score 必须等于 rank 归一化的 detail hint
+    model = build_trainer(pretrained_path, "detail", device).eval()
+    enc = model.encoder
+    with torch.no_grad():
+        out = model(x1, x2)
+    r = enc.vit.blocks[8].attn._routing
+    assert (r["K"], r["Kc"], r["Kb"]) == (64, 32, 32)
+    with torch.no_grad():
+        c1 = enc.detail_capture(x1)
+        c2 = enc.detail_capture(x2)
+        sd_ref = enc.detail_score_1_8(c1[2], c2[2])
+    assert torch.equal(r["s"], sd_ref), "detail router must use the rank-normalized detail score"
+    assert r["s"].requires_grad is False
+    print("  A4-D detail-only router OK (s == rank-normalized detail hint)")
+    del model
+
+    # T10: 参数一致性（A1 vs A4 零新增参数，state_dict key 完全一致）
+    m_a1 = build_trainer(pretrained_path, "saa", device)
+    m_a4 = build_trainer(pretrained_path, "detail_fused", device)
+    n1 = sum(p.numel() for p in m_a1.parameters())
+    n4 = sum(p.numel() for p in m_a4.parameters())
+    assert n1 == n4, f"param mismatch {n1} vs {n4}"
+    assert set(m_a1.state_dict().keys()) == set(m_a4.state_dict().keys())
+    print(f"  T10 parameter parity OK ({n1 / 1e6:.3f} M, identical keys)")
+    del m_a1, m_a4
+
+
+def t_run4(pretrained_path, device, vit_depth=4):
+    """Run4 smoke（决策文档 §33 T0/T1/T3）：corrected DeiT load + depth 截断。"""
+    print(f"[RUN4] TinyViT-{vit_depth} smoke: exact pretrain load / depth / params / 3-step")
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    model = build_trainer(pretrained_path, "baseline", device, vit_depth=vit_depth).eval()
+    vit = model.encoder.vit
+
+    # T1: depth 截断——blocks 深度之外完全不存在
+    assert len(vit.blocks) == vit_depth, f"blocks={len(vit.blocks)} != {vit_depth}"
+    resid = [k for k in model.state_dict()
+             if any(k.startswith(f"encoder.vit.blocks.{j}.") for j in range(vit_depth, 12))]
+    assert not resid, f"leftover deeper blocks: {resid[:3]}"
+    # T0: 原位继承 max_abs_diff == 0
+    model_sd = vit.state_dict()
+    worst = 0.0
+    for i in range(vit_depth):
+        for k in ("norm1.weight", "attn.qkv.weight", "mlp.fc1.weight"):
+            worst = max(worst, (sd[f"blocks.{i}.{k}"].float() - model_sd[f"blocks.{i}.{k}"].float().cpu()).abs().max().item())
+    assert worst == 0.0, f"pretrained blocks not loaded in place (diff {worst})"
+    assert tuple(model_sd["pos_embed"].shape) == (1, 256, 192)
+    print(f"  exact-load OK (worst={worst:.2e}); blocks={vit_depth}; pos_embed (1,256,192)")
+
+    # T3: 参数预算
+    total = measure_params(model)
+    vit_params = sum(p.numel() for p in vit.parameters())
+    print(f"  ViT params = {vit_params / 1e6:.4f} M; total = {total / 1e6:.4f} M; "
+          f"effective = {measure_effective_params(model) / 1e6:.4f} M")
+
+    # 3-step 冒烟
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if not n.startswith("encoder.vit")], 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post)
+        assert out.shape == (2, 1, 256, 256)
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item()))
+        print(f"  step {step + 1}/3 ok, loss = {loss.item():.4f}")
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
+def t_run4_light(pretrained_path, device, detail_mode='light'):
+    """R4-2 smoke：LightDetail + adapters（形状/参数/梯度/3-step）。"""
+    print(f"[RUN4-LIGHT] VIT4 + LightDetail({detail_mode})(+adapters) + old FI/decoder smoke")
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", vit_depth=4, detail_mode=detail_mode).float().to(device).eval()
+    enc = model.encoder
+    x = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        c = enc.detail_capture(x)
+    assert [tuple(t.shape) for t in c] == [(2, 64, 128, 128), (2, 128, 64, 64), (2, 256, 32, 32)], \
+        [tuple(t.shape) for t in c]
+    n_detail = sum(p.numel() for p in enc.detail.parameters())
+    n_adapt = sum(p.numel() for p in enc.detail_adapters.parameters())
+    if detail_mode == 'light':
+        assert n_detail == 37024, n_detail
+        assert n_adapt == 43008, n_adapt
+    else:
+        assert n_detail == 64528, n_detail
+        assert n_adapt == 56320, n_adapt
+    assert "encoder.resnet.conv1.weight" not in model.state_dict(), "resnet must not exist in light mode"
+    assert len(enc.vit.blocks) == 4
+    print(f"  shapes OK; LightDetail={n_detail} adapters={n_adapt}; no resnet; blocks=4")
+
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    with torch.no_grad():
+        out = model(pre, post)
+    assert out.shape == (2, 1, 256, 256)
+    # 梯度：LightDetail/adapters/decoder 非零有限，ViT 无梯度（冻结由训练脚本控制，
+    # 这里只验证非冻结组件的梯度路径正常）
+    model.train()
+    out = model(pre, post)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    g = model.encoder.detail.stage8b.pw.weight.grad
+    assert g is not None and torch.isfinite(g).all() and g.norm() > 0
+    g_dec = model.decoder.classfier[0].weight.grad
+    assert g_dec is not None and torch.isfinite(g_dec).all() and g_dec.norm() > 0
+    print("  gradients OK (LightDetail / decoder)")
+
+    total = measure_params(model)
+    print(f"  total params = {total / 1e6:.4f} M (R4-2 仍含原 FI/decoder，>3M 属预期)")
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -304,8 +498,9 @@ def main():
     parser.add_argument('--pretrained_weight_path', type=str, required=True)
     parser.add_argument('--gpu_id', type=int, default=0)
     parser.add_argument('--mode', type=str, default='all',
-                        choices=['all', 'baseline', 'casaa', 'saa', 'oracle'],
-                        help='all | baseline | casaa | saa | oracle')
+                        choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
+                                 'run4', 'run4_light', 'run4_light48'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -327,6 +522,18 @@ def main():
     if args.mode in ("oracle", "all"):
         t5_oracle_router(args.pretrained_weight_path, device)
         full_smoke(args.pretrained_weight_path, "oracle", device)
+    if args.mode in ("detail", "all"):
+        t6_detail_router(args.pretrained_weight_path, device)
+        full_smoke(args.pretrained_weight_path, "detail", device)
+    if args.mode in ("detail_fused", "all"):
+        t6_detail_router(args.pretrained_weight_path, device)
+        full_smoke(args.pretrained_weight_path, "detail_fused", device)
+    if args.mode in ("run4", "all"):
+        t_run4(args.pretrained_weight_path, device, vit_depth=4)
+    if args.mode in ("run4_light", "all"):
+        t_run4_light(args.pretrained_weight_path, device)
+    if args.mode in ("run4_light48", "all"):
+        t_run4_light(args.pretrained_weight_path, device, detail_mode='light48')
 
     print("[SMOKE] ALL OK")
 

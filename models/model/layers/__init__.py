@@ -12,6 +12,7 @@ from .attention import MemEffAttention
 from .casaa import (
     CASAAAttention,
     change_score_cosine,
+    rank_normalize_per_image,
     deterministic_density_assign,
     aggregate_with_shared_assignment,
 )

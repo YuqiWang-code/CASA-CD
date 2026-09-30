@@ -193,6 +193,8 @@ class ChangeViTTrainer(object):
             casaa_keep_ratio=args.casaa_keep_ratio,
             casaa_change_share=args.casaa_change_share,
             casaa_router=args.casaa_router,
+            vit_depth=args.vit_depth,
+            detail_mode=args.detail_mode,
         ).float()
         if args.onGPU:
             self.model = self.model.cuda()
@@ -350,6 +352,11 @@ class ChangeViTTrainer(object):
             self.log(f"[CASAA-ROUTER] {self.args.casaa_router}")
             if self.args.casaa_router == "oracle":
                 self.log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+            if self.args.casaa_router == "detail_fused":
+                self.log("[CASAA-DETAIL-SCALE] 1/8")
+                self.log("[CASAA-DETAIL-FUSION] rank")
+                self.log("[CASAA-VIT-WEIGHT] 0.5")
+                self.log("[CASAA-DETAIL-WEIGHT] 0.5")
         self.log(f"[FREEZE-VIT] {int(self.args.freeze_vit)}")
         self.log(f"[VIT-LR-RATIO] {self.args.vit_lr_ratio}")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
@@ -388,6 +395,11 @@ def write_header(args, log):
         log(f"[CASAA-ROUTER] {args.casaa_router}")
         if args.casaa_router == "oracle":
             log("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+        if args.casaa_router == "detail_fused":
+            log("[CASAA-DETAIL-SCALE] 1/8")
+            log("[CASAA-DETAIL-FUSION] rank")
+            log("[CASAA-VIT-WEIGHT] 0.5")
+            log("[CASAA-DETAIL-WEIGHT] 0.5")
     log(f"[FREEZE-VIT] {int(args.freeze_vit)}")
     log(f"[VIT-LR-RATIO] {args.vit_lr_ratio}")
     log("=" * 72)
@@ -428,14 +440,22 @@ def main():
     parser.add_argument('--casaa_change_share', type=float, default=0.50,
                         help='share of K kept as change tokens (router=change)')
     parser.add_argument('--casaa_router', type=str, default='change',
-                        choices=['change', 'content', 'oracle'],
-                        help='change (CASAA cosine) | content (SAA-style control) | oracle (GT diagnostic, not deployable)')
+                        choices=['change', 'content', 'oracle', 'detail', 'detail_fused'],
+                        help='change (CASAA cosine) | content (SAA-style control) | oracle (GT diagnostic, not deployable) | detail (A4-D: detail 1/8 score) | detail_fused (A4: rank-fused ViT+detail)')
 
     # ViT 崩溃保护（Run2）
     parser.add_argument('--freeze_vit', type=int, default=0,
                         help='freeze the ViT backbone (1 = freeze; prevents ViT collapse on real data)')
     parser.add_argument('--vit_lr_ratio', type=float, default=1.0,
                         help='ViT learning-rate multiplier relative to base lr (1.0 = official protocol)')
+    # Run4 主线二：ViT 深度（12 = ChangeViT 原版；4 = TinyViT4 prefix）
+    parser.add_argument('--vit_depth', type=int, default=12,
+                        help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
+    # Run4 主线二：detail branch（resnet = 原 ResNet18；light = LightDetail 32/64/128；
+    # light48 = 预注册容量 fallback 48/96/160）
+    parser.add_argument('--detail_mode', type=str, default='resnet',
+                        choices=['resnet', 'light', 'light48'],
+                        help='detail branch: resnet (original) | light | light48 (capacity fallback)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,

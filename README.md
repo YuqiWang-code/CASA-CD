@@ -45,10 +45,19 @@ binary change detection in remote sensing images.
   - **CASAA**（Change-Aware Asymmetric Token Modeling，灵感来自 SAT, CVPR 2026）：
     完整保留 Query（逐位置判别能力不变），只压缩提供上下文的 K/V；疑似变化 token 保留、
     稳定背景 token 强聚合，注意力交互量 `O(N²) → O(NK), K≪N`。已实现为 Paired
-    Late-Stage CASAA（ViT blocks 8-11，K=64=Kc32 直保留+Kb32 背景聚类，**零新增参数**），
-    Run1 筛选实验完成，结果见下节。
-  - **Ultra-Light Multi-Scale Change Representation**：把 ResNet18 detail branch 与
-    decoder 换成轻量结构，目标 `<3M` 参数，在极低参数量等级上 F1/IoU 超过轻量 SOTA。
+    Late-Stage CASAA（ViT blocks 8-11，K=64=Kc32 直保留+Kb32 背景聚类，**零新增参数**）。
+    **终局（Run1-3，2026-09-29）**：change-aware router 按预注册停止规则终止——
+    Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
+    信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
+    Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run4 进行中）**：
+    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）：TinyViT4-192（DeiT 前 4 block 原位继承，
+    1.98M）+ LightDetail（32/64/128 DSConv，0.037M）+ SABI（scale-aligned bottleneck
+    cross-attention，0.035M）+ DFPD（difference-first pyramid decoder，0.065M）。
+    逐组件单变量推进：R4-0（健康 full12 frozen 参考）→ R4-1（depth-4，gate 通过
+    ΔF1 −0.37）→ R4-2/2b（LightDetail 32/64/128 与 48/96/160，gate 未过 ΔF1 −0.47/−0.45，
+    处于决策分叉）。方案见
+    [`docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md`](docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -140,6 +149,42 @@ binary change detection in remote sensing images.
   rank 归一化 1:1 融合，零新增参数/零新 loss），仍 K=64/Kc=32、冻结 ViT，
   `train_scripts/CASAA/Run3/`，LEVIR+SYSU。
 
+## 实验结果（CASAA Run3）
+
+> 可部署信号终局（冻结 ViT，Router Audit gate → detail-only 救援 run）。
+> 实现：`router=detail_fused`（0.5R(ViT cosine)+0.5R(detail 1/8 cosine)）与
+> `router=detail`（纯 detail）；detail 1/8 = resnet.layer3 32×32 → AvgPool → 16×16。
+> 脚本：`train_scripts/CASAA/Run3/`；决策：`docs/temporary/CASA-CD_CASAA-v2_A4_Run3审查与主线二启动方案.md`。
+
+- **Router Audit（SYSU）**：fused 未过 gate（PR-AUC +0.014 < 0.03、Spearman −0.052）；
+  detail-only 明显优于 ViT cosine（PR-AUC +0.059、Top32 precision 0.39→**0.63**、
+  coverage 0.24→**0.46**）→ 按决策树只做 1 个 SYSU detail-only 80K。
+- **A4-D 最终（SYSU）**：F1 **81.92** vs A1 82.04（−0.12，判据 ≤82.19 → **失败**）。
+- **完整证据链（SYSU，相对 A1）**：ranking Top32 precision 0.39 → −0.15；
+  0.63 → −0.12；1.0（oracle）→ +1.48——可部署 ranking 提高 60% 未转化为 F1 收益，
+  机制只在 ranking 接近完美时有效。→ **按预注册规则停止 change-aware router 迭代，
+  转主线二**（见下节）。
+
+## 实验结果（Run4 · 主线二极轻量结构）
+
+> UL-V4：TinyViT4-192（DeiT prefix-4 原位继承 + pos_embed 14×14→16×16 插值，
+> corrected loader）+ 逐组件轻量化。全部冻结 ViT、BCE+Dice、80000 steps、batch 16、
+> seed 16、test-as-val；只用 GPU1；脚本：`train_scripts/UltraLight/Run4/`。
+
+| Run（SYSU） | 结构变化 | F1 | IoU | Params | FLOPs | 判据 |
+|---|---|---:|---:|---:|---:|---|
+| R4-0 A0_FULL12_FROZEN | 健康 full12 冻结参考 | **83.14** | 71.14 | 11.754M | 26.32G | 参考 |
+| R4-1 VIT4_OLDHEAD | depth 12→4 | 82.77 | 70.61 | 8.195M | 24.10G | **通过**（ΔF1 −0.37 ≥ −0.50） |
+| R4-2 VIT4_LIGHTDETAIL | ResNet→LightDetail 32/64/128 | 82.30 | 69.92 | 5.492M | **10.73G** | 未过（ΔF1 −0.47 > −0.30） |
+| R4-2b LIGHTDETAIL48 | 预注册容量 fallback 48/96/160 | 82.32 | 69.95 | 5.533M | 10.98G | 未过（ΔF1 −0.45） |
+
+- 关键事实：4-block 冻结 prefix（82.77）已超过 trained baseline（82.48）与全部
+  CASAA 冻结模型；corrected loader 的健康 full12 参考 = **83.14**（新基线）。
+- **当前决策分叉**：LightDetail 两次未过 gate 且容量 bump 无效（+0.02 噪声内）——
+  0.037–0.065M detail 分支在旧 FI+decoder 下稳定差 ResNet 约 0.45 F1（省 2.7M 参数、
+  55% FLOPs 的代价）。预注册 fallback 已耗尽，下一步三选一：继续 R4-3（SABI）/
+  诊断性小修（未预注册）/ 带结果问 GPT 重新分配预算。
+
 ## 参考文献
 
 - Baseline：`docs/参考文献/baseline/ChangeViT(PR2026).pdf`
@@ -155,19 +200,26 @@ binary change detection in remote sensing images.
 
 ```
 models/                        # 全部代码（ChangeViT 上游 + 本仓库改造）
-  train.py                     #   训练入口（baseline / --mode casaa|saa）
-  eval.py                      #   独立测试入口（同款 --mode 参数）
-  smoke_test.py                #   冒烟测试（baseline 等价 + CASAA 机制测试）
+  train.py                     #   训练入口（baseline / --mode casaa|saa / --vit_depth / --detail_mode）
+  eval.py                      #   独立测试入口（同款架构参数）
+  smoke_test.py                #   冒烟测试（baseline 等价 + CASAA 机制 + Run4 深度/轻量测试）
   main.py                      #   上游原版（仅参考）
   model/                       #   encoder / decoder / trainer / layers / resnet
   model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
+  model/light_detail.py        #   Run4 LightDetail（32/64/128 与 48/96/160 DSConv）
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
   baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集 + 串行队列）
   CASAA/Run1/                  # CASAA Run1（A1/A2 × 4 数据集 + 双卡/单卡串行队列）
+  CASAA/Run2/                  # CASAA Run2（冻结 ViT：A1 对照 + A3 Oracle 诊断）
+  CASAA/Run3/                  # CASAA Run3（A4 detail 可部署信号终局）
+  UltraLight/Run4/             # 主线二：R4-0/1/2/2b 逐组件单变量（阶段 gate）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
+  casaa_router_diagnostic.py   #   Router Audit（V/D/F 三路 score 对齐 GT）
+  param_breakdown.py           #   Run4 U1：组件级参数预算
+  vit_pretrain_audit.py        #   Run4 U2：corrected DeiT loader 原位继承审计
 others/                        # 参考实现（非本仓库模型代码）
   SAT/                         #   SAT(CVPR2026) 核心机制提取：saa.py（SAA + 聚类压缩）
 outputs/                       # 训练日志（训练结束后下载到这里）
@@ -204,8 +256,9 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
    cd /home/yqwang/projects/CASA-CD/train_scripts/baseline/Run1
    nohup bash run_queue.sh > /dev/null 2>&1 &   # CDD → LEVIR → SYSU → WHU 串行
    ```
-   CASAA 实验脚本在 `train_scripts/CASAA/Run1/`（`run_screen.sh` 双卡并行 /
-   `run_screen_gpu1_serial.sh` 单卡串行，`--mode casaa|saa`，详见该目录 README）。
+   CASAA 实验脚本在 `train_scripts/CASAA/Run1-3/`（`run_screen.sh` 双卡并行 /
+   `run_screen_gpu1_serial.sh` 单卡串行，`--mode casaa|saa`，详见各目录 README）；
+   主线二脚本在 `train_scripts/UltraLight/Run4/`（逐组件 gate，只用 GPU1）。
    **注意必须串行**：ChangeViT-T batch 16 单任务 ~15.7GB（FeatureInjector 对 c2 全 token
    交叉注意力 ~8.6GB 注意力矩阵），两个任务并跑会超过单张 5090 的 32GB 导致 OOM。
 3. 训练日志格式：
@@ -225,6 +278,7 @@ python analyse/extract_metrics_to_excel.py   # outputs → docs/experiment_metri
 python analyse/models_to_txt.py --tag baseline --run Run1  # models 快照 + 指标 → docs/temporary/
 python analyse/models_to_txt.py --tag CASAA --run Run1
 python analyse/models_to_txt.py --tag CASAA --run Run2
+python analyse/models_to_txt.py --tag UltraLight --run Run4
 ```
 
 ## 注意事项

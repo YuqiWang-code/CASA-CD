@@ -104,7 +104,12 @@ def main():
     parser.add_argument('--casaa_keep_ratio', type=float, default=0.25)
     parser.add_argument('--casaa_change_share', type=float, default=0.50)
     parser.add_argument('--casaa_router', type=str, default='change',
-                        choices=['change', 'content', 'oracle'])
+                        choices=['change', 'content', 'oracle', 'detail', 'detail_fused'])
+    parser.add_argument('--vit_depth', type=int, default=12,
+                        help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
+    parser.add_argument('--detail_mode', type=str, default='resnet',
+                        choices=['resnet', 'light', 'light48'],
+                        help='detail branch: resnet (original) | light | light48 (capacity fallback)')
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -134,7 +139,9 @@ def main():
                     mode=args.mode, casaa_layers=args.casaa_layers,
                     casaa_keep_ratio=args.casaa_keep_ratio,
                     casaa_change_share=args.casaa_change_share,
-                    casaa_router=args.casaa_router).float()
+                    casaa_router=args.casaa_router,
+                    vit_depth=args.vit_depth,
+                    detail_mode=args.detail_mode).float()
     if args.onGPU:
         model = model.cuda()
 
@@ -171,6 +178,11 @@ def main():
         print(f"[CASAA-ROUTER] {args.casaa_router}")
         if args.casaa_router == "oracle":
             print("[DIAGNOSTIC-ONLY] oracle routing uses GT and is not deployable")
+        if args.casaa_router == "detail_fused":
+            print("[CASAA-DETAIL-SCALE] 1/8")
+            print("[CASAA-DETAIL-FUSION] rank")
+            print("[CASAA-VIT-WEIGHT] 0.5")
+            print("[CASAA-DETAIL-WEIGHT] 0.5")
     print(f"[TOTAL-PARAMS] {total_params / 1e6:.3f} M")
     print(f"[EFFECTIVE-PARAMS] {measure_effective_params(model) / 1e6:.3f} M")
     print(f"[FLOPS] {flops_line}")
