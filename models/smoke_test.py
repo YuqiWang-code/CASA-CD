@@ -858,6 +858,100 @@ def t_run8_b4_spe(pretrained_path, device, vit_depth=4):
     del model
 
 
+def t_run9_opre(pretrained_path, device, vit_depth=4):
+    """Run9 R9-1 smoke（T-R9）：ViT4 + B4-OPRE head 最终 ~2.037M 模型。"""
+    print("[RUN9-OPRE] VIT4 + OPREHead smoke")
+
+    # T-R9-9：detail_mode=opre 时 vit_depth!=4 / head 不配套必须被拒绝
+    for bad_kw in (dict(vit_depth=12, detail_mode="opre", head_mode="opre_spe"),
+                   dict(vit_depth=4, detail_mode="none_b4", head_mode="opre_spe")):
+        try:
+            Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", **bad_kw)
+            raise AssertionError(f"{bad_kw} should have raised")
+        except AssertionError as e:
+            assert "requires" in str(e), e
+    print("  T-R9-9 OK: vit_depth!=4 / head-detail 不配套均被拒绝")
+
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", vit_depth=vit_depth, detail_mode="opre",
+                    head_mode="opre_spe", opre_gate=1).float().to(device).eval()
+    vit = model.encoder.vit
+
+    # T-R9-0：functional conv 与 patch_embed.proj 等价（stride=16 无 pad）
+    x = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        ref = vit.patch_embed.proj(x)
+        fun = torch.nn.functional.conv2d(x, vit.patch_embed.proj.weight,
+                                         vit.patch_embed.proj.bias, stride=16)
+    assert (ref - fun).abs().max().item() < 1e-6
+    # T-R9-1：O-PRE shape（共享权重、stride=8 reflect pad4）
+    with torch.no_grad():
+        ore = model.encoder.overlap_patch_capture(x)
+    assert tuple(ore.shape) == (2, 192, 32, 32), tuple(ore.shape)
+    # T-R9-2：无 duplicate patch kernel params（encoder 参数只有 ViT4 一份）
+    n_enc = sum(p.numel() for p in model.encoder.parameters())
+    n_vit = sum(p.numel() for p in vit.parameters())
+    assert n_enc == n_vit, (n_enc, n_vit)
+    assert not any("encoder.ore" in k or "encoder.opre" in k for k in model.state_dict())
+    # T-R9-3：DeiT depth-4 逐位继承
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    worst = 0.0
+    for i in range(4):
+        for k in ("norm1.weight", "attn.qkv.weight", "mlp.fc1.weight"):
+            worst = max(worst, (sd[f"blocks.{i}.{k}"].float() - vit.state_dict()[f"blocks.{i}.{k}"].cpu().float()).abs().max().item())
+    assert worst == 0.0
+    print("  T-R9-0/1/2/3 OK: conv equiv; O-PRE (2,192,32,32); no dup params; DeiT exact")
+
+    # T-R9-4/5：输出 + 时间交换对称
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        out_ab = model(pre, post)
+        out_ba = model(post, pre)
+    assert out_ab.shape == (2, 1, 256, 256)
+    assert torch.isfinite(out_ab).all() and out_ab.min().item() >= 0.0 and out_ab.max().item() <= 1.0
+    d_swap = (out_ab - out_ba).abs().max().item()
+    assert d_swap < 1e-6, f"swap broken: {d_swap}"
+    print(f"  T-R9-4/5 OK: pred (2,1,256,256) in [0,1]; swap {d_swap:.2e}")
+
+    # T-R9-6/7：梯度 + 冻结 checksum + 参数
+    for n, p in model.named_parameters():
+        if n.startswith("encoder.vit"):
+            p.requires_grad_(False)
+    vit_before = {k: v.detach().clone() for k, v in vit.state_dict().items()}
+    n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = measure_params(model)
+    assert n_train == 60113 and n_train <= 0.065e6, n_train
+    assert total == 2036945 and total <= 2.10e6, total
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if not n.startswith("encoder.vit")], 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post)
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item()))
+    for name, g in (("pair", model.decoder.pair.weight.grad),
+                    ("local_proj", model.decoder.local_proj[0].weight.grad),
+                    ("gate", model.decoder.gate32.weight.grad),
+                    ("classifier", model.decoder.classifier.weight.grad)):
+        assert g is not None and torch.isfinite(g).all() and g.norm() > 0, f"{name} grad broken"
+    assert vit.patch_embed.proj.weight.grad is None
+    worst = max((v.detach() - vit_before[k]).abs().max().item() for k, v in vit.state_dict().items())
+    assert worst == 0.0
+    print(f"  T-R9-6/7 OK: trainable={n_train:,}; total={total:,}; head grads nonzero; frozen ViT checksum == 0")
+
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  T-R9-8 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup}; hard gate ≤2.0G)")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -899,8 +993,8 @@ def main():
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
-                                 'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe')
+                                 'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -946,6 +1040,8 @@ def main():
         t_run7_csdp(args.pretrained_weight_path, device, vit_depth=2)
     if args.mode in ("run8_b4_spe", "all"):
         t_run8_b4_spe(args.pretrained_weight_path, device, vit_depth=4)
+    if args.mode in ("run9_opre", "all"):
+        t_run9_opre(args.pretrained_weight_path, device, vit_depth=4)
 
     print("[SMOKE] ALL OK")
 

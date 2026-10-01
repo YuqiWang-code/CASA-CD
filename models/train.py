@@ -197,6 +197,7 @@ class ChangeViTTrainer(object):
             detail_mode=args.detail_mode,
             head_mode=args.head_mode,
             mobile_pretrained_weight_path=args.mobile_pretrained_weight_path,
+            opre_gate=args.opre_gate,
         ).float()
         if args.onGPU:
             self.model = self.model.cuda()
@@ -258,6 +259,7 @@ class ChangeViTTrainer(object):
                 "detail_mode": self.args.detail_mode,
                 "head_mode": self.args.head_mode,
                 "mode": self.args.mode,
+                "opre_gate": self.args.opre_gate,
             },
         }
         torch.save(ckpt, os.path.join(self.args.ckpt_dir, "last.pth"))
@@ -378,6 +380,12 @@ class ChangeViTTrainer(object):
         self.log(f"[VIT-DEPTH] {self.args.vit_depth}")
         self.log(f"[DETAIL-MODE] {self.args.detail_mode}")
         self.log(f"[HEAD-MODE] {self.args.head_mode}")
+        if self.args.detail_mode == 'opre':
+            self.log("[OPRE-KERNEL] 16")
+            self.log("[OPRE-STRIDE] 8")
+            self.log("[OPRE-PADDING] reflect4")
+            self.log("[OPRE-WEIGHT-SHARED] 1")
+            self.log(f"[OPRE-GATE] {int(self.args.opre_gate)}")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
         self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
@@ -474,16 +482,20 @@ def main():
     # light48 = 预注册容量 fallback 48/96/160；light_bnrelu = R4-2c adapter align（仅 audit 情况 A）；
     # psd = R4-2d PSD-Detail 0.078M；mobile_p3 = Run5 MobileNetV3-Small features 0-3；
     # depth_pyramid = Run7 CSDP（无 detail，B1/B2 token 金字塔）；
-    # none_b4 = Run8 B4-SPE（无 detail，只输出 B4 token））
+    # none_b4 = Run8 B4-SPE（无 detail，只输出 B4 token）；
+    # opre = Run9 B4-OPRE（无 detail，输出 O-PRE 32×32 + B4 16×16））
     parser.add_argument('--detail_mode', type=str, default='resnet',
                         choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3',
-                                 'depth_pyramid', 'none_b4'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7) | none_b4 (Run8)')
-    # Run5/Run7/Run8：head（legacy = 原 FeatureInjector+Decoder；sgdp = Semantic-Guided
-    # Difference Pyramid；csdp = Run7 Cross-Depth Symmetric Difference；b4_spe = Run8 B4-SPE）
+                                 'depth_pyramid', 'none_b4', 'opre'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7) | none_b4 (Run8) | opre (Run9)')
+    # Run5/Run7/Run8/Run9：head（legacy = 原 FeatureInjector+Decoder；sgdp = Semantic-Guided
+    # Difference Pyramid；csdp = Run7 Cross-Depth Symmetric Difference；b4_spe = Run8 B4-SPE；
+    # opre_spe = Run9 B4-OPRE 语义门控）
     parser.add_argument('--head_mode', type=str, default='legacy',
-                        choices=['legacy', 'sgdp', 'csdp', 'b4_spe'],
-                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1) | b4_spe (Run8 R8-1)')
+                        choices=['legacy', 'sgdp', 'csdp', 'b4_spe', 'opre_spe'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1) | b4_spe (Run8 R8-1) | opre_spe (Run9 R9-1)')
+    parser.add_argument('--opre_gate', type=int, default=1,
+                        help='Run9 O-PRE semantic gate: 1 = gated residual（主模型）；0 = NOGATE 消融')
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 

@@ -490,6 +490,11 @@ class Encoder(nn.Module):
             # B4 final-LN token（head_mode='b4_spe' 配套）。
             self.detail = None
             self.detail_adapters = None
+        elif detail_mode == 'opre':
+            # Run9 B4-OPRE：无独立 detail encoder；forward 返回
+            # [O-PRE 192×32×32, B4 192×16×16]（head_mode='opre_spe' 配套）。
+            self.detail = None
+            self.detail_adapters = None
         else:
             # resnet 模式：detail 走 self.resnet（不注册 self.detail 别名——
             # 否则 state_dict 会出现 encoder.detail.* 重复 key，导致 R4-0/R4-1
@@ -598,10 +603,29 @@ class Encoder(nn.Module):
         b2 = self.vit.norm(x2)
         return [b1, b2]
 
+    def overlap_patch_capture(self, x):
+        """Run9 O-PRE：复用主 ViT 的预训练 patch_embed.proj 权重，在更密的
+        stride=8 重叠 lattice 上重嵌入（reflect pad 4）→ B×192×32×32。
+
+        P0 约束（方案 §6.2/P0-1）：只用 functional conv 引用现有 Parameter，
+        不注册第二份 patch kernel、不加 32×32 positional embedding。
+        """
+        w = self.vit.patch_embed.proj.weight
+        b = self.vit.patch_embed.proj.bias
+        x_pad = F.pad(x, (4, 4, 4, 4), mode="reflect")
+        return F.conv2d(x_pad, w, b, stride=8)
+
     def forward(self, x, y, label=None):
         if self.detail_mode == 'depth_pyramid':
             # CSDP：不跑完整 ViT final forward，直接返回深度金字塔 token 对
             return self.depth_pyramid_capture(x), self.depth_pyramid_capture(y)
+        if self.detail_mode == 'opre':
+            # B4-OPRE：O-PRE 旁路 + 标准 ViT4 forward 的 B4 token
+            ore_x = self.overlap_patch_capture(x)
+            ore_y = self.overlap_patch_capture(y)
+            v_x = rearrange(self.vit(x), 'b (h w) c -> b c h w', h=16, w=16)
+            v_y = rearrange(self.vit(y), 'b (h w) c -> b c h w', h=16, w=16)
+            return [ore_x, v_x], [ore_y, v_y]
         detail_pre = None
         if self.casaa_layers:
             score_hint = None

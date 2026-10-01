@@ -54,18 +54,14 @@ binary change detection in remote sensing images.
     Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run8 收束——实验阶段结束）**：
-    目标 `<3M` 有效推理参数。Run4-8 五轮结构搜索（自定义 detail×3 / MobileNet
-    prefix / P0 token 重建 / B2 深度截断 / B4-only 无 detail 重建）全部被各自的
-    预注册零训练 gate 否决，**未产生 <3M 终模型**；Run8 B4-SPE 为最后一轮
-    （dense recoverability gate FAIL：B4 边界带 lift 3/4 数据集 <0.02）。
-    正式收束结论：**R4-1（ViT4+ResNet+旧 head，82.77/70.61，8.195M）是最强
-    已验证轻量化结构**；论文按「分析型收尾」组织——depth redundancy 证据
-    （12→4 仅 −0.37 F1；四数据集 B4 稳健最优、B12 全面劣化）+ token 冗余
-    （A1 K=64 压缩基本无损）+ 五轮负结果的 budget allocation study。
-    完整记录见
-    [`docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md`](docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md)、
-    [`docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md`](docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md)。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run9 收束）**：
+    目标 `<3M` 有效推理参数 + 四数据集硬目标（SYSU 85 / LEVIR 92.5 / WHU 95 /
+    CDD 98）。Run4-9 共七轮结构搜索（自定义 detail×3 / MobileNet prefix / P0
+    重建 / B2 截断 / B4-only / O-PRE 采样格变密）全部被各自的预注册零训练 gate
+    否决——**正式 80K 总消耗始终只有 1 个（R4-2d）**；`<3M` 终模型与四数据集
+    硬目标均未达成。最新一轮（Run9 B4-OPRE）结果见
+    [`docs/temporary/CASA-CD_Run9_可执行预注册方案.md`](docs/temporary/CASA-CD_Run9_可执行预注册方案.md)、
+    [`docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md`](docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -298,6 +294,29 @@ binary change detection in remote sensing images.
 - **课题收束立场**：R4-1（82.77/70.61，8.195M）为最强已验证轻量化结构；
   论文按分析型收尾（depth/token 双冗余证据 + 五轮负结果 budget allocation study）；
   `<3M` 终模型未被验证达成（论文中如实声明）。
+
+## 实验结果（Run9 · B4-OPRE）
+
+> Run9 方案：`docs/temporary/CASA-CD_Run9_可执行预注册方案.md`；脚本：
+> `train_scripts/UltraLight/Run9/`。**R9-D0 四数据集 O-PRE 互补性 gate FAIL
+> （G0=0/4、G1=0/4、G3=False）→ 按预注册规则 Run9 停止（0 个 80K）**。
+> 完整记录见
+> [`docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md`](docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md)。
+
+| Run | 内容 | 判据 |
+|---|---|---|
+| R9-D0 OPRE_AUDIT | P0/B4/O-PRE(共享 patch kernel, stride8)/proxy 的像素与边界带 PR-AUC（零训练，四数据集） | **FAIL**（G0=0/4、G1=0/4、G2a=3/4、G2b=1/4、G3=False） |
+
+- 关键数字（边界带 lift）：O-PRE vs canonical P0：CDD +0.0154、LEVIR −0.0094、
+  SYSU +0.0042、WHU −0.0160；proxy vs B4：CDD +0.0171、LEVIR −0.0154、
+  SYSU +0.0038、WHU −0.0361——**改变 patch 采样 lattice 不提供与 B4 互补的
+  边界 evidence**（H9 证伪）。第七轮负结果。
+- B4-OPRE head 代码已实现并通过 T-R9 smoke（2,036,945 参数 / trainable 60,113 /
+  FLOPs 1.5270G / 严格时间对称 / 零新增 encoder 参数），作为被 gate 否决的
+  候选存档，未训练。
+- **七轮负结果后**：正式 80K 总消耗仍只有 1 个（R4-2d）；四数据集硬目标
+  （85/92.5/95/98）远未达成；冻结 ViT 框架内的极小参数 dense 重建路径已被
+  系统排除。下一步需要新的机制假设并重新预注册。
 
 ## 参考文献
 

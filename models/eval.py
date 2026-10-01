@@ -109,11 +109,13 @@ def main():
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     parser.add_argument('--detail_mode', type=str, default='resnet',
                         choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3',
-                                 'depth_pyramid', 'none_b4'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7) | none_b4 (Run8)')
+                                 'depth_pyramid', 'none_b4', 'opre'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7) | none_b4 (Run8) | opre (Run9)')
     parser.add_argument('--head_mode', type=str, default='legacy',
-                        choices=['legacy', 'sgdp', 'csdp', 'b4_spe'],
-                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1) | b4_spe (Run8 R8-1)')
+                        choices=['legacy', 'sgdp', 'csdp', 'b4_spe', 'opre_spe'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1) | b4_spe (Run8 R8-1) | opre_spe (Run9 R9-1)')
+    parser.add_argument('--opre_gate', type=int, default=1,
+                        help='Run9 O-PRE semantic gate: 1 = gated（主）；0 = NOGATE 消融')
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
@@ -147,7 +149,8 @@ def main():
         with open(arch_path, encoding="utf-8") as f:
             arch = _json.load(f)
         cli = {"vit_depth": args.vit_depth, "detail_mode": args.detail_mode,
-               "head_mode": args.head_mode, "mode": args.mode}
+               "head_mode": args.head_mode, "mode": args.mode,
+               "opre_gate": args.opre_gate}
         if arch != cli:
             raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch} vs cli={cli}; refusing to eval")
         print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
@@ -161,7 +164,8 @@ def main():
                     vit_depth=args.vit_depth,
                     detail_mode=args.detail_mode,
                     head_mode=args.head_mode,
-                    mobile_pretrained_weight_path=args.mobile_pretrained_weight_path).float()
+                    mobile_pretrained_weight_path=args.mobile_pretrained_weight_path,
+                    opre_gate=args.opre_gate).float()
     if args.onGPU:
         model = model.cuda()
 
