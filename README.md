@@ -50,14 +50,17 @@ binary change detection in remote sensing images.
     Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run5 已按规则收束）**：
-    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4（Light32/Light48/PSD 三个自定义
-    轻量 detail）按 Stop-3 终止；Run5（MobileDetail-P3 + SGDP，≈2.103M 设计）的
-    R5-D0 无训练 raw gate **FAIL**（D4 PR-AUC 0.4831 < 0.50）→ 按预注册规则
-    候选② 永久停止，未消耗任何 80K。下一步 **Run6 = ViT semantic 预算重分配**
-    （需重新预注册）。方案与结果见
-    [`docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md`](docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md)、
-    [`docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md`](docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md)。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run6 已按规则收束）**：
+    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4（自定义轻量 detail×3）与
+    Run5（MobileNet 预训练 prefix）分别按 Stop-3 / raw-gate 规则终止；Run6
+    （删除独立 detail、从 ViT4 PatchEmbed token 做 PTPR 金字塔重建 + SGDP，
+    ≈2.100M）的 R6-D0 零训练 gate **FAIL**（P0 PR-AUC 0.3711<0.44、
+    Fuse 0.4753<0.50）→ 按预注册规则永久停止该路线，未实现 PTPR、未花 80K。
+    证据链新资产：**ViT4 终 token（B4）自身变化判别力 PR-AUC 0.6127 > full12
+    B12 0.5143**（再次支持 depth redundancy 叙事）。下一步：**semantic source
+    replacement**（重新预注册）。方案与结果见
+    [`docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md`](docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md)、
+    [`docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md`](docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -226,6 +229,27 @@ binary change detection in remote sensing images.
   审计：`analyse/run5_postmortem_and_mobile_audit.py`。
 - **下一步（Run6，需重新预注册）**：ViT semantic 参数预算重分配（更浅/更窄 ViT
   腾预算、或去掉独立 detail、或换 semantic 源），先做零训练 raw gate 再决定 80K。
+
+## 实验结果（Run6 · ViT 语义预算重分配）
+
+> Run6 方案：`docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md`；
+> 脚本：`train_scripts/UltraLight/Run6/`。**R6-D0 零训练 gate FAIL → 按预注册规则
+> 路线永久停止（未实现 PTPR、未启动任何 80K）**。完整记录见
+> [`docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md`](docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md)。
+
+| Run（SYSU） | 内容 | 判据 |
+|---|---|---|
+| R6-D0 SEMANTIC_TOKEN_AUDIT | P0/B1-B4/B12/Fuse token 级 raw gate（无训练） | **FAIL**（G1 P0 PR 0.3711<0.44；G3 Fuse 0.4753<0.50；G2 B4 PASS 0.6127） |
+
+- 审计有效性：冻结 ViT checksum 逐位一致 ✓；同 run 精确复现 R4-1 ResNet 1/8
+  对照（PR 0.6535 / Top32 0.5948）✓。
+- 关键发现：PatchEmbed raw token（P0）变化判别力弱（PR 0.3711）→「从 pre-position
+  patch token 重建局部细节」假设（H6-A）证伪；P0+B4 参数自由融合反而稀释 B4
+  （0.4753 < 0.6127，H6-B 证伪）；**B4（ViT4 终 token）自身 PR-AUC 0.6127 >
+  B12（full12）0.5143**，shallow ViT 终 token 是合格的 semantic change source。
+- 下一步（需重新预注册）：**semantic source replacement**（候选 3）——
+  更浅 ViT 终 token / MobileNetV3 深层 1/16 语义 / ViT4 中段 block token 等，
+  照 R6-D0 模式先零训练 gate（`analyse/run6_semantic_token_audit.py` 可直接复用）。
 
 ## 参考文献
 
