@@ -485,6 +485,11 @@ class Encoder(nn.Module):
             # depth_pyramid_capture 直接产出（head_mode='csdp' 配套）。
             self.detail = None
             self.detail_adapters = None
+        elif detail_mode == 'none_b4':
+            # Run8 B4-SPE：无独立 detail encoder；只输出 standard forward 的
+            # B4 final-LN token（head_mode='b4_spe' 配套）。
+            self.detail = None
+            self.detail_adapters = None
         else:
             # resnet 模式：detail 走 self.resnet（不注册 self.detail 别名——
             # 否则 state_dict 会出现 encoder.detail.* 重复 key，导致 R4-0/R4-1
@@ -520,6 +525,9 @@ class Encoder(nn.Module):
 
 
     def detail_capture(self, x):
+        if self.detail_mode == 'none_b4':
+            # Run8：无 detail，返回空列表（forward 只产出 B4 token）
+            return []
         if self.detail_mode in ('light', 'light48', 'light_bnrelu'):
             d2, d4, d8 = self.detail(x)
             d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
@@ -578,13 +586,16 @@ class Encoder(nn.Module):
     def depth_pyramid_capture(self, x):
         """Run7 CSDP：PatchEmbed → Block1 → Block2，返回 [B1, B2]。
 
-        每个 block 输出过 final LN（与 R6-D0/R7-D0 审计的 B1/B2 口径一致），
-        shape 各 (B, 256, 192)。只调用一次 patch_embed（严禁重复计算）。
+        与真实 DeiT / audit 口径一致：block2 接收 block1 的 **raw state**（P0 修正，
+        见 Run8 方案 §2——此前把 final-LN 后的 B1 喂给 block2 与审计口径不一致）；
+        两个 block 输出各自过 final LN 作为观测 token。
         """
         p0 = self.vit.patch_embed(x)
         tok = p0 + self.vit.interpolate_pos_encoding(p0, x.shape[-1], x.shape[-2])
-        b1 = self.vit.norm(self.vit.blocks[0](tok))
-        b2 = self.vit.norm(self.vit.blocks[1](b1))
+        x1 = self.vit.blocks[0](tok)
+        b1 = self.vit.norm(x1)
+        x2 = self.vit.blocks[1](x1)
+        b2 = self.vit.norm(x2)
         return [b1, b2]
 
     def forward(self, x, y, label=None):

@@ -5,6 +5,7 @@ from model.encoder import Encoder
 from model.decoder import Decoder
 from model.sgdp_head import SGDPHead
 from model.depth_pyramid_head import DepthPyramidHead
+from model.b4_spe_head import B4SPEHead
 
 from model.utils import weight_init
 
@@ -23,6 +24,8 @@ class Trainer(nn.Module):
         else:
             assert False, r'Trainer: check the vit model type'
 
+        if detail_mode == 'none_b4' and vit_depth != 4:
+            raise AssertionError(f"detail_mode='none_b4' requires vit_depth=4 (got {vit_depth})")
         self.mode = mode
         self.head_mode = head_mode
         self.encoder = Encoder(model_type, pretrained_path=pretrained_path,
@@ -44,6 +47,10 @@ class Trainer(nn.Module):
             # Run7 R7-1：CSDP head（B1+B2 对称差分 + PixelShuffle 金字塔），
             # 消费 encoder 的 depth_pyramid_capture 输出 [B1, B2]。
             self.decoder = DepthPyramidHead()
+        elif head_mode == 'b4_spe':
+            # Run8 R8-1：B4-SPE head（单 pair descriptor + PixelShuffle 金字塔），
+            # 消费 encoder 的 B4 final-LN token。
+            self.decoder = B4SPEHead()
         else:
             self.decoder = Decoder(in_dim=[64, 128, 256, embed_dim])
             weight_init(self.decoder)

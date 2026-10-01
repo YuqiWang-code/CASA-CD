@@ -774,6 +774,90 @@ def t_run7_csdp(pretrained_path, device, vit_depth=2):
     del model
 
 
+def t_run8_b4_spe(pretrained_path, device, vit_depth=4):
+    """Run8 R8-1 smoke（T-R8）：ViT4 + B4-SPE head 最终 ~2.031M 模型。"""
+    print("[RUN8-B4SPE] VIT4 + B4SPEHead smoke")
+
+    # T-R8-9：detail_mode=none_b4 时 vit_depth!=4 必须被拒绝
+    try:
+        Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                mode="baseline", vit_depth=12, detail_mode="none_b4", head_mode="b4_spe")
+        raise AssertionError("vit_depth=12 with none_b4 should have raised")
+    except AssertionError as e:
+        assert "vit_depth=4" in str(e), e
+    print("  T-R8-9 OK: vit_depth!=4 rejected by Trainer assert")
+
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", vit_depth=vit_depth, detail_mode="none_b4",
+                    head_mode="b4_spe").float().to(device).eval()
+
+    # T-R8-6：无独立 detail / legacy head
+    assert model.encoder.resnet is None
+    bad = [k for k in model.state_dict() if ("encoder.resnet" in k or "detail_adapters" in k
+           or k.startswith("decoder.structure_enhance") or k.startswith("decoder.up_c"))]
+    assert not bad, f"forbidden keys: {bad[:5]}"
+    # T-R8-7：DeiT depth-4 exact 继承（blocks0-3 原位、blocks4-11 不存在、pos 插值口径）
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    vit = model.encoder.vit
+    assert len(vit.blocks) == 4
+    resid = [k for k in model.state_dict() if any(k.startswith(f"encoder.vit.blocks.{j}.") for j in range(4, 12))]
+    assert not resid
+    worst = 0.0
+    for i in range(4):
+        for k in ("norm1.weight", "attn.qkv.weight", "mlp.fc1.weight"):
+            worst = max(worst, (sd[f"blocks.{i}.{k}"].float() - vit.state_dict()[f"blocks.{i}.{k}"].cpu().float()).abs().max().item())
+    assert worst == 0.0, f"pretrained blocks0-3 not exact (diff {worst})"
+    print("  T-R8-6/7 OK: no detail/legacy keys; depth-4 exact inherit")
+
+    # T-R8-1/2/3/4：形状 + 参数 + 对称
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        out_ab = model(pre, post)
+        out_ba = model(post, pre)
+    assert out_ab.shape == (2, 1, 256, 256)
+    d_swap = (out_ab - out_ba).abs().max().item()
+    assert d_swap < 1e-6, f"time swap broken: {d_swap}"
+    n_head = sum(p.numel() for p in model.decoder.parameters())
+    total = measure_params(model)
+    assert n_head == 53872, n_head
+    assert total == 2030704, total
+    assert total <= 2.10e6
+    print(f"  T-R8-1/2/3 OK: pred (2,1,256,256); swap {d_swap:.2e}; head {n_head:,}; total {total:,} (≤2.10M)")
+
+    # T-R8-4/8：3-step 训练 + 冻结 ViT checksum + trainable 计数
+    for n, p in model.named_parameters():
+        if n.startswith("encoder.vit"):
+            p.requires_grad_(False)
+    vit_before = {k: v.detach().clone() for k, v in vit.state_dict().items()}
+    n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    assert n_train == 53872 and n_train <= 0.06e6, n_train
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if not n.startswith("encoder.vit")], 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post)
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item()))
+    for name, g in (("pair", model.decoder.pair.weight.grad), ("exp1", model.decoder.exp1[0].weight.grad),
+                    ("out", model.decoder.out.weight.grad)):
+        assert g is not None and torch.isfinite(g).all() and g.norm() > 0, f"{name} grad broken"
+    assert vit.patch_embed.proj.weight.grad is None
+    worst = max((v.detach() - vit_before[k]).abs().max().item() for k, v in vit.state_dict().items())
+    assert worst == 0.0
+    print(f"  T-R8-4/8 OK: trainable={n_train:,} (≤0.06M); head grads nonzero; frozen ViT checksum == 0")
+
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  T-R8-5 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup}; hard gate ≤2.0G)")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -815,8 +899,8 @@ def main():
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
-                                 'run5_mobile', 'run5_sgdp', 'run7_csdp'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp')
+                                 'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -860,6 +944,8 @@ def main():
         t_run5_sgdp(args.pretrained_weight_path, args.mobile_pretrained_weight_path, device, vit_depth=4)
     if args.mode in ("run7_csdp", "all"):
         t_run7_csdp(args.pretrained_weight_path, device, vit_depth=2)
+    if args.mode in ("run8_b4_spe", "all"):
+        t_run8_b4_spe(args.pretrained_weight_path, device, vit_depth=4)
 
     print("[SMOKE] ALL OK")
 

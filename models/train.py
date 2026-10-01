@@ -473,15 +473,17 @@ def main():
     # Run4 主线二：detail branch（resnet = 原 ResNet18；light = LightDetail 32/64/128；
     # light48 = 预注册容量 fallback 48/96/160；light_bnrelu = R4-2c adapter align（仅 audit 情况 A）；
     # psd = R4-2d PSD-Detail 0.078M；mobile_p3 = Run5 MobileNetV3-Small features 0-3；
-    # depth_pyramid = Run7 CSDP（无 detail，B1/B2 token 金字塔））
+    # depth_pyramid = Run7 CSDP（无 detail，B1/B2 token 金字塔）；
+    # none_b4 = Run8 B4-SPE（无 detail，只输出 B4 token））
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3', 'depth_pyramid'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7)')
-    # Run5/Run7：head（legacy = 原 FeatureInjector+Decoder；sgdp = Semantic-Guided Difference
-    # Pyramid；csdp = Run7 Cross-Depth Symmetric Difference + PixelShuffle）
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3',
+                                 'depth_pyramid', 'none_b4'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7) | none_b4 (Run8)')
+    # Run5/Run7/Run8：head（legacy = 原 FeatureInjector+Decoder；sgdp = Semantic-Guided
+    # Difference Pyramid；csdp = Run7 Cross-Depth Symmetric Difference；b4_spe = Run8 B4-SPE）
     parser.add_argument('--head_mode', type=str, default='legacy',
-                        choices=['legacy', 'sgdp', 'csdp'],
-                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1)')
+                        choices=['legacy', 'sgdp', 'csdp', 'b4_spe'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1) | b4_spe (Run8 R8-1)')
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 

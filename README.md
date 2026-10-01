@@ -50,16 +50,18 @@ binary change detection in remote sensing images.
     Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run7 已按规则收束）**：
-    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4/5/6（detail 分支路线与
-    token-reconstruction 路线）均已按预注册 gate 终止；Run7（CSDP-CD：B1+B2 深度
-    截断语义源 + PixelShuffle head）的四数据集零训练 gate **FAIL**（C2=2/4：
-    B2≈B4 只在 SYSU/LEVIR 成立，CDD 需 B4、WHU 需 B3/B4）→ 按预注册规则
-    CSDP-CD 停止，未启动任何 80K。**四数据集 token-level depth 曲线**是本轮最大
-    收获：B4 为稳健最优语义源、full12 全面劣化、「最优 change-sensitive depth
-    是 dataset-dependent」。结果见
-    [`docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md`](docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md)、
-    [`docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md`](docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md)。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run8 收束——实验阶段结束）**：
+    目标 `<3M` 有效推理参数。Run4-8 五轮结构搜索（自定义 detail×3 / MobileNet
+    prefix / P0 token 重建 / B2 深度截断 / B4-only 无 detail 重建）全部被各自的
+    预注册零训练 gate 否决，**未产生 <3M 终模型**；Run8 B4-SPE 为最后一轮
+    （dense recoverability gate FAIL：B4 边界带 lift 3/4 数据集 <0.02）。
+    正式收束结论：**R4-1（ViT4+ResNet+旧 head，82.77/70.61，8.195M）是最强
+    已验证轻量化结构**；论文按「分析型收尾」组织——depth redundancy 证据
+    （12→4 仅 −0.37 F1；四数据集 B4 稳健最优、B12 全面劣化）+ token 冗余
+    （A1 K=64 压缩基本无损）+ 五轮负结果的 budget allocation study。
+    完整记录见
+    [`docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md`](docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md)、
+    [`docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md`](docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -270,6 +272,28 @@ binary change detection in remote sensing images.
   FLOPs 0.673G、严格时间交换对称，smoke 全绿）留作资产，未进入训练。
 - 调研文献（2024–2026）见 [`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)，
   参考代码见 `others/`。
+
+## 实验结果（Run8 · B4-SPE 最终路线）
+
+> Run8 方案：`docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md`；脚本：
+> `train_scripts/UltraLight/Run8/`。**R8-D0 四数据集 dense recoverability gate
+> FAIL → 按预注册规则 B4-only 路线永久停止（未启动任何 80K）；课题实验阶段
+> 正式收束**。完整记录见
+> [`docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md`](docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md)。
+
+| Run | 内容 | 判据 |
+|---|---|---|
+| R8-D0 B4_DENSE_AUDIT | B4 vs B12 像素/边界带 dense recoverability（零训练，四数据集） | **FAIL**（C1=2/4、C2=1/4、C3=4/4） |
+
+- 关键数字（rank(B4/B12) bilinear→256×256 的边界带 PR-AUC lift）：
+  CDD −0.0006、LEVIR +0.0164、SYSU +0.0171、WHU +0.0377——B4 的 token 级
+  优势（R7-D0）在真实边界 ±4px 邻域基本消失 → **ranking quality ≠ detail-free
+  dense reconstruction ability**（ViT-CoMer inner-patch limitation 的实证）。
+- B4-SPE head 代码已实现并通过 T-R8 smoke（2,030,704 参数 / trainable 53,872 /
+  FLOPs 1.2186G / 严格时间对称），作为被 gate 否决的最终候选存档。
+- **课题收束立场**：R4-1（82.77/70.61，8.195M）为最强已验证轻量化结构；
+  论文按分析型收尾（depth/token 双冗余证据 + 五轮负结果 budget allocation study）；
+  `<3M` 终模型未被验证达成（论文中如实声明）。
 
 ## 参考文献
 
