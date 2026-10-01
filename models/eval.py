@@ -108,8 +108,13 @@ def main():
     parser.add_argument('--vit_depth', type=int, default=12,
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d)')
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5)')
+    parser.add_argument('--head_mode', type=str, default='legacy',
+                        choices=['legacy', 'sgdp'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2)')
+    parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
+                        help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -134,6 +139,18 @@ def main():
             raise FileNotFoundError(f"no best_F1=*.pth found in {args.ckpt_dir}")
         args.resume = cands[-1]
 
+    # T-R5-10：与训练侧 sidecar 架构参数核对，不一致直接拒绝（防止静默跑错结构）
+    arch_path = os.path.join(args.ckpt_dir, "arch.json")
+    if os.path.isfile(arch_path):
+        import json as _json
+        with open(arch_path, encoding="utf-8") as f:
+            arch = _json.load(f)
+        cli = {"vit_depth": args.vit_depth, "detail_mode": args.detail_mode,
+               "head_mode": args.head_mode, "mode": args.mode}
+        if arch != cli:
+            raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch} vs cli={cli}; refusing to eval")
+        print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
+
     model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
                     resnet_pretrained=bool(args.resnet_pretrained),
                     mode=args.mode, casaa_layers=args.casaa_layers,
@@ -141,7 +158,9 @@ def main():
                     casaa_change_share=args.casaa_change_share,
                     casaa_router=args.casaa_router,
                     vit_depth=args.vit_depth,
-                    detail_mode=args.detail_mode).float()
+                    detail_mode=args.detail_mode,
+                    head_mode=args.head_mode,
+                    mobile_pretrained_weight_path=args.mobile_pretrained_weight_path).float()
     if args.onGPU:
         model = model.cuda()
 

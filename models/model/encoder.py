@@ -31,6 +31,7 @@ from model.layers import (
 from model.resnet import resnet18
 from model.light_detail import LightDetail
 from model.psd_detail import PSDDetail
+from model.mobile_detail import MobileDetail
 
 
 def named_apply(fn: Callable, module: nn.Module, name="", depth_first=True, include_root=False) -> nn.Module:
@@ -369,10 +370,12 @@ class Encoder(nn.Module):
     def __init__(self, model_type='small', pretrained_path=None, resnet_pretrained=True,
                  mode='baseline', casaa_layers=None, casaa_keep_ratio=0.25,
                  casaa_change_share=0.5, casaa_router='change', vit_depth=12,
-                 detail_mode='resnet'):
+                 detail_mode='resnet', head_mode='legacy',
+                 mobile_pretrained_weight_path=None):
         super().__init__()
         self.mode = mode
         self.detail_mode = detail_mode
+        self.head_mode = head_mode
         if mode in ('casaa', 'saa'):
             if casaa_layers is None:
                 casaa_layers = [8, 9, 10, 11]
@@ -463,6 +466,20 @@ class Encoder(nn.Module):
             # 输出 64/128/256 与原 FI 直接兼容，不需要 adapters。
             self.detail = PSDDetail(pretrained=resnet_pretrained)
             self.detail_adapters = None
+        elif detail_mode == 'mobile_p3':
+            # Run5：MobileDetail-P3（MobileNetV3-Small features 0-3，ImageNet 原位继承）。
+            # head_mode='legacy'（R5-1）：legacy Conv1×1→BN→ReLU adapters 16/16/24 → 64/128/256，
+            #   仅为单变量对照服务，不进入 R5-2；
+            # head_mode='sgdp'（R5-2）：adapters 完全不注册，SGDP 直接消费 16/16/24。
+            self.detail = MobileDetail(pretrained_weight_path=mobile_pretrained_weight_path)
+            if head_mode == 'legacy':
+                self.detail_adapters = nn.ModuleList([
+                    nn.Sequential(nn.Conv2d(16, 64, 1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True)),
+                    nn.Sequential(nn.Conv2d(16, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True)),
+                    nn.Sequential(nn.Conv2d(24, 256, 1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True)),
+                ])
+            else:
+                self.detail_adapters = None
         else:
             # resnet 模式：detail 走 self.resnet（不注册 self.detail 别名——
             # 否则 state_dict 会出现 encoder.detail.* 重复 key，导致 R4-0/R4-1
@@ -508,6 +525,14 @@ class Encoder(nn.Module):
             d2, d4, d8 = self.detail(x)
             d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
             return [d2, d4, d8]
+        if self.detail_mode == 'mobile_p3':
+            d2, d4, d8 = self.detail(x)
+            d2 = self.drop(d2)   # 镜像 resnet 路径对 x2 的 p=0.01 dropout
+            if self.detail_adapters is not None:   # R5-1 legacy 模式
+                return [self.detail_adapters[0](d2),
+                        self.detail_adapters[1](d4),
+                        self.detail_adapters[2](d8)]
+            return [d2, d4, d8]                    # R5-2 sgdp 模式（raw 16/16/24）
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         x = self.resnet.relu(x)

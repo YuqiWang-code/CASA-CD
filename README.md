@@ -50,18 +50,14 @@ binary change detection in remote sensing images.
     Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run4 进行中）**：
-    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）：TinyViT4-192（DeiT 前 4 block 原位继承，
-    1.98M）+ 轻量 detail（PSD-Detail 0.078M）+ SABI（scale-aligned bottleneck
-    cross-attention，0.035M）+ DFPD（difference-first pyramid decoder，0.065M）。
-    逐组件单变量推进：R4-0（健康 full12 frozen 参考 83.14）→ R4-1（depth-4，gate 通过
-    ΔF1 −0.37）→ R4-2/2b（LightDetail 32/64/128 与 48/96/160，gate 未过
-    ΔF1 −0.47/−0.45）→ R4-D0 无训练 audit（判定 C）→ R4-2d PSD_DETAIL
-    （82.02，gate 未过）→ **按 Stop-3 轻量 detail 路线终止，Run4 收束，下一步
-    Run5 需重新预注册**。决策依据见
-    [`docs/temporary/CASA-CD_Run4_R4-2失败后_下一步决策与PSD-Detail方案.md`](docs/temporary/CASA-CD_Run4_R4-2失败后_下一步决策与PSD-Detail方案.md)、
-    [`docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md`](docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md) 与
-    [`docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md`](docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md)。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run5 已按规则收束）**：
+    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4（Light32/Light48/PSD 三个自定义
+    轻量 detail）按 Stop-3 终止；Run5（MobileDetail-P3 + SGDP，≈2.103M 设计）的
+    R5-D0 无训练 raw gate **FAIL**（D4 PR-AUC 0.4831 < 0.50）→ 按预注册规则
+    候选② 永久停止，未消耗任何 80K。下一步 **Run6 = ViT semantic 预算重分配**
+    （需重新预注册）。方案与结果见
+    [`docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md`](docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md)、
+    [`docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md`](docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -203,6 +199,33 @@ binary change detection in remote sensing images.
   [`docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md`](docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md)。
 - Run4 留存正面资产：健康 full12 frozen 参考 83.14、depth-4 证据（12→4 block 仅
   −0.37 F1、−3.56M 参数）、R4-D0 无训练 feature 诊断方法（可复用于 Run5 筛选）。
+
+## 实验结果（Run5 · 成熟预训练 MicroDetail + SGDP）
+
+> Run5 方案：`docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md`；
+> 脚本：`train_scripts/UltraLight/Run5/`。R5-D0 无训练 audit 已跑完 → **Mobile raw
+> gate FAIL → 按预注册规则 Run5 候选② 永久停止（未启动任何 80K）**。结果与 Run6
+> 决策叉见
+> [`docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md`](docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md)。
+
+| Run（SYSU） | 结构变化 | F1 | IoU | Params | FLOPs | 判据 |
+|---|---:|---:|---:|---:|---:|---|
+| R5-D0 MOBILE_AUDIT | MobileDetail-P3 raw gate（无训练） | — | — | — | — | **FAIL**（D4 PR 0.4831<0.50，其余 3/4 项过） |
+
+- R5-D0 关键数字（完整 test 4000 对）：Mobile 1/4 PR-AUC 0.4831（门槛 0.50）、
+  1/8 0.5317（0.52）、Top32 prec 0.5006/0.5105（0.46/0.48）——3/4 子门槛过、
+  1/4 PR 差 0.017，按预注册规则**不放行**（这是 raw gate 省 80K 的设计目的）。
+  MobileDetail 仍是迄今最强非 ResNet detail（1/4 比 Light48 高 0.087，达 ResNet 77%）。
+- Postmortem 附加结论：① H2 强支持「PSD 失败主因是 pretrained stem 被重写」
+  （PSD conv rel_L2 0.639 vs R4-1 0.211）；② H1 否定「adapter 关键」假设
+  （TileAdapter ΔF1 仅 −0.013）；③ 发现旧 FI 的零权重吸收：R4-1 参考模型的 FI
+  只有 1/8 一路注入活跃（1/2、1/4 权重精确归零）——legacy head 下的 detail 对照
+  并非严格同接口比较，已记入研究记录。
+- 代码：`models/model/mobile_detail.py`（10,488 参数，ImageNet 原位继承）、
+  `models/model/sgdp_head.py`（115,267 参数，FLOPs 1.68G 达标，Run6 可复用）；
+  审计：`analyse/run5_postmortem_and_mobile_audit.py`。
+- **下一步（Run6，需重新预注册）**：ViT semantic 参数预算重分配（更浅/更窄 ViT
+  腾预算、或去掉独立 detail、或换 semantic 源），先做零训练 raw gate 再决定 80K。
 
 ## 参考文献
 

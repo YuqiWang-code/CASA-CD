@@ -195,6 +195,8 @@ class ChangeViTTrainer(object):
             casaa_router=args.casaa_router,
             vit_depth=args.vit_depth,
             detail_mode=args.detail_mode,
+            head_mode=args.head_mode,
+            mobile_pretrained_weight_path=args.mobile_pretrained_weight_path,
         ).float()
         if args.onGPU:
             self.model = self.model.cuda()
@@ -243,14 +245,28 @@ class ChangeViTTrainer(object):
         self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
 
     def _save_last(self, epoch, iters_per_epoch):
-        torch.save({
+        ckpt = {
             "state_dict": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "epoch": epoch + 1,
             "best_f1": self.best_f1,
             "best_epoch": self.best_epoch,
             "iters_per_epoch": iters_per_epoch,
-        }, os.path.join(self.args.ckpt_dir, "last.pth"))
+            # T-R5-10：checkpoint 内记录架构参数，eval 侧核对一致
+            "arch": {
+                "vit_depth": self.args.vit_depth,
+                "detail_mode": self.args.detail_mode,
+                "head_mode": self.args.head_mode,
+                "mode": self.args.mode,
+            },
+        }
+        torch.save(ckpt, os.path.join(self.args.ckpt_dir, "last.pth"))
+        # 独立 eval 用 sidecar（best_F1=*.pth 是裸 state_dict，不能混入非权重 key）
+        arch_path = os.path.join(self.args.ckpt_dir, "arch.json")
+        if not os.path.isfile(arch_path):
+            import json as _json
+            with open(arch_path, "w", encoding="utf-8") as f:
+                _json.dump(ckpt["arch"], f)
 
     def _make_loader(self, list_path, batch_size, shuffle):
         if shuffle:
@@ -359,6 +375,9 @@ class ChangeViTTrainer(object):
                 self.log("[CASAA-DETAIL-WEIGHT] 0.5")
         self.log(f"[FREEZE-VIT] {int(self.args.freeze_vit)}")
         self.log(f"[VIT-LR-RATIO] {self.args.vit_lr_ratio}")
+        self.log(f"[VIT-DEPTH] {self.args.vit_depth}")
+        self.log(f"[DETAIL-MODE] {self.args.detail_mode}")
+        self.log(f"[HEAD-MODE] {self.args.head_mode}")
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
         self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
@@ -453,10 +472,16 @@ def main():
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     # Run4 主线二：detail branch（resnet = 原 ResNet18；light = LightDetail 32/64/128；
     # light48 = 预注册容量 fallback 48/96/160；light_bnrelu = R4-2c adapter align（仅 audit 情况 A）；
-    # psd = R4-2d PSD-Detail 0.078M）
+    # psd = R4-2d PSD-Detail 0.078M；mobile_p3 = Run5 MobileNetV3-Small features 0-3）
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d)')
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5)')
+    # Run5：head（legacy = 原 FeatureInjector+Decoder；sgdp = Semantic-Guided Difference Pyramid）
+    parser.add_argument('--head_mode', type=str, default='legacy',
+                        choices=['legacy', 'sgdp'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2)')
+    parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
+                        help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,

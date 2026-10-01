@@ -38,6 +38,8 @@ from model.layers.block import NestedTensorBlock as Block
 from model.utils import BCEDiceLoss
 from model.psd_detail import PSDDetail
 from model.resnet import resnet18
+from model.mobile_detail import MobileDetail
+from torchvision.models import mobilenet_v3_small
 
 CASAA_LAYERS = [8, 9, 10, 11]
 CASAA_KEEP = 0.25
@@ -547,6 +549,153 @@ def t_run4_psd(pretrained_path, device, vit_depth=4):
     del psd_ref, model
 
 
+def _ref_mobilenet_p3(mobile_path):
+    """构造 ImageNet 官方 MobileNetV3-Small 并把 features0-3 权重切出来（T-R5-1 基准）。"""
+    ref = mobilenet_v3_small(weights=None)
+    sd = torch.load(mobile_path, map_location="cpu")
+    ref.load_state_dict(sd)
+    out = {}
+    for i in range(4):
+        for k, v in ref.features[i].state_dict().items():
+            out[f"f{i}.{k}"] = v
+    return out
+
+
+def t_run5_mobile(pretrained_path, mobile_path, device, vit_depth=4):
+    """Run5 R5-1 smoke（方案 §43 T-R5-1/2/3/5/6/7/9）：MobileDetail + legacy head。"""
+    print("[RUN5-MOBILE] VIT4 + MobileDetail-P3 + legacy adapters + old FI/decoder smoke")
+
+    # T-R5-1：Mobile features0-3 预训练原位继承（max_abs_diff == 0）
+    ref_sd = _ref_mobilenet_p3(mobile_path)
+    mob = MobileDetail(pretrained_weight_path=mobile_path).cpu()
+    worst = 0.0
+    for k, v in ref_sd.items():
+        worst = max(worst, (mob.state_dict()[k].float() - v.float()).abs().max().item())
+    assert worst == 0.0, f"mobile pretrained not loaded in place (diff {worst})"
+    n_mobile = sum(p.numel() for p in mob.parameters())
+    assert n_mobile == 10488, n_mobile
+    print(f"  T-R5-1 mobile exact-load OK (worst={worst:.2e}); params = {n_mobile}")
+    del ref_sd
+
+    # T-R5-2：state dict 无 features.4+/classifier/avgpool（无隐藏 MobileNet）
+    bad = [k for k in mob.state_dict() if not any(k.startswith(f"f{i}.") for i in range(4))]
+    assert not bad, f"unexpected mobile keys: {bad[:5]}"
+    print("  T-R5-2 no hidden MobileNet keys")
+
+    # T-R5-3：形状（D2 16×128×128 / D4 16×64×64 / D8 24×32×32）
+    x = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        d2, d4, d8 = mob.to(device)(x)
+    assert [tuple(t.shape) for t in (d2, d4, d8)] == [(2, 16, 128, 128), (2, 16, 64, 64), (2, 24, 32, 32)], \
+        [tuple(t.shape) for t in (d2, d4, d8)]
+    print("  T-R5-3 shapes OK (16×128×128 / 16×64×64 / 24×32×32)")
+    del mob
+
+    # legacy 模式全链路：adapters（T-R5-5）+ 3-step 梯度 + 冻结 ViT checksum（T-R5-6/7）
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", vit_depth=vit_depth, detail_mode="mobile_p3",
+                    head_mode="legacy",
+                    mobile_pretrained_weight_path=mobile_path).float().to(device).eval()
+    n_ad = sum(p.numel() for p in model.encoder.detail_adapters.parameters())
+    assert n_ad == 10112, n_ad
+    assert any(k.startswith("encoder.detail_adapters.") for k in model.state_dict())
+    with torch.no_grad():
+        c = model.encoder.detail_capture(x)
+    assert [tuple(t.shape) for t in c] == [(2, 64, 128, 128), (2, 128, 64, 64), (2, 256, 32, 32)], \
+        [tuple(t.shape) for t in c]
+    print(f"  T-R5-5 legacy adapters OK (params {n_ad}); adapted shapes 64/128/256")
+
+    for n, p in model.named_parameters():
+        if n.startswith("encoder.vit"):
+            p.requires_grad_(False)
+    vit_before = {k: v.detach().clone() for k, v in model.encoder.vit.state_dict().items()}
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if not n.startswith("encoder.vit")], 2e-4)
+    model.train()
+    for step in range(3):
+        out = model(pre, post)
+        assert out.shape == (2, 1, 256, 256)
+        loss = BCEDiceLoss(out, target)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        assert torch.isfinite(torch.tensor(loss.item()))
+    for name, g in (("f0", model.encoder.detail.f0[0].weight.grad),
+                    ("f3", model.encoder.detail.f3.block[2][0].weight.grad),
+                    ("decoder", model.decoder.classfier[0].weight.grad)):
+        assert g is not None and torch.isfinite(g).all() and g.norm() > 0, f"{name} grad broken"
+    assert model.encoder.vit.patch_embed.proj.weight.grad is None
+    worst = max((v.detach() - vit_before[k]).abs().max().item()
+                for k, v in model.encoder.vit.state_dict().items())
+    assert worst == 0.0, f"frozen ViT changed (diff {worst})"
+    print("  T-R5-7 grads OK (Mobile f0/f3 + decoder; ViT grad None); T-R5-6 frozen ViT checksum == 0")
+
+    total = measure_params(model)
+    print(f"  total params = {total / 1e6:.4f} M (R5-1 含旧 FI/decoder，>3M 属预期)")
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  T-R5-9 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
+def t_run5_sgdp(pretrained_path, mobile_path, device, vit_depth=4):
+    """Run5 R5-2 smoke（方案 §43）：MobileDetail + SGDP 最终 2.10M 模型。"""
+    print("[RUN5-SGDP] VIT4 + MobileDetail-P3 + SGDP head smoke")
+    model = Trainer("tiny", pretrained_path=pretrained_path, resnet_pretrained=False,
+                    mode="baseline", vit_depth=vit_depth, detail_mode="mobile_p3",
+                    head_mode="sgdp",
+                    mobile_pretrained_weight_path=mobile_path).float().to(device).eval()
+
+    # T-R5-5：sgdp 模式 adapters 完全不注册
+    assert not any("detail_adapters" in k for k in model.state_dict()), "adapters must not exist in sgdp mode"
+    n_mobile = sum(p.numel() for p in model.encoder.detail.parameters())
+    n_sgdp = sum(p.numel() for p in model.decoder.parameters())
+    assert n_mobile == 10488, n_mobile
+    assert n_sgdp == 115267, n_sgdp
+    total = measure_params(model)
+    assert total == 2102587, total
+    assert total <= 2.11e6
+    print(f"  T-R5-4 params OK: ViT 1,976,832 + Mobile {n_mobile} + SGDP {n_sgdp} = {total:,} (≤2.11M)")
+
+    # T-R5-3 shapes + T-R5-8 time swap
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        c = model.encoder.detail_capture(pre)
+        assert [tuple(t.shape) for t in c] == [(2, 16, 128, 128), (2, 16, 64, 64), (2, 24, 32, 32)], \
+            [tuple(t.shape) for t in c]
+        out_ab = model(pre, post)
+        out_ba = model(post, pre)
+    assert out_ab.shape == (2, 1, 256, 256)
+    d_swap = (out_ab - out_ba).abs().max().item()
+    assert d_swap < 1e-5, f"time swap symmetry broken: {d_swap}"
+    print(f"  T-R5-3 shapes OK; T-R5-8 time swap max_abs_diff = {d_swap:.2e}")
+
+    # T-R5-7 梯度路径（冻结 ViT 由训练脚本控制，此处验证非冻结组件）
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    model.train()
+    out = model(pre, post)
+    loss = BCEDiceLoss(out, target)
+    loss.backward()
+    for name, g in (("f1", model.encoder.detail.f1.block[0][0].weight.grad),
+                    ("sem16", model.decoder.sem16.conv.weight.grad),
+                    ("fuse8", model.decoder.fuse8.dw.weight.grad),
+                    ("classifier", model.decoder.classifier.weight.grad)):
+        assert g is not None and torch.isfinite(g).all() and g.norm() > 0, f"{name} grad broken"
+    print("  T-R5-7 grads OK (Mobile f1 / SGDP sem16/fuse8/classifier)")
+
+    try:
+        flops, n_unsup = measure_flops(model, size=256)
+        print(f"  T-R5-9 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup}; hard gate ≤2.0G)")
+    except Exception as e:
+        print(f"  [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+    del model
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -582,11 +731,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_type', type=str, default='tiny')
     parser.add_argument('--pretrained_weight_path', type=str, required=True)
+    parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
+                        help='MobileNetV3-Small ImageNet weights (run5 modes)')
     parser.add_argument('--gpu_id', type=int, default=0)
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
-                                 'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd')
+                                 'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
+                                 'run5_mobile', 'run5_sgdp'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -624,6 +776,10 @@ def main():
         t_run4_light(args.pretrained_weight_path, device, detail_mode='light_bnrelu')
     if args.mode in ("run4_psd", "all"):
         t_run4_psd(args.pretrained_weight_path, device, vit_depth=4)
+    if args.mode in ("run5_mobile", "all"):
+        t_run5_mobile(args.pretrained_weight_path, args.mobile_pretrained_weight_path, device, vit_depth=4)
+    if args.mode in ("run5_sgdp", "all"):
+        t_run5_sgdp(args.pretrained_weight_path, args.mobile_pretrained_weight_path, device, vit_depth=4)
 
     print("[SMOKE] ALL OK")
 
