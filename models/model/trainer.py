@@ -4,6 +4,7 @@ import torch.nn as nn
 from model.encoder import Encoder
 from model.decoder import Decoder
 from model.sgdp_head import SGDPHead
+from model.depth_pyramid_head import DepthPyramidHead
 
 from model.utils import weight_init
 
@@ -39,6 +40,10 @@ class Trainer(nn.Module):
             # Run5 R5-2：统一 change head（difference-first + semantic gate），
             # 直接消费 MobileDetail raw 16/16/24 + ViT 192。
             self.decoder = SGDPHead()
+        elif head_mode == 'csdp':
+            # Run7 R7-1：CSDP head（B1+B2 对称差分 + PixelShuffle 金字塔），
+            # 消费 encoder 的 depth_pyramid_capture 输出 [B1, B2]。
+            self.decoder = DepthPyramidHead()
         else:
             self.decoder = Decoder(in_dim=[64, 128, 256, embed_dim])
             weight_init(self.decoder)

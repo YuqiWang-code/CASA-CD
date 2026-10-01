@@ -480,6 +480,11 @@ class Encoder(nn.Module):
                 ])
             else:
                 self.detail_adapters = None
+        elif detail_mode == 'depth_pyramid':
+            # Run7 CSDP：无独立 detail encoder；B1/B2 深度金字塔 token 由
+            # depth_pyramid_capture 直接产出（head_mode='csdp' 配套）。
+            self.detail = None
+            self.detail_adapters = None
         else:
             # resnet 模式：detail 走 self.resnet（不注册 self.detail 别名——
             # 否则 state_dict 会出现 encoder.detail.* 重复 key，导致 R4-0/R4-1
@@ -570,7 +575,22 @@ class Encoder(nn.Module):
         return rank_normalize_per_image(sd)
 
 
+    def depth_pyramid_capture(self, x):
+        """Run7 CSDP：PatchEmbed → Block1 → Block2，返回 [B1, B2]。
+
+        每个 block 输出过 final LN（与 R6-D0/R7-D0 审计的 B1/B2 口径一致），
+        shape 各 (B, 256, 192)。只调用一次 patch_embed（严禁重复计算）。
+        """
+        p0 = self.vit.patch_embed(x)
+        tok = p0 + self.vit.interpolate_pos_encoding(p0, x.shape[-1], x.shape[-2])
+        b1 = self.vit.norm(self.vit.blocks[0](tok))
+        b2 = self.vit.norm(self.vit.blocks[1](b1))
+        return [b1, b2]
+
     def forward(self, x, y, label=None):
+        if self.detail_mode == 'depth_pyramid':
+            # CSDP：不跑完整 ViT final forward，直接返回深度金字塔 token 对
+            return self.depth_pyramid_capture(x), self.depth_pyramid_capture(y)
         detail_pre = None
         if self.casaa_layers:
             score_hint = None

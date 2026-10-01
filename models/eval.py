@@ -108,11 +108,11 @@ def main():
     parser.add_argument('--vit_depth', type=int, default=12,
                         help='ViT depth (12 = original ChangeViT; 4 = Run4 prefix-4)')
     parser.add_argument('--detail_mode', type=str, default='resnet',
-                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3'],
-                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5)')
+                        choices=['resnet', 'light', 'light48', 'light_bnrelu', 'psd', 'mobile_p3', 'depth_pyramid'],
+                        help='detail branch: resnet (original) | light | light48 | light_bnrelu (R4-2c) | psd (R4-2d) | mobile_p3 (Run5) | depth_pyramid (Run7)')
     parser.add_argument('--head_mode', type=str, default='legacy',
-                        choices=['legacy', 'sgdp'],
-                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2)')
+                        choices=['legacy', 'sgdp', 'csdp'],
+                        help='downstream head: legacy (original FI+decoder) | sgdp (Run5 R5-2) | csdp (Run7 R7-1)')
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 

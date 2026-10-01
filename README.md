@@ -50,17 +50,16 @@ binary change detection in remote sensing images.
     Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run6 已按规则收束）**：
-    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4（自定义轻量 detail×3）与
-    Run5（MobileNet 预训练 prefix）分别按 Stop-3 / raw-gate 规则终止；Run6
-    （删除独立 detail、从 ViT4 PatchEmbed token 做 PTPR 金字塔重建 + SGDP，
-    ≈2.100M）的 R6-D0 零训练 gate **FAIL**（P0 PR-AUC 0.3711<0.44、
-    Fuse 0.4753<0.50）→ 按预注册规则永久停止该路线，未实现 PTPR、未花 80K。
-    证据链新资产：**ViT4 终 token（B4）自身变化判别力 PR-AUC 0.6127 > full12
-    B12 0.5143**（再次支持 depth redundancy 叙事）。下一步：**semantic source
-    replacement**（重新预注册）。方案与结果见
-    [`docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md`](docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md)、
-    [`docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md`](docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md)。
+  - **Ultra-Light Multi-Scale Change Representation（主线二，Run7 已按规则收束）**：
+    目标 `<3M` 有效推理参数（工程目标 ≤2.20M）。Run4/5/6（detail 分支路线与
+    token-reconstruction 路线）均已按预注册 gate 终止；Run7（CSDP-CD：B1+B2 深度
+    截断语义源 + PixelShuffle head）的四数据集零训练 gate **FAIL**（C2=2/4：
+    B2≈B4 只在 SYSU/LEVIR 成立，CDD 需 B4、WHU 需 B3/B4）→ 按预注册规则
+    CSDP-CD 停止，未启动任何 80K。**四数据集 token-level depth 曲线**是本轮最大
+    收获：B4 为稳健最优语义源、full12 全面劣化、「最优 change-sensitive depth
+    是 dataset-dependent」。结果见
+    [`docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md`](docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md)、
+    [`docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md`](docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md)。
 
 - 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
 - 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
@@ -251,8 +250,31 @@ binary change detection in remote sensing images.
   更浅 ViT 终 token / MobileNetV3 深层 1/16 语义 / ViT4 中段 block token 等，
   照 R6-D0 模式先零训练 gate（`analyse/run6_semantic_token_audit.py` 可直接复用）。
 
+## 实验结果（Run7 · CSDP-CD 变化敏感深度金字塔）
+
+> Run7 方案：`docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md`；脚本：
+> `train_scripts/UltraLight/Run7/`。**R7-D0 四数据集零训练 gate FAIL → 按预注册
+> 规则 CSDP-CD 停止（未启动 R7-0/R7-1 任何 80K）**。完整记录见
+> [`docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md`](docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md)。
+
+| Run | 内容 | 判据 |
+|---|---|---|
+| R7-D0 DEPTH_AUDIT | CDD/LEVIR/SYSU/WHU 的 P0/B1-B4/B12 token ranking（零训练） | **FAIL**（C1=3/4、C2=2/4、C3=4/4） |
+
+- 四数据集 PR-AUC（B2 / B4 / B12）：CDD 0.4164 / **0.4594** / 0.3980；
+  LEVIR **0.2947** / 0.3009 / 0.2465；SYSU 0.6008 / 0.6127 / 0.5143；
+  WHU 0.2660 / 0.3449 / 0.1693 → B2≈B4 只在 SYSU/LEVIR 成立；
+  **B4 为稳健最优语义源，full12 全面劣化，最优 change-sensitive depth
+  是 dataset-dependent**。
+- CSDP head 代码（`models/model/depth_pyramid_head.py`，ViT2+head=1,177,936 参数、
+  FLOPs 0.673G、严格时间交换对称，smoke 全绿）留作资产，未进入训练。
+- 调研文献（2024–2026）见 [`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)，
+  参考代码见 `others/`。
+
 ## 参考文献
 
+- **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
+  2024–2026 调研文献清单（分层级/官方链接/存放位置），新增文献 PDF 时先在此登记。
 - Baseline：`docs/参考文献/baseline/ChangeViT(PR2026).pdf`
   （Zhu et al., ChangeViT: Unleashing Plain Vision Transformers for Change Detection in
   Remote Sensing Images, Pattern Recognition 2025；代码 https://github.com/zhuduowang/ChangeViT）
