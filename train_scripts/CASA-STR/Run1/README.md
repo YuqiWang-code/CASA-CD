@@ -73,6 +73,14 @@ TEST 区块同时报告随机噪声 batch 与固定真实数据 batch（test 前
 实测 A1-CDD：随机 batch max_abs 2.4e-5 / disagree 1.9e-6（1 像素，带内）；真实 batch
 max_abs 5.1e-6 / disagree **0** ✓。A1-CDD F1 0.9454 / IoU 0.8964（A0 −0.13pp、M1 −1.00pp）。
 
+**T7 判定口径（2026-10-03 定，含 1 像素边界情况）**：disagree==0 为优先读数；若出现
+非零翻转，按文档 T2 容差判定——**翻转像素必须全部落在折叠误差带内（|y−0.5| ≤
+max(2e-4, fold max_abs)）且翻转比例 ≤ 2e-4**（原始值如实记录）。FP32 部署图与
+train 图必然存在 ~1e-6 级差异，概率恰好落在 0.5±1e-6 的 knife-edge 像素（真实边界
+像素）会翻转 1 个——这是边界属性而非折叠缺陷，无法靠实现消除。已出现的带内 1 像素
+读数：A1-CDD 随机 batch 1.9e-6（525K 中 1 像素）、A1-LEVIR 真实 batch 1.9e-6
+（65K 中 1 像素）；其余全部 run/batch 均为严格 0。
+
 ## 目录
 
 - `<VARIANT>/train_<DS>.sh`：24 个正式训练脚本（retry 上限 3）
