@@ -66,6 +66,13 @@ smoke 均已内建）。初版在默认 TF32-on 下测得 CDD A0 max_abs=1.5e-2�
 A0 CDD F1 0.9467 / IoU 0.8987、A0 LEVIR 0.8990 / 0.8166、A0 SYSU 0.8246 / 0.7016、
 A0 WHU 0.9370 / 0.8815——全部 disagree=0、max_abs ≤1.6e-5。
 
+**T6/T7 双 batch 口径（2026-10-03 增补，主线文档 T6「随机与真实数据都测」）**：
+TEST 区块同时报告随机噪声 batch 与固定真实数据 batch（test 前 16 张）的折叠读数。
+随机噪声 batch 的模型概率可在 0.5 边界 → 允许带内个别翻转（T2 带 ≤2e-4，如实记录）；
+**真实数据 batch 概率极化 → `[REPARAM-REAL-ARGMAX-DISAGREE]` 必须 == 0（T7 操作门槛）**。
+实测 A1-CDD：随机 batch max_abs 2.4e-5 / disagree 1.9e-6（1 像素，带内）；真实 batch
+max_abs 5.1e-6 / disagree **0** ✓。A1-CDD F1 0.9454 / IoU 0.8964（A0 −0.13pp、M1 −1.00pp）。
+
 ## 目录
 
 - `<VARIANT>/train_<DS>.sh`：24 个正式训练脚本（retry 上限 3）

@@ -94,13 +94,30 @@ def main():
                                      transform=transform)
     test_loader = torch.utils.data.DataLoader(test_data, shuffle=False, batch_size=16,
                                               num_workers=4, pin_memory=True)
+
+    # 主线文档 T6：真实数据 batch 也测（随机噪声 batch 的概率可在 0.5 边界 → 允许个别翻转；
+    # 真实数据概率极化 → 二值 mask 必须逐位一致，此为 T7 操作口径）
+    img_r, _ = next(iter(test_loader))
+    pre_r, post_r = img_r[:, 0:3].cuda(), img_r[:, 3:6].cuda()
+    m_train = CASASTRNet(pretrain, attn_mode=args.attn_mode, rep_mode=args.rep_mode).float().cuda()
+    m_train.load_state_dict(torch.load(best, map_location="cpu", weights_only=False))
+    m_train.eval()
+    with torch.no_grad():
+        y_train_real = m_train(pre_r.float(), post_r.float())
+        y_deploy_real = model(pre_r.float(), post_r.float())
+    fold_err_real = (y_train_real - y_deploy_real).abs().max().item()
+    disagree_real = ((y_train_real > 0.5) != (y_deploy_real > 0.5)).float().mean().item()
+    del m_train
+
     _, scores = run_val(test_loader, model, on_gpu=True)
 
     print("=== REMEASURED TEST RESULTS (STR T2 protocol) ===")
     print(f"[CKPT] {best}")
     print(f"[NUMERICS] tf32=off deterministic=on")
-    print(f"[REPARAM-MAX-ABS-ERROR] {fold_err:.3e}")
-    print(f"[REPARAM-ARGMAX-DISAGREE] {disagree:.3e}")
+    print(f"[REPARAM-MAX-ABS-ERROR] {fold_err:.3e} (fixed random batch)")
+    print(f"[REPARAM-ARGMAX-DISAGREE] {disagree:.3e} (fixed random batch)")
+    print(f"[REPARAM-REAL-MAX-ABS-ERROR] {fold_err_real:.3e} (fixed real-data batch 16)")
+    print(f"[REPARAM-REAL-ARGMAX-DISAGREE] {disagree_real:.3e} (operational gate: must be 0)")
     print(f"[DEPLOY-PARAMS] total={measure_params(model) / 1e6:.3f} M")
     print(f"Recall={scores['recall']:.4f} | Precision={scores['precision']:.4f} | OA={scores['OA']:.4f} | "
           f"F1={scores['F1']:.4f} | IoU={scores['IoU']:.4f} | Kappa={scores['Kappa']:.4f}")

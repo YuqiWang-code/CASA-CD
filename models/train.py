@@ -619,14 +619,23 @@ class ChangeViTTrainer(object):
         torch.manual_seed(16)
         pre_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
         post_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
+        # 主线文档 T6：随机输入与真实数据 batch 都测。真实数据概率极化，二值 mask 应逐位一致。
+        real_loader = self._make_loader(self.args.test_list, 16, False)
+        img_r, _ = next(iter(real_loader))
+        pre_r = img_r[:, 0:3].cuda()
+        post_r = img_r[:, 3:6].cuda()
         with torch.no_grad():
             y_train = self.model(pre_fix, post_fix)
+            y_train_real = self.model(pre_r.float(), post_r.float())
         self.model.switch_to_deploy()
         self.model.eval()
         with torch.no_grad():
             y_deploy = self.model(pre_fix, post_fix)
+            y_deploy_real = self.model(pre_r.float(), post_r.float())
         fold_err = (y_train - y_deploy).abs().max().item()
         disagree = ((y_train > 0.5) != (y_deploy > 0.5)).float().mean().item()
+        fold_err_real = (y_train_real - y_deploy_real).abs().max().item()
+        disagree_real = ((y_train_real > 0.5) != (y_deploy_real > 0.5)).float().mean().item()
 
         deploy_total = measure_params(self.model)
         deploy_trainable = measure_trainable_params(self.model)
@@ -693,6 +702,8 @@ class ChangeViTTrainer(object):
             self.log(f"[STR-SCALES] B1->64x64 B2->32x32 B3->16x16 B4->8x8")
         self.log(f"[REPARAM-MAX-ABS-ERROR] {fold_err:.3e} (train-graph vs deploy-graph, fixed batch)")
         self.log(f"[REPARAM-ARGMAX-DISAGREE] {disagree:.3e} (0.5-binarization; hard gate: must be 0)")
+        self.log(f"[REPARAM-REAL-MAX-ABS-ERROR] {fold_err_real:.3e} (train vs deploy, fixed real-data batch 16)")
+        self.log(f"[REPARAM-REAL-ARGMAX-DISAGREE] {disagree_real:.3e} (0.5-binarization; operational gate: must be 0)")
         self.log(f"[DEPLOY-PARAMS] total={fmt_params(deploy_total)} M "
                  f"effective={fmt_params(deploy_effective)} M trainable={fmt_params(deploy_trainable)} M")
         self.log(flops_line)
