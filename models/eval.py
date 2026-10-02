@@ -15,6 +15,7 @@ if _MODELS_ROOT not in sys.path:
     sys.path.insert(0, _MODELS_ROOT)
 
 from model.trainer import Trainer
+from model.str_fusion import STRFusionNet
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss
 
@@ -119,6 +120,14 @@ def main():
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
+    # STRFusion Run1
+    parser.add_argument('--arch', type=str, default='changevit', choices=['changevit', 'strfusion'],
+                        help='model architecture: changevit | strfusion (frozen ViT4 + TAR/DCR)')
+    parser.add_argument('--str_dim', type=int, default=160,
+                        help='STRFusion decoder width D (must match training)')
+    parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
+                        help='STRFusion rep mode (must match training)')
+
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
     parser.add_argument('--std', type=float, nargs=6,
@@ -148,30 +157,45 @@ def main():
         import json as _json
         with open(arch_path, encoding="utf-8") as f:
             arch = _json.load(f)
-        cli = {"vit_depth": args.vit_depth, "detail_mode": args.detail_mode,
-               "head_mode": args.head_mode, "mode": args.mode,
-               "opre_gate": args.opre_gate}
+        if args.arch == "strfusion":
+            cli = {"arch": "strfusion", "vit_depth": 4,
+                   "str_dim": args.str_dim, "str_rep_mode": args.str_rep_mode}
+        else:
+            cli = {"vit_depth": args.vit_depth, "detail_mode": args.detail_mode,
+                   "head_mode": args.head_mode, "mode": args.mode,
+                   "opre_gate": args.opre_gate}
         if arch != cli:
             raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch} vs cli={cli}; refusing to eval")
         print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
 
-    model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
-                    resnet_pretrained=bool(args.resnet_pretrained),
-                    mode=args.mode, casaa_layers=args.casaa_layers,
-                    casaa_keep_ratio=args.casaa_keep_ratio,
-                    casaa_change_share=args.casaa_change_share,
-                    casaa_router=args.casaa_router,
-                    vit_depth=args.vit_depth,
-                    detail_mode=args.detail_mode,
-                    head_mode=args.head_mode,
-                    mobile_pretrained_weight_path=args.mobile_pretrained_weight_path,
-                    opre_gate=args.opre_gate).float()
-    if args.onGPU:
-        model = model.cuda()
+    if args.arch == "strfusion":
+        model = STRFusionNet(args.pretrained_weight_path, dim=args.str_dim,
+                             rep_mode=args.str_rep_mode).float()
+        if args.onGPU:
+            model = model.cuda()
+        state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
+        model.load_state_dict(state_dict)
+        model.switch_to_deploy()
+        model.eval()
+        print(f"[RESUME] loaded {args.resume}; deploy graph folded")
+    else:
+        model = Trainer(args.model_type, pretrained_path=args.pretrained_weight_path,
+                        resnet_pretrained=bool(args.resnet_pretrained),
+                        mode=args.mode, casaa_layers=args.casaa_layers,
+                        casaa_keep_ratio=args.casaa_keep_ratio,
+                        casaa_change_share=args.casaa_change_share,
+                        casaa_router=args.casaa_router,
+                        vit_depth=args.vit_depth,
+                        detail_mode=args.detail_mode,
+                        head_mode=args.head_mode,
+                        mobile_pretrained_weight_path=args.mobile_pretrained_weight_path,
+                        opre_gate=args.opre_gate).float()
+        if args.onGPU:
+            model = model.cuda()
 
-    state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
-    model.load_state_dict(state_dict)
-    print(f"[RESUME] loaded {args.resume}")
+        state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
+        model.load_state_dict(state_dict)
+        print(f"[RESUME] loaded {args.resume}")
 
     val_transform = myTransforms.Compose([
         myTransforms.Normalize(mean=args.mean, std=args.std),
@@ -193,6 +217,20 @@ def main():
         flops_line = f"measurement failed ({type(e).__name__}: {e})"
 
     print("=== TEST RESULTS ===")
+    if args.arch == "strfusion":
+        print("[MODEL] STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)")
+        print("[ARCH] strfusion")
+        print(f"[STR-REP-MODE] {args.str_rep_mode}")
+        print(f"[STR-DIM] {args.str_dim}")
+        print("[DEPLOY] folded deploy graph")
+        print(f"[DEPLOY-PARAMS] total={total_params / 1e6:.3f} M "
+              f"effective={measure_effective_params(model) / 1e6:.3f} M")
+        print(f"[DEPLOY-FLOPS] {flops_line}")
+        print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+              f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+        print("=== END TEST RESULTS ===")
+        return
+
     print(f"[MODEL] ChangeViT-{args.model_type.upper()} {args.mode}")
     print(f"[MODE] {args.mode}")
     if args.mode != "baseline":

@@ -34,6 +34,7 @@ if _MODELS_ROOT not in sys.path:
     sys.path.insert(0, _MODELS_ROOT)
 
 from model.trainer import Trainer
+from model.str_fusion import STRFusionNet
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
@@ -184,6 +185,33 @@ class ChangeViTTrainer(object):
         init_seed(args.seed)
         torch.backends.cudnn.benchmark = True
 
+        # STRFusion Run1（加性分支，不改动 changevit 路径）：
+        # 冻结 ViT4 depth-as-scale encoder + TAR/DCR 结构重参数化。
+        if getattr(args, "arch", "changevit") == "strfusion":
+            self.model = STRFusionNet(
+                args.pretrained_weight_path, dim=args.str_dim, rep_mode=args.str_rep_mode,
+            ).float()
+            if args.onGPU:
+                self.model = self.model.cuda()
+            enc_trainable = sum(p.numel() for p in self.model.encoder.parameters() if p.requires_grad)
+            assert enc_trainable == 0, "STRFusion ViT must stay frozen (enforced by the model)"
+            self.optimizer = torch.optim.Adam(
+                [p for p in self.model.parameters() if p.requires_grad],
+                args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+            self.start_epoch = 0
+            self.best_f1 = -1.0
+            self.best_epoch = -1
+            self.cur_iter = 0
+            resume_path = args.resume
+            if resume_path is None:
+                auto = os.path.join(args.ckpt_dir, "last.pth")
+                if os.path.isfile(auto):
+                    resume_path = auto
+            if resume_path is not None and os.path.isfile(resume_path):
+                self._load_resume(resume_path)
+            os.makedirs(args.ckpt_dir, exist_ok=True)
+            return
+
         self.model = Trainer(
             args.model_type,
             pretrained_path=args.pretrained_weight_path,
@@ -246,6 +274,22 @@ class ChangeViTTrainer(object):
         self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
 
     def _save_last(self, epoch, iters_per_epoch):
+        if getattr(self.args, "arch", "changevit") == "strfusion":
+            arch = {
+                "arch": "strfusion",
+                "vit_depth": 4,
+                "str_dim": self.args.str_dim,
+                "str_rep_mode": self.args.str_rep_mode,
+            }
+        else:
+            # T-R5-10：checkpoint 内记录架构参数，eval 侧核对一致
+            arch = {
+                "vit_depth": self.args.vit_depth,
+                "detail_mode": self.args.detail_mode,
+                "head_mode": self.args.head_mode,
+                "mode": self.args.mode,
+                "opre_gate": self.args.opre_gate,
+            }
         ckpt = {
             "state_dict": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
@@ -253,14 +297,7 @@ class ChangeViTTrainer(object):
             "best_f1": self.best_f1,
             "best_epoch": self.best_epoch,
             "iters_per_epoch": iters_per_epoch,
-            # T-R5-10：checkpoint 内记录架构参数，eval 侧核对一致
-            "arch": {
-                "vit_depth": self.args.vit_depth,
-                "detail_mode": self.args.detail_mode,
-                "head_mode": self.args.head_mode,
-                "mode": self.args.mode,
-                "opre_gate": self.args.opre_gate,
-            },
+            "arch": arch,
         }
         torch.save(ckpt, os.path.join(self.args.ckpt_dir, "last.pth"))
         # 独立 eval 用 sidecar（best_F1=*.pth 是裸 state_dict，不能混入非权重 key）
@@ -347,6 +384,10 @@ class ChangeViTTrainer(object):
         self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
         self.model = self.model.cuda()
 
+        if getattr(self.args, "arch", "changevit") == "strfusion":
+            self.test_best_strfusion(best_path)
+            return
+
         total_params = measure_params(self.model)
         trainable = measure_trainable_params(self.model)
         effective_params = measure_effective_params(self.model)
@@ -389,6 +430,58 @@ class ChangeViTTrainer(object):
         self.log(f"[TOTAL-PARAMS] {fmt_params(total_params)} M")
         self.log(f"[EFFECTIVE-PARAMS] {fmt_params(effective_params)} M")
         self.log(f"[TRAINABLE-PARAMS] {fmt_params(trainable)} M")
+        self.log(flops_line)
+        self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+                 f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+        self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
+        self.log("=== END TEST RESULTS ===")
+
+    def test_best_strfusion(self, best_path):
+        """STRFusion 正式测试：折叠为 deploy 图后评估（STR 部署纪律）。
+
+        1) 固定随机 batch 上记录 train-graph vs deploy-graph 的 max_abs_error 与
+           0.5 阈值二值化 disagreement（硬要求 = 0，STR argmax=0 的单通道类比）；
+        2) 报告 deploy 图 Params / FLOPs（部署预算硬门槛 <3M 由预算审计裁决，此处记录）；
+        3) 在 deploy 图上跑完整 test 集，写 TEST RESULTS 区块。
+        """
+        self.model.eval()
+        torch.manual_seed(16)
+        pre_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
+        post_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
+        with torch.no_grad():
+            y_train = self.model(pre_fix, post_fix)
+        self.model.switch_to_deploy()
+        self.model.eval()
+        with torch.no_grad():
+            y_deploy = self.model(pre_fix, post_fix)
+        fold_err = (y_train - y_deploy).abs().max().item()
+        disagree = ((y_train > 0.5) != (y_deploy > 0.5)).float().mean().item()
+
+        deploy_total = measure_params(self.model)
+        deploy_trainable = measure_trainable_params(self.model)
+        deploy_effective = measure_effective_params(self.model)
+        try:
+            flops, n_unsup = measure_flops(self.model, size=self.args.inWidth)
+            flops_line = (f"[DEPLOY-FLOPS] {fmt_flops(flops)} G   "
+                          f"(input 2x3x{self.args.inWidth}x{self.args.inHeight}, unsupported_ops={n_unsup})")
+        except Exception as e:
+            flops_line = f"[DEPLOY-FLOPS] measurement failed ({type(e).__name__}: {e})"
+
+        test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
+        _, score_test = val(self.args, test_loader, self.model)
+
+        self.log("=== TEST RESULTS ===")
+        self.log("[MODEL] STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)")
+        self.log("[ARCH] strfusion")
+        self.log(f"[STR-REP-MODE] {self.args.str_rep_mode}")
+        self.log(f"[STR-DIM] {self.args.str_dim}")
+        self.log(f"[STR-FREEZE-VIT] 1")
+        self.log(f"[STR-VIT-DEPTH] 4")
+        self.log(f"[STR-SCALES] B1->64x64 B2->32x32 B3->16x16 B4->8x8")
+        self.log(f"[REPARAM-MAX-ABS-ERROR] {fold_err:.3e} (train-graph vs deploy-graph, fixed batch)")
+        self.log(f"[REPARAM-ARGMAX-DISAGREE] {disagree:.3e} (0.5-binarization; hard gate: must be 0)")
+        self.log(f"[DEPLOY-PARAMS] total={fmt_params(deploy_total)} M "
+                 f"effective={fmt_params(deploy_effective)} M trainable={fmt_params(deploy_trainable)} M")
         self.log(flops_line)
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
@@ -498,6 +591,14 @@ def main():
                         help='Run9 O-PRE semantic gate: 1 = gated residual（主模型）；0 = NOGATE 消融')
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
+
+    # STRFusion Run1（融合主线：冻结 ViT4 + TAR/DCR；changevit 路径不受影响）
+    parser.add_argument('--arch', type=str, default='changevit', choices=['changevit', 'strfusion'],
+                        help='model architecture: changevit (all Run1-9 paths) | strfusion (frozen ViT4 + TAR/DCR)')
+    parser.add_argument('--str_dim', type=int, default=160,
+                        help='STRFusion decoder width D (pre-registered: 160; budget dial only, no F1 sweep)')
+    parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
+                        help='STRFusion rep mode: plain (C0, no aux) | full (M1, TAR+DCR aux)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,

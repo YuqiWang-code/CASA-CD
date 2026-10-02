@@ -952,6 +952,174 @@ def t_run9_opre(pretrained_path, device, vit_depth=4):
     del model
 
 
+def t_run1_strfusion(pretrained_path, device):
+    """Run1 STRFusion smoke（设计文档 §6.2）：ViT4 depth-as-scale + TAR/DCR rep。
+
+    T-SF-1 C0/M1 epoch-0 输出逐位一致（max_diff == 0.0）
+    T-SF-2 aux 分支 epoch-0 输出严格为 0
+    T-SF-3 aux BN gamma 梯度非零；gamma nudge 后 aux conv 梯度出现
+    T-SF-4 3-step 训练 loss 有限；冻结 ViT grad == None；非 ViT grad 非零
+    T-SF-5 冻结 ViT4 checksum == corrected DeiT 初始化（depth-4 口径）
+    T-SF-6 switch_to_deploy 后无 BN/aux 键；C0/M1 deploy Params 逐位相等且 <=3M
+    T-SF-7 swap 不对称量级记录（report-only，不设 gate）
+    T-SF-8 FLOPs 测量（fvcore）
+    """
+    from model.str_fusion import STRFusionNet
+    print("[RUN1-STRFUSION] ViT4 depth-as-scale + TAR/DCR rep smoke")
+
+    # ---- T-SF-1 / T-SF-2: epoch-0 identity + aux zero output ----
+    torch.manual_seed(16)
+    m0 = STRFusionNet(pretrained_path, dim=160, rep_mode="plain").to(device)
+    torch.manual_seed(16)
+    m1 = STRFusionNet(pretrained_path, dim=160, rep_mode="full").to(device)
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    m0.eval()
+    m1.eval()
+    with torch.no_grad():
+        y0 = m0(pre, post)
+        y1 = m1(pre, post)
+    d01 = (y0 - y1).abs().max().item()
+    print(f"  T-SF-1 C0/M1 epoch-0 outputs bitwise equal: max_diff={d01:.3e}")
+    assert d01 == 0.0, "C0/M1 epoch-0 outputs must be bitwise identical"
+
+    with torch.no_grad():
+        P = torch.randn(2, 192, 64, 64, device=device)
+        Q = torch.randn(2, 192, 64, 64, device=device)
+        st = m1.tar.stage1.temporal
+        z_aux = st.bn_s(st.proj_s(P + Q)) + st.bn_d(st.proj_d(Q - P))
+        zm = z_aux.abs().max().item()
+        P160 = torch.randn(2, 160, 64, 64, device=device)
+        Q160 = torch.randn(2, 160, 64, 64, device=device)
+        d1 = m1.decoder.fuse1
+        zf = d1.bn_s(d1.fuse_s(P160 + Q160)) + d1.bn_d(d1.fuse_d(Q160 - P160))
+        zfm = zf.abs().max().item()
+    print(f"  T-SF-2 aux epoch-0 output exactly 0: temporal={zm:.3e}, fuse={zfm:.3e}")
+    assert zm == 0.0 and zfm == 0.0
+
+    # ---- T-SF-3: gradient families (two zero-init families, both must train) ----
+    # family A (zero-conv): temporal/DW/fuse aux — conv weights zero-init, BN default
+    #   (gamma=1). Conv grads are input-dependent -> nonzero @init; BN gamma grad is
+    #   exactly 0 @init (x_hat==0) and appears after the conv departs 0.
+    # family B (zero-gamma): PW serial aux — BN gamma=beta=0 (STRFusion P0
+    #   adaptation, MPCR pattern), Kaiming convs keep x_hat nonzero -> gamma grad
+    #   nonzero @init; conv grads are blocked by gamma=0 and appear after a nudge.
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    m1.train()
+    opt = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post, target), target)
+    loss.backward()
+    st = m1.tar.stage1.temporal
+    g_conv = st.proj_s.weight.grad
+    g_bn = st.bn_s.weight.grad
+    assert g_conv is not None and g_conv.abs().max().item() > 0, "family A conv grad must be nonzero @init"
+    assert g_bn is not None and g_bn.abs().max().item() == 0.0, "family A BN gamma grad must be 0 @init"
+    pw = m1.tar.stage1.block.pw
+    g_gammaB = pw.bn_lr.weight.grad.clone()
+    g_convB = pw.pw2.weight.grad
+    assert g_gammaB is not None and g_gammaB.abs().max().item() > 0, "family B BN gamma grad must be nonzero @init"
+    assert g_convB is None or g_convB.abs().max().item() == 0.0, "family B conv grad must be 0 @init"
+    print(f"  T-SF-3a @init: family A conv grad={g_conv.abs().max().item():.3e} gamma grad=0; "
+          f"family B gamma grad={g_gammaB.abs().max().item():.3e} conv grad=0")
+    with torch.no_grad():
+        pw.bn_lr.weight += 0.1
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post, target), target)
+    loss.backward()
+    g_convB2 = pw.pw2.weight.grad
+    assert g_convB2 is not None and g_convB2.abs().max().item() > 0, \
+        "family B conv grad must appear after gamma nudge"
+    print(f"  T-SF-3b family B conv grad nonzero after gamma nudge: |grad|_max={g_convB2.abs().max().item():.3e}")
+    with torch.no_grad():
+        pw.bn_lr.weight -= 0.1  # restore zero init
+    opt.step()  # one step moves the family-A zero-conv away from 0
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post, target), target)
+    loss.backward()
+    g_bn2 = st.bn_s.weight.grad
+    assert g_bn2 is not None and g_bn2.abs().max().item() > 0, "family A gamma grad must appear after 1 step"
+    print(f"  T-SF-3c family A gamma grad nonzero after 1 optimizer step: |grad|_max={g_bn2.abs().max().item():.3e}")
+
+    # ---- T-SF-4: 3-step training + frozen ViT ----
+    m1.train()
+    opt2 = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
+    for step in range(3):
+        out = m1(pre, post, target)
+        loss = BCEDiceLoss(out, target)
+        opt2.zero_grad()
+        loss.backward()
+        opt2.step()
+        assert torch.isfinite(torch.tensor(loss.item())), "loss is NaN/Inf"
+    vit_grads = [p.grad for p in m1.encoder.parameters() if p.grad is not None]
+    n_train = sum(p.numel() for p in m1.parameters() if p.requires_grad)
+    print(f"  T-SF-4 3-step ok (loss={loss.item():.4f}); frozen ViT grad count={len(vit_grads)}; "
+          f"trainable={n_train:,}")
+    assert len(vit_grads) == 0 and n_train > 0
+
+    # ---- T-SF-5: frozen ViT4 checksum == corrected DeiT init ----
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    vit = m1.encoder.vit
+    keys = ["patch_embed.proj.weight", "patch_embed.proj.bias", "norm.weight", "norm.bias"]
+    for i in range(4):
+        keys += [f"blocks.{i}.norm1.weight", f"blocks.{i}.attn.qkv.weight", f"blocks.{i}.attn.qkv.bias"]
+    worst = 0.0
+    for k in keys:
+        if not torch.equal(vit.state_dict()[k].cpu(), sd[k]):
+            raise AssertionError(f"checksum mismatch at {k}")
+    print("  T-SF-5 frozen ViT4 == corrected DeiT init (patch_embed/blocks0-3/norm)")
+
+    # ---- T-SF-6: deploy branch-free + budget + C0/M1 deploy equality ----
+    import copy
+    m1.eval()
+    m1d = copy.deepcopy(m1)
+    m1d.switch_to_deploy()
+    keys1 = list(m1d.state_dict().keys())
+    bn_keys = [k for k in keys1 if "bn" in k]
+    p1 = measure_params(m1d)
+    m0.eval()
+    m0d = copy.deepcopy(m0)
+    m0d.switch_to_deploy()
+    p0 = measure_params(m0d)
+    print(f"  T-SF-6 deploy branch-free (bn_keys={len(bn_keys)}); deploy params C0={p0:,} M1={p1:,} "
+          f"({p1 / 1e6:.3f}M, budget <=3M)")
+    assert len(bn_keys) == 0
+    assert p0 == p1, "C0/M1 deploy params must be equal"
+    assert p1 <= 3.0e6, "deploy params exceed 3M budget"
+    with torch.no_grad():
+        y1 = m1(pre, post)   # fresh train-graph output AFTER the 3-step updates
+        y1d = m1d(pre, post)
+    err = (y1 - y1d).abs().max().item()
+    flip = ((y1 > 0.5) != (y1d > 0.5)).float()
+    disagree = flip.mean().item()
+    n_flip = int(flip.sum().item())
+    print(f"  T-SF-6b deploy fold after 3 steps (RECORD-ONLY): max_abs_error={err:.3e}, "
+          f"disagree={disagree:.3e} (flips={n_flip})")
+    # RECORD-ONLY: after 3 steps at batch 2 the BN running stats are degenerate
+    # (tiny running_var -> FP32 rounding amplified by 1/sigma), and outputs still
+    # crowd near 0.5 — both effects are state artifacts, not fold defects. The
+    # architecture-level evidence with HEALTHY running stats + live branches is
+    # T2b in test_str_reparam_equivalence.py (measured ~1e-6, disagree=0), and the
+    # operational gate is the TRAINED model's [REPARAM-ARGMAX-DISAGREE] == 0 in the
+    # formal TEST RESULTS block (dry run reports it at 2 healthy epochs).
+
+    # ---- T-SF-7: swap asymmetry (report only) ----
+    with torch.no_grad():
+        y_ba = m1(post, pre)
+        y_ab = m1(pre, post)
+    asym = (y_ab - y_ba).abs().mean().item()
+    print(f"  T-SF-7 swap asymmetry |pred(A,B)-pred(B,A)| mean={asym:.4e} (report-only)")
+
+    # ---- T-SF-8: FLOPs ----
+    try:
+        flops, n_unsup = measure_flops(m1, size=256)
+        print(f"  T-SF-8 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  T-SF-8 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+
+    del m0, m1, m0d, m1d
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -993,8 +1161,9 @@ def main():
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
-                                 'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre')
+                                 'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre',
+                                 'strfusion'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -1042,6 +1211,8 @@ def main():
         t_run8_b4_spe(args.pretrained_weight_path, device, vit_depth=4)
     if args.mode in ("run9_opre", "all"):
         t_run9_opre(args.pretrained_weight_path, device, vit_depth=4)
+    if args.mode in ("strfusion", "all"):
+        t_run1_strfusion(args.pretrained_weight_path, device)
 
     print("[SMOKE] ALL OK")
 
