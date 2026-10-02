@@ -413,8 +413,8 @@ binary change detection in remote sensing images.
 >
 > | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_BASE_PLAIN | none | plain | **0.9467 / 0.8987** | 训练中 | **0.8246 / 0.7016** | 训练中 | CDD/SYSU 完成（disagree=0，F1/IoU） |
-> | M1_CASAA_STR | change | full | — | — | — | — | 排队 |
+> | A0_BASE_PLAIN | none | plain | **0.9467 / 0.8987** | **0.8990 / 0.8166** | **0.8246 / 0.7016** | **0.9370 / 0.8815** | 完成（4/4 disagree=0，F1/IoU） |
+> | M1_CASAA_STR | change | full | — | — | — | — | 训练中（CDD/SYSU 双卡） |
 > | A1_CASAA_PLAIN | change | plain | — | — | — | — | 排队 |
 > | A2_STR_ONLY | none | full | — | — | — | — | 排队 |
 > | C1_FULLATTN_PLAIN | full | plain | — | — | — | — | 排队 |
