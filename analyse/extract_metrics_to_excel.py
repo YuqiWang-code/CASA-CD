@@ -45,18 +45,27 @@ def parse_block(block):
         d["Recall"], d["Precision"], d["OA"], d["F1"], d["IoU"], d["Kappa"] = [
             float(x) for x in m.groups()
         ]
-    # 参数/FLOPs 行（EFFECTIVE-PARAMS 优先，其次 TOTAL-PARAMS 等）
+    # 参数/FLOPs 行（EFFECTIVE-PARAMS 优先，其次 DEPLOY-PARAMS effective/total 等）
     def _num(pattern):
         mm = re.search(pattern + r"\s+([0-9.]+)", block)
         return float(mm.group(1)) if mm else None
 
     d["Params(M)"] = _num(r"\[EFFECTIVE-PARAMS\]")
     if d["Params(M)"] is None:
+        mm = re.search(r"\[DEPLOY-PARAMS\]\s+.*effective=([0-9.]+)", block)
+        d["Params(M)"] = float(mm.group(1)) if mm else None
+    if d["Params(M)"] is None:
         d["Params(M)"] = _num(r"\[(?:TOTAL-PARAMS|PARAMS|DEPLOY-PARAMS|TOTAL-TRAIN-GRAPH-PARAMS)\]")
     d["Trainable(M)"] = _num(r"\[TRAINABLE-PARAMS\]")
+    if d["Trainable(M)"] is None:
+        mm = re.search(r"\[DEPLOY-PARAMS\]\s+.*trainable=([0-9.]+)", block)
+        d["Trainable(M)"] = float(mm.group(1)) if mm else None
     d["FLOPs(G)"] = _num(r"\[(?:FLOPS|DEPLOY-FLOPS)\]")
     mm = re.search(r"\[MODE\]\s+(\S+)", block)
     d["Mode"] = mm.group(1) if mm else None
+    if d["Mode"] is None:
+        mm = re.search(r"\[ARCH\]\s+(\S+)", block)
+        d["Mode"] = mm.group(1) if mm else None
     return d
 
 
@@ -74,7 +83,7 @@ def parse_path(rel):
     run = ""
     exp_parts = []
     for p in rest[1:]:
-        if re.match(r"^Run\d+$", p):
+        if re.match(r"^Run\d+(_\w+)?$", p):
             run = p
         else:
             exp_parts.append(p)
