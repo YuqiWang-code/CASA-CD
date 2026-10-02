@@ -1283,6 +1283,10 @@ def t_casa_str(pretrained_path, device):
     """
     import copy
     from model.casa_str_net import CASASTRNet, ENCODER_DIMS
+    # 折叠等价性测量协议（STR T2）：TF32 off + deterministic，避免 GPU TF32 舍入放大
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.deterministic = True
     print("[CASA-STR] SHViT-S1 trunc + CASAA@1/16 + TAR/DCR smoke")
 
     # ---- T-CS-1 / T-CS-2: taps shapes + pretrain bitwise ----

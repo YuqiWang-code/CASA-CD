@@ -608,6 +608,14 @@ class ChangeViTTrainer(object):
         3) 在 deploy 图上跑完整 test 集，写 TEST RESULTS 区块。
         """
         self.model.eval()
+        # STR 折叠等价性测量协议（设计文档 §4.3 T2）：TF32 off + cudnn deterministic。
+        # GPU TF32 卷积舍入经 BN 因子放大可达 1e-2 级（CDD 实测 1.5e-2），污染折叠
+        # 误差读数（TF32 off 后 1.6e-5）；train/deploy 两图必须在同一数值模式下比较。
+        prev_tf32 = torch.backends.cudnn.allow_tf32
+        prev_det = torch.backends.cudnn.deterministic
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.deterministic = True
         torch.manual_seed(16)
         pre_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
         post_fix = torch.randn(8, 3, self.args.inWidth, self.args.inHeight).cuda()
@@ -643,6 +651,7 @@ class ChangeViTTrainer(object):
             self.log(f"[REP-MODE] {self.args.rep_mode}")
             self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
             self.log(f"[DATA-CONTRACT] legacy_6ch_reverse_v1")
+            self.log("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
             import hashlib as _hashlib
             if os.path.isfile(self.args.pretrained_weight_path):
                 h = _hashlib.sha256()
@@ -691,6 +700,8 @@ class ChangeViTTrainer(object):
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
         self.log("=== END TEST RESULTS ===")
+        torch.backends.cudnn.allow_tf32 = prev_tf32
+        torch.backends.cudnn.deterministic = prev_det
 
 
 # -----------------------------------------------------------------------------

@@ -408,10 +408,12 @@ binary change detection in remote sensing images.
 > β/qkv/proj 梯度链非零；deploy 折叠 **2.4155M ≤ 5M**；routing N=256/K=64/Kc=32/Kb=32
 > 且 T1/T2 交换对称。硬门槛：有效推理参数 ≤5M；训练完成模型
 > `[REPARAM-ARGMAX-DISAGREE] == 0`；四数据集 F1 SYSU≥85 / LEVIR≥92.5 / WHU≥95 / CDD≥98。
+> 折叠等价性按 STR T2 协议（TF32 off + cudnn deterministic；TF32-on 会经 BN 因子把读数
+> 放大到 1e-2 级）测量：A0 CDD max_abs 1.6e-5 / disagree=0、SYSU 5.4e-8 / disagree=0。
 >
 > | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_BASE_PLAIN | none | plain | — | — | — | — | 训练中 |
+> | A0_BASE_PLAIN | none | plain | **0.9467 / 0.8987** | 训练中 | **0.8246 / 0.7016** | 训练中 | CDD/SYSU 完成（disagree=0，F1/IoU） |
 > | M1_CASAA_STR | change | full | — | — | — | — | 排队 |
 > | A1_CASAA_PLAIN | change | plain | — | — | — | — | 排队 |
 > | A2_STR_ONLY | none | full | — | — | — | — | 排队 |

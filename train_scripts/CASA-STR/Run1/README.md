@@ -57,6 +57,14 @@ GPU0：CDD → LEVIR；GPU1：SYSU → WHU。
 - 训练完成模型的 `[REPARAM-ARGMAX-DISAGREE] == 0`（train-graph vs deploy-graph 0.5 二值化不一致为 0）。
 - 数据目标：SYSU F1≥85 / LEVIR≥92.5 / WHU≥95 / CDD≥98，F1 与 IoU 同向。
 
+## 测量协议（STR T2，2026-10-03 修正）
+
+折叠等价性测量必须 **TF32 off + cudnn deterministic**（train.py TEST 区块 / eval.py /
+smoke 均已内建）。初版在默认 TF32-on 下测得 CDD A0 max_abs=1.5e-2、disagree=1.1e-4
+（GPU TF32 卷积舍入经 BN 因子放大），协议口径下实测 **1.6e-5 / disagree=0**。
+已完成的 run 用 `analyse/remeasure_casa_str.py` 复测（其输出为正式数值）：
+A0 CDD F1 0.9467 / IoU 0.8987（disagree=0）；A0 SYSU F1 0.8246 / IoU 0.7016（disagree=0）。
+
 ## 目录
 
 - `<VARIANT>/train_<DS>.sh`：24 个正式训练脚本（retry 上限 3）

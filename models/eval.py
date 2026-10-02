@@ -189,6 +189,11 @@ def main():
         print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
 
     if args.arch == "casa_str":
+        # STR 折叠纪律测量协议（设计文档 §4.3 T2）：TF32 off + cudnn deterministic，
+        # 与 train.py TEST 区块口径一致（TF32 on 会把折叠等价性读数放大到 1e-2 级）
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.deterministic = True
         model = CASASTRNet(args.pretrained_weight_path, attn_mode=args.attn_mode,
                            rep_mode=args.rep_mode, str_dim=args.str_dim,
                            keep_ratio=args.casaa_keep_ratio,
@@ -267,6 +272,7 @@ def main():
         print(f"[STR-DIM] {args.str_dim}")
         print(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
         print(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
+        print("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
         print("[DEPLOY] folded deploy graph")
         print(f"[DEPLOY-PARAMS] total={total_params / 1e6:.3f} M "
               f"effective={measure_effective_params(model) / 1e6:.3f} M")
