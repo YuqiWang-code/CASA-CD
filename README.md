@@ -30,9 +30,14 @@ binary change detection in remote sensing images.
 - **方法创新导向**：这是研究生论文课题，核心是方法创新（变化感知非对称 token 建模 + 极轻量结构），
   不做工程化堆叠，也不把 loss 调参 / 训练技巧包装成创新贡献。
 - **最终硬目标（必须同时全部达到）**：四数据集 F1——**SYSU ≥85、LEVIR ≥92.5、
-  WHU ≥95、CDD ≥98**（IoU 与 F1 同方向）；同时满足：有效推理参数 <3M
-  （工程目标 ≤2.20M）、本 README 与各方案文档已写明的全部约束（训练协议、单 seed、
+  WHU ≥95、CDD ≥98**（IoU 与 F1 同方向）；同时满足：**有效推理参数 ≤5M**
+  （2026-10 由 <3M 放宽；Run1–Run9 与 STRFusion Run1 的历史记录保持当时的
+  <3M 口径不变）、本 README 与各方案文档已写明的全部约束（训练协议、单 seed、
   预注册 gate、不改 loss 等），以及**创新性、故事性、可解释性、轻量化**四项要求。
+- **从头训练纪律（2026-10 起）**：每个实验（主实验与全部消融对照）**一律从头训练**——
+  同一 ImageNet 预训练权重 + 固定 seed 构建后完整 80K，禁止用任何已有 checkpoint
+  微调/续训作为实验组；实验目的是**证明模块本身的有效性**（唯一变量、C0 对照 +
+  M1 主实验），不是工程化堆 SOTA。
 - **单 seed**：当前阶段只用单 seed 验证有效性与创新性，不做多 seed 统计显著；如需论文级结果，再按需补充。
 - **训练协议**：沿用 ChangeViT 官方协议（BCE+Dice、poly LR、max_steps=80000、seed 16），
   **test 集当验证集、每 epoch 在 test 上挑 best**，与本实验室其它 CD 项目一致。
@@ -55,7 +60,7 @@ binary change detection in remote sensing images.
     信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
     Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
   - **Ultra-Light Multi-Scale Change Representation（主线二，Run9 收束）**：
-    目标 `<3M` 有效推理参数 + 四数据集硬目标（SYSU 85 / LEVIR 92.5 / WHU 95 /
+    目标 `<3M` 有效推理参数（**当时口径；2026-10 已放宽至 ≤5M**）+ 四数据集硬目标（SYSU 85 / LEVIR 92.5 / WHU 95 /
     CDD 98）。Run4-9 共七轮结构搜索（自定义 detail×3 / MobileNet prefix / P0
     重建 / B2 截断 / B4-only / O-PRE 采样格变密）全部被各自的预注册零训练 gate
     否决——**正式 80K 总消耗始终只有 1 个（R4-2d）**；`<3M` 终模型与四数据集
@@ -343,7 +348,8 @@ binary change detection in remote sensing images.
   全套实现（`models/model/str_*.py`）与审计工具（`analyse/run1_strfusion_*.py`）
   存档，供后续预注册复用。
 - 补救方向（可训练 stem 作 fine-scale 源 / 受限解冻 ViT / 放弃融合线）需**重新
-  预注册**，不自动执行。
+  预注册**，不自动执行；预算口径已放宽至 **≤5M**（见「研究定位与约定」），
+  F1 硬目标不变，所有实验（含消融）一律从头训练。
 
 ## 参考文献
 
