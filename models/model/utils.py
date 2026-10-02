@@ -77,5 +77,7 @@ def adjust_learning_rate(args, optimizer, epoch, iter, max_batches, lr_factor=1)
         lr = args.lr * 0.9 * (iter + 1) / 200 + 0.1 * args.lr  # warm_up
     lr *= lr_factor
     for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+        # 主线重构（CASA-STR）：支持 per-group lr_scale（backbone 0.1× / new 1.0×），
+        # 否则 backbone_lr_ratio 会被 scheduler 覆盖失效（P0，见本地实施注意事项 §5）。
+        param_group['lr'] = lr * param_group.get('lr_scale', 1.0)
     return lr

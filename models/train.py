@@ -146,6 +146,11 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         # adjust the learning rate (poly + warmup, official schedule)
         lr = adjust_learning_rate(args, optimizer, epoch, iter + cur_iter, max_batches, lr_factor=lr_factor)
 
+        # casa_str：per-group lr_scale 验证（P0，注意事项 §5）——在关键 iter 打印分组 lr
+        if getattr(args, "arch", "changevit") == "casa_str" and (iter + cur_iter) in (0, 99, 198, 199, 200, 201):
+            lrs = [f"{pg.get('name', '?')}={pg['lr']:.3e}" for pg in optimizer.param_groups]
+            print(f"[LR-GROUPS] iter={iter + cur_iter} " + " ".join(lrs), flush=True)
+
         if args.onGPU:
             pre_img = pre_img.cuda()
             target = target.cuda()
@@ -185,6 +190,47 @@ class ChangeViTTrainer(object):
 
         init_seed(args.seed)
         torch.backends.cudnn.benchmark = True
+
+        # CASA-STR 主线重构（加性分支，不改动 changevit/strfusion/str_tass 路径）。
+        # 从头训练纪律 + backbone/new 双学习率组（scheduler 经 utils lr_scale 生效）。
+        if getattr(args, "arch", "changevit") == "casa_str":
+            assert args.resume is None, \
+                "from-scratch discipline: --resume is forbidden at launch (crash recovery uses own last.pth)"
+            assert args.seed == 16, f"from-scratch discipline: seed must be 16, got {args.seed}"
+            assert os.path.basename(args.pretrained_weight_path) == "shvit_s1.pth", \
+                f"pretrained path must be shvit_s1.pth, got {args.pretrained_weight_path}"
+            from model.casa_str_net import CASASTRNet
+            self.model = CASASTRNet(
+                args.pretrained_weight_path, attn_mode=args.attn_mode,
+                rep_mode=args.rep_mode, str_dim=args.str_dim,
+                keep_ratio=args.casaa_keep_ratio, change_share=args.casaa_change_share,
+            ).float()
+            if args.onGPU:
+                self.model = self.model.cuda()
+            backbone_params = [p for n, p in self.model.named_parameters() if n.startswith("encoder.")]
+            new_params = [p for n, p in self.model.named_parameters() if not n.startswith("encoder.")]
+            self.optimizer = torch.optim.Adam(
+                [{"params": backbone_params, "lr": args.lr * args.backbone_lr_ratio,
+                  "lr_scale": args.backbone_lr_ratio, "name": "backbone"},
+                 {"params": new_params, "lr": args.lr,
+                  "lr_scale": 1.0, "name": "new"}],
+                args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+            self.start_epoch = 0
+            self.best_f1 = -1.0
+            self.best_epoch = -1
+            self.cur_iter = 0
+            resume_path = args.resume
+            if resume_path is None:
+                auto = os.path.join(args.ckpt_dir, "last.pth")
+                if os.path.isfile(auto):
+                    resume_path = auto
+            os.makedirs(args.ckpt_dir, exist_ok=True)
+            self._write_casa_str_manifest(resume_path)   # 严格校验（resume 时逐字段比对）
+            if resume_path is not None and os.path.isfile(resume_path):
+                self._load_resume(resume_path)
+            self.log(f"[LR-GROUPS] backbone={args.lr * args.backbone_lr_ratio:.2e} (x{args.backbone_lr_ratio}) "
+                     f"new={args.lr:.2e} (x1.0)")
+            return
 
         # STRFusion / STRTASS 加性分支（不改动 changevit 路径）。
         # 从头训练纪律（Run11）：禁止 --resume、seed 必须 16、只允许官方 DeiT-Tiny pth。
@@ -286,6 +332,49 @@ class ChangeViTTrainer(object):
         self.best_epoch = checkpoint.get("best_epoch", -1)
         self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
 
+    def _write_casa_str_manifest(self, resume_path):
+        """casa_str run_manifest.json：fresh 写入 / resume 逐字段严格校验（P0，注意事项 §33）。"""
+        import json as _json
+        import hashlib as _hashlib
+        path = os.path.join(self.args.ckpt_dir, "run_manifest.json")
+        pretrain_sha = ""
+        if os.path.isfile(self.args.pretrained_weight_path):
+            h = _hashlib.sha256()
+            with open(self.args.pretrained_weight_path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            pretrain_sha = h.hexdigest()[:16]
+        manifest = {
+            "arch": "casa_str",
+            "backbone": "shvit_s1_trunc",
+            "backbone_weight_sha256": pretrain_sha,
+            "feature_taps": ["stem_1_4", "stem_1_8", "blocks1", "blocks2"],
+            "attn_mode": self.args.attn_mode,
+            "keep_ratio": self.args.casaa_keep_ratio,
+            "change_share": self.args.casaa_change_share,
+            "rep_mode": self.args.rep_mode,
+            "str_dim": self.args.str_dim,
+            "backbone_lr_ratio": self.args.backbone_lr_ratio,
+            "data_contract": "legacy_6ch_reverse_v1",
+            "seed": self.args.seed,
+            "max_steps": self.args.max_steps,
+            "dataset": self.args.dataset,
+            "resume_source": resume_path,
+        }
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                old = _json.load(f)
+            for k in ("arch", "backbone", "backbone_weight_sha256", "attn_mode", "keep_ratio",
+                      "change_share", "rep_mode", "str_dim", "backbone_lr_ratio",
+                      "data_contract", "seed", "max_steps", "dataset"):
+                if old.get(k) != manifest[k]:
+                    raise SystemExit(f"[MANIFEST-MISMATCH] field {k}: old={old.get(k)} new={manifest[k]}; aborting")
+            self.log(f"[MANIFEST] validated existing run_manifest.json (resume_source={resume_path})")
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(manifest, f, indent=2)
+            self.log(f"[MANIFEST] run_manifest.json written (resume_source={resume_path})")
+
     def _vit_hash(self):
         """冻结 ViT 权重的确定性哈希（TEST 区块 [VIT-CHECKSUM] 对照基准）。"""
         import hashlib
@@ -331,7 +420,17 @@ class ChangeViTTrainer(object):
 
     def _save_last(self, epoch, iters_per_epoch):
         arch_name = getattr(self.args, "arch", "changevit")
-        if arch_name == "str_tass":
+        if arch_name == "casa_str":
+            arch = {
+                "arch": "casa_str",
+                "backbone": "shvit_s1_trunc",
+                "attn_mode": self.args.attn_mode,
+                "rep_mode": self.args.rep_mode,
+                "str_dim": self.args.str_dim,
+                "casaa_keep_ratio": self.args.casaa_keep_ratio,
+                "casaa_change_share": self.args.casaa_change_share,
+            }
+        elif arch_name == "str_tass":
             arch = {
                 "arch": "str_tass",
                 "vit_depth": 4,
@@ -448,7 +547,7 @@ class ChangeViTTrainer(object):
         self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
         self.model = self.model.cuda()
 
-        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass"):
+        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass", "casa_str"):
             self.test_best_strfusion(best_path)
             return
 
@@ -535,10 +634,33 @@ class ChangeViTTrainer(object):
         _, score_test = val(self.args, test_loader, self.model)
 
         is_tass = getattr(self.args, "arch", "changevit") == "str_tass"
+        is_casa = getattr(self.args, "arch", "changevit") == "casa_str"
         self.log("=== TEST RESULTS ===")
-        self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
-        self.log(f"[ARCH] {getattr(self.args, 'arch', 'changevit')}")
-        if is_tass:
+        if is_casa:
+            self.log("[MODEL] CASA-STR (SHViT-S1 truncated + CASAA@1/16 + TAR/DCR)")
+            self.log(f"[ARCH] casa_str")
+            self.log(f"[ATTN-MODE] {self.args.attn_mode}")
+            self.log(f"[REP-MODE] {self.args.rep_mode}")
+            self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
+            self.log(f"[DATA-CONTRACT] legacy_6ch_reverse_v1")
+            import hashlib as _hashlib
+            if os.path.isfile(self.args.pretrained_weight_path):
+                h = _hashlib.sha256()
+                with open(self.args.pretrained_weight_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                self.log(f"[PRETRAIN-SHA256] {h.hexdigest()[:16]}")
+            load_stats = getattr(self.model.encoder, "_load_stats", None)
+            if load_stats:
+                self.log(f"[PRETRAIN-LOAD] exact_loaded={load_stats['exact_loaded']}/{load_stats['retained']}")
+            if self.model.casaa is not None:
+                r = self.model.casaa._routing or {}
+                self.log(f"[CASAA-BUDGET] N={r.get('N', 256)} K={r.get('K', 64)} "
+                         f"Kc={r.get('Kc', 32)} Kb={r.get('Kb', 32)}")
+                self.log(f"[CASAA-PARAMS] {self.model.casaa.param_count():,}")
+        elif is_tass:
+            self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
+            self.log(f"[ARCH] {getattr(self.args, 'arch', 'changevit')}")
             self.log(f"[TASS-MODE] {self.args.spatial_mode}")
             if self.model.alpha is not None:
                 a = [f"{v.item():.4f}" for v in self.model.alpha]
@@ -549,11 +671,17 @@ class ChangeViTTrainer(object):
             self.log(f"[VIT-CHECKSUM] ref={self._vit_ref_hash} now={cur_hash} "
                      f"unchanged={cur_hash == self._vit_ref_hash}")
         else:
+            self.log(f"[MODEL] STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)")
+            self.log(f"[ARCH] {getattr(self.args, 'arch', 'changevit')}")
             self.log(f"[STR-REP-MODE] {self.args.str_rep_mode}")
         self.log(f"[STR-DIM] {self.args.str_dim}")
-        self.log(f"[STR-FREEZE-VIT] 1")
-        self.log(f"[STR-VIT-DEPTH] 4")
-        self.log(f"[STR-SCALES] B1->64x64 B2->32x32 B3->16x16 B4->8x8")
+        if is_casa:
+            self.log("[BACKBONE] SHViT-S1 truncated (patch_embed + blocks1 + blocks2)")
+            self.log("[FEATURE-TAPS] stem_1_4(32x64x64) stem_1_8(64x32x32) blocks1(128x16x16) blocks2(224x8x8)")
+        else:
+            self.log(f"[STR-FREEZE-VIT] 1")
+            self.log(f"[STR-VIT-DEPTH] 4")
+            self.log(f"[STR-SCALES] B1->64x64 B2->32x32 B3->16x16 B4->8x8")
         self.log(f"[REPARAM-MAX-ABS-ERROR] {fold_err:.3e} (train-graph vs deploy-graph, fixed batch)")
         self.log(f"[REPARAM-ARGMAX-DISAGREE] {disagree:.3e} (0.5-binarization; hard gate: must be 0)")
         self.log(f"[DEPLOY-PARAMS] total={fmt_params(deploy_total)} M "
@@ -668,10 +796,18 @@ def main():
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
-    # STRFusion Run1 / Run11 TASS（融合主线：冻结 ViT4 + TAR/DCR [+TASS]；changevit 路径不受影响）
+    # STRFusion Run1 / Run11 TASS / CASA-STR（融合主线；changevit 路径不受影响）
     parser.add_argument('--arch', type=str, default='changevit',
-                        choices=['changevit', 'strfusion', 'str_tass'],
-                        help='model architecture: changevit (all Run1-9 paths) | strfusion (frozen ViT4 + TAR/DCR) | str_tass (Run11: + TASS spatial residual)')
+                        choices=['changevit', 'strfusion', 'str_tass', 'casa_str'],
+                        help='model architecture: changevit | strfusion | str_tass | casa_str (SHViT-trunc + CASAA + TAR/DCR)')
+    parser.add_argument('--attn_mode', type=str, default='none',
+                        choices=['none', 'full', 'content', 'change'],
+                        help='casa_str attention mode: none (A0/A2) | full (C1) | content (C2) | change (A1/M1)')
+    parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'],
+                        help='casa_str STR rep mode: plain | full')
+    parser.add_argument('--backbone_lr_ratio', type=float, default=0.1,
+                        help='casa_str backbone lr ratio (fixed 0.1; scheduler honors per-group lr_scale)')
+    # 复用上方的 --casaa_keep_ratio / --casaa_change_share（CASA-STR 固定 0.25/0.5）
     parser.add_argument('--str_dim', type=int, default=160,
                         help='decoder width D (pre-registered: 160; budget dial only, no F1 sweep)')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],

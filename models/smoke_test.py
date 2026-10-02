@@ -1267,6 +1267,132 @@ def t_run11_tass(pretrained_path, device):
     del m0, m1, m0d, m1d
 
 
+def t_casa_str(pretrained_path, device):
+    """CASA-STR smoke（主线重构 实验方案 §Step2，T-CS-1..6）。注意：T-CS-3/4 的
+    backward 需在服务器 GPU 跑（本地 torch 2.9 存在 masked_select backward 崩溃，
+    属本地环境 artifact）。
+
+    T-CS-1 主干截断 + 层级 taps 形状：F1(32,64²)/F2(64,32²)/F3(128,16²)/F4(224,8²)
+    T-CS-2 SHViT-S1 预训练逐位继承：trunk=1,861,296，patch_embed/blocks1/blocks2
+            与 checkpoint max_abs_diff == 0（blocks1 无 SHSA -> CASAA q/k/v 全新）
+    T-CS-3 CASAA epoch-0 identity：β=0 -> A0(none×plain) vs M1(change×full) 逐位一致；
+            A0 vs A2(none×full) 逐位一致（rep aux 零初始化）
+    T-CS-4 梯度链：β grad 非零；qkv/proj grad 非零（正常初始化，无死锁）
+    T-CS-5 change routing 预算与对称：N=256 K=64 Kc=32 Kb=32；T1/T2 交换 Ic/assign 不变
+    T-CS-6 deploy 折叠 + 预算：无 BN/aux 残留键；deploy params <= 5M；fold 误差记录
+    """
+    import copy
+    from model.casa_str_net import CASASTRNet, ENCODER_DIMS
+    print("[CASA-STR] SHViT-S1 trunc + CASAA@1/16 + TAR/DCR smoke")
+
+    # ---- T-CS-1 / T-CS-2: taps shapes + pretrain bitwise ----
+    torch.manual_seed(16)
+    m0 = CASASTRNet(pretrained_path, attn_mode="none", rep_mode="plain").to(device)
+    trunk = m0.encoder.param_count()
+    stats = m0.encoder.load_stats()
+    print(f"  T-CS-2 trunk params={trunk:,}; load={stats}")
+    assert trunk == 1861296, f"trunk params {trunk} != 1861296"
+
+    # checkpoint 逐位对拍（Q4 口径：patch_embed/blocks1/blocks2 全部对齐）
+    ckpt = torch.load(pretrained_path, map_location="cpu", weights_only=False)["model"]
+    sd = m0.encoder.state_dict()
+    worst, n_checked = 0.0, 0
+    for k, v in sd.items():
+        if k in ckpt:
+            worst = max(worst, (v.float().cpu() - ckpt[k].float()).abs().max().item())
+            n_checked += 1
+    assert n_checked == len(sd) and worst == 0.0, f"trunk keys checked={n_checked}/{len(sd)} worst={worst}"
+    print(f"  T-CS-2 pretrained trunk bitwise OK ({n_checked}/{len(sd)} keys, worst={worst:.2e})")
+
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    with torch.no_grad():
+        x2b = torch.cat([pre, post], dim=0)
+        f1, f2, f3 = m0.encoder.forward_stem_blocks1(x2b)
+        f4 = m0.encoder.forward_blocks2(torch.cat(f3.chunk(2, dim=0), dim=0))
+    shapes = [tuple(t.shape) for t in (f1, f2, f3, f4)]
+    want = [(4, 32, 64, 64), (4, 64, 32, 32), (4, 128, 16, 16), (4, 224, 8, 8)]
+    assert shapes == want, f"taps {shapes} != {want}"
+    assert ENCODER_DIMS == (32, 64, 128, 224)
+    print(f"  T-CS-1 taps OK: {[(c, h, w) for _, c, h, w in shapes]}")
+
+    # ---- T-CS-3: epoch-0 identity (A0 vs M1 vs A2) ----
+    torch.manual_seed(16)
+    m1 = CASASTRNet(pretrained_path, attn_mode="change", rep_mode="full").to(device)
+    torch.manual_seed(16)
+    m2 = CASASTRNet(pretrained_path, attn_mode="none", rep_mode="full").to(device)
+    for m in (m0, m1, m2):
+        m.eval()
+    with torch.no_grad():
+        y0 = m0(pre, post)
+        y1 = m1(pre, post)
+        y2 = m2(pre, post)
+    d_casaa = (y0 - y1).abs().max().item()
+    d_rep = (y0 - y2).abs().max().item()
+    print(f"  T-CS-3 epoch-0 identity: A0-vs-M1 max_diff={d_casaa:.3e}; A0-vs-A2 max_diff={d_rep:.3e}")
+    assert d_casaa == 0.0, "CASAA beta=0 must give bitwise identity at epoch 0"
+    assert d_rep == 0.0, "rep aux zero-init must give bitwise identity at epoch 0"
+    assert y0.shape == (2, 1, 256, 256)
+
+    # ---- T-CS-4: gradient chain (beta / qkv / proj) ----
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    m1.train()
+    opt = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post), target)
+    loss.backward()
+    g_beta = m1.casaa.beta.grad
+    g_qkv = m1.casaa.qkv.weight.grad
+    g_proj = m1.casaa.proj.weight.grad
+    g_trunk = m1.encoder.patch_embed[0][0].weight.grad
+    for name, g in (("beta", g_beta), ("qkv", g_qkv), ("proj", g_proj), ("trunk", g_trunk)):
+        assert g is not None and torch.isfinite(g).all(), f"{name} grad broken"
+        assert g.abs().max().item() > 0, f"{name} grad is zero"
+    print(f"  T-CS-4 gradient chain OK: |beta|={g_beta.abs().max().item():.3e} "
+          f"|qkv|={g_qkv.abs().max().item():.3e} |proj|={g_proj.abs().max().item():.3e} "
+          f"|trunk|={g_trunk.abs().max().item():.3e}")
+
+    # ---- T-CS-5: routing budget + swap symmetry ----
+    m1.eval()
+    with torch.no_grad():
+        _ = m1(pre, post)
+        r_ab = m1.casaa._routing
+        _ = m1(post, pre)
+        r_ba = m1.casaa._routing
+    assert (r_ab["N"], r_ab["K"], r_ab["Kc"], r_ab["Kb"]) == (256, 64, 32, 32), r_ab
+    assert torch.equal(r_ab["Ic"], r_ba["Ic"]), "change indices not swap-symmetric"
+    assert torch.equal(r_ab["assign"], r_ba["assign"]), "bg assignment not swap-symmetric"
+    print(f"  T-CS-5 routing OK: N={r_ab['N']} K={r_ab['K']} Kc={r_ab['Kc']} Kb={r_ab['Kb']}; swap-symmetric")
+
+    # ---- T-CS-6: deploy fold + budget ----
+    m1d = copy.deepcopy(m1)
+    m1d.eval()
+    m1d.switch_to_deploy()
+    keys_d = list(m1d.state_dict().keys())
+    bn_keys = [k for k in keys_d if "bn" in k]
+    p_deploy = measure_params(m1d)
+    total = measure_params(m1)
+    n_train = sum(p.numel() for p in m1.parameters() if p.requires_grad)
+    with torch.no_grad():
+        y1 = m1(pre, post)
+        y1d = m1d(pre, post)
+    err = (y1 - y1d).abs().max().item()
+    flip = ((y1 > 0.5) != (y1d > 0.5)).float()
+    print(f"  T-CS-6 deploy: bn_keys={len(bn_keys)}; params total={total:,} trainable={n_train:,} "
+          f"deploy={p_deploy:,} ({p_deploy / 1e6:.3f}M); fold max_abs={err:.3e} "
+          f"disagree={flip.mean().item():.3e} (init-stage, RECORD-ONLY)")
+    assert len(bn_keys) == 0, f"deploy graph must be BN-free: {bn_keys[:3]}"
+    assert p_deploy <= 5.0e6, "deploy params exceed 5M budget"
+
+    try:
+        flops, n_unsup = measure_flops(m1, size=256)
+        print(f"  T-CS-6 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  T-CS-6 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+
+    del m0, m1, m2, m1d
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -1309,8 +1435,8 @@ def main():
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
                                  'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre',
-                                 'strfusion', 'tass'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion | tass')
+                                 'strfusion', 'tass', 'casa_str'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion | tass | casa_str')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -1362,6 +1488,8 @@ def main():
         t_run1_strfusion(args.pretrained_weight_path, device)
     if args.mode in ("tass", "all"):
         t_run11_tass(args.pretrained_weight_path, device)
+    if args.mode == "casa_str":   # 需 shvit_s1.pth，不并入 all（all 使用 DeiT 路径）
+        t_casa_str(args.pretrained_weight_path, device)
 
     print("[SMOKE] ALL OK")
 

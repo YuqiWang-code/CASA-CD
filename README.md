@@ -385,6 +385,39 @@ binary change detection in remote sensing images.
 - 汇总：`docs/experiment_metrics.xlsx`（8 新行）；快照：
   `docs/temporary/models_and_metrics_STR-Fusion_Run2_TASS.txt`。
 
+## 实验结果（CASA-STR Run1 · 主线重构，进行中）
+
+> **主线重构（2026-10 起）**：按
+> [`docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md`](docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md)
+> 最终建议执行——**CASA-STRNet = 预训练 SHViT-S1 截断分层主干（patch_embed + blocks1 + blocks2，
+> 可训练 @0.1×）+ CASAA@1/16（变化感知非对称注意力，K=64=Kc32 变化直保留+Kb32 背景共享聚合，
+> change score 来自 1/8 双时相特征、参数自由）+ TAR 二时相 bridge + DCR 可折叠解码器**。
+> 实施清单（P0 修正、RNG 纪律、STR 折叠纪律、Step1-7 顺序）见
+> [`docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md`](docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md)；
+> 脚本：`train_scripts/CASA-STR/Run1/`。TASS 路线（上节）保留为历史资产，不再扩展。
+>
+> 6 变体（attn_mode × rep_mode）全部在 4 数据集从头 80K：A0_BASE_PLAIN（基线）、
+> M1_CASAA_STR（change×full，主实验）、A1_CASAA_PLAIN（change×plain）、
+> A2_STR_ONLY（none×full）、C1_FULLATTN_PLAIN（full×plain）、
+> C2_CONTENT_SAA_PLAIN（content×plain）。执行顺序 Phase1（A0×4+M1×4，A0 先锁定
+> backbone）→ Phase2（A1/A2）→ Phase3（C1/C2）；GPU0=CDD→LEVIR、GPU1=SYSU→WHU
+> 双卡并行队列。
+>
+> 已机器验证（服务器 GPU smoke 全绿）：SHViT-S1 预训练 6 问审计（trunk 1,861,296、
+> 246/246 逐位继承、blocks1 无 SHSA→CASAA q/k/v 全新初始化）；β=0 epoch-0 逐位一致；
+> β/qkv/proj 梯度链非零；deploy 折叠 **2.4155M ≤ 5M**；routing N=256/K=64/Kc=32/Kb=32
+> 且 T1/T2 交换对称。硬门槛：有效推理参数 ≤5M；训练完成模型
+> `[REPARAM-ARGMAX-DISAGREE] == 0`；四数据集 F1 SYSU≥85 / LEVIR≥92.5 / WHU≥95 / CDD≥98。
+>
+> | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | 状态 |
+> |---|---|---:|---:|---:|---:|---|
+> | A0_BASE_PLAIN | none | plain | — | — | — | — | 训练中 |
+> | M1_CASAA_STR | change | full | — | — | — | — | 排队 |
+> | A1_CASAA_PLAIN | change | plain | — | — | — | — | 排队 |
+> | A2_STR_ONLY | none | full | — | — | — | — | 排队 |
+> | C1_FULLATTN_PLAIN | full | plain | — | — | — | — | 排队 |
+> | C2_CONTENT_SAA_PLAIN | content | plain | — | — | — | — | 排队 |
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
@@ -395,6 +428,9 @@ binary change detection in remote sensing images.
 - 创新点来源：`docs/参考文献/baseline/SAT(CVPR2026).pdf`
   （SAT: Selective Aggregation Transformer for Image Super-Resolution；
   arXiv:2604.07994；https://github.com/PhuTran1005/SAT）
+- 主干来源（CASA-STR）：`docs/参考文献/baseline/SHViT(CVPR2024).pdf`
+  （SHViT: Single-Head Vision Transformer with Memory Efficient Macro Design, CVPR 2024；
+  S1=6.3M/241M；代码 https://github.com/ysj9909/SHViT；截断重实现 `models/model/shvit_s1_trunc.py`）
 - SAT 核心机制提取（SAA + 聚类压缩 K/V，去框架化，供 CASAA 直接复用）：
   [`others/SAT/saa.py`](others/SAT/saa.py)，说明见 [`others/SAT/README.md`](others/SAT/README.md)
 
@@ -408,6 +444,9 @@ models/                        # 全部代码（ChangeViT 上游 + 本仓库改�
   main.py                      #   上游原版（仅参考）
   model/                       #   encoder / decoder / trainer / layers / resnet
   model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
+  model/layers/casaa_hier.py   #   HierCASAA（CASA-STR 主干 @1/16 统一参数化，β gate）
+  model/casa_str_net.py        #   CASASTRNet（SHViT-S1 截断 + CASAA + TAR/DCR 主架构）
+  model/shvit_s1_trunc.py      #   SHViT-S1 自包含重实现 + 截断主干 + 预训练原位继承
   model/light_detail.py        #   Run4 LightDetail（32/64/128 与 48/96/160 DSConv）
   model/psd_detail.py          #   Run4 PSD-Detail（pretrained stem + residual DS pyramid，0.078M）
   dataset/                     #   DataLoader（A/B/label + list 格式）
@@ -417,6 +456,7 @@ train_scripts/
   CASAA/Run2/                  # CASAA Run2（冻结 ViT：A1 对照 + A3 Oracle 诊断）
   CASAA/Run3/                  # CASAA Run3（A4 detail 可部署信号终局）
   UltraLight/Run4/             # 主线二：R4-0/1/2/2b 逐组件单变量（阶段 gate）
+  CASA-STR/Run1/               # 主线重构：6 变体 × 4 数据集（Phase1-3 双卡并行队列）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
@@ -424,8 +464,11 @@ analyse/                       # 分析工具
   run4_detail_interface_audit.py  #  R4-D0：ResNet vs Light raw/adapted 三尺度对齐 GT
   param_breakdown.py           #   Run4 U1：组件级参数预算
   vit_pretrain_audit.py        #   Run4 U2：corrected DeiT loader 原位继承审计
+  audit_shvit_pretrain.py      #   CASA-STR Q1-Q6：SHViT-S1 checkpoint 六问审计
+  audit_casa_str.py            #   CASA-STR 预算审计：6 变体 deploy ≤5M + 初始化哈希
 others/                        # 参考实现（非本仓库模型代码）
   SAT/                         #   SAT(CVPR2026) 核心机制提取：saa.py（SAA + 聚类压缩）
+  SHViT/                       #   SHViT(CVPR2024) 官方核心（shvit.py + S1 build，供审计对照）
 outputs/                       # 训练日志（训练结束后下载到这里）
 docs/                          # 项目文档（temporary / 参考文献 / 服务器说明）
 .claude/                       # 服务器部署 skill 与 SSH 辅助脚本（不进 git）
@@ -439,8 +482,8 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 - 关键路径：
   - 代码 `/home/yqwang/projects/CASA-CD/`
   - 数据集 `/share_datasets/CD/{CDD,LEVIR,SYSU,WHU}-CD-256/`
-  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth`
-  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/baseline/Run1/<dataset>/`
+  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/{deit_tiny_patch16_224-a1311bcf.pth, shvit_s1.pth}`
+  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/{baseline,CASA-STR}/...`
   - 训练日志 `/home/yqwang/outputs/CASA-CD/baseline/Run1/<dataset>/train_log.txt`
 
 ## 数据集（A/B/label + list 格式）
@@ -463,6 +506,8 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
    CASAA 实验脚本在 `train_scripts/CASAA/Run1-3/`（`run_screen.sh` 双卡并行 /
    `run_screen_gpu1_serial.sh` 单卡串行，`--mode casaa|saa`，详见各目录 README）；
    主线二脚本在 `train_scripts/UltraLight/Run4/`（逐组件 gate，只用 GPU1）。
+   **CASA-STR 主线重构脚本在 `train_scripts/CASA-STR/Run1/`**（`run_queue_phase1-3_gpu0|1.sh`
+   双卡并行队列；先 `dryrun_a0_gpu0|1.sh` 验证 LR-GROUPS 0.1× 与完整 TEST 链路）。
    **注意必须串行**：ChangeViT-T batch 16 单任务 ~15.7GB（FeatureInjector 对 c2 全 token
    交叉注意力 ~8.6GB 注意力矩阵），两个任务并跑会超过单张 5090 的 32GB 导致 OOM。
 3. 训练日志格式：
