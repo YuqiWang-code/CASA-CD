@@ -1288,8 +1288,9 @@ def t_casa_str(pretrained_path, device):
     # ---- T-CS-1 / T-CS-2: taps shapes + pretrain bitwise ----
     torch.manual_seed(16)
     m0 = CASASTRNet(pretrained_path, attn_mode="none", rep_mode="plain").to(device)
+    m0.eval()   # 必须先 eval：train 模式 forward 会污染 BN running stats，破坏后续 epoch-0 恒等比较
     trunk = m0.encoder.param_count()
-    stats = m0.encoder.load_stats()
+    stats = m0.encoder._load_stats
     print(f"  T-CS-2 trunk params={trunk:,}; load={stats}")
     assert trunk == 1861296, f"trunk params {trunk} != 1861296"
 
@@ -1335,6 +1336,8 @@ def t_casa_str(pretrained_path, device):
     assert y0.shape == (2, 1, 256, 256)
 
     # ---- T-CS-4: gradient chain (beta / qkv / proj) ----
+    # 单一零初始化纪律：β=0 gate 在 epoch-0 把 CASAA 内部梯度精确阻断（qkv/proj grad == 0），
+    # β 自身 grad 非零先行；β nudge 后 qkv/proj 梯度链恢复。禁止「qkv/proj 归零 + 内部双零」死锁。
     target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
     m1.train()
     opt = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
@@ -1347,10 +1350,24 @@ def t_casa_str(pretrained_path, device):
     g_trunk = m1.encoder.patch_embed[0][0].weight.grad
     for name, g in (("beta", g_beta), ("qkv", g_qkv), ("proj", g_proj), ("trunk", g_trunk)):
         assert g is not None and torch.isfinite(g).all(), f"{name} grad broken"
-        assert g.abs().max().item() > 0, f"{name} grad is zero"
-    print(f"  T-CS-4 gradient chain OK: |beta|={g_beta.abs().max().item():.3e} "
-          f"|qkv|={g_qkv.abs().max().item():.3e} |proj|={g_proj.abs().max().item():.3e} "
-          f"|trunk|={g_trunk.abs().max().item():.3e}")
+    assert g_beta.abs().max().item() > 0, "beta grad must be nonzero @init (moves first)"
+    assert g_qkv.abs().max().item() == 0.0, "qkv grad must be exactly 0 @init (blocked by beta=0)"
+    assert g_proj.abs().max().item() == 0.0, "proj grad must be exactly 0 @init (blocked by beta=0)"
+    assert g_trunk.abs().max().item() > 0, "trunk grad must be nonzero (trainable backbone @0.1x)"
+    print(f"  T-CS-4a @init: |beta|={g_beta.abs().max().item():.3e} qkv=0 proj=0 |trunk|={g_trunk.abs().max().item():.3e}")
+
+    with torch.no_grad():
+        m1.casaa.beta += 0.1
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post), target)
+    loss.backward()
+    g_qkv2 = m1.casaa.qkv.weight.grad
+    g_proj2 = m1.casaa.proj.weight.grad
+    assert g_qkv2 is not None and g_qkv2.abs().max().item() > 0, "qkv grad must appear after beta nudge"
+    assert g_proj2 is not None and g_proj2.abs().max().item() > 0, "proj grad must appear after beta nudge"
+    with torch.no_grad():
+        m1.casaa.beta -= 0.1   # 精确恢复 β=0
+    print(f"  T-CS-4b after beta nudge: |qkv|={g_qkv2.abs().max().item():.3e} |proj|={g_proj2.abs().max().item():.3e}")
 
     # ---- T-CS-5: routing budget + swap symmetry ----
     m1.eval()
@@ -1369,7 +1386,8 @@ def t_casa_str(pretrained_path, device):
     m1d.eval()
     m1d.switch_to_deploy()
     keys_d = list(m1d.state_dict().keys())
-    bn_keys = [k for k in keys_d if "bn" in k]
+    # 只要求 TAR/DCR 折叠干净；SHViT 主干（encoder.*）的 BN 是推理期真实模块，合法保留
+    bn_keys = [k for k in keys_d if "bn" in k and not k.startswith("encoder.")]
     p_deploy = measure_params(m1d)
     total = measure_params(m1)
     n_train = sum(p.numel() for p in m1.parameters() if p.requires_grad)
