@@ -365,9 +365,10 @@ binary change detection in remote sensing images.
 - **关键结论**：未训练的 raw 像素差分证据只在变化密集的 SYSU 上与 B4 边界带互补，
   在三个建筑/伪变化数据集上被 radiometric pseudo-change 主导（甚至稀释像素级语义
   证据）——**raw pixel evidence 的跨数据集可行性被证伪**，第九轮负结果。
-- **下一步（方案 §16 锁定）**：不再开 Run12 救援线，直接进入**分析型论文收尾设计
-  （方向 c）**；主结果 = R4-1 ViT4+ResNet+旧头 82.77（8.195M），九轮负结果链作
-  negative-evidence / budget-allocation study。
+- **用户决策（2026-10）**：取消预注册 gate 拦截、双卡可用、必须训练——TASS-D0 FAIL
+  保留为已知负证据（结论不回改），**Run11 训练照常执行**：C0_TOKEN（GPU1）与
+  M1_TASS（GPU0）按 SYSU→LEVIR→WHU→CDD 从头 80K。M1 的任何增益都必须在
+  「TASS-D0 曾为负」的背景下解释。结果回填本节。
 
 ## 参考文献
 

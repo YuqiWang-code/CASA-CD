@@ -34,20 +34,26 @@ class STRViT4Encoder(nn.Module):
         for p in self.encoder.parameters():
             p.requires_grad_(False)
 
-    def forward(self, x):
-        # Explicit block loop (same口径 as run6 token_sources / run7 depth_pyramid):
-        # raw state flows between blocks; each block output passes final LN for
-        # observation. NOT vit.get_intermediate_layers() — that helper slices
-        # out[:, 1:] assuming a cls/register token, but the corrected DeiT loader
-        # strips the cls token, so it would silently drop one real patch token.
+    def forward_depth_features(self, x):
+        """Return B1..B4 (each (B,192,16,16), block output passed through final LN).
+
+        Explicit block loop (same口径 as run6 token_sources / run7 depth_pyramid):
+        raw state flows between blocks; each block output passes final LN for
+        observation. NOT vit.get_intermediate_layers() — that helper slices
+        out[:, 1:] assuming a cls/register token, but the corrected DeiT loader
+        strips the cls token, so it would silently drop one real patch token.
+        """
         p0 = self.vit.patch_embed(x)                                  # (B,256,192)
         tok = p0 + self.vit.interpolate_pos_encoding(p0, x.shape[-1], x.shape[-2])
         obs = []
         for i in range(self.vit_depth):
             tok = self.vit.blocks[i](tok)
             obs.append(self.vit.norm(tok))                            # Bk, (B,256,192)
-        b1, b2, b3, b4 = [o.transpose(1, 2).reshape(o.shape[0], 192, 16, 16).contiguous()
-                          for o in obs]                               # (B,192,16,16)
+        return [o.transpose(1, 2).reshape(o.shape[0], 192, 16, 16).contiguous()
+                for o in obs]                                         # (B,192,16,16)
+
+    def forward(self, x):
+        b1, b2, b3, b4 = self.forward_depth_features(x)
         t1 = F.interpolate(b1, scale_factor=4, mode="bilinear", align_corners=False)  # 64x64
         t2 = F.interpolate(b2, scale_factor=2, mode="bilinear", align_corners=False)  # 32x32
         t3 = b3                                                                       # 16x16

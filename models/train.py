@@ -35,6 +35,7 @@ if _MODELS_ROOT not in sys.path:
 
 from model.trainer import Trainer
 from model.str_fusion import STRFusionNet
+from model.str_tass_fusion import STRTASSNet
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
@@ -185,16 +186,26 @@ class ChangeViTTrainer(object):
         init_seed(args.seed)
         torch.backends.cudnn.benchmark = True
 
-        # STRFusion Run1（加性分支，不改动 changevit 路径）：
-        # 冻结 ViT4 depth-as-scale encoder + TAR/DCR 结构重参数化。
-        if getattr(args, "arch", "changevit") == "strfusion":
-            self.model = STRFusionNet(
-                args.pretrained_weight_path, dim=args.str_dim, rep_mode=args.str_rep_mode,
-            ).float()
+        # STRFusion / STRTASS 加性分支（不改动 changevit 路径）。
+        # 从头训练纪律（Run11）：禁止 --resume、seed 必须 16、只允许官方 DeiT-Tiny pth。
+        if getattr(args, "arch", "changevit") in ("strfusion", "str_tass"):
+            assert args.resume is None, \
+                "from-scratch discipline: --resume is forbidden at launch (crash recovery uses own last.pth)"
+            assert args.seed == 16, f"from-scratch discipline: seed must be 16, got {args.seed}"
+            assert os.path.basename(args.pretrained_weight_path) == "deit_tiny_patch16_224-a1311bcf.pth", \
+                f"pretrained path must be the official DeiT-Tiny pth, got {args.pretrained_weight_path}"
+            if args.arch == "strfusion":
+                self.model = STRFusionNet(
+                    args.pretrained_weight_path, dim=args.str_dim, rep_mode=args.str_rep_mode,
+                ).float()
+            else:
+                self.model = STRTASSNet(
+                    args.pretrained_weight_path, dim=args.str_dim, spatial_mode=args.spatial_mode,
+                ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
             enc_trainable = sum(p.numel() for p in self.model.encoder.parameters() if p.requires_grad)
-            assert enc_trainable == 0, "STRFusion ViT must stay frozen (enforced by the model)"
+            assert enc_trainable == 0, "STRFusion/STRTASS ViT must stay frozen (enforced by the model)"
             self.optimizer = torch.optim.Adam(
                 [p for p in self.model.parameters() if p.requires_grad],
                 args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
@@ -210,6 +221,8 @@ class ChangeViTTrainer(object):
             if resume_path is not None and os.path.isfile(resume_path):
                 self._load_resume(resume_path)
             os.makedirs(args.ckpt_dir, exist_ok=True)
+            self._vit_ref_hash = self._vit_hash()
+            self._write_run_manifest(resume_path)
             return
 
         self.model = Trainer(
@@ -273,8 +286,59 @@ class ChangeViTTrainer(object):
         self.best_epoch = checkpoint.get("best_epoch", -1)
         self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
 
+    def _vit_hash(self):
+        """冻结 ViT 权重的确定性哈希（TEST 区块 [VIT-CHECKSUM] 对照基准）。"""
+        import hashlib
+        h = hashlib.sha256()
+        for k in sorted(self.model.encoder.state_dict().keys()):
+            v = self.model.encoder.state_dict()[k]
+            h.update(k.encode())
+            h.update(v.detach().cpu().numpy().tobytes())
+        return h.hexdigest()[:16]
+
+    def _write_run_manifest(self, resume_path):
+        """run_manifest.json（方案 §14）：首次启动写一次，记录从头训练契约。"""
+        import json as _json
+        import hashlib as _hashlib
+        path = os.path.join(self.args.ckpt_dir, "run_manifest.json")
+        if os.path.isfile(path):
+            return
+        pretrain_sha = ""
+        if os.path.isfile(self.args.pretrained_weight_path):
+            h = _hashlib.sha256()
+            with open(self.args.pretrained_weight_path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            pretrain_sha = h.hexdigest()[:16]
+        manifest = {
+            "arch": self.args.arch,
+            "spatial_mode": getattr(self.args, "spatial_mode", "token"),
+            "str_rep_mode": getattr(self.args, "str_rep_mode", "full"),
+            "str_dim": getattr(self.args, "str_dim", 160),
+            "seed": self.args.seed,
+            "pretrain_sha256": pretrain_sha,
+            "dataset": self.args.dataset,
+            "max_steps": self.args.max_steps,
+            "optimizer": "Adam(2e-4, 0.9/0.99, wd=1e-4)",
+            "lr": self.args.lr,
+            "loss": "BCE+Dice",
+            "checkpoint_dir": self.args.ckpt_dir,
+            "resume_source": resume_path,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(manifest, f, indent=2)
+        self.log(f"[MANIFEST] run_manifest.json written (resume_source={resume_path})")
+
     def _save_last(self, epoch, iters_per_epoch):
-        if getattr(self.args, "arch", "changevit") == "strfusion":
+        arch_name = getattr(self.args, "arch", "changevit")
+        if arch_name == "str_tass":
+            arch = {
+                "arch": "str_tass",
+                "vit_depth": 4,
+                "str_dim": self.args.str_dim,
+                "spatial_mode": self.args.spatial_mode,
+            }
+        elif arch_name == "strfusion":
             arch = {
                 "arch": "strfusion",
                 "vit_depth": 4,
@@ -384,7 +448,7 @@ class ChangeViTTrainer(object):
         self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
         self.model = self.model.cuda()
 
-        if getattr(self.args, "arch", "changevit") == "strfusion":
+        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass"):
             self.test_best_strfusion(best_path)
             return
 
@@ -470,10 +534,22 @@ class ChangeViTTrainer(object):
         test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
         _, score_test = val(self.args, test_loader, self.model)
 
+        is_tass = getattr(self.args, "arch", "changevit") == "str_tass"
         self.log("=== TEST RESULTS ===")
-        self.log("[MODEL] STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)")
-        self.log("[ARCH] strfusion")
-        self.log(f"[STR-REP-MODE] {self.args.str_rep_mode}")
+        self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
+        self.log(f"[ARCH] {getattr(self.args, 'arch', 'changevit')}")
+        if is_tass:
+            self.log(f"[TASS-MODE] {self.args.spatial_mode}")
+            if self.model.alpha is not None:
+                a = [f"{v.item():.4f}" for v in self.model.alpha]
+                self.log(f"[ALPHA] {','.join(a)}")
+            tass_params = self.model.tass.param_count() if self.model.tass is not None else 0
+            self.log(f"[TASS-PARAMS] {tass_params:,}")
+            cur_hash = self._vit_hash()
+            self.log(f"[VIT-CHECKSUM] ref={self._vit_ref_hash} now={cur_hash} "
+                     f"unchanged={cur_hash == self._vit_ref_hash}")
+        else:
+            self.log(f"[STR-REP-MODE] {self.args.str_rep_mode}")
         self.log(f"[STR-DIM] {self.args.str_dim}")
         self.log(f"[STR-FREEZE-VIT] 1")
         self.log(f"[STR-VIT-DEPTH] 4")
@@ -592,13 +668,16 @@ def main():
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
-    # STRFusion Run1（融合主线：冻结 ViT4 + TAR/DCR；changevit 路径不受影响）
-    parser.add_argument('--arch', type=str, default='changevit', choices=['changevit', 'strfusion'],
-                        help='model architecture: changevit (all Run1-9 paths) | strfusion (frozen ViT4 + TAR/DCR)')
+    # STRFusion Run1 / Run11 TASS（融合主线：冻结 ViT4 + TAR/DCR [+TASS]；changevit 路径不受影响）
+    parser.add_argument('--arch', type=str, default='changevit',
+                        choices=['changevit', 'strfusion', 'str_tass'],
+                        help='model architecture: changevit (all Run1-9 paths) | strfusion (frozen ViT4 + TAR/DCR) | str_tass (Run11: + TASS spatial residual)')
     parser.add_argument('--str_dim', type=int, default=160,
-                        help='STRFusion decoder width D (pre-registered: 160; budget dial only, no F1 sweep)')
+                        help='decoder width D (pre-registered: 160; budget dial only, no F1 sweep)')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
                         help='STRFusion rep mode: plain (C0, no aux) | full (M1, TAR+DCR aux)')
+    parser.add_argument('--spatial_mode', type=str, default='token', choices=['token', 'tass'],
+                        help='STRTASS spatial mode: token (C0) | tass (M1, TASS residual stem)')
 
     # official ChangeViT normalization (BGR order, ImageNet stats x2)
     parser.add_argument('--mean', type=float, nargs=6,

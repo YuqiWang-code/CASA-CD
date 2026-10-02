@@ -1,8 +1,19 @@
 # STR-Fusion Run2_TASS（Run11：Task-Adaptive Spatial Stem）
 
 > 设计文档：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`
-> 终止记录：`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`
-> 状态：**TASS-D0 gate FAIL → Run11 按预注册终止（0 个 80K，未实现 TASS）**
+> TASS-D0 记录：`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`（含用户决策附录）
+> 状态：**训练执行中（用户决策：取消 gate 拦截、双卡可用、必须训练）**；
+> TASS-D0 FAIL 保留为已知负证据，不再作为停止条件。
+
+## 训练布局（双卡串行队列，全部从头 80K）
+
+- `C0_TOKEN/`（spatial_mode=token，GPU1）：SYSU → LEVIR → WHU → CDD
+  （`run_C0_queue.sh`）；
+- `M1_TASS/`（spatial_mode=tass，GPU0）：SYSU → LEVIR → WHU → CDD
+  （`run_M1_queue.sh`）；
+- 正式结果只认各 `train_log.txt` 最后一个完整 `=== TEST RESULTS ===` 区块；
+  deploy ≤5M 硬门槛；禁止 checkpoint 微调（崩溃恢复仅限本任务 last.pth）。
+- 结果解释口径：M1 增益必须在「TASS-D0 G1=1/4（仅 SYSU 正）」背景下陈述。
 
 ## TASS-D0 裁决（零训练 raw source gate，四数据集）
 

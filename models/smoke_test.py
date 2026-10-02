@@ -1120,6 +1120,153 @@ def t_run1_strfusion(pretrained_path, device):
     del m0, m1, m0d, m1d
 
 
+def t_run11_tass(pretrained_path, device):
+    """Run11 TASS smoke（方案 §8，T-S11-1..6）：
+    T-S11-1 shapes（S1/S2/S3 投影后 192 通道 64/32/16；pred 256）
+    T-S11-2 C0/M1 shared state dict 0/N 差异 + epoch-0 输出逐位一致（alpha=0）
+    T-S11-3 alpha 梯度链：alpha grad 非零；stem conv grad @init 为 0（alpha=0 阻断）；
+              alpha nudge 后 stem0/stage1/stage2/stage3 + projector 梯度非零
+    T-S11-4 冻结 ViT4 checksum == corrected DeiT init；3-step 后不变
+    T-S11-5 switch_to_deploy 只折 TAR/DCR：无 BN/aux 残留；C0/M1 各自 deploy <=5M；
+              fold 误差记录（T2/T2b 由等价性套件回归）
+    T-S11-6 预算打印：TOTAL/EFFECTIVE/TRAINABLE/DEPLOY/TASS-PARAMS/FLOPs
+    """
+    import copy
+    from model.str_tass_fusion import STRTASSNet
+    print("[RUN11-TASS] frozen ViT4 + TAR/DCR + TASS spatial residual smoke")
+
+    # ---- T-S11-2 / T-S11-1: shared init + epoch-0 identity + shapes ----
+    torch.manual_seed(16)
+    m0 = STRTASSNet(pretrained_path, dim=160, spatial_mode="token").to(device)
+    torch.manual_seed(16)
+    m1 = STRTASSNet(pretrained_path, dim=160, spatial_mode="tass").to(device)
+    s0 = m0.shared_state_dict()
+    s1 = m1.shared_state_dict()
+    diff_keys = [k for k in s0 if not torch.equal(s0[k], s1[k])]
+    print(f"  T-S11-2 shared state dict differ: {len(diff_keys)}/{len(s0)}")
+    assert len(diff_keys) == 0
+
+    pre = torch.randn(2, 3, 256, 256, device=device)
+    post = torch.randn(2, 3, 256, 256, device=device)
+    m0.eval()
+    m1.eval()
+    with torch.no_grad():
+        y0 = m0(pre, post)
+        y1 = m1(pre, post)
+        sp = m1.tass(pre)
+    d01 = (y0 - y1).abs().max().item()
+    print(f"  T-S11-2 C0/M1 epoch-0 outputs bitwise equal: max_diff={d01:.3e}")
+    assert d01 == 0.0
+    shapes = [tuple(t.shape) for t in sp]
+    print(f"  T-S11-1 tass outputs: {shapes}; pred={tuple(y1.shape)}")
+    assert shapes == [(2, 192, 64, 64), (2, 192, 32, 32), (2, 192, 16, 16)]
+    assert y1.shape == (2, 1, 256, 256)
+
+    # ---- T-S11-3: alpha gradient chain ----
+    target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
+    m1.train()
+    opt = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post, target), target)
+    loss.backward()
+    ag = m1.alpha.grad
+    assert ag is not None, "alpha grad must exist"
+    n_nonzero = int((ag.abs() > 0).sum().item())
+    stem_grads = {n: p.grad for n, p in m1.tass.named_parameters() if p.grad is not None}
+    stem_nonzero = sum(1 for g in stem_grads.values() if g.abs().max().item() > 0)
+    vit_grads = [p.grad for p in m1.encoder.parameters() if p.grad is not None]
+    print(f"  T-S11-3a alpha grad nonzero: {n_nonzero}/3; stem conv grad nonzero @init: {stem_nonzero} "
+          f"(expect 0, alpha=0 blocks); ViT grads: {len(vit_grads)}")
+    assert n_nonzero >= 2, "at least 2/3 alpha grads must be nonzero"
+    assert stem_nonzero == 0, "stem grads must be 0 at init (alpha=0)"
+    assert len(vit_grads) == 0
+
+    with torch.no_grad():
+        m1.alpha += 0.1
+    opt.zero_grad()
+    loss = BCEDiceLoss(m1(pre, post, target), target)
+    loss.backward()
+    stem_grads2 = {n: p.grad for n, p in m1.tass.named_parameters() if p.grad is not None}
+    nonzero2 = [n for n, g in stem_grads2.items() if g.abs().max().item() > 0]
+    import itertools
+    stage_hits = {"stem0": False, "s1": False, "s2": False, "s3": False, "p": False}
+    for n in nonzero2:
+        if "stem0" in n:
+            stage_hits["stem0"] = True
+        elif "s1." in n:
+            stage_hits["s1"] = True
+        elif "s2." in n:
+            stage_hits["s2"] = True
+        elif "s3." in n:
+            stage_hits["s3"] = True
+        if "p1" in n or "p2" in n or "p3" in n:
+            stage_hits["p"] = True
+    print(f"  T-S11-3b after alpha nudge: nonzero stem grads={len(nonzero2)}; stage hits={stage_hits}")
+    assert all(stage_hits[k] for k in ("stem0", "s1", "s2", "s3", "p")), \
+        "stem0/s1/s2/s3/projector must all have nonzero grads after alpha nudge"
+    with torch.no_grad():
+        m1.alpha -= 0.1
+
+    # ---- T-S11-4: frozen ViT checksum before/after 3 steps ----
+    sd = torch.load(pretrained_path, map_location="cpu")["model"]
+    vit = m1.encoder.vit
+    keys = ["patch_embed.proj.weight", "patch_embed.proj.bias", "norm.weight", "norm.bias"]
+    for i in range(4):
+        keys += [f"blocks.{i}.norm1.weight", f"blocks.{i}.attn.qkv.weight", f"blocks.{i}.attn.qkv.bias"]
+    for k in keys:
+        if not torch.equal(vit.state_dict()[k].cpu(), sd[k]):
+            raise AssertionError(f"checksum mismatch at {k}")
+    m1.train()
+    opt2 = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
+    for step in range(3):
+        out = m1(pre, post, target)
+        loss = BCEDiceLoss(out, target)
+        opt2.zero_grad()
+        loss.backward()
+        opt2.step()
+        assert torch.isfinite(torch.tensor(loss.item())), "loss is NaN/Inf"
+    for k in keys:
+        if not torch.equal(vit.state_dict()[k].cpu(), sd[k]):
+            raise AssertionError(f"ViT checksum changed after training at {k}")
+    print(f"  T-S11-4 frozen ViT checksum unchanged after 3 steps (loss={loss.item():.4f})")
+
+    # ---- T-S11-5: deploy fold ----
+    m1.eval()
+    m1d = copy.deepcopy(m1)
+    m1d.switch_to_deploy()
+    keys1 = list(m1d.state_dict().keys())
+    # TAR/DCR 的 BN 必须全部折叠；TASS 是单路径静态 stem，其 BN 合法留在部署图（方案 §5.3）
+    bn_keys = [k for k in keys1 if "bn" in k and not k.startswith("tass.")]
+    p1 = measure_params(m1d)
+    with torch.no_grad():
+        y1 = m1(pre, post)
+        y1d = m1d(pre, post)
+    err = (y1 - y1d).abs().max().item()
+    flip = ((y1 > 0.5) != (y1d > 0.5)).float()
+    print(f"  T-S11-5 deploy fold: non-TASS bn_keys={len(bn_keys)}, max_abs_error={err:.3e} (recorded), "
+          f"disagree={flip.mean().item():.3e}, deploy_params={p1:,} ({p1 / 1e6:.3f}M)")
+    assert len(bn_keys) == 0
+
+    m0d = copy.deepcopy(m0)
+    m0d.switch_to_deploy()
+    p0 = measure_params(m0d)
+    tass_params = m1.tass.param_count()
+
+    # ---- T-S11-6: budget ----
+    total1 = measure_params(m1)
+    train1 = sum(p.numel() for p in m1.parameters() if p.requires_grad)
+    print(f"  T-S11-6 C0 deploy={p0:,} ({p0 / 1e6:.3f}M); M1 deploy={p1:,} ({p1 / 1e6:.3f}M); "
+          f"TASS={tass_params:,}; M1 train-graph total={total1:,} trainable={train1:,}")
+    assert p0 <= 5.0e6 and p1 <= 5.0e6, "deploy params exceed 5M budget"
+    try:
+        flops, n_unsup = measure_flops(m1, size=256)
+        print(f"  T-S11-6 M1 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+    except Exception as e:
+        print(f"  T-S11-6 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+
+    del m0, m1, m0d, m1d
+
+
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
     model = build_trainer(pretrained_path, mode, device)
@@ -1162,8 +1309,8 @@ def main():
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
                                  'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre',
-                                 'strfusion'],
-                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion')
+                                 'strfusion', 'tass'],
+                        help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion | tass')
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -1213,6 +1360,8 @@ def main():
         t_run9_opre(args.pretrained_weight_path, device, vit_depth=4)
     if args.mode in ("strfusion", "all"):
         t_run1_strfusion(args.pretrained_weight_path, device)
+    if args.mode in ("tass", "all"):
+        t_run11_tass(args.pretrained_weight_path, device)
 
     print("[SMOKE] ALL OK")
 

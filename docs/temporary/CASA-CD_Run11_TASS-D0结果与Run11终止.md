@@ -104,3 +104,19 @@ Run11  raw 空间证据(TASS-D0)        ：G1 1/4、G2 2/4（证伪，本记录�
 - 审计报告：`/home/yqwang/outputs/CASA-CD/diagnostics/STR-Fusion/Run2_TASS/TASS_D0_SOURCE_GATE/audit_report.txt`
 - 明细 JSON：同目录 `tass_d0_results.json`
 - 代码：`analyse/run11_tass_source_gate.py` + `train_scripts/STR-Fusion/Run2_TASS/`（gate 工具存档）
+
+---
+
+## 7. 用户决策附录（2026-10，训练照常执行）
+
+> 用户指令：**取消预注册 gate 拦截；服务器两张 GPU 均可用；必须训练**；硬目标远未
+> 达成、论文为时尚早。
+
+据此修订执行状态：
+
+- **TASS-D0 FAIL 保留为已知负证据记录，不再作为停止条件**；
+- Run11 训练照常执行：TASS 已实现（`models/model/tass_stem.py` +
+  `models/model/str_tass_fusion.py`），C0_TOKEN（GPU1）与 M1_TASS（GPU0）按
+  SYSU→LEVIR→WHU→CDD 从头 80K 双卡启动；
+- **结果解释口径**：由于 gate 未过，M1 相对 C0 的任何增益都必须在「TASS-D0 曾为负
+  （raw 空间证据仅在 SYSU 互补）」的背景下陈述；本文档 §0–§5 的 gate 结论不回改。
