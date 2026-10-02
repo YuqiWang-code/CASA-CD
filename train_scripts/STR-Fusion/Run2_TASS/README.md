@@ -2,24 +2,25 @@
 
 > 设计文档：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`
 > TASS-D0 记录：`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`（含用户决策附录）
-> 状态：**训练执行中（用户决策：取消 gate 拦截、双卡可用、必须训练）**；
+> 状态：**8/8 训练全部完成**（用户决策：取消 gate 拦截、双卡可用、必须训练）；
 > TASS-D0 FAIL 保留为已知负证据，不再作为停止条件。
 
 ## 正式结果（只认最后完整 TEST RESULTS 区块；全部从头 80K）
 
-| 数据集 | C0_TOKEN F1 | M1_TASS F1 | ΔF1(M1−C0) | M1 Recall/Prec/IoU | deploy(M)/FLOPs(G) | fold disagree |
-|---|---|---:|---:|---|---|---|---|
-| SYSU | 0.8215 | 0.8174 | **−0.41pp** | 0.7873/0.8498/0.6911 | 3.455 / 3.546 | 5.72e-6 |
-| LEVIR | 0.8779 | **0.9016** | **+2.37pp** | 0.8842/0.9197/0.8208 | 3.455 / 3.546 | 0 |
-| WHU | 训练中 | 训练中 | — | — | — | — |
-| CDD | 队列排队 | 队列排队 | — | — | — | — |
+| 数据集 | C0_TOKEN F1 | M1_TASS F1 | ΔF1(M1−C0) | M1 Recall/Prec/IoU | 硬目标 | 差距 | fold disagree |
+|---|---|---:|---:|---|---:|---:|---|
+| SYSU | 0.8215 | 0.8174 | **−0.41pp** | 0.7873/0.8498/0.6911 | ≥85 | −3.26 | 5.72e-6 |
+| LEVIR | 0.8779 | **0.9016** | **+2.37pp** | 0.8842/0.9197/0.8208 | ≥92.5 | −2.48 | 0 |
+| WHU | 0.9202 | **0.9320** | **+1.18pp** | 0.9164/0.9482/0.8727 | ≥95 | −1.80 | 0 |
+| CDD | 0.9413 | **0.9541** | **+1.28pp** | 0.9470/0.9613/0.9122 | ≥98 | −2.59 | 1.14e-5 |
 
-- **LEVIR +2.37pp 且 Recall/Precision 双升**（+2.05/+2.72pp）：TASS 首个强正面
-  结果，0.858M 参数换真实证据增益（α=1.48/0.89/0.51）；SYSU −0.41pp（轻微
-  置信度锐化）——TASS 价值 dataset-dependent，最强在建筑小目标（LEVIR）。
-- 硬目标差距：SYSU 82.15（−2.85）/ LEVIR 90.16（−2.34）；C0 token-only 本身
-  低于冻结 A1 锚点（LEVIR 87.79 vs 91.84）。
-- 硬条件：VIT checksum 不变 ✓、deploy 3.455M ≤5M ✓、二值化 disagreement≈0 ✓。
+- **模块有效性**：3/4 正向且 Recall/Precision 双升（建筑数据集全正：LEVIR +2.37 /
+  WHU +1.18 / CDD +1.28），SYSU −0.41（轻微锐化）——TASS 在建筑小目标上的
+  task-adaptive spatial residual 被受控 C0/M1 证明有效；四数据集硬目标未达。
+- C0 token-only 语义路径本身弱（LEVIR 87.79 < 冻结 A1 91.84），TASS 只补回一部分。
+- 硬条件：VIT checksum 不变 ✓、deploy 3.455M ≤5M ✓、FLOPs 3.5459G、disagree≈0 ✓。
+- 结果已入 `docs/experiment_metrics.xlsx`；快照
+  `docs/temporary/models_and_metrics_STR-Fusion_Run2_TASS.txt`。
 
 ## 训练布局（双卡串行队列，全部从头 80K）
 
