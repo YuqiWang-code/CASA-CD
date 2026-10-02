@@ -351,24 +351,39 @@ binary change detection in remote sensing images.
   预注册**，不自动执行；预算口径已放宽至 **≤5M**（见「研究定位与约定」），
   F1 硬目标不变，所有实验（含消融）一律从头训练。
 
-## 实验结果（STR-Fusion Run2_TASS · Run11，TASS-D0 终止）
+## 实验结果（STR-Fusion Run2_TASS · Run11，训练执行中）
 
 > **TASS（Task-Adaptive Spatial Stem）**：冻结 ViT4 语义锚点 + 固定 TAR/DCR +
 > 极小可训练共享 Siamese 空间 stem（1/4–1/16 三尺度 zero-init α 残差注入）。
 > 方案：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`；脚本：
-> `train_scripts/STR-Fusion/Run2_TASS/`。**TASS-D0 零训练 raw source gate FAIL
-> （G0 全过：B4 边界带四数据集与 SF-D0 逐位复现；G1=1/4：仅 SYSU +0.0309，
-> CDD −0.0075 / LEVIR −0.0409 / WHU −0.0297；G2=2/4）→ 按预注册规则 Run11 停止
-> （0 个 80K，未实现 TASS）**。完整记录见
+> `train_scripts/STR-Fusion/Run2_TASS/`。
+> **背景（gate 记录）**：TASS-D0 零训练 raw source gate FAIL（G1=1/4：仅 SYSU
+> +0.0309；G2=2/4）——按预注册曾判停止；**用户决策（2026-10）取消 gate 拦截、
+> 双卡可用、必须训练**，TASS-D0 FAIL 保留为已知负证据、结论不回改。完整记录见
 > [`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`](docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md)。
 
-- **关键结论**：未训练的 raw 像素差分证据只在变化密集的 SYSU 上与 B4 边界带互补，
-  在三个建筑/伪变化数据集上被 radiometric pseudo-change 主导（甚至稀释像素级语义
-  证据）——**raw pixel evidence 的跨数据集可行性被证伪**，第九轮负结果。
-- **用户决策（2026-10）**：取消预注册 gate 拦截、双卡可用、必须训练——TASS-D0 FAIL
-  保留为已知负证据（结论不回改），**Run11 训练照常执行**：C0_TOKEN（GPU1）与
-  M1_TASS（GPU0）按 SYSU→LEVIR→WHU→CDD 从头 80K。M1 的任何增益都必须在
-  「TASS-D0 曾为负」的背景下解释。结果回填本节。
+**正式结果（只认各 train_log.txt 最后一个完整 TEST RESULTS 区块；全部从头 80K）**：
+
+| 数据集 | C0_TOKEN F1 | M1_TASS F1 | ΔF1(M1−C0) | M1 Recall/Precision/IoU | deploy(M) | 状态 |
+|---|---|---:|---:|---|---|---|
+| SYSU | 0.8215 | 0.8174 | **−0.41pp** | 0.7873 / 0.8498 / 0.6911 | 3.455 ✓≤5M | 完成 |
+| LEVIR | 0.8779 | **0.9016** | **+2.37pp** | 0.8842 / 0.9197 / 0.8208 | 3.455 ✓ | 完成 |
+| WHU | 训练中 | 训练中 | — | — | — | 80K 进行中 |
+| CDD | 训练中 | 训练中 | — | — | — | 队列排队中 |
+
+- **LEVIR 是 TASS 首个强正面结果**：+2.37pp 且 **Recall/Precision 双升**
+  （+2.05/+2.72pp）——不是 STR 历史「置信度锐化」签名，0.858M 参数的 TASS 带来
+  真实证据增益（α 学到 1.48/0.89/0.51，1/4 尺度贡献最大）；**与 TASS-D0 的
+  SYSU-only 正信号不同，端到端在 LEVIR 建筑小目标上 TASS 价值最大**。
+- **SYSU 为负**（−0.41pp，轻微 Recall↓/Precision↑）——TASS-D0 只测到 SYSU 正信号，
+  端到端却在 LEVIR 最强，说明「训练后的任务适配空间表征」与「raw 证据可行性」
+  是两回事；M1 的增益必须在「TASS-D0 曾为负」背景下按数据集分别陈述。
+- **硬目标差距**：SYSU 82.15（差 −2.85）/ LEVIR 90.16（差 −2.34）——C0 的
+  token-only 基线本身远低于目标（LEVIR 比冻结 A1 锚点 91.84 还低 −4.05pp），
+  说明 ViT4 token 金字塔 + TAR/DCR 的语义路径存在能力缺口，TASS 补回了一部分。
+- 折叠纪律全程合格：VIT checksum 不变；部署二值化 disagreement 0（LEVIR）/ 5.7e-6
+  （SYSU）；deploy 3.455M ≤5M、FLOPs 3.5459G（baseline 26.32G 的 −87%）。
+- WHU/CDD 结果完成后回填本表；随后更新 `docs/experiment_metrics.xlsx` 与快照 txt。
 
 ## 参考文献
 

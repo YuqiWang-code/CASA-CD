@@ -5,11 +5,27 @@
 > 状态：**训练执行中（用户决策：取消 gate 拦截、双卡可用、必须训练）**；
 > TASS-D0 FAIL 保留为已知负证据，不再作为停止条件。
 
+## 正式结果（只认最后完整 TEST RESULTS 区块；全部从头 80K）
+
+| 数据集 | C0_TOKEN F1 | M1_TASS F1 | ΔF1(M1−C0) | M1 Recall/Prec/IoU | deploy(M)/FLOPs(G) | fold disagree |
+|---|---|---:|---:|---|---|---|---|
+| SYSU | 0.8215 | 0.8174 | **−0.41pp** | 0.7873/0.8498/0.6911 | 3.455 / 3.546 | 5.72e-6 |
+| LEVIR | 0.8779 | **0.9016** | **+2.37pp** | 0.8842/0.9197/0.8208 | 3.455 / 3.546 | 0 |
+| WHU | 训练中 | 训练中 | — | — | — | — |
+| CDD | 队列排队 | 队列排队 | — | — | — | — |
+
+- **LEVIR +2.37pp 且 Recall/Precision 双升**（+2.05/+2.72pp）：TASS 首个强正面
+  结果，0.858M 参数换真实证据增益（α=1.48/0.89/0.51）；SYSU −0.41pp（轻微
+  置信度锐化）——TASS 价值 dataset-dependent，最强在建筑小目标（LEVIR）。
+- 硬目标差距：SYSU 82.15（−2.85）/ LEVIR 90.16（−2.34）；C0 token-only 本身
+  低于冻结 A1 锚点（LEVIR 87.79 vs 91.84）。
+- 硬条件：VIT checksum 不变 ✓、deploy 3.455M ≤5M ✓、二值化 disagreement≈0 ✓。
+
 ## 训练布局（双卡串行队列，全部从头 80K）
 
-- `C0_TOKEN/`（spatial_mode=token，GPU1）：SYSU → LEVIR → WHU → CDD
+- `C0_TOKEN/`（spatial_mode=token，GPU1）：SYSU ✓ → LEVIR ✓ → WHU → CDD
   （`run_C0_queue.sh`）；
-- `M1_TASS/`（spatial_mode=tass，GPU0）：SYSU → LEVIR → WHU → CDD
+- `M1_TASS/`（spatial_mode=tass，GPU0）：SYSU ✓ → LEVIR ✓ → WHU → CDD
   （`run_M1_queue.sh`）；
 - 正式结果只认各 `train_log.txt` 最后一个完整 `=== TEST RESULTS ===` 区块；
   deploy ≤5M 硬门槛；禁止 checkpoint 微调（崩溃恢复仅限本任务 last.pth）。
