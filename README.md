@@ -318,6 +318,33 @@ binary change detection in remote sensing images.
   （85/92.5/95/98）远未达成；冻结 ViT 框架内的极小参数 dense 重建路径已被
   系统排除。下一步需要新的机制假设并重新预注册。
 
+## 实验结果（STR-Fusion Run1 · CASA-CD × STR-RepNet 融合，SF-D0 终止）
+
+> 融合主线：冻结 ViT4 四深度 token 金字塔（B1→64×64 / B2→32×32 / B3→16×16 /
+> B4→8×8）＋ STR-RepNet 的 TAR 二时相 bridge ＋ DCR 可折叠解码器，CASA-CD 协议。
+> 方案：`docs/temporary/CASA-CD_STR融合_Run1_设计与预注册方案.md`；脚本：
+> `train_scripts/STR-Fusion/Run1/`。**SF-D0 四数据集接口 gate FAIL（G1=0/4 且
+> SYSU 必过项未过）→ 按预注册规则终止（0 个 80K，未跑 dry run）**。完整记录见
+> [`docs/temporary/CASA-CD_STR融合_Run1_SF-D0结果与融合主线终止.md`](docs/temporary/CASA-CD_STR融合_Run1_SF-D0结果与融合主线终止.md)。
+
+| Run | 内容 | 判据 |
+|---|---|---|
+| SF-D0 INTERFACE_AUDIT | 多深度 token 金字塔（fuse4/fuse2）vs B4-only 的边界带 PR-AUC（零训练，四数据集） | **FAIL**（G0 PASS；G1=0/4：CDD +0.0100 / SYSU +0.0089 / LEVIR −0.0061 / WHU −0.0090；G2=3/4） |
+
+- **关键结论**：冻结 plain ViT 的 token 流无论取多少个深度做参数自由融合，在真实
+  变化边界 ±4px 邻域都不比 B4-only 多出可辨识证据——**「ranking ≠ dense 重建」
+  （R8-D0）从单深度推广到多深度融合**；可训练折叠解码器（TAR/DCR）无法从
+  16×16 token 网格重建 sub-patch 证据。第八轮负结果。
+- **留存正面资产（全部机器验证）**：折叠等价性 T0/T1/T2/T2b 全过（活分支全模型
+  折叠 5.1e-7/5.4e-7、二值化 disagreement=0）；smoke T-SF-1..8 全过（C0/M1 epoch-0
+  逐位一致、aux 双梯度家族、冻结 checksum、部署分支删除）；预算 G4 PASS——deploy
+  **2,596,353 参数（2.596M < 3M）** / FLOPs **2.2136G**（vs baseline 26.32G）、
+  C0/M1 deploy 参数逐位相等；`skip_init`+本地 Generator 的 RNG 纪律落地。
+  全套实现（`models/model/str_*.py`）与审计工具（`analyse/run1_strfusion_*.py`）
+  存档，供后续预注册复用。
+- 补救方向（可训练 stem 作 fine-scale 源 / 受限解冻 ViT / 放弃融合线）需**重新
+  预注册**，不自动执行。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——

@@ -1,7 +1,27 @@
 # STRFusion Run1（CASA-CD × STR-RepNet 融合主线）
 
 > 设计文档：`docs/temporary/CASA-CD_STR融合_Run1_设计与预注册方案.md`
-> 状态：**代码实现 + 审计阶段**（SF-D0 gate 未裁决前不允许启动任何 80K）
+> 终止记录：`docs/temporary/CASA-CD_STR融合_Run1_SF-D0结果与融合主线终止.md`
+> 状态：**SF-D0 gate FAIL → 已按预注册终止（0 个 80K，未跑 dry run）**
+
+## SF-D0 裁决（零训练接口 gate，四数据集）
+
+- G0 审计有效性 **PASS**（R4-1 对照精确复现；B4 边界带与 R8-D0 四位小数逐位一致）；
+- G1（fuse4 边界带 lift ≥ +0.02，SYSU 必过且 ≥2/4）**0/4 FAIL**：
+  CDD +0.0100 / SYSU +0.0089 / LEVIR −0.0061 / WHU −0.0090；
+- G2（fuse2 ≥ B4−0.02，≥3/4）3/4（仅 WHU −0.0273）。
+- **裁决：多深度 token 金字塔携带严格多于 B4-only 边界带证据的假设被四数据集证伪 →
+  不启动任何 80K**。冻结 plain ViT 的 token 流无论取多少深度都受 inner-patch 局限
+  （R8-D0「ranking ≠ dense 重建」的多深度推广）。
+- 补救方向（可训练 stem / 受限解冻 / 放弃融合线）需**重新预注册**，本轮不自动执行。
+
+## 留存资产（可复用于后续预注册）
+
+- 全套实现：`models/model/str_{reparam,tar,dcr,encoder,fusion}.py`；
+- 等价性：T0/T1/T2/T2b ALL PASSED（活分支全模型折叠 5.1e-7/5.4e-7、disagree=0）；
+- smoke：T-SF-1..8 全过（含 C0/M1 epoch-0 逐位一致、RNG 纪律落地）；
+- 预算 G4 PASS：deploy **2,596,353（2.596M < 3M）** / FLOPs 2.2136G，C0/M1 deploy 相等；
+- 审计工具：`analyse/run1_strfusion_{budget,interface_audit}.py`。
 
 ## 方案一句话
 
