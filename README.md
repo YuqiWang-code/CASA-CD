@@ -415,7 +415,7 @@ binary change detection in remote sensing images.
 > |---|---|---:|---:|---:|---:|---|
 > | A0_BASE_PLAIN | none | plain | **0.9467 / 0.8987** | **0.8990 / 0.8166** | **0.8246 / 0.7016** | **0.9370 / 0.8815** | 完成（4/4 disagree=0，F1/IoU） |
 > | M1_CASAA_STR | change | full | **0.9554 / 0.9145** | **0.9037 / 0.8243** | **0.8302 / 0.7097** | **0.9372 / 0.8819** | 完成：ΔF1 CDD +0.87 / LEVIR +0.47 / SYSU +0.56 / WHU +0.02 |
-> | A1_CASAA_PLAIN | change | plain | **0.9454 / 0.8964** | 训练中 | 训练中 | — | CDD：A0 −0.13 / M1 −1.00（CASAA 单独≈A0） |
+> | A1_CASAA_PLAIN | change | plain | **0.9454 / 0.8964** | 训练中 | **0.8249 / 0.7020** | 训练中 | CDD −0.13 / SYSU +0.03（CASAA 单独≈A0） |
 > | A2_STR_ONLY | none | full | — | — | — | — | 排队 |
 > | C1_FULLATTN_PLAIN | full | plain | — | — | — | — | 排队 |
 > | C2_CONTENT_SAA_PLAIN | content | plain | — | — | — | — | 排队 |
