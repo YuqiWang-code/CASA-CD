@@ -351,15 +351,23 @@ binary change detection in remote sensing images.
   预注册**，不自动执行；预算口径已放宽至 **≤5M**（见「研究定位与约定」），
   F1 硬目标不变，所有实验（含消融）一律从头训练。
 
-## 实验结果（STR-Fusion Run2_TASS · Run11，预注册中）
+## 实验结果（STR-Fusion Run2_TASS · Run11，TASS-D0 终止）
 
 > **TASS（Task-Adaptive Spatial Stem）**：冻结 ViT4 语义锚点 + 固定 TAR/DCR +
 > 极小可训练共享 Siamese 空间 stem（1/4–1/16 三尺度 zero-init α 残差注入）。
 > 方案：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`；脚本：
-> `train_scripts/STR-Fusion/Run2_TASS/`。**先过 TASS-D0 零训练 raw source gate
-> 再实现/训练**（G1：Rfuse 边界带 lift ≥+0.02 且 SYSU 必过 ≥2/4；G2：像素不降
-> ≥−0.01 且 SYSU 必过 ≥3/4）；SYSU C0/M1 从头 80K 决策（M1≥85 且 Δ≥+0.30pp）。
-> 状态：TASS-D0 审计执行中，结果回填本节。
+> `train_scripts/STR-Fusion/Run2_TASS/`。**TASS-D0 零训练 raw source gate FAIL
+> （G0 全过：B4 边界带四数据集与 SF-D0 逐位复现；G1=1/4：仅 SYSU +0.0309，
+> CDD −0.0075 / LEVIR −0.0409 / WHU −0.0297；G2=2/4）→ 按预注册规则 Run11 停止
+> （0 个 80K，未实现 TASS）**。完整记录见
+> [`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`](docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md)。
+
+- **关键结论**：未训练的 raw 像素差分证据只在变化密集的 SYSU 上与 B4 边界带互补，
+  在三个建筑/伪变化数据集上被 radiometric pseudo-change 主导（甚至稀释像素级语义
+  证据）——**raw pixel evidence 的跨数据集可行性被证伪**，第九轮负结果。
+- **下一步（方案 §16 锁定）**：不再开 Run12 救援线，直接进入**分析型论文收尾设计
+  （方向 c）**；主结果 = R4-1 ViT4+ResNet+旧头 82.77（8.195M），九轮负结果链作
+  negative-evidence / budget-allocation study。
 
 ## 参考文献
 

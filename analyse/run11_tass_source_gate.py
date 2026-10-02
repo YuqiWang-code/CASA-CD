@@ -40,18 +40,14 @@ if os.path.join(_ROOT, "analyse") not in sys.path:
 
 from model.trainer import Trainer
 from run4_detail_interface_audit import pr_auc
-from run6_semantic_token_audit import token_sources, pick_best
+from run6_semantic_token_audit import token_sources, make_loader, pick_best
 from run7_depth_source_audit import checksum_vit
 from run8_b4_dense_recoverability_audit import boundary_band, pixel_pr_auc, rank_normalize_np
 
 import dataset.dataset as myDataLoader
 import dataset.Transforms as myTransforms
 
-# BGR 域的官方常量（myTransforms.Normalize 口径）；raw loader 输出 RGB [0,1]，
-# 手动归一化需按 RGB 通道序重排：BGR mean [0.406,0.456,0.485] -> RGB [0.485,0.456,0.406]
-MEAN_RGB = [0.485, 0.456, 0.406] * 2
-STD_RGB = [0.229, 0.224, 0.225] * 2
-
+# B4-only 边界带 PR-AUC 参考（SF-D0 / R8-D0 记录，±0.01 复现窗）
 B4_BND_REF = {"CDD-CD-256": 0.5216, "LEVIR-CD-256": 0.5369,
               "SYSU-CD-256": 0.6113, "WHU-CD-256": 0.5718}
 
@@ -87,17 +83,17 @@ def rank_normalize_pixel_map(m):
     return out
 
 
-def run_dataset(vit, loader, device):
-    mean_t = torch.tensor(MEAN_RGB, dtype=torch.float32, device=device).view(1, 6, 1, 1)
-    std_t = torch.tensor(STD_RGB, dtype=torch.float32, device=device).view(1, 6, 1, 1)
+def run_dataset(vit, raw_loader, norm_loader, device):
+    """ViT 路径用参考管线 loader（Normalize→Scale→ToTensor，与 SF-D0 逐位一致）；
+    raw 代理用 raw loader（Scale→ToTensor 的 [0,1] RGB，通道均值差对通道序不变）。"""
     acc = {"b4": {"map": [], "lab": [], "bnd_s": [], "bnd_l": []},
            "rfuse": {"map": [], "lab": [], "bnd_s": [], "bnd_l": []},
            "rspatial": {"map": [], "lab": []}}
     with torch.no_grad():
-        for img, target in loader:
-            raw = img.to(device).float()                       # (B,6,256,256) [0,1] RGB
-            lab = (target.to(device) >= 128).float()           # gray>=128 二值化
-            norm = (raw - mean_t) / std_t                      # 复现 myTransforms.Normalize 数学
+        for (img_raw, _t_raw), (img_norm, target_norm) in zip(raw_loader, norm_loader):
+            raw = img_raw.to(device).float()                   # (B,6,256,256) [0,1] RGB
+            lab = target_norm.to(device).float()               # Normalize 已按 gray>=128 二值化
+            norm = img_norm.to(device).float()                 # 参考管线输出
             pre = norm[:, 0:3]
             post = norm[:, 3:6]
 
@@ -171,17 +167,19 @@ def main():
     g0_repro = {}
     for ds in datasets:
         print(f"\n=== {ds} ===", flush=True)
-        loader = make_raw_loader(os.path.join(args.data_root, ds), args.batch_size, args.num_workers)
+        raw_loader = make_raw_loader(os.path.join(args.data_root, ds), args.batch_size, args.num_workers)
+        norm_loader = make_loader(os.path.join(args.data_root, ds), args.batch_size, args.num_workers)
         # G0: 样本数一致
         with open(os.path.join(args.data_root, ds, "list", "test.txt"), encoding="utf-8") as f:
             n_list = sum(1 for _ in f if _.strip())
-        n_loader = len(loader.dataset)
-        print(f"  [G0-sample] list/test.txt={n_list}  dataset={n_loader}")
-        if n_list != n_loader:
+        n_raw = len(raw_loader.dataset)
+        n_norm = len(norm_loader.dataset)
+        print(f"  [G0-sample] list/test.txt={n_list}  raw={n_raw}  norm={n_norm}")
+        if not (n_list == n_raw == n_norm):
             print("[AUDIT-INVALID] sample count mismatch")
             return 3
 
-        res = run_dataset(holder.encoder.vit, loader, device)
+        res = run_dataset(holder.encoder.vit, raw_loader, norm_loader, device)
         results[ds] = res
         for key in ("b4", "rfuse", "rspatial"):
             bnd = res[key].get("bnd", float("nan"))

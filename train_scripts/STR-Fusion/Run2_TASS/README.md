@@ -1,7 +1,20 @@
 # STR-Fusion Run2_TASS（Run11：Task-Adaptive Spatial Stem）
 
 > 设计文档：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`
-> 状态：**TASS-D0 零训练 raw source gate 阶段**（gate 不过不实现/不训练任何 80K）
+> 终止记录：`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`
+> 状态：**TASS-D0 gate FAIL → Run11 按预注册终止（0 个 80K，未实现 TASS）**
+
+## TASS-D0 裁决（零训练 raw source gate，四数据集）
+
+- G0 审计有效性 **PASS**（B4 边界带与 SF-D0 四位小数逐位复现：0.5216/0.5369/0.6113/0.5718）；
+- G1（Rfuse 边界带 lift ≥ +0.020，SYSU 必过且 ≥2/4）**1/4 FAIL**：
+  SYSU +0.0309 ✓ / CDD −0.0075 / LEVIR −0.0409 / WHU −0.0297；
+- G2（Rfuse 像素 ≥ B4−0.010，SYSU 必过且 ≥3/4）**2/4 FAIL**：SYSU/WHU 过，
+  CDD −0.0346 / LEVIR −0.0032。
+- **裁决**：未训练的 raw 像素差分证据只在 SYSU 与 B4 互补，三个建筑数据集上被
+  辐射伪变化主导 → 不实现/不训练 TASS；按方案 §16 锁定 fallback：**不再开 Run12
+  救援线，下一轮直接进入分析型论文收尾设计（方向 c）**。
+- 审计工具存档：`analyse/run11_tass_source_gate.py` + `audit_TASS_D0.sh`。
 
 ## 方案一句话
 
