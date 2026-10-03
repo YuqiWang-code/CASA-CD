@@ -402,13 +402,15 @@ class ChangeViTTrainer(object):
             p_sq = 0.0
             drift_sq = 0.0
             ref_norm_sq = 0.0
+            named = dict(model.named_parameters())
             sd = model.encoder.state_dict()
             for k, v in sd.items():
                 ref = self._backbone_ref[k].to(v.device)
                 drift_sq += ((v - ref).float().norm().item()) ** 2
                 ref_norm_sq += (ref.float().norm().item()) ** 2
-                p = model.get_parameter(k) if k in dict(model.named_parameters()) else None
-                if p is not None:
+                full_k = "encoder." + k
+                if full_k in named:
+                    p = named[full_k]
                     p_sq += p.norm().item() ** 2
                     if p.grad is not None:
                         g_sq += p.grad.norm().item() ** 2
