@@ -433,7 +433,7 @@ binary change detection in remote sensing images.
 >   backbone 的可行性、四向扫描 token 的变化感知压缩（CASAA 化）可行性，
 >   详见向网页 GPT 提交的调研分析 prompt。
 
-## 实验结果（CASA-TViM Run1 · CAACP-SS2D 主线，训练中）
+## 实验结果（CASA-TViM Run1 · CAACP-SS2D 主线，已完成）
 
 > **当前主线（2026-10-03 起）**：按
 > [`docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md`](docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md)
@@ -455,10 +455,25 @@ binary change detection in remote sensing images.
 >
 > | 变体 | caacp | rep | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_TVIM_PLAIN | 0 | plain | **0.9676 / 0.9373** | **0.9108 / 0.8362** | **0.8238 / 0.7006** | **0.9478 / 0.9008** | 完成：vs SHViT A0 +2.09 / +1.18 / −0.08 / +1.08 |
-> | M1_FULL | 1 | full | **0.9718 / 0.9451** | **0.9107 / 0.8360** | **0.8347 / 0.7163** | **0.9507 / 0.9060** | 完成：Δ vs A0 +0.42 / −0.01 / **+1.09** / +0.29；**WHU 达标** |
-> | A1_CAACP | 1 | plain | **0.9675 / 0.9370** | **0.9103 / 0.8353** | **0.8211 / 0.6965** | **0.9484 / 0.9019** | 完成：Δ vs A0 −0.01 / −0.05 / −0.27 / +0.06（CAACP 单独≈A0，增益在 M1 组合） |
-> | A2_STR | 0 | full | — | — | — | — | 训练中（Wave4 双卡，最后一波） |
+> | A0_TVIM_PLAIN | 0 | plain | 0.9676 / 0.9373 | 0.9108 / 0.8362 | 0.8238 / 0.7006 | 0.9478 / 0.9008 | 完成（vs SHViT A0 +2.09 / +1.18 / −0.08 / +1.08） |
+> | M1_FULL | 1 | full | **0.9718 / 0.9451** | 0.9107 / 0.8360 | **0.8347 / 0.7163** | **0.9507 / 0.9060** | 完成（Δ vs A0 +0.42 / −0.01 / **+1.09** / +0.29；**WHU 达标**） |
+> | A1_CAACP | 1 | plain | 0.9675 / 0.9370 | 0.9103 / 0.8353 | 0.8211 / 0.6965 | 0.9484 / 0.9019 | 完成（CAACP 单独≈A0） |
+> | A2_STR | 0 | full | 0.9711 / 0.9439 | **0.9119 / 0.8381** | 0.8321 / 0.7125 | 0.9453 / 0.8963 | 完成（STR 单独：CDD +0.35 / LEVIR +0.11 / SYSU +0.83 / WHU −0.25） |
+>
+> **Run1 结论（16/16 全部完成，全部 disagree 带内、deploy 4.880M ≤5M）**：
+> 1. **骨干 floor 大幅抬升**：TinyViM-S-Slim A0 比 SHViT 版 A0 高 CDD +2.09 /
+>    LEVIR +1.18 / WHU +1.08（SYSU 持平）；backbone 适配充分（rel_L2 9-14%）。
+> 2. **CAACP-SS2D（创新一）机制成立且 β 被训练采纳**（β 5.6e-3~3.9e-2）：单独 ≈ A0，
+>    但 M1−A2 边际 SYSU +0.26 / WHU +0.54——**变化感知上下文聚合与 STR-rep 组合
+>    在 SYSU/WHU 上有条件互补**；M1 完整方法 SYSU **+1.09pp**（A0 0.8238→0.8347）。
+> 3. **STR-rep（创新二）跨骨干保持数据集依赖模式**：CDD/LEVIR/SYSU 正向（SYSU +0.83）、
+>    WHU 负向——与 SHViT 版一致，transferability 再次验证。
+> 4. **硬目标**：**WHU 95.07 ≥ 95 ✓（达标）**；CDD 97.18（−0.82）、LEVIR 91.19
+>    （−1.31）、SYSU 83.47（−1.53）逼近但未达。对照 29.57M 的 VMamba-Tiny
+>    full_last2（98.42/91.44/83.45/95.14）：本模型以 **1/6 参数（4.88M）** 达到
+>    LEVIR −0.25 / SYSU +0.02 / WHU −0.07 / CDD −1.24 的接近水平。
+> - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 新行）；快照：
+>   `docs/temporary/models_and_metrics_CASA-TViM_Run1.txt`。
 
 ## 参考文献
 
