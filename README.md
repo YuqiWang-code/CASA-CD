@@ -433,6 +433,33 @@ binary change detection in remote sensing images.
 >   backbone 的可行性、四向扫描 token 的变化感知压缩（CASAA 化）可行性，
 >   详见向网页 GPT 提交的调研分析 prompt。
 
+## 实验结果（CASA-TViM Run1 · CAACP-SS2D 主线，训练中）
+
+> **当前主线（2026-10-03 起）**：按
+> [`docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md`](docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md)
+> 执行——**CASA-TViM-STRNet = TinyViM-S-Slim（ICCV 2025，5.6M 预训练骨干瘦身版，
+> 1000e EMA 权重）+ CAACP-SS2D（创新一：变化感知非对称上下文聚合，只改 Stage3 末个
+> TViM 的低频池化为双时相 change-score 加权的 2×2 cell 聚合，β=0 精确继承预训练）
+> + TAR/DCR 可折叠解码器（创新二，D=96）**。SHViT 版 CASA-STR 已归档（上节）。
+>
+> 机器验证（服务器 GPU smoke T-CA-1..6 全绿）：slim trunk **4,645,180** 参数；
+> 预训练 744 键逐位继承（stage4 深度裁剪 key 重映射）；epoch-0 恒等 bitwise 0
+> （CAACP β=0 与 rep aux 双验证）；β/x_proj/A_logs/stem 梯度链非零；change score
+> T1/T2 交换对称；**deploy 4,880,190 ≤ 5M**、FLOPs 2.93G。SS2D kernel 用
+> `selective_scan_cuda_oflex`（STR-RepNet 生产同款，已对拍 torch 参考 <2e-5；
+> 官方 CUDA kernel 在 torch 2.14/CUDA 13.2/sm_120 无可用 wheel）。
+>
+> 训练：16 run（4 变体 × 4 数据集）全部完整 80K，**run_all.sh 单脚本串 4 波、
+> 每波 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU，每卡 2 并发）、batch 32
+> （用户指示翻倍，占满双卡 ~19GB/卡）**；崩溃自动续训、整波失败即中止。
+>
+> | 变体 | caacp | rep | CDD | LEVIR | SYSU | WHU | 状态 |
+> |---|---|---:|---:|---:|---:|---|
+> | A0_TVIM_PLAIN | 0 | plain | — | — | — | — | 训练中（Wave1 双卡） |
+> | M1_FULL | 1 | full | — | — | — | — | 排队 |
+> | A1_CAACP | 1 | plain | — | — | — | — | 排队 |
+> | A2_STR | 0 | full | — | — | — | — | 排队 |
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
@@ -443,9 +470,13 @@ binary change detection in remote sensing images.
 - 创新点来源：`docs/参考文献/baseline/SAT(CVPR2026).pdf`
   （SAT: Selective Aggregation Transformer for Image Super-Resolution；
   arXiv:2604.07994；https://github.com/PhuTran1005/SAT）
-- 主干来源（CASA-STR）：`docs/参考文献/baseline/SHViT(CVPR2024).pdf`
+- 主干来源（CAACP-SS2D 当前主线）：`docs/参考文献/baseline/Ma_TinyViM_Frequency_Decoupling_for_Tiny_Hybrid_Vision_Mamba_ICCV_2025_paper.pdf`
+  （TinyViM: Frequency Decoupling for Tiny Hybrid Vision Mamba, ICCV 2025；
+  S=5.6M/0.9G@224、ImageNet-1K 79.2(300e)/80.3(1000e)；代码 https://github.com/xwmaxwma/TinyViM；
+  slim 重实现 `models/model/tinyvim_s_slim.py`）
+- 主干来源（CASA-STR，已归档）：`docs/参考文献/baseline/SHViT(CVPR2024).pdf`
   （SHViT: Single-Head Vision Transformer with Memory Efficient Macro Design, CVPR 2024；
-  S1=6.3M/241M；代码 https://github.com/ysj9909/SHViT；截断重实现 `models/model/shvit_s1_trunc.py`）
+  S1=6.3M/241M；代码 https://github.com/ysj9909/SHViT）
 - SAT 核心机制提取（SAA + 聚类压缩 K/V，去框架化，供 CASAA 直接复用）：
   [`others/SAT/saa.py`](others/SAT/saa.py)，说明见 [`others/SAT/README.md`](others/SAT/README.md)
 
@@ -459,9 +490,11 @@ models/                        # 全部代码（ChangeViT 上游 + 本仓库改�
   main.py                      #   上游原版（仅参考）
   model/                       #   encoder / decoder / trainer / layers / resnet
   model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
-  model/layers/casaa_hier.py   #   HierCASAA（CASA-STR 主干 @1/16 统一参数化，β gate）
-  model/casa_str_net.py        #   CASASTRNet（SHViT-S1 截断 + CASAA + TAR/DCR 主架构）
-  model/shvit_s1_trunc.py      #   SHViT-S1 自包含重实现 + 截断主干 + 预训练原位继承
+  model/layers/ss2d.py         #   SS2D 自包含移植（TinyViM 频率解耦；oflex/mamba-ssm 双后端）
+  model/layers/caacp_ss2d.py   #   CAACP-SS2D（创新一：变化感知 2×2 cell 上下文聚合，β gate）
+  model/layers/mamba_scan_triton.py  #  vendored mamba-ssm Triton kernel（兜底后端）
+  model/tinyvim_s_slim.py      #   TinyViM-S-Slim（Stage4 深度裁剪 + 预训练 key 重映射）
+  model/casa_tvim_str_net.py   #   CASA-TViM-STRNet（当前主线主架构）
   model/light_detail.py        #   Run4 LightDetail（32/64/128 与 48/96/160 DSConv）
   model/psd_detail.py          #   Run4 PSD-Detail（pretrained stem + residual DS pyramid，0.078M）
   dataset/                     #   DataLoader（A/B/label + list 格式）
@@ -471,7 +504,8 @@ train_scripts/
   CASAA/Run2/                  # CASAA Run2（冻结 ViT：A1 对照 + A3 Oracle 诊断）
   CASAA/Run3/                  # CASAA Run3（A4 detail 可部署信号终局）
   UltraLight/Run4/             # 主线二：R4-0/1/2/2b 逐组件单变量（阶段 gate）
-  CASA-STR/Run1/               # 主线重构：6 变体 × 4 数据集（Phase1-3 双卡并行队列）
+  CASA-STR/Run1/               # 主线重构（SHViT 版，已归档）：6 变体 × 4 数据集
+  CASA-TViM/Run1/              # 当前主线（TinyViM + CAACP-SS2D）：4 变体 × 4 数据集全并行
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
@@ -479,11 +513,11 @@ analyse/                       # 分析工具
   run4_detail_interface_audit.py  #  R4-D0：ResNet vs Light raw/adapted 三尺度对齐 GT
   param_breakdown.py           #   Run4 U1：组件级参数预算
   vit_pretrain_audit.py        #   Run4 U2：corrected DeiT loader 原位继承审计
-  audit_shvit_pretrain.py      #   CASA-STR Q1-Q6：SHViT-S1 checkpoint 六问审计
-  audit_casa_str.py            #   CASA-STR 预算审计：6 变体 deploy ≤5M + 初始化哈希
+  models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
 others/                        # 参考实现（非本仓库模型代码）
   SAT/                         #   SAT(CVPR2026) 核心机制提取：saa.py（SAA + 聚类压缩）
   SHViT/                       #   SHViT(CVPR2024) 官方核心（shvit.py + S1 build，供审计对照）
+  TinyViM-main/                #   TinyViM(ICCV2025) 官方核心（tinyvim.py + tvimblock.py）
 outputs/                       # 训练日志（训练结束后下载到这里）
 docs/                          # 项目文档（temporary / 参考文献 / 服务器说明）
 .claude/                       # 服务器部署 skill 与 SSH 辅助脚本（不进 git）
@@ -497,8 +531,8 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 - 关键路径：
   - 代码 `/home/yqwang/projects/CASA-CD/`
   - 数据集 `/share_datasets/CD/{CDD,LEVIR,SYSU,WHU}-CD-256/`
-  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/{deit_tiny_patch16_224-a1311bcf.pth, shvit_s1.pth}`
-  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/{baseline,CASA-STR}/...`
+  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/{deit_tiny_patch16_224-a1311bcf.pth, shvit_s1.pth, tinyvim_s_1000e.pth}`
+  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/{baseline,CASA-STR,CASA-TViM}/...`
   - 训练日志 `/home/yqwang/outputs/CASA-CD/baseline/Run1/<dataset>/train_log.txt`
 
 ## 数据集（A/B/label + list 格式）

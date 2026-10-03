@@ -132,7 +132,8 @@ def val(args, val_loader, model):
     return average_epoch_loss_val, scores
 
 
-def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_iter=0, lr_factor=1.):
+def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_iter=0,
+                lr_factor=1., adapt_log_fn=None):
     model.train()
 
     salEvalVal = ConfuseMatrixMeter(n_class=2)
@@ -146,10 +147,14 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         # adjust the learning rate (poly + warmup, official schedule)
         lr = adjust_learning_rate(args, optimizer, epoch, iter + cur_iter, max_batches, lr_factor=lr_factor)
 
-        # casa_str：per-group lr_scale 验证（P0，注意事项 §5）——在关键 iter 打印分组 lr
-        if getattr(args, "arch", "changevit") == "casa_str" and (iter + cur_iter) in (0, 99, 198, 199, 200, 201):
+        # casa_tvim_str：per-group lr_scale 验证（P0）——在关键 iter 打印分组 lr
+        if getattr(args, "arch", "changevit") == "casa_tvim_str" and (iter + cur_iter) in (0, 99, 198, 199, 200, 201):
             lrs = [f"{pg.get('name', '?')}={pg['lr']:.3e}" for pg in optimizer.param_groups]
             print(f"[LR-GROUPS] iter={iter + cur_iter} " + " ".join(lrs), flush=True)
+
+        # BACKBONE-ADAPT 审计（调研文档 §3.3，每 1000 iter）
+        if adapt_log_fn is not None and (iter + cur_iter) % 1000 == 0 and iter > 0:
+            adapt_log_fn(model, iter + cur_iter)
 
         if args.onGPU:
             pre_img = pre_img.cuda()
@@ -191,19 +196,18 @@ class ChangeViTTrainer(object):
         init_seed(args.seed)
         torch.backends.cudnn.benchmark = True
 
-        # CASA-STR 主线重构（加性分支，不改动 changevit/strfusion/str_tass 路径）。
+        # CASA-TViM-STR（CAACP-SS2D 主线，加性分支，不改动 changevit/strfusion/str_tass 路径）。
         # 从头训练纪律 + backbone/new 双学习率组（scheduler 经 utils lr_scale 生效）。
-        if getattr(args, "arch", "changevit") == "casa_str":
+        if getattr(args, "arch", "changevit") == "casa_tvim_str":
             assert args.resume is None, \
                 "from-scratch discipline: --resume is forbidden at launch (crash recovery uses own last.pth)"
             assert args.seed == 16, f"from-scratch discipline: seed must be 16, got {args.seed}"
-            assert os.path.basename(args.pretrained_weight_path) == "shvit_s1.pth", \
-                f"pretrained path must be shvit_s1.pth, got {args.pretrained_weight_path}"
-            from model.casa_str_net import CASASTRNet
-            self.model = CASASTRNet(
-                args.pretrained_weight_path, attn_mode=args.attn_mode,
+            assert os.path.basename(args.tinyvim_pretrained_weight_path) == "tinyvim_s_1000e.pth", \
+                f"pretrained path must be tinyvim_s_1000e.pth, got {args.tinyvim_pretrained_weight_path}"
+            from model.casa_tvim_str_net import CASATViMSTRNet
+            self.model = CASATViMSTRNet(
+                args.tinyvim_pretrained_weight_path, caacp=bool(args.caacp),
                 rep_mode=args.rep_mode, str_dim=args.str_dim,
-                keep_ratio=args.casaa_keep_ratio, change_share=args.casaa_change_share,
             ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
@@ -215,6 +219,9 @@ class ChangeViTTrainer(object):
                  {"params": new_params, "lr": args.lr,
                   "lr_scale": 1.0, "name": "new"}],
                 args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+            # BACKBONE-ADAPT 审计参考（调研文档 §3.3）：预训练 encoder 权重快照（含 BN stats）
+            self._backbone_ref = {k: v.detach().cpu().clone()
+                                  for k, v in self.model.encoder.state_dict().items()}
             self.start_epoch = 0
             self.best_f1 = -1.0
             self.best_epoch = -1
@@ -225,11 +232,15 @@ class ChangeViTTrainer(object):
                 if os.path.isfile(auto):
                     resume_path = auto
             os.makedirs(args.ckpt_dir, exist_ok=True)
-            self._write_casa_str_manifest(resume_path)   # 严格校验（resume 时逐字段比对）
+            self._write_casa_tvim_manifest(resume_path)   # 严格校验（resume 时逐字段比对）
             if resume_path is not None and os.path.isfile(resume_path):
                 self._load_resume(resume_path)
             self.log(f"[LR-GROUPS] backbone={args.lr * args.backbone_lr_ratio:.2e} (x{args.backbone_lr_ratio}) "
                      f"new={args.lr:.2e} (x1.0)")
+            ls = self.model.encoder.load_stats() or {}
+            self.log(f"[PRETRAIN-LOAD] retained={ls.get('retained')}/{ls.get('pretrained_keys')} "
+                     f"worst_diff={ls.get('worst_diff'):.3e} new_modules={len(ls.get('missing_new', []))} "
+                     f"dropped={len(ls.get('dropped_intentional', []))}")
             return
 
         # STRFusion / STRTASS 加性分支（不改动 changevit 路径）。
@@ -332,41 +343,40 @@ class ChangeViTTrainer(object):
         self.best_epoch = checkpoint.get("best_epoch", -1)
         self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
 
-    def _write_casa_str_manifest(self, resume_path):
-        """casa_str run_manifest.json：fresh 写入 / resume 逐字段严格校验（P0，注意事项 §33）。"""
+    def _write_casa_tvim_manifest(self, resume_path):
+        """casa_tvim_str run_manifest.json：fresh 写入 / resume 逐字段严格校验。"""
         import json as _json
         import hashlib as _hashlib
         path = os.path.join(self.args.ckpt_dir, "run_manifest.json")
         pretrain_sha = ""
-        if os.path.isfile(self.args.pretrained_weight_path):
+        if os.path.isfile(self.args.tinyvim_pretrained_weight_path):
             h = _hashlib.sha256()
-            with open(self.args.pretrained_weight_path, "rb") as f:
+            with open(self.args.tinyvim_pretrained_weight_path, "rb") as f:
                 for chunk in iter(lambda: f.read(1 << 20), b""):
                     h.update(chunk)
             pretrain_sha = h.hexdigest()[:16]
         manifest = {
-            "arch": "casa_str",
-            "backbone": "shvit_s1_trunc",
+            "arch": "casa_tvim_str",
+            "backbone": "tinyvim_s_slim",
             "backbone_weight_sha256": pretrain_sha,
-            "feature_taps": ["stem_1_4", "stem_1_8", "blocks1", "blocks2"],
-            "attn_mode": self.args.attn_mode,
-            "keep_ratio": self.args.casaa_keep_ratio,
-            "change_share": self.args.casaa_change_share,
+            "feature_taps": ["stage1_1_4_48", "stage2_1_8_64", "stage3_1_16_168", "stage4_1_32_224"],
+            "caacp": int(self.args.caacp),
             "rep_mode": self.args.rep_mode,
             "str_dim": self.args.str_dim,
             "backbone_lr_ratio": self.args.backbone_lr_ratio,
             "data_contract": "legacy_6ch_reverse_v1",
             "seed": self.args.seed,
             "max_steps": self.args.max_steps,
+            "batch_size": self.args.batch_size,
             "dataset": self.args.dataset,
             "resume_source": resume_path,
         }
         if os.path.isfile(path):
             with open(path, encoding="utf-8") as f:
                 old = _json.load(f)
-            for k in ("arch", "backbone", "backbone_weight_sha256", "attn_mode", "keep_ratio",
-                      "change_share", "rep_mode", "str_dim", "backbone_lr_ratio",
-                      "data_contract", "seed", "max_steps", "dataset"):
+            for k in ("arch", "backbone", "backbone_weight_sha256", "caacp",
+                      "rep_mode", "str_dim", "backbone_lr_ratio",
+                      "data_contract", "seed", "max_steps", "batch_size", "dataset"):
                 if old.get(k) != manifest[k]:
                     raise SystemExit(f"[MANIFEST-MISMATCH] field {k}: old={old.get(k)} new={manifest[k]}; aborting")
             self.log(f"[MANIFEST] validated existing run_manifest.json (resume_source={resume_path})")
@@ -384,6 +394,38 @@ class ChangeViTTrainer(object):
             h.update(k.encode())
             h.update(v.detach().cpu().numpy().tobytes())
         return h.hexdigest()[:16]
+
+    def _backbone_adapt_log(self, model, it):
+        """BACKBONE-ADAPT 审计（调研文档 §3.3）：梯度范数 + 相对预训练 L2 drift。"""
+        with torch.no_grad():
+            g_sq = 0.0
+            p_sq = 0.0
+            drift_sq = 0.0
+            ref_norm_sq = 0.0
+            sd = model.encoder.state_dict()
+            for k, v in sd.items():
+                ref = self._backbone_ref[k].to(v.device)
+                drift_sq += ((v - ref).float().norm().item()) ** 2
+                ref_norm_sq += (ref.float().norm().item()) ** 2
+                p = model.get_parameter(k) if k in dict(model.named_parameters()) else None
+                if p is not None:
+                    p_sq += p.norm().item() ** 2
+                    if p.grad is not None:
+                        g_sq += p.grad.norm().item() ** 2
+        rel = (drift_sq / (ref_norm_sq + 1e-8)) ** 0.5
+        self.log(f"[BACKBONE-ADAPT] iter={it} grad_norm={g_sq ** 0.5:.3e} "
+                 f"param_norm={p_sq ** 0.5:.3e} rel_L2_from_pretrain={rel:.4e}")
+
+    def _backbone_adapt_final(self, model):
+        """best checkpoint 的 backbone 适配终值（TEST 区块记录）。"""
+        with torch.no_grad():
+            drift_sq = 0.0
+            ref_norm_sq = 0.0
+            for k, v in model.encoder.state_dict().items():
+                ref = self._backbone_ref[k].to(v.device)
+                drift_sq += ((v - ref).float().norm().item()) ** 2
+                ref_norm_sq += (ref.float().norm().item()) ** 2
+        return (drift_sq / (ref_norm_sq + 1e-8)) ** 0.5
 
     def _write_run_manifest(self, resume_path):
         """run_manifest.json（方案 §14）：首次启动写一次，记录从头训练契约。"""
@@ -420,15 +462,13 @@ class ChangeViTTrainer(object):
 
     def _save_last(self, epoch, iters_per_epoch):
         arch_name = getattr(self.args, "arch", "changevit")
-        if arch_name == "casa_str":
+        if arch_name == "casa_tvim_str":
             arch = {
-                "arch": "casa_str",
-                "backbone": "shvit_s1_trunc",
-                "attn_mode": self.args.attn_mode,
+                "arch": "casa_tvim_str",
+                "backbone": "tinyvim_s_slim",
+                "caacp": int(self.args.caacp),
                 "rep_mode": self.args.rep_mode,
                 "str_dim": self.args.str_dim,
-                "casaa_keep_ratio": self.args.casaa_keep_ratio,
-                "casaa_change_share": self.args.casaa_change_share,
             }
         elif arch_name == "str_tass":
             arch = {
@@ -504,7 +544,9 @@ class ChangeViTTrainer(object):
         for epoch in range(self.start_epoch, self.args.max_epochs):
             t0 = time.time()
             loss_tr, score_tr, lr = train_epoch(
-                self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter)
+                self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter,
+                adapt_log_fn=(self._backbone_adapt_log
+                              if getattr(self.args, "arch", "changevit") == "casa_tvim_str" else None))
             cur_iter += max_batches
 
             torch.cuda.empty_cache()
@@ -547,7 +589,7 @@ class ChangeViTTrainer(object):
         self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
         self.model = self.model.cuda()
 
-        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass", "casa_str"):
+        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass", "casa_tvim_str"):
             self.test_best_strfusion(best_path)
             return
 
@@ -651,31 +693,32 @@ class ChangeViTTrainer(object):
         _, score_test = val(self.args, test_loader, self.model)
 
         is_tass = getattr(self.args, "arch", "changevit") == "str_tass"
-        is_casa = getattr(self.args, "arch", "changevit") == "casa_str"
+        is_casa = getattr(self.args, "arch", "changevit") == "casa_tvim_str"
         self.log("=== TEST RESULTS ===")
         if is_casa:
-            self.log("[MODEL] CASA-STR (SHViT-S1 truncated + CASAA@1/16 + TAR/DCR)")
-            self.log(f"[ARCH] casa_str")
-            self.log(f"[ATTN-MODE] {self.args.attn_mode}")
+            self.log("[MODEL] CASA-TViM-STR (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)")
+            self.log("[ARCH] casa_tvim_str")
+            self.log(f"[CAACP] {int(self.args.caacp)}")
             self.log(f"[REP-MODE] {self.args.rep_mode}")
             self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
             self.log(f"[DATA-CONTRACT] legacy_6ch_reverse_v1")
             self.log("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
             import hashlib as _hashlib
-            if os.path.isfile(self.args.pretrained_weight_path):
+            if os.path.isfile(self.args.tinyvim_pretrained_weight_path):
                 h = _hashlib.sha256()
-                with open(self.args.pretrained_weight_path, "rb") as f:
+                with open(self.args.tinyvim_pretrained_weight_path, "rb") as f:
                     for chunk in iter(lambda: f.read(1 << 20), b""):
                         h.update(chunk)
                 self.log(f"[PRETRAIN-SHA256] {h.hexdigest()[:16]}")
             load_stats = getattr(self.model.encoder, "_load_stats", None)
             if load_stats:
-                self.log(f"[PRETRAIN-LOAD] exact_loaded={load_stats['exact_loaded']}/{load_stats['retained']}")
-            if self.model.casaa is not None:
-                r = self.model.casaa._routing or {}
-                self.log(f"[CASAA-BUDGET] N={r.get('N', 256)} K={r.get('K', 64)} "
-                         f"Kc={r.get('Kc', 32)} Kb={r.get('Kb', 32)}")
-                self.log(f"[CASAA-PARAMS] {self.model.casaa.param_count():,}")
+                self.log(f"[PRETRAIN-LOAD] retained={load_stats['retained']}/{load_stats['pretrained_keys']} "
+                         f"worst_diff={load_stats['worst_diff']:.3e}")
+            if self.model.encoder.caacp_op is not None:
+                self.log(f"[CAACP-BETA] {self.model.caacp_beta():.4e}")
+                self.log(f"[CAACP-SCORE-DELTA] {self.model.caacp_score_delta():.4e}")
+                self.log("[CAACP-BUDGET] dense=16x16 context=8x8 (2x2 cell change-aware pooling, no TopK)")
+            self.log(f"[BACKBONE-ADAPT-FINAL] rel_L2_from_pretrain={self._backbone_adapt_final(self.model):.4e}")
         elif is_tass:
             self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
             self.log(f"[ARCH] {getattr(self.args, 'arch', 'changevit')}")
@@ -694,8 +737,8 @@ class ChangeViTTrainer(object):
             self.log(f"[STR-REP-MODE] {self.args.str_rep_mode}")
         self.log(f"[STR-DIM] {self.args.str_dim}")
         if is_casa:
-            self.log("[BACKBONE] SHViT-S1 truncated (patch_embed + blocks1 + blocks2)")
-            self.log("[FEATURE-TAPS] stem_1_4(32x64x64) stem_1_8(64x32x32) blocks1(128x16x16) blocks2(224x8x8)")
+            self.log("[BACKBONE] TinyViM-S-Slim (Stage4 = Localx3 + final TViM; 1000e EMA weights)")
+            self.log("[FEATURE-TAPS] stage1_1_4(48) stage2_1_8(64) stage3_1_16(168) stage4_1_32(224)")
         else:
             self.log(f"[STR-FREEZE-VIT] 1")
             self.log(f"[STR-VIT-DEPTH] 4")
@@ -818,20 +861,20 @@ def main():
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
-    # STRFusion Run1 / Run11 TASS / CASA-STR（融合主线；changevit 路径不受影响）
+    # STRFusion Run1 / Run11 TASS / CASA-TViM-STR（融合主线；changevit 路径不受影响）
     parser.add_argument('--arch', type=str, default='changevit',
-                        choices=['changevit', 'strfusion', 'str_tass', 'casa_str'],
-                        help='model architecture: changevit | strfusion | str_tass | casa_str (SHViT-trunc + CASAA + TAR/DCR)')
-    parser.add_argument('--attn_mode', type=str, default='none',
-                        choices=['none', 'full', 'content', 'change'],
-                        help='casa_str attention mode: none (A0/A2) | full (C1) | content (C2) | change (A1/M1)')
+                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str'],
+                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)')
+    parser.add_argument('--caacp', type=int, default=0,
+                        help='casa_tvim_str CAACP-SS2D gate: 1 = change-aware context pooling; 0 = official uniform pool')
+    parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
+                        help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth; model_ema weights)')
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'],
-                        help='casa_str STR rep mode: plain | full')
+                        help='casa_tvim_str STR rep mode: plain | full')
     parser.add_argument('--backbone_lr_ratio', type=float, default=0.1,
-                        help='casa_str backbone lr ratio (fixed 0.1; scheduler honors per-group lr_scale)')
-    # 复用上方的 --casaa_keep_ratio / --casaa_change_share（CASA-STR 固定 0.25/0.5）
+                        help='casa_tvim_str backbone lr ratio (fixed 0.1; scheduler honors per-group lr_scale)')
     parser.add_argument('--str_dim', type=int, default=160,
-                        help='decoder width D (pre-registered: 160; budget dial only, no F1 sweep)')
+                        help='decoder width D (CASA-TViM-STR fixed 96; budget dial only, no F1 sweep)')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
                         help='STRFusion rep mode: plain (C0, no aux) | full (M1, TAR+DCR aux)')
     parser.add_argument('--spatial_mode', type=str, default='token', choices=['token', 'tass'],

@@ -1267,130 +1267,117 @@ def t_run11_tass(pretrained_path, device):
     del m0, m1, m0d, m1d
 
 
-def t_casa_str(pretrained_path, device):
-    """CASA-STR smoke（主线重构 实验方案 §Step2，T-CS-1..6）。注意：T-CS-3/4 的
-    backward 需在服务器 GPU 跑（本地 torch 2.9 存在 masked_select backward 崩溃，
-    属本地环境 artifact）。
+def t_casa_tvim_str(pretrained_path, device):
+    """CASA-TViM-STR smoke（CAACP-SS2D 主线，T-CA-1..6）。需服务器 GPU + mamba-ssm。
 
-    T-CS-1 主干截断 + 层级 taps 形状：F1(32,64²)/F2(64,32²)/F3(128,16²)/F4(224,8²)
-    T-CS-2 SHViT-S1 预训练逐位继承：trunk=1,861,296，patch_embed/blocks1/blocks2
-            与 checkpoint max_abs_diff == 0（blocks1 无 SHSA -> CASAA q/k/v 全新）
-    T-CS-3 CASAA epoch-0 identity：β=0 -> A0(none×plain) vs M1(change×full) 逐位一致；
-            A0 vs A2(none×full) 逐位一致（rep aux 零初始化）
-    T-CS-4 梯度链：β grad 非零；qkv/proj grad 非零（正常初始化，无死锁）
-    T-CS-5 change routing 预算与对称：N=256 K=64 Kc=32 Kb=32；T1/T2 交换 Ic/assign 不变
-    T-CS-6 deploy 折叠 + 预算：无 BN/aux 残留键；deploy params <= 5M；fold 误差记录
+    T-CA-1 层级 taps 形状：F1(48,64²)/F2(64,32²)/F3(168,16²)/F4(224,8²)
+    T-CA-2 TinyViM-S-Slim 预训练逐位继承：stage4 深度裁剪 key 重映射、
+             retained keys 100% 原位（worst_diff==0）
+    T-CA-3 epoch-0 identity：CAACP β=0 -> caacp0×plain vs caacp1×full 逐位一致；
+             plain vs full（rep aux 零初始化）逐位一致
+    T-CA-4 梯度链：β grad 非零；SS2D x_proj_weight/A_logs grad 非零；kernel fwd/bwd 无 NaN
+    T-CA-5 变化分数对称：score(A,B)==score(B,A)（T1/T2 交换）
+    T-CA-6 deploy 折叠 + 预算：TAR/DCR 无 BN 残留；deploy params <= 5M；fold 误差记录
     """
     import copy
-    from model.casa_str_net import CASASTRNet, ENCODER_DIMS
+    from model.casa_tvim_str_net import CASATViMSTRNet, ENCODER_DIMS
+    from model.layers.caacp_ss2d import change_score_cosine_2d, rank_normalize_2d
     # 折叠等价性测量协议（STR T2）：TF32 off + deterministic，避免 GPU TF32 舍入放大
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.deterministic = True
-    print("[CASA-STR] SHViT-S1 trunc + CASAA@1/16 + TAR/DCR smoke")
+    print("[CASA-TViM-STR] TinyViM-S-Slim + CAACP-SS2D + TAR/DCR smoke")
 
-    # ---- T-CS-1 / T-CS-2: taps shapes + pretrain bitwise ----
+    # ---- T-CA-1 / T-CA-2: taps shapes + pretrain bitwise ----
     torch.manual_seed(16)
-    m0 = CASASTRNet(pretrained_path, attn_mode="none", rep_mode="plain").to(device)
-    m0.eval()   # 必须先 eval：train 模式 forward 会污染 BN running stats，破坏后续 epoch-0 恒等比较
+    m0 = CASATViMSTRNet(pretrained_path, caacp=False, rep_mode="plain").to(device)
+    m0.eval()   # 必须先 eval：train 模式 forward 会污染 BN running stats，破坏 epoch-0 恒等比较
+    stats = m0.encoder.load_stats()
     trunk = m0.encoder.param_count()
-    stats = m0.encoder._load_stats
-    print(f"  T-CS-2 trunk params={trunk:,}; load={stats}")
-    assert trunk == 1861296, f"trunk params {trunk} != 1861296"
-
-    # checkpoint 逐位对拍（Q4 口径：patch_embed/blocks1/blocks2 全部对齐）
-    ckpt = torch.load(pretrained_path, map_location="cpu", weights_only=False)["model"]
-    sd = m0.encoder.state_dict()
-    worst, n_checked = 0.0, 0
-    for k, v in sd.items():
-        if k in ckpt:
-            worst = max(worst, (v.float().cpu() - ckpt[k].float()).abs().max().item())
-            n_checked += 1
-    assert n_checked == len(sd) and worst == 0.0, f"trunk keys checked={n_checked}/{len(sd)} worst={worst}"
-    print(f"  T-CS-2 pretrained trunk bitwise OK ({n_checked}/{len(sd)} keys, worst={worst:.2e})")
+    print(f"  T-CA-2 slim trunk={trunk:,}; retained={stats['retained']}/{stats['pretrained_keys']} "
+          f"worst_diff={stats['worst_diff']:.3e}")
+    assert stats["retained"] + len(stats["dropped_intentional"]) == stats["pretrained_keys"], stats
+    assert stats["worst_diff"] == 0.0, "pretrained retained keys must load bitwise"
+    print(f"  T-CA-2 pretrained bitwise OK (retained={stats['retained']}, worst={stats['worst_diff']:.2e})")
 
     pre = torch.randn(2, 3, 256, 256, device=device)
     post = torch.randn(2, 3, 256, 256, device=device)
     with torch.no_grad():
         x2b = torch.cat([pre, post], dim=0)
-        f1, f2, f3 = m0.encoder.forward_stem_blocks1(x2b)
-        f4 = m0.encoder.forward_blocks2(torch.cat(f3.chunk(2, dim=0), dim=0))
+        f1, f2, x = m0.encoder.forward_stem_s2_prefix(x2b)
+        x = m0.encoder.forward_caacp_block(x)
+        f3 = m0.encoder.norm4(x)
+        f4 = m0.encoder.forward_stage4(x)
     shapes = [tuple(t.shape) for t in (f1, f2, f3, f4)]
-    want = [(4, 32, 64, 64), (4, 64, 32, 32), (4, 128, 16, 16), (4, 224, 8, 8)]
+    want = [(4, 48, 64, 64), (4, 64, 32, 32), (4, 168, 16, 16), (4, 224, 8, 8)]
     assert shapes == want, f"taps {shapes} != {want}"
-    assert ENCODER_DIMS == (32, 64, 128, 224)
-    print(f"  T-CS-1 taps OK: {[(c, h, w) for _, c, h, w in shapes]}")
+    assert ENCODER_DIMS == (48, 64, 168, 224)
+    print(f"  T-CA-1 taps OK: {[(c, h, w) for _, c, h, w in shapes]}")
 
-    # ---- T-CS-3: epoch-0 identity (A0 vs M1 vs A2) ----
+    # ---- T-CA-3: epoch-0 identity (caacp=0 plain vs M1 caacp=1 full vs full) ----
     torch.manual_seed(16)
-    m1 = CASASTRNet(pretrained_path, attn_mode="change", rep_mode="full").to(device)
+    m1 = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full").to(device)
     torch.manual_seed(16)
-    m2 = CASASTRNet(pretrained_path, attn_mode="none", rep_mode="full").to(device)
+    m2 = CASATViMSTRNet(pretrained_path, caacp=False, rep_mode="full").to(device)
     for m in (m0, m1, m2):
         m.eval()
     with torch.no_grad():
         y0 = m0(pre, post)
         y1 = m1(pre, post)
         y2 = m2(pre, post)
-    d_casaa = (y0 - y1).abs().max().item()
+    d_ca = (y0 - y1).abs().max().item()
     d_rep = (y0 - y2).abs().max().item()
-    print(f"  T-CS-3 epoch-0 identity: A0-vs-M1 max_diff={d_casaa:.3e}; A0-vs-A2 max_diff={d_rep:.3e}")
-    assert d_casaa == 0.0, "CASAA beta=0 must give bitwise identity at epoch 0"
+    print(f"  T-CA-3 epoch-0 identity: caacp0-vs-M1 max_diff={d_ca:.3e}; plain-vs-full max_diff={d_rep:.3e}")
+    assert d_ca == 0.0, "CAACP beta=0 must give bitwise identity at epoch 0"
     assert d_rep == 0.0, "rep aux zero-init must give bitwise identity at epoch 0"
     assert y0.shape == (2, 1, 256, 256)
+    assert torch.isfinite(y0).all(), "output has NaN"
 
-    # ---- T-CS-4: gradient chain (beta / qkv / proj) ----
-    # 单一零初始化纪律：β=0 gate 在 epoch-0 把 CASAA 内部梯度精确阻断（qkv/proj grad == 0），
-    # β 自身 grad 非零先行；β nudge 后 qkv/proj 梯度链恢复。禁止「qkv/proj 归零 + 内部双零」死锁。
+    # ---- T-CA-4: gradient chain (beta / SS2D / upstream) ----
     target = torch.randint(0, 2, (2, 1, 256, 256), device=device).float()
     m1.train()
     opt = torch.optim.Adam([p for p in m1.parameters() if p.requires_grad], 2e-4)
     opt.zero_grad()
     loss = BCEDiceLoss(m1(pre, post), target)
     loss.backward()
-    g_beta = m1.casaa.beta.grad
-    g_qkv = m1.casaa.qkv.weight.grad
-    g_proj = m1.casaa.proj.weight.grad
-    g_trunk = m1.encoder.patch_embed[0][0].weight.grad
-    for name, g in (("beta", g_beta), ("qkv", g_qkv), ("proj", g_proj), ("trunk", g_trunk)):
+    op = m1.encoder.caacp_op
+    g_beta = op.beta.grad
+    g_xproj = op.x_proj_weight.grad
+    g_alog = op.A_logs.grad
+    g_stem = m1.encoder.patch_embed[0][0].weight.grad
+    for name, g in (("beta", g_beta), ("x_proj", g_xproj), ("A_logs", g_alog), ("stem", g_stem)):
         assert g is not None and torch.isfinite(g).all(), f"{name} grad broken"
     assert g_beta.abs().max().item() > 0, "beta grad must be nonzero @init (moves first)"
-    assert g_qkv.abs().max().item() == 0.0, "qkv grad must be exactly 0 @init (blocked by beta=0)"
-    assert g_proj.abs().max().item() == 0.0, "proj grad must be exactly 0 @init (blocked by beta=0)"
-    assert g_trunk.abs().max().item() > 0, "trunk grad must be nonzero (trainable backbone @0.1x)"
-    print(f"  T-CS-4a @init: |beta|={g_beta.abs().max().item():.3e} qkv=0 proj=0 |trunk|={g_trunk.abs().max().item():.3e}")
+    assert g_xproj.abs().max().item() > 0, "SS2D x_proj grad must be nonzero"
+    assert g_alog.abs().max().item() > 0, "SS2D A_logs grad must be nonzero"
+    assert g_stem.abs().max().item() > 0, "upstream stem grad must be nonzero"
+    print(f"  T-CA-4 gradient chain OK: |beta|={g_beta.abs().max().item():.3e} "
+          f"|x_proj|={g_xproj.abs().max().item():.3e} |A_logs|={g_alog.abs().max().item():.3e} "
+          f"|stem|={g_stem.abs().max().item():.3e}")
+    opt.step()
 
-    with torch.no_grad():
-        m1.casaa.beta += 0.1
-    opt.zero_grad()
-    loss = BCEDiceLoss(m1(pre, post), target)
-    loss.backward()
-    g_qkv2 = m1.casaa.qkv.weight.grad
-    g_proj2 = m1.casaa.proj.weight.grad
-    assert g_qkv2 is not None and g_qkv2.abs().max().item() > 0, "qkv grad must appear after beta nudge"
-    assert g_proj2 is not None and g_proj2.abs().max().item() > 0, "proj grad must appear after beta nudge"
-    with torch.no_grad():
-        m1.casaa.beta -= 0.1   # 精确恢复 β=0
-    print(f"  T-CS-4b after beta nudge: |qkv|={g_qkv2.abs().max().item():.3e} |proj|={g_proj2.abs().max().item():.3e}")
-
-    # ---- T-CS-5: routing budget + swap symmetry ----
+    # ---- T-CA-5: change score swap symmetry ----
     m1.eval()
     with torch.no_grad():
-        _ = m1(pre, post)
-        r_ab = m1.casaa._routing
-        _ = m1(post, pre)
-        r_ba = m1.casaa._routing
-    assert (r_ab["N"], r_ab["K"], r_ab["Kc"], r_ab["Kb"]) == (256, 64, 32, 32), r_ab
-    assert torch.equal(r_ab["Ic"], r_ba["Ic"]), "change indices not swap-symmetric"
-    assert torch.equal(r_ab["assign"], r_ba["assign"]), "bg assignment not swap-symmetric"
-    print(f"  T-CS-5 routing OK: N={r_ab['N']} K={r_ab['K']} Kc={r_ab['Kc']} Kb={r_ab['Kb']}; swap-symmetric")
+        x2b = torch.cat([pre, post], dim=0)
+        _, _, xf = m1.encoder.forward_stem_s2_prefix(x2b)
+        xa, xb = xf.chunk(2, dim=0)
+        s_ab = rank_normalize_2d(change_score_cosine_2d(xa, xb))
+        s_ba = rank_normalize_2d(change_score_cosine_2d(xb, xa))
+        x2br = torch.cat([post, pre], dim=0)
+        _, _, xfr = m1.encoder.forward_stem_s2_prefix(x2br)
+        xbr, xar = xfr.chunk(2, dim=0)
+        s_swap = rank_normalize_2d(change_score_cosine_2d(xbr, xar))
+    d_s = max((s_ab - s_ba).abs().max().item(), (s_ab - s_swap).abs().max().item())
+    assert d_s == 0.0, f"change score not swap-symmetric: {d_s}"
+    print(f"  T-CA-5 change score swap-symmetric (max_diff={d_s:.2e})")
 
-    # ---- T-CS-6: deploy fold + budget ----
+    # ---- T-CA-6: deploy fold + budget ----
     m1d = copy.deepcopy(m1)
     m1d.eval()
     m1d.switch_to_deploy()
     keys_d = list(m1d.state_dict().keys())
-    # 只要求 TAR/DCR 折叠干净；SHViT 主干（encoder.*）的 BN 是推理期真实模块，合法保留
+    # 只要求 TAR/DCR 折叠干净；TinyViM 主干（encoder.*）的 BN 是推理期真实模块，合法保留
     bn_keys = [k for k in keys_d if "bn" in k and not k.startswith("encoder.")]
     p_deploy = measure_params(m1d)
     total = measure_params(m1)
@@ -1400,20 +1387,19 @@ def t_casa_str(pretrained_path, device):
         y1d = m1d(pre, post)
     err = (y1 - y1d).abs().max().item()
     flip = ((y1 > 0.5) != (y1d > 0.5)).float()
-    print(f"  T-CS-6 deploy: bn_keys={len(bn_keys)}; params total={total:,} trainable={n_train:,} "
+    print(f"  T-CA-6 deploy: bn_keys={len(bn_keys)}; params total={total:,} trainable={n_train:,} "
           f"deploy={p_deploy:,} ({p_deploy / 1e6:.3f}M); fold max_abs={err:.3e} "
           f"disagree={flip.mean().item():.3e} (init-stage, RECORD-ONLY)")
-    assert len(bn_keys) == 0, f"deploy graph must be BN-free: {bn_keys[:3]}"
+    assert len(bn_keys) == 0, f"deploy graph must be BN-free outside backbone: {bn_keys[:3]}"
     assert p_deploy <= 5.0e6, "deploy params exceed 5M budget"
 
     try:
         flops, n_unsup = measure_flops(m1, size=256)
-        print(f"  T-CS-6 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
+        print(f"  T-CA-6 FLOPs = {flops:.4f} G (unsupported_ops={n_unsup})")
     except Exception as e:
-        print(f"  T-CS-6 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
+        print(f"  T-CA-6 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
 
     del m0, m1, m2, m1d
-
 
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")
@@ -1452,12 +1438,14 @@ def main():
     parser.add_argument('--pretrained_weight_path', type=str, required=True)
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (run5 modes)')
+    parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
+                        help='TinyViM-S 1000e checkpoint (casa_tvim_str mode)')
     parser.add_argument('--gpu_id', type=int, default=0)
     parser.add_argument('--mode', type=str, default='all',
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
                                  'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre',
-                                 'strfusion', 'tass', 'casa_str'],
+                                 'strfusion', 'tass', 'casa_tvim_str'],
                         help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion | tass | casa_str')
     args = parser.parse_args()
 
@@ -1510,8 +1498,8 @@ def main():
         t_run1_strfusion(args.pretrained_weight_path, device)
     if args.mode in ("tass", "all"):
         t_run11_tass(args.pretrained_weight_path, device)
-    if args.mode == "casa_str":   # 需 shvit_s1.pth，不并入 all（all 使用 DeiT 路径）
-        t_casa_str(args.pretrained_weight_path, device)
+    if args.mode == "casa_tvim_str":   # 需 tinyvim_s_1000e.pth + GPU mamba-ssm，不并入 all（all 使用 DeiT 路径）
+        t_casa_tvim_str(args.tinyvim_pretrained_weight_path or args.pretrained_weight_path, device)
 
     print("[SMOKE] ALL OK")
 

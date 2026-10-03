@@ -17,7 +17,7 @@ if _MODELS_ROOT not in sys.path:
 from model.trainer import Trainer
 from model.str_fusion import STRFusionNet
 from model.str_tass_fusion import STRTASSNet
-from model.casa_str_net import CASASTRNet
+from model.casa_tvim_str_net import CASATViMSTRNet
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss
 
@@ -122,10 +122,10 @@ def main():
     parser.add_argument('--mobile_pretrained_weight_path', type=str, default=None,
                         help='MobileNetV3-Small ImageNet weights (--detail_mode mobile_p3)')
 
-    # STRFusion Run1 / Run11 TASS / CASA-STR
+    # STRFusion Run1 / Run11 TASS / CASA-TViM-STR
     parser.add_argument('--arch', type=str, default='changevit',
-                        choices=['changevit', 'strfusion', 'str_tass', 'casa_str'],
-                        help='model architecture: changevit | strfusion | str_tass | casa_str (must match training)')
+                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str'],
+                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str (must match training)')
     parser.add_argument('--str_dim', type=int, default=160,
                         help='decoder width D (must match training)')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
@@ -133,12 +133,11 @@ def main():
     parser.add_argument('--spatial_mode', type=str, default='token', choices=['token', 'tass'],
                         help='STRTASS spatial mode (must match training)')
 
-    # CASA-STR 主线重构
-    parser.add_argument('--attn_mode', type=str, default='none',
-                        choices=['none', 'full', 'content', 'change'])
+    # CASA-TViM-STR（CAACP-SS2D 主线）
+    parser.add_argument('--caacp', type=int, default=0)
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
-    parser.add_argument('--casaa_keep_ratio', type=float, default=0.25)
-    parser.add_argument('--casaa_change_share', type=float, default=0.5)
+    parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
+                        help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -169,11 +168,10 @@ def main():
         import json as _json
         with open(arch_path, encoding="utf-8") as f:
             arch = _json.load(f)
-        if args.arch == "casa_str":
-            cli = {"arch": "casa_str", "backbone": "shvit_s1_trunc",
-                   "attn_mode": args.attn_mode, "rep_mode": args.rep_mode,
-                   "str_dim": args.str_dim, "casaa_keep_ratio": args.casaa_keep_ratio,
-                   "casaa_change_share": args.casaa_change_share}
+        if args.arch == "casa_tvim_str":
+            cli = {"arch": "casa_tvim_str", "backbone": "tinyvim_s_slim",
+                   "caacp": args.caacp, "rep_mode": args.rep_mode,
+                   "str_dim": args.str_dim}
         elif args.arch == "str_tass":
             cli = {"arch": "str_tass", "vit_depth": 4,
                    "str_dim": args.str_dim, "spatial_mode": args.spatial_mode}
@@ -188,16 +186,14 @@ def main():
             raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch} vs cli={cli}; refusing to eval")
         print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
 
-    if args.arch == "casa_str":
+    if args.arch == "casa_tvim_str":
         # STR 折叠纪律测量协议（设计文档 §4.3 T2）：TF32 off + cudnn deterministic，
         # 与 train.py TEST 区块口径一致（TF32 on 会把折叠等价性读数放大到 1e-2 级）
         torch.backends.cudnn.allow_tf32 = False
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.deterministic = True
-        model = CASASTRNet(args.pretrained_weight_path, attn_mode=args.attn_mode,
-                           rep_mode=args.rep_mode, str_dim=args.str_dim,
-                           keep_ratio=args.casaa_keep_ratio,
-                           change_share=args.casaa_change_share).float()
+        model = CASATViMSTRNet(args.tinyvim_pretrained_weight_path, caacp=bool(args.caacp),
+                               rep_mode=args.rep_mode, str_dim=args.str_dim).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
@@ -264,14 +260,12 @@ def main():
         flops_line = f"measurement failed ({type(e).__name__}: {e})"
 
     print("=== TEST RESULTS ===")
-    if args.arch == "casa_str":
-        print("[MODEL] CASA-STRNet (SHViT-S1 trunc + CASAA@1/16 + TAR/DCR)")
-        print("[BACKBONE] shvit_s1_trunc")
-        print(f"[ATTN-MODE] {args.attn_mode}")
+    if args.arch == "casa_tvim_str":
+        print("[MODEL] CASA-TViM-STR (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)")
+        print("[BACKBONE] tinyvim_s_slim")
+        print(f"[CAACP] {args.caacp}")
         print(f"[REP-MODE] {args.rep_mode}")
         print(f"[STR-DIM] {args.str_dim}")
-        print(f"[CASAA-KEEP-RATIO] {args.casaa_keep_ratio}")
-        print(f"[CASAA-CHANGE-SHARE] {args.casaa_change_share}")
         print("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
         print("[DEPLOY] folded deploy graph")
         print(f"[DEPLOY-PARAMS] total={total_params / 1e6:.3f} M "

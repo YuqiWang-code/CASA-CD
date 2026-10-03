@@ -23,9 +23,11 @@
 
 ## CASA-CD 使用方式
 
-真正的模型代码在 `models/model/shvit_s1_trunc.py`（基于官方 `model/shvit.py`
-逐层复刻的截断主干：patch_embed + blocks1 + blocks2，多尺度 tap + 预训练 exact
-load）；本目录仅作为官方机制参考存档，不参与训练。
+SHViT 版主线（`models/model/shvit_s1_trunc.py` 截断主干 + CASA-STR Run1）已于
+2026-10-03 归档（代码保留在 git 历史与
+`docs/temporary/models_and_metrics_CASA-STR_Run1.txt` 快照中）；当前主线已切换为
+TinyViM-S-Slim（`models/model/tinyvim_s_slim.py`，见 `others/TinyViM-main/`）。
+本目录仅作为官方机制参考存档，不参与训练。
 
 - 上游许可证：见 `LICENSE`（官方仓库自带）。
 - 下载日期：2026-10-02（用户上传）。
