@@ -26,6 +26,7 @@ VARIANTS = {
     "A2_STR":        dict(caacp=0, rep="full"),
 }
 WAVES = [["A0_TVIM_PLAIN"], ["M1_FULL"], ["A1_CAACP"], ["A2_STR"]]
+WAVES_234 = [["M1_FULL"], ["A1_CAACP"], ["A2_STR"]]   # wave1 完成后续跑（波号 2-4）
 
 TRAIN_TEMPLATE = """#!/usr/bin/env bash
 set -uo pipefail
@@ -115,6 +116,28 @@ def write(path, text):
     print("wrote", os.path.relpath(path, HERE))
 
 
+def build_waves(waves_list, first_wave=1):
+    waves = []
+    for wi, wave in enumerate(waves_list):
+        i = first_wave + wi
+        lines = [f"echo \"===== WAVE {i} =====\""]
+        pids = []
+        for j, variant in enumerate(wave):
+            for k, ds in enumerate(DATASETS):
+                tag = f"P{j}_{k}"
+                pids.append(tag)
+                lines.append(f"bash \"${{RUN_DIR}}/{variant}/train_{ds}.sh\" > /tmp/wave{i}_{tag}.log 2>&1 & {tag}=$!")
+        # 任一 job 3 次 retry 后仍失败 -> 整波中止（防止滑入后续波次导致显存过载）。
+        # 注意：wait 必须传 $tag（数值 pid）；直接传变量名会被 bash 当作 job 名。
+        lines.append("_wave_fail=0")
+        for tag in pids:
+            lines.append(f"wait ${tag} || _wave_fail=1")
+        lines.append(f"if [ \"$_wave_fail\" -ne 0 ]; then echo \"[WAVE-ABORT] wave {i} has failed runs; aborting\"; exit 1; fi")
+        lines.append(f"echo \"===== WAVE {i} done =====\"")
+        waves.append("\n".join(lines))
+    return waves
+
+
 def main():
     for variant, cfg in VARIANTS.items():
         for ds in DATASETS:
@@ -124,24 +147,10 @@ def main():
                 DATASET=ds, GPU=gpu)
             write(os.path.join(HERE, variant, f"train_{ds}.sh"), script)
 
-    waves = []
-    for i, wave in enumerate(WAVES, 1):
-        lines = [f"echo \"===== WAVE {i} =====\""]
-        pids = []
-        for j, variant in enumerate(wave):
-            for k, ds in enumerate(DATASETS):
-                tag = f"P{j}_{k}"
-                pids.append(tag)
-                lines.append(f"bash \"${{RUN_DIR}}/{variant}/train_{ds}.sh\" > /tmp/wave{i}_{tag}.log 2>&1 & {tag}=$!")
-        # 任一 job 3 次 retry 后仍失败 -> 整波中止（防止滑入后续波次导致显存过载）
-        lines.append("_wave_fail=0")
-        for tag in pids:
-            lines.append(f"wait {tag} || _wave_fail=1")
-        lines.append("if [ \"$_wave_fail\" -ne 0 ]; then echo \"[WAVE-ABORT] wave {i} has failed runs; aborting\"; exit 1; fi")
-        lines.append(f"echo \"===== WAVE {i} done =====\"")
-        waves.append("\n".join(lines))
-    run_all = RUN_ALL_TEMPLATE.format(WAVES="\n\n".join(waves))
+    run_all = RUN_ALL_TEMPLATE.format(WAVES="\n\n".join(build_waves(WAVES, 1)))
     write(os.path.join(HERE, "run_all.sh"), run_all)
+    run_234 = RUN_ALL_TEMPLATE.format(WAVES="\n\n".join(build_waves(WAVES_234, 2)))
+    write(os.path.join(HERE, "run_waves234.sh"), run_234)
 
 
 if __name__ == "__main__":
