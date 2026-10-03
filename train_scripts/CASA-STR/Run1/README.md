@@ -1,5 +1,12 @@
 # CASA-STR Run1 — 主线重构（SHViT-S1 truncated + CASAA@1/16 + TAR/DCR）
 
+> **状态（2026-10-03）：已暂停。** 16/24 run 完成（A0/M1/A1/A2 × 4 数据集），
+> C1 中断于 CDD 113/128、SYSU 91/107，C2 未启动；全部 checkpoint 保留，可随时
+> 续训。暂停原因：距硬目标差 1.3–2.5pp，且 A0 基线本身低于 ChangeViT-T——判断瓶颈
+> 在 SHViT-S1 骨干语义容量；下一步调研 VMamba 等更强预训练骨干（含四向扫描 token
+> 变化感知压缩可行性）。正式结果见主 README「实验结果（CASA-STR Run1）」节与
+> `docs/experiment_metrics.xlsx`；快照 `docs/temporary/models_and_metrics_CASA-STR_Run1.txt`。
+
 依据 `docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md`
 与 `docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md`
 的最终建议执行。旧的 TASS 路线（Run11）保留为历史资产，不再扩展。

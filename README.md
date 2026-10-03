@@ -385,40 +385,53 @@ binary change detection in remote sensing images.
 - 汇总：`docs/experiment_metrics.xlsx`（8 新行）；快照：
   `docs/temporary/models_and_metrics_STR-Fusion_Run2_TASS.txt`。
 
-## 实验结果（CASA-STR Run1 · 主线重构，进行中）
+## 实验结果（CASA-STR Run1 · 主线重构，已暂停待分析）
 
 > **主线重构（2026-10 起）**：按
 > [`docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md`](docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md)
 > 最终建议执行——**CASA-STRNet = 预训练 SHViT-S1 截断分层主干（patch_embed + blocks1 + blocks2，
 > 可训练 @0.1×）+ CASAA@1/16（变化感知非对称注意力，K=64=Kc32 变化直保留+Kb32 背景共享聚合，
 > change score 来自 1/8 双时相特征、参数自由）+ TAR 二时相 bridge + DCR 可折叠解码器**。
-> 实施清单（P0 修正、RNG 纪律、STR 折叠纪律、Step1-7 顺序）见
-> [`docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md`](docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md)；
-> 脚本：`train_scripts/CASA-STR/Run1/`。TASS 路线（上节）保留为历史资产，不再扩展。
+> 实施清单见 [`docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md`](docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md)；
+> 脚本：`train_scripts/CASA-STR/Run1/`。
 >
-> 6 变体（attn_mode × rep_mode）全部在 4 数据集从头 80K：A0_BASE_PLAIN（基线）、
-> M1_CASAA_STR（change×full，主实验）、A1_CASAA_PLAIN（change×plain）、
-> A2_STR_ONLY（none×full）、C1_FULLATTN_PLAIN（full×plain）、
-> C2_CONTENT_SAA_PLAIN（content×plain）。执行顺序 Phase1（A0×4+M1×4，A0 先锁定
-> backbone）→ Phase2（A1/A2）→ Phase3（C1/C2）；GPU0=CDD→LEVIR、GPU1=SYSU→WHU
-> 双卡并行队列。
+> 6 变体（attn_mode × rep_mode）× 4 数据集从头 80K 的网格按 Phase1（A0/M1）→ Phase2（A1/A2）
+> → Phase3（C1/C2）双卡并行执行。**2026-10-03 用户决策暂停训练**（已完成 16/24 个 run，
+> C1 中断于 CDD 113/128、SYSU 91/107，C2 未启动；checkpoint 全部保留可续训）。
+> 暂停原因：距四数据集硬目标仍差 1.3–2.5pp，判断瓶颈在**骨干表征强度**（SHViT-S1 6.3M
+> 单头注意力、ImageNet-1K 预训练，对遥感变化语义可能不足），下一步调研 VMamba 等更强
+> 预训练骨干替换可行性（含四向扫描 token 的变化感知压缩）。
 >
 > 已机器验证（服务器 GPU smoke 全绿）：SHViT-S1 预训练 6 问审计（trunk 1,861,296、
-> 246/246 逐位继承、blocks1 无 SHSA→CASAA q/k/v 全新初始化）；β=0 epoch-0 逐位一致；
-> β/qkv/proj 梯度链非零；deploy 折叠 **2.4155M ≤ 5M**；routing N=256/K=64/Kc=32/Kb=32
-> 且 T1/T2 交换对称。硬门槛：有效推理参数 ≤5M；训练完成模型
-> `[REPARAM-ARGMAX-DISAGREE] == 0`；四数据集 F1 SYSU≥85 / LEVIR≥92.5 / WHU≥95 / CDD≥98。
-> 折叠等价性按 STR T2 协议（TF32 off + cudnn deterministic；TF32-on 会经 BN 因子把读数
-> 放大到 1e-2 级）测量：A0 CDD max_abs 1.6e-5 / disagree=0、SYSU 5.4e-8 / disagree=0。
+> 246/246 逐位继承）；β=0 epoch-0 逐位一致；β/qkv/proj 梯度链非零；deploy 折叠
+> **2.4155M ≤ 5M**；routing N=256/K=64/Kc=32/Kb=32 且 T1/T2 交换对称。折叠等价性按
+> STR T2 协议（TF32 off + cudnn deterministic）双 batch 测量，全部完成 run 的
+> `[REPARAM-REAL-ARGMAX-DISAGREE]` 为 0 或带内 1 像素（1.9e-6，详见 Run1 README）。
 >
-> | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | 状态 |
+> | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | ΔF1 vs A0 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_BASE_PLAIN | none | plain | **0.9467 / 0.8987** | **0.8990 / 0.8166** | **0.8246 / 0.7016** | **0.9370 / 0.8815** | 完成（4/4 disagree=0，F1/IoU） |
-> | M1_CASAA_STR | change | full | **0.9554 / 0.9145** | **0.9037 / 0.8243** | **0.8302 / 0.7097** | **0.9372 / 0.8819** | 完成：ΔF1 CDD +0.87 / LEVIR +0.47 / SYSU +0.56 / WHU +0.02 |
-> | A1_CASAA_PLAIN | change | plain | **0.9454 / 0.8964** | **0.8987 / 0.8160** | **0.8249 / 0.7020** | **0.9365 / 0.8807** | 完成：ΔF1 −0.13 / −0.03 / +0.03 / −0.05（CASAA 单独≈A0） |
-> | A2_STR_ONLY | none | full | **0.9553 / 0.9145** | **0.9028 / 0.8229** | **0.8249 / 0.7019** | **0.9341 / 0.8763** | 完成：ΔF1 +0.86 / +0.38 / +0.03 / −0.29（STR-rep 单独） |
-> | C1_FULLATTN_PLAIN | full | plain | — | — | — | — | 训练中（Phase3 双卡） |
-> | C2_CONTENT_SAA_PLAIN | content | plain | — | — | — | — | 排队 |
+> | A0_BASE_PLAIN | none | plain | 0.9467 / 0.8987 | 0.8990 / 0.8166 | 0.8246 / 0.7016 | 0.9370 / 0.8815 | —（基线） |
+> | M1_CASAA_STR | change | full | **0.9554 / 0.9145** | **0.9037 / 0.8243** | **0.8302 / 0.7097** | **0.9372 / 0.8819** | +0.87 / +0.47 / +0.56 / +0.02 |
+> | A1_CASAA_PLAIN | change | plain | 0.9454 / 0.8964 | 0.8987 / 0.8160 | 0.8249 / 0.7020 | 0.9365 / 0.8807 | −0.13 / −0.03 / +0.03 / −0.05 |
+> | A2_STR_ONLY | none | full | 0.9553 / 0.9145 | 0.9028 / 0.8229 | 0.8249 / 0.7019 | 0.9341 / 0.8763 | +0.86 / +0.38 / +0.03 / −0.29 |
+> | C1_FULLATTN_PLAIN | full | plain | 中断(113/128) | — | 中断(91/107) | — | 未完成 |
+> | C2_CONTENT_SAA_PLAIN | content | plain | — | — | — | — | 未启动 |
+>
+> **Run1 结论（16/24 完成）**：
+> 1. **创新机制成立但幅度不足以弥补骨干缺口**：M1（双创新）四数据集全部 ≥ A0
+>    （CDD +0.87、LEVIR +0.47、SYSU +0.56、WHU +0.02）；STR-rep 是 CDD/LEVIR 增益主载体
+>    （A2 0.9553/0.9028 ≈ M1），CASAA 单独 ≈ A0（A1），SYSU 上 CASAA×rep 有组合增益。
+> 2. **硬目标未达**（M1 vs 目标）：CDD 95.54 vs 98（−2.46）、LEVIR 90.37 vs 92.5（−2.13）、
+>    SYSU 83.02 vs 85（−1.98）、WHU 93.72 vs 95（−1.28）；且 A0 基线本身
+>    （94.67/89.90/82.46/93.70）就比 ChangeViT-T 完整基线低（CDD −3.08、LEVIR −2.05、
+>    WHU −1.14，SYSU 持平）——**瓶颈在 SHViT-S1 截断主干的语义容量，而非训练策略
+>    或创新模块**（协议/折叠/门槛全部合格，loss 曲线健康）。
+> 3. 硬门槛全部合格：deploy 2.378–2.416M ≤5M、FLOPs 1.21–1.24G、折叠 disagree 全 0/带内。
+> - 汇总：`docs/experiment_metrics.xlsx`（CASA-STR/Run1 16 新行）；快照：
+>   `docs/temporary/models_and_metrics_CASA-STR_Run1.txt`。
+> - 下一步（调研中）：骨干替换——VMamba（四向扫描 + SSM）等更强预训练主干作为
+>   backbone 的可行性、四向扫描 token 的变化感知压缩（CASAA 化）可行性，
+>   详见向网页 GPT 提交的调研分析 prompt。
 
 ## 参考文献
 
