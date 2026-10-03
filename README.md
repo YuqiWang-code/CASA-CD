@@ -455,8 +455,8 @@ binary change detection in remote sensing images.
 >
 > | 变体 | caacp | rep | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_TVIM_PLAIN | 0 | plain | — | — | — | — | 训练中（Wave1 双卡） |
-> | M1_FULL | 1 | full | — | — | — | — | 排队 |
+> | A0_TVIM_PLAIN | 0 | plain | **0.9676 / 0.9373** | **0.9108 / 0.8362** | **0.8238 / 0.7006** | **0.9478 / 0.9008** | 完成：vs SHViT A0 +2.09 / +1.18 / −0.08 / +1.08 |
+> | M1_FULL | 1 | full | — | — | — | — | 训练中（Wave2 双卡） |
 > | A1_CAACP | 1 | plain | — | — | — | — | 排队 |
 > | A2_STR | 0 | full | — | — | — | — | 排队 |
 
