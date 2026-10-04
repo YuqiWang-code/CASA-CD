@@ -475,6 +475,40 @@ binary change detection in remote sensing images.
 > - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 新行）；快照：
 >   `docs/temporary/models_and_metrics_CASA-TViM_Run1.txt`。
 
+## 实验结果（CASA-TViM Run2 · LEVIR/SYSU 定向提升，训练中）
+
+> **目标**：保持 CDD ≥ 97.18、WHU ≥ 95.07，同时把 LEVIR 91.07 → ≥ 92、SYSU 83.47 → ≥ 84。
+> 按
+> [`docs/temporary/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md`](docs/temporary/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md)
+> 执行，两项纯结构性改进（无 loss/aug/threshold 调参）：
+>
+> - **CP-CAACP（首选一，0 新参数）**：CAACP 的 cell 权重从 `w∝ε+rank` 改为
+>   `w∝1+s·r`（s=1−cos 余弦变化 × rank 归一化，置信度保留）。零变化像素 q=0 →
+>   全零变化 cell 严格退化为均匀池化，修复 rank-only 在零变化图上的强制不均匀
+>   （LEVIR Precision 拖低主因）。`--caacp_score_mode cp`；rank 公式保留用于单变量消融。
+> - **FRH（首选二，deploy +768 参数）**：预测头 64² 1×1 → **128² 重参数化细粒度头**
+>   `up2 → base 1×1 + γ·[RepDW3→1×1]`（γ=0 初始化，epoch-0 修正精确为 0），
+>   deploy 折叠为单个 3×3 Conv(96→1)；**deploy 4,880,958 ≤ 5M**。
+>
+> 机器验证（smoke T-CA-7/8 全绿，Run1 回归 T-CA-1..6 不变）：rank/cp 两模式在
+> β=0 下逐位一致；零变化图严格退化均匀池化、cell 权重与手算 w=(1+s·r)/Σ 一致；
+> FRH 折叠单层 865 参数、init fold 误差 0、二值 disagreement 0、γ 梯度链非零。
+>
+> 训练：12 run（3 变体 × 4 数据集）完整 80K，`run_all.sh` 单脚本串 3 波、每波
+> 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU），batch 32、seed 16，协议与
+> Run1 逐项一致（唯一变量 = 结构改进）。执行顺序按文档：Wave1 E1 → Wave2 E2 →
+> Wave3 E3（组合）。
+>
+> | 变体 | caacp | score | frh | CDD | LEVIR | SYSU | WHU | 状态 |
+> |---|---|---|---:|---:|---:|---:|---|
+> | E1_CP_CAACP | 1 | cp | 0 | — | — | — | — | Wave1 训练中 |
+> | E2_FRH | 1 | rank | 1 | — | — | — | — | 待 Wave1 |
+> | E3_CP_FRH | 1 | cp | 1 | — | — | — | — | 待 Wave2 |
+>
+> - 脚本：`train_scripts/CASA-TViM/Run2/`；实现：`models/model/layers/caacp_ss2d.py`
+>   （CP 公式）、`models/model/str_fine_head.py`（FRH）、`models/model/casa_tvim_str_net.py`
+>   （接线）。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
