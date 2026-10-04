@@ -107,3 +107,13 @@ class CASATViMSTRNet(nn.Module):
         if self.encoder.caacp_op is not None:
             return float(self.encoder.caacp_op._score_delta)
         return None
+
+    def caacp_abs_mean(self):
+        if self.encoder.caacp_op is not None:
+            return self.encoder.caacp_op.abs_mean()
+        return None
+
+    def caacp_weight_entropy(self):
+        if self.encoder.caacp_op is not None:
+            return self.encoder.caacp_op.weight_entropy()
+        return None

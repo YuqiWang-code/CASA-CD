@@ -156,6 +156,7 @@ class TinyViMSlim(nn.Module):
             "missing_new": missing_new,
             "unexpected": unexpected,
             "dropped_intentional": dropped,
+            "loaded_keys": list(loaded.keys()),   # exact-loaded 键列表（BACKBONE-ADAPT 分 stage 审计口径）
         }
         return self._load_stats
 

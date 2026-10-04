@@ -220,9 +220,12 @@ class ChangeViTTrainer(object):
                  {"params": new_params, "lr": args.lr,
                   "lr_scale": 1.0, "name": "new"}],
                 args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
-            # BACKBONE-ADAPT 审计参考（调研文档 §3.3）：预训练 encoder 权重快照（含 BN stats）
+            # BACKBONE-ADAPT 审计参考（调研文档 §3.3 / Run2 §12.1A）：
+            # 只快照 exact-loaded 预训练键（新模块/新 norm 不计入 drift 口径）
+            loaded_keys = (self.model.encoder.load_stats() or {}).get("loaded_keys")
             self._backbone_ref = {k: v.detach().cpu().clone()
-                                  for k, v in self.model.encoder.state_dict().items()}
+                                  for k, v in self.model.encoder.state_dict().items()
+                                  if loaded_keys is None or k in loaded_keys}
             self.start_epoch = 0
             self.best_f1 = -1.0
             self.best_epoch = -1
@@ -402,37 +405,63 @@ class ChangeViTTrainer(object):
         return h.hexdigest()[:16]
 
     def _backbone_adapt_log(self, model, it):
-        """BACKBONE-ADAPT 审计（调研文档 §3.3）：梯度范数 + 相对预训练 L2 drift。"""
+        """BACKBONE-ADAPT 审计（调研文档 §3.3 / Run2 §12.1A）：梯度范数 + 相对预训练 L2 drift。
+
+        只统计从 checkpoint 原位继承（exact-loaded）的 key，按 stage 分组输出；
+        新建 norm / CAACP β 等新模块不计入（避免把"新模块从零训练"误读成"预训练漂移"）。
+        """
         with torch.no_grad():
             g_sq = 0.0
             p_sq = 0.0
-            drift_sq = 0.0
-            ref_norm_sq = 0.0
             named = dict(model.named_parameters())
             sd = model.encoder.state_dict()
-            for k, v in sd.items():
-                ref = self._backbone_ref[k].to(v.device)
-                drift_sq += ((v - ref).float().norm().item()) ** 2
-                ref_norm_sq += (ref.float().norm().item()) ** 2
+            ref = self._backbone_ref
+            # stage 分组：patch_embed->stem；network.0/2/4->stage0/1/2；network.6->stage3(retained)
+            groups = {}
+            for k in ref:
+                if k.startswith("patch_embed."):
+                    g = "stem"
+                elif k.startswith("network.0."):
+                    g = "stage0"
+                elif k.startswith("network.2."):
+                    g = "stage1"
+                elif k.startswith("network.4."):
+                    g = "stage2"
+                elif k.startswith("network.6."):
+                    g = "stage3-retained"
+                else:
+                    g = "other"
+                v = sd[k]
+                r = ref[k].to(v.device)
+                d2 = ((v - r).float().norm().item()) ** 2
+                n2 = (r.float().norm().item()) ** 2
+                groups.setdefault(g, [0.0, 0.0]).__setitem__(0, groups[g][0] + d2)
+                groups[g][1] += n2
                 full_k = "encoder." + k
                 if full_k in named:
                     p = named[full_k]
                     p_sq += p.norm().item() ** 2
                     if p.grad is not None:
                         g_sq += p.grad.norm().item() ** 2
-        rel = (drift_sq / (ref_norm_sq + 1e-8)) ** 0.5
-        self.log(f"[BACKBONE-ADAPT] iter={it} grad_norm={g_sq ** 0.5:.3e} "
-                 f"param_norm={p_sq ** 0.5:.3e} rel_L2_from_pretrain={rel:.4e}")
+            per = " ".join(
+                f"{g}={(d / (n + 1e-8)) ** 0.5:.3e}" for g, (d, n) in sorted(groups.items()))
+            drift_sq = sum(d for d, _ in groups.values())
+            ref_norm_sq = sum(n for _, n in groups.values())
+            rel = (drift_sq / (ref_norm_sq + 1e-8)) ** 0.5
+            self.log(f"[BACKBONE-ADAPT] iter={it} grad_norm={g_sq ** 0.5:.3e} "
+                     f"param_norm={p_sq ** 0.5:.3e} rel_L2_from_pretrain={rel:.4e}")
+            self.log(f"[PRETRAIN-DRIFT] {per} (exact-loaded keys only)")
 
     def _backbone_adapt_final(self, model):
-        """best checkpoint 的 backbone 适配终值（TEST 区块记录）。"""
+        """best checkpoint 的 backbone 适配终值（TEST 区块记录，exact-loaded keys 口径）。"""
         with torch.no_grad():
             drift_sq = 0.0
             ref_norm_sq = 0.0
-            for k, v in model.encoder.state_dict().items():
-                ref = self._backbone_ref[k].to(v.device)
-                drift_sq += ((v - ref).float().norm().item()) ** 2
-                ref_norm_sq += (ref.float().norm().item()) ** 2
+            sd = model.encoder.state_dict()
+            for k, r in self._backbone_ref.items():
+                v = sd[k].to(r.device)
+                drift_sq += ((v - r).float().norm().item()) ** 2
+                ref_norm_sq += (r.float().norm().item()) ** 2
         return (drift_sq / (ref_norm_sq + 1e-8)) ** 0.5
 
     def _write_run_manifest(self, resume_path):
@@ -729,6 +758,12 @@ class ChangeViTTrainer(object):
             if self.model.encoder.caacp_op is not None:
                 self.log(f"[CAACP-BETA] {self.model.caacp_beta():.4e}")
                 self.log(f"[CAACP-SCORE-DELTA] {self.model.caacp_score_delta():.4e}")
+                ent = self.model.caacp_weight_entropy()
+                am = self.model.caacp_abs_mean()
+                if ent is not None:
+                    self.log(f"[CAACP-WEIGHT-ENTROPY] {ent:.4e} (uniform cell = ln4 ~ 1.386)")
+                if am is not None:
+                    self.log(f"[CAACP-ABS-MEAN] {am:.4e}")
                 if self.args.caacp_score_mode == "cp":
                     self.log("[CAACP-BUDGET] dense=16x16 context=8x8 (2x2 cell CP pooling w~1+s*r, no TopK)")
                 else:

@@ -100,6 +100,8 @@ class CAACPSS2D(SS2D):
         self._pair_score = None
         self._pair_abs = None
         self._score_delta = 0.0    # |c_ca - c_avg| 均值（诊断记录）
+        self._abs_mean = None      # cp 模式 abs score 均值（诊断记录）
+        self._weight_entropy = None  # 2×2 cell 权重熵均值（诊断记录；均匀=ln4）
 
     def set_pair_score(self, score, abs_score=None):
         """注入共享变化分数（2B, H, W；A/B 两半相同）。调用方负责 no_grad。
@@ -108,6 +110,28 @@ class CAACPSS2D(SS2D):
         """
         self._pair_score = score
         self._pair_abs = abs_score
+
+    @staticmethod
+    def _cp_weights(abs_score, rank_score):
+        """cp 模式 cell 权重 (B,1,H//2,2,W//2,2)，与 confidence_preserving_pool2x2 同口径（仅诊断）。"""
+        B, H, W = abs_score.shape
+        q = (abs_score * rank_score).view(B, 1, H // 2, 2, W // 2, 2)
+        w = 1.0 + q
+        return w / w.sum(dim=(3, 5), keepdim=True)
+
+    @staticmethod
+    def _rank_weights(score):
+        """rank 模式 cell 权重 (B,1,H//2,2,W//2,2)，与 change_weighted_pool2x2 同口径（仅诊断）。"""
+        B, H, W = score.shape
+        s = score.view(B, 1, H // 2, 2, W // 2, 2)
+        w = s + 1e-6
+        return w / w.sum(dim=(3, 5), keepdim=True)
+
+    def weight_entropy(self):
+        return self._weight_entropy
+
+    def abs_mean(self):
+        return self._abs_mean
 
     def forward_core(self, x, nrows=-1, channel_first=False):
         nrows = 1
@@ -126,10 +150,17 @@ class CAACPSS2D(SS2D):
                 if self.score_mode == "cp":
                     assert self._pair_abs is not None, "cp mode requires abs_score in set_pair_score"
                     c_ca = confidence_preserving_pool2x2(x_low, self._pair_abs, self._pair_score)
+                    w = self._cp_weights(self._pair_abs, self._pair_score)
                 else:
                     c_ca = change_weighted_pool2x2(x_low, self._pair_score)
+                    w = self._rank_weights(self._pair_score)
                 with torch.no_grad():
                     self._score_delta = (c_ca - c_avg).abs().mean().item()
+                    # Run2 §12.1B 诊断：cell 权重熵（均匀=ln4≈1.386）+ abs score 均值
+                    ent = -(w * (w + 1e-12).log()).sum(dim=(3, 5)).mean().item()
+                    self._weight_entropy = ent
+                    self._abs_mean = (float(self._pair_abs.mean().item())
+                                      if self._pair_abs is not None else None)
                 c = c_avg + self.beta * (c_ca - c_avg)
             else:
                 c = c_avg

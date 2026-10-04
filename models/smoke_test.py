@@ -1452,6 +1452,14 @@ def t_casa_tvim_str(pretrained_path, device):
     q4 = (a1 * r1)
     w00 = w[0, 0, 0:2, 0:2]
     assert torch.argmax(w00).item() == torch.argmax(q4[0, 0, 0:2, 0:2]).item()
+    # 诊断口径：零变化 → 均匀权重 → cell 熵 = ln4（与 CAACP 内部熵记录同口径）
+    from model.layers.caacp_ss2d import CAACPSS2D
+    with torch.no_grad():
+        s0 = torch.zeros(2, 16, 16, device=device)
+        s_r = torch.rand(2, 16, 16, device=device)
+        w_diag = CAACPSS2D._cp_weights(s0, s_r)
+    ent0 = -(w_diag * (w_diag + 1e-12).log()).sum(dim=(3, 5)).mean().item()
+    assert abs(ent0 - 1.3862943611198906) < 1e-5, f"uniform cell entropy must be ln4, got {ent0}"
     print(f"  T-CA-7 CP-CAACP OK: rank/cp epoch-0 bitwise (d={d_mode:.1e}); zero-change->uniform; manual w match")
 
     # ---- T-CA-8: FRH（Run2 首选二） ----
