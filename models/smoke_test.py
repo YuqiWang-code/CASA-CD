@@ -26,6 +26,7 @@ import argparse
 from functools import partial
 
 import torch
+import torch.nn.functional as F
 
 _MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
 if _MODELS_ROOT not in sys.path:
@@ -1278,6 +1279,11 @@ def t_casa_tvim_str(pretrained_path, device):
     T-CA-4 梯度链：β grad 非零；SS2D x_proj_weight/A_logs grad 非零；kernel fwd/bwd 无 NaN
     T-CA-5 变化分数对称：score(A,B)==score(B,A)（T1/T2 交换）
     T-CA-6 deploy 折叠 + 预算：TAR/DCR 无 BN 残留；deploy params <= 5M；fold 误差记录
+    T-CA-7 CP-CAACP（Run2）：β=0 下 rank/cp 两模式输出逐位一致；零变化图严格退化为
+             均匀池化；cell 权重与手算 w=(1+s·r)/Σ(1+s·r) 一致
+    T-CA-8 FRH（Run2）：γ=0 修正项精确为 0；输出 128² 内部上采样；deploy 折叠为单
+             3×3 Conv(dim->1)、分支属性删除、+768 params；init 态 fold 误差 < 1e-4、
+             二值 disagreement == 0；γ 梯度链非零
     """
     import copy
     from model.casa_tvim_str_net import CASATViMSTRNet, ENCODER_DIMS
@@ -1399,7 +1405,99 @@ def t_casa_tvim_str(pretrained_path, device):
     except Exception as e:
         print(f"  T-CA-6 [warn] FLOPs measurement failed ({type(e).__name__}: {e})")
 
-    del m0, m1, m2, m1d
+    # ---- T-CA-7: CP-CAACP 公式（Run2 首选一） ----
+    from model.layers.caacp_ss2d import confidence_preserving_pool2x2
+    torch.manual_seed(16)
+    m_rank = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full",
+                            caacp_score_mode="rank").to(device)
+    torch.manual_seed(16)
+    m_cp = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full",
+                          caacp_score_mode="cp").to(device)
+    m_rank.eval()
+    m_cp.eval()
+    with torch.no_grad():
+        y_rank = m_rank(pre, post)
+        y_cp = m_cp(pre, post)
+    d_mode = (y_rank - y_cp).abs().max().item()
+    assert d_mode == 0.0, f"beta=0 must make rank/cp modes bitwise identical, got {d_mode}"
+    # 公式级：全零变化图（s=0）→ q=0 → 严格退化为均匀池化（无论 rank 如何）
+    xp = torch.randn(2, 4, 8, 8, device=device)
+    s_zero = torch.zeros(2, 8, 8, device=device)
+    s_any = torch.rand(2, 8, 8, device=device)
+    c_zero = confidence_preserving_pool2x2(xp, s_zero, s_any)
+    c_avg = F.avg_pool2d(xp, 2)
+    # 语义：零变化 -> 均匀池化。GPU cudnn avg_pool 与 torch sum 求和顺序不同，
+    # 故按 float32 舍入容差断言（CPU float64 手算对照仍要求逐位一致）。
+    assert (c_zero - c_avg).abs().max().item() < 1e-6, \
+        f"zero-change image must reduce to uniform pool, got {(c_zero - c_avg).abs().max().item():.2e}"
+    # 公式级：手算对照 w = (1+q)/Σ(1+q)，q = s*r（2×2 cell，CPU float64）
+    x1 = torch.randn(1, 2, 4, 4, dtype=torch.float64)
+    a1 = torch.tensor([[[[0.0, 1.0, 0.0, 0.0],
+                         [0.5, 0.25, 0.0, 0.0],
+                         [0.0, 0.0, 2.0, 0.0],
+                         [0.0, 0.0, 0.0, 1.0]]]], dtype=torch.float64)
+    r1 = torch.tensor([[[[0.0, 1.0, 0.0, 0.0],
+                         [0.2, 0.8, 0.0, 0.0],
+                         [0.0, 0.0, 1.0, 0.0],
+                         [0.0, 0.0, 0.0, 0.5]]]], dtype=torch.float64)
+    c1 = confidence_preserving_pool2x2(x1, a1, r1)
+    q = (a1 * r1).view(1, 1, 2, 2, 2, 2)                     # per-cell 视图（与实现同口径）
+    wv = (1.0 + q) / (1.0 + q).sum(dim=(3, 5), keepdim=True)
+    c_manual = (x1.view(1, 2, 2, 2, 2, 2) * wv).sum(dim=(3, 5))
+    # float64 下多 dim sum 的结合顺序差 ~1 ulp，按 1e-12 紧容差断言公式一致性
+    assert (c1 - c_manual).abs().max().item() < 1e-12, \
+        f"CP weights must match manual w=(1+s*r)/sum, got {(c1 - c_manual).abs().max().item():.2e}"
+    # 单调性：同一 cell 内 q 最大的像素获得最大权重
+    w = wv.view(1, 1, 4, 4)
+    q4 = (a1 * r1)
+    w00 = w[0, 0, 0:2, 0:2]
+    assert torch.argmax(w00).item() == torch.argmax(q4[0, 0, 0:2, 0:2]).item()
+    print(f"  T-CA-7 CP-CAACP OK: rank/cp epoch-0 bitwise (d={d_mode:.1e}); zero-change->uniform; manual w match")
+
+    # ---- T-CA-8: FRH（Run2 首选二） ----
+    torch.manual_seed(16)
+    mf = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full", frh=True).to(device)
+    mf.eval()
+    with torch.no_grad():
+        z = torch.randn(2, 96, 64, 64, device=device)
+        y_h = mf.head(z)
+        zu = F.interpolate(z, scale_factor=2, mode="bilinear", align_corners=False)
+        y_base = mf.head.base(zu)
+        assert (y_h - y_base).abs().max().item() == 0.0, "gamma=0 must zero the correction term exactly"
+        assert y_h.shape == (2, 1, 128, 128), "FRH internal resolution must be 128^2"
+        y_f = mf(pre, post)
+    assert y_f.shape == (2, 1, 256, 256)
+    mfd = copy.deepcopy(mf)
+    mfd.eval()
+    mfd.switch_to_deploy()
+    sd = mfd.state_dict()
+    gone = [k for k in sd if k.startswith(("head.base", "head.dw", "head.pw", "head.gamma"))]
+    fused = [k for k in sd if k.startswith("head.fused")]
+    assert not gone and fused, f"FRH deploy must delete branches (left={gone[:3]}, fused={fused[:3]})"
+    p_fused = sum(v.numel() for k, v in sd.items() if k.startswith("head.fused"))
+    assert p_fused == 96 * 9 + 1, f"fused head params {p_fused} != 865"
+    p_frh_deploy = measure_params(mfd)
+    assert p_frh_deploy - p_deploy == 768, f"FRH deploy delta {p_frh_deploy - p_deploy} != +768"
+    assert p_frh_deploy <= 5.0e6
+    with torch.no_grad():
+        y_fd = mfd(pre, post)
+    err_frh = (y_f - y_fd).abs().max().item()
+    flip_frh = ((y_f > 0.5) != (y_fd > 0.5)).float().mean().item()
+    print(f"  T-CA-8 FRH deploy: head->Conv2d(96,1,k3) {p_fused} params; deploy={p_frh_deploy:,} "
+          f"({p_frh_deploy / 1e6:.3f}M, +768 vs plain head); init fold max_abs={err_frh:.3e} "
+          f"disagree={flip_frh:.3e}")
+    assert err_frh < 1e-4, f"FRH init-stage fold error must be < 1e-4, got {err_frh}"
+    assert flip_frh == 0.0, "FRH fold must be binarization-identical at init"
+    # γ 梯度链（train 态最后测，避免污染前面 eval 态 BN 比较）
+    mf2 = copy.deepcopy(mf)
+    mf2.train()
+    loss_f = BCEDiceLoss(mf2(pre, post), target)
+    loss_f.backward()
+    g_gamma = mf2.head.gamma.grad
+    assert g_gamma is not None and torch.isfinite(g_gamma).all() and g_gamma.abs().max().item() > 0
+    print(f"  T-CA-8 FRH gamma grad chain OK (|g_gamma|={g_gamma.abs().max().item():.3e})")
+
+    del m0, m1, m2, m1d, m_rank, m_cp, mf, mfd, mf2
 
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")

@@ -56,23 +56,58 @@ def change_weighted_pool2x2(x, score, eps=1e-6):
     return (xr * w).sum(dim=(3, 5))                       # (B, C, H/2, W/2)
 
 
+def confidence_preserving_pool2x2(x, abs_score, rank_score, eps=1e-6):
+    """CP-CAACP（Run2 首选一）：置信度保留的 2×2 cell 加权聚合。
+
+    动机：rank-only 权重在「零变化图」上仍强制 cell 内不均匀（rank 存在 min/max），
+    使 c_ca 偏离 c_avg → 训练早期向低频特征注入噪声 → 弱化 dense 路径、拖低 Precision。
+    CP 公式：q_i = s_i * r_i（abs 余弦变化 × rank 归一化），
+            w_i = (1 + q_i) / Σ_j(1 + q_j)。
+    - s_i = 0（该像素双时相特征完全一致）→ q_i = 0 → 与所有零变化邻居等权：
+      全零变化 cell 严格退化为均匀池化（c_ca == c_avg，修正项精确为 0）；
+    - s_i 高且 rank 高 → 权重显著抬升（变化区域主导聚合）；
+    - 参数自由、A/B 共享权重、规则网格不变。
+
+    abs_score: (B, H, W) in [0, 2]（clamp 后的 1-cos）；rank_score: (B, H, W) in [0, 1]。
+    """
+    B, C, H, W = x.shape
+    assert H % 2 == 0 and W % 2 == 0
+    q = abs_score * rank_score                            # (B, H, W)，无变化 → 0
+    q = q.view(B, 1, H // 2, 2, W // 2, 2)
+    w = (1.0 + q)
+    w = w / w.sum(dim=(3, 5), keepdim=True)
+    xr = x.view(B, C, H // 2, 2, W // 2, 2)
+    return (xr * w).sum(dim=(3, 5))
+
+
 class CAACPSS2D(SS2D):
     """SS2D + CAACP（只用于 index=2 / Stage3 最终 TViM）。
 
     参数结构 = 官方 SS2D + 唯一新增 scalar beta（zero-init）。预训练加载时
     beta 不在 checkpoint 中 → 保持 0，epoch-0 输出与官方逐位一致。
+
+    score_mode:
+      "rank" — Run1 公式 w ∝ eps + rank（默认，向后兼容）；
+      "cp"   — Run2 CP 公式 w ∝ 1 + s·r（confidence-preserving）。
     """
 
-    def __init__(self, eps=1e-6, **kwargs):
+    def __init__(self, eps=1e-6, score_mode="rank", **kwargs):
         assert kwargs.get("index", -1) == 2, "CAACP only applies to Stage3 (index=2) final TViM"
+        assert score_mode in ("rank", "cp")
         super().__init__(**kwargs)
+        self.score_mode = score_mode
         self.beta = nn.Parameter(torch.zeros(1))
         self._pair_score = None
+        self._pair_abs = None
         self._score_delta = 0.0    # |c_ca - c_avg| 均值（诊断记录）
 
-    def set_pair_score(self, score):
-        """注入共享变化分数（2B, H, W；A/B 两半相同）。调用方负责 no_grad。"""
+    def set_pair_score(self, score, abs_score=None):
+        """注入共享变化分数（2B, H, W；A/B 两半相同）。调用方负责 no_grad。
+
+        score: rank 归一化分数；abs_score: clamp 后的 [0,2] 余弦分数（cp 模式必填）。
+        """
         self._pair_score = score
+        self._pair_abs = abs_score
 
     def forward_core(self, x, nrows=-1, channel_first=False):
         nrows = 1
@@ -88,7 +123,11 @@ class CAACPSS2D(SS2D):
             x0 = x_low
             c_avg = self.pool(x_low)
             if self._pair_score is not None:
-                c_ca = change_weighted_pool2x2(x_low, self._pair_score)
+                if self.score_mode == "cp":
+                    assert self._pair_abs is not None, "cp mode requires abs_score in set_pair_score"
+                    c_ca = confidence_preserving_pool2x2(x_low, self._pair_abs, self._pair_score)
+                else:
+                    c_ca = change_weighted_pool2x2(x_low, self._pair_score)
                 with torch.no_grad():
                     self._score_delta = (c_ca - c_avg).abs().mean().item()
                 c = c_avg + self.beta * (c_ca - c_avg)

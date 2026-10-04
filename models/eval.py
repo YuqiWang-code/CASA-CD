@@ -135,6 +135,8 @@ def main():
 
     # CASA-TViM-STR（CAACP-SS2D 主线）
     parser.add_argument('--caacp', type=int, default=0)
+    parser.add_argument('--caacp_score_mode', type=str, default='rank', choices=['rank', 'cp'])
+    parser.add_argument('--frh', type=int, default=0)
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
@@ -170,8 +172,17 @@ def main():
             arch = _json.load(f)
         if args.arch == "casa_tvim_str":
             cli = {"arch": "casa_tvim_str", "backbone": "tinyvim_s_slim",
-                   "caacp": args.caacp, "rep_mode": args.rep_mode,
+                   "caacp": args.caacp, "caacp_score_mode": args.caacp_score_mode,
+                   "frh": args.frh, "rep_mode": args.rep_mode,
                    "str_dim": args.str_dim}
+            # Run1 旧版 arch.json 无 caacp_score_mode/frh（当时默认 rank/0）→ 补齐默认后比较
+            arch_cmp = dict(arch)
+            for k, v in (("caacp_score_mode", "rank"), ("frh", 0)):
+                if k not in arch_cmp:
+                    arch_cmp[k] = v
+            if arch_cmp != cli:
+                raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch_cmp} vs cli={cli}; refusing to eval")
+            print(f"[ARCH] eval arch matches ckpt sidecar: {arch_cmp}")
         elif args.arch == "str_tass":
             cli = {"arch": "str_tass", "vit_depth": 4,
                    "str_dim": args.str_dim, "spatial_mode": args.spatial_mode}
@@ -193,7 +204,8 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.deterministic = True
         model = CASATViMSTRNet(args.tinyvim_pretrained_weight_path, caacp=bool(args.caacp),
-                               rep_mode=args.rep_mode, str_dim=args.str_dim).float()
+                               rep_mode=args.rep_mode, str_dim=args.str_dim,
+                               caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh)).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
