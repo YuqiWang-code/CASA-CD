@@ -1,0 +1,67 @@
+{
+  "note": "Run2 zero-cost diagnostics (§15.1 D1/D2) on Run1 M1_FULL/A2_STR best checkpoints, 4-dataset test sets. cell_entropy: rank-mode 2x2 cell weight entropy (uniform = ln4 = 1.3863). comp_*: GT connected-component area bins (small<256px, medium<1024px, large>=1024px).",
+  "CDD-CD-256": {
+    "M1_FULL": {
+      "d1": {
+        "beta": 0.011251,
+        "context_delta_rms": 0.043762,
+        "zero": {"n": 25, "abs_mean": 0.6922, "abs_p95": 0.9756, "cell_entropy": 1.2737, "gap_to_ln4": -0.1126},
+        "0-1%": {"n": 467, "abs_mean": 0.7185, "abs_p95": 0.9781, "cell_entropy": 1.2562, "gap_to_ln4": -0.1301},
+        "1-5%": {"n": 1214, "abs_mean": 0.7307, "abs_p95": 1.0019, "cell_entropy": 1.2621, "gap_to_ln4": -0.1242},
+        ">5%": {"n": 1294, "abs_mean": 0.7815, "abs_p95": 1.0412, "cell_entropy": 1.2654, "gap_to_ln4": -0.1209}
+      },
+      "d2": {"band2": 0.8570, "band4": 0.9100, "comp_small": 0.6598, "comp_medium": 0.9339, "comp_large": 0.9792}
+    },
+    "A2_STR": {
+      "d2": {"band2": 0.8549, "band4": 0.9086, "comp_small": 0.6554, "comp_medium": 0.9355, "comp_large": 0.9790}
+    }
+  },
+  "LEVIR-CD-256": {
+    "M1_FULL": {
+      "d1": {
+        "beta": 0.018451,
+        "context_delta_rms": 0.055153,
+        "zero": {"n": 1113, "abs_mean": 0.6381, "abs_p95": 0.9018, "cell_entropy": 1.2504, "gap_to_ln4": -0.1359},
+        "0-1%": {"n": 137, "abs_mean": 0.6401, "abs_p95": 0.9105, "cell_entropy": 1.2522, "gap_to_ln4": -0.1341},
+        "1-5%": {"n": 223, "abs_mean": 0.6356, "abs_p95": 0.9318, "cell_entropy": 1.2582, "gap_to_ln4": -0.1281},
+        ">5%": {"n": 575, "abs_mean": 0.7840, "abs_p95": 1.0362, "cell_entropy": 1.2624, "gap_to_ln4": -0.1238}
+      },
+      "d2": {"band2": 0.8006, "band4": 0.8710, "comp_small": 0.6274, "comp_medium": 0.8790, "comp_large": 0.9296}
+    },
+    "A2_STR": {
+      "d2": {"band2": 0.7979, "band4": 0.8698, "comp_small": 0.6211, "comp_medium": 0.8719, "comp_large": 0.9243}
+    }
+  },
+  "SYSU-CD-256": {
+    "M1_FULL": {
+      "d1": {
+        "beta": 0.0055703,
+        "context_delta_rms": 0.058713,
+        "zero": {"n": 0},
+        "0-1%": {"n": 0},
+        "1-5%": {"n": 968, "abs_mean": 0.5512, "abs_p95": 0.8442, "cell_entropy": 1.2607, "gap_to_ln4": -0.1256},
+        ">5%": {"n": 3032, "abs_mean": 0.6168, "abs_p95": 0.9163, "cell_entropy": 1.2665, "gap_to_ln4": -0.1198}
+      },
+      "d2": {"band2": 0.6710, "band4": 0.7081, "comp_small": 0.1796, "comp_medium": 0.4620, "comp_large": 0.8273}
+    },
+    "A2_STR": {
+      "d2": {"band2": 0.6490, "band4": 0.6872, "comp_small": 0.1838, "comp_medium": 0.4152, "comp_large": 0.7910}
+    }
+  },
+  "WHU-CD-256": {
+    "M1_FULL": {
+      "d1": {
+        "beta": 0.0049959,
+        "context_delta_rms": 0.057282,
+        "zero": {"n": 556, "abs_mean": 0.5150, "abs_p95": 0.8241, "cell_entropy": 1.2628, "gap_to_ln4": -0.1235},
+        "0-1%": {"n": 20, "abs_mean": 0.5974, "abs_p95": 0.9253, "cell_entropy": 1.2659, "gap_to_ln4": -0.1204},
+        "1-5%": {"n": 58, "abs_mean": 0.5840, "abs_p95": 0.9369, "cell_entropy": 1.2657, "gap_to_ln4": -0.1206},
+        ">5%": {"n": 110, "abs_mean": 0.8240, "abs_p95": 1.0729, "cell_entropy": 1.2714, "gap_to_ln4": -0.1149}
+      },
+      "d2": {"band2": 0.8318, "band4": 0.8850, "comp_small": 0.4465, "comp_medium": 0.6711, "comp_large": 0.8971}
+    },
+    "A2_STR": {
+      "d2": {"band2": 0.8292, "band4": 0.8819, "comp_small": 0.4355, "comp_medium": 0.6210, "comp_large": 0.8928}
+    }
+  }
+}

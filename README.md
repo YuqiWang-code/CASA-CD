@@ -475,7 +475,7 @@ binary change detection in remote sensing images.
 > - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 新行）；快照：
 >   `docs/temporary/models_and_metrics_CASA-TViM_Run1.txt`。
 
-## 实验结果（CASA-TViM Run2 · LEVIR/SYSU 定向提升，训练中）
+## 实验结果（CASA-TViM Run2 · LEVIR/SYSU 定向提升，已完成）
 
 > **目标**：保持 CDD ≥ 97.18、WHU ≥ 95.07，同时把 LEVIR 91.07 → ≥ 92、SYSU 83.47 → ≥ 84。
 > 按
@@ -496,18 +496,44 @@ binary change detection in remote sensing images.
 >
 > 训练：12 run（3 变体 × 4 数据集）完整 80K，`run_all.sh` 单脚本串 3 波、每波
 > 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU），batch 32、seed 16，协议与
-> Run1 逐项一致（唯一变量 = 结构改进）。执行顺序按文档：Wave1 E1 → Wave2 E2 →
-> Wave3 E3（组合）。
+> Run1 逐项一致（唯一变量 = 结构改进）。
 >
 > | 变体 | caacp | score | frh | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---|---:|---:|---:|---:|---|
-> | E1_CP_CAACP | 1 | cp | 0 | — | — | — | — | Wave1 训练中 |
-> | E2_FRH | 1 | rank | 1 | — | — | — | — | 待 Wave1 |
-> | E3_CP_FRH | 1 | cp | 1 | — | — | — | — | 待 Wave2 |
+> | E1_CP_CAACP | 1 | cp | 0 | 97.14 / 94.45（−0.04） | 91.14 / 83.72（**+0.07**） | 83.13 / 71.12（−0.34） | 95.18 / 90.81（**+0.11**） | 完成（唯一 CDD/WHU 双保变体；WHU 达标） |
+> | E2_FRH | 1 | rank | 1 | 97.17 / 94.50（−0.01） | 91.21 / 83.83（**+0.14**） | 82.97 / 70.89（−0.50） | 94.71 / 89.95（−0.36） | 完成（LEVIR 正、SYSU/WHU 反） |
+> | E3_CP_FRH | 1 | cp | 1 | **97.18 / 94.51**（±0.00） | **91.29 / 83.98**（**+0.22**） | 82.85 / 70.72（−0.62） | 94.98 / 90.44（−0.09） | 完成（LEVIR 最好但 SYSU 最差） |
 >
-> - 脚本：`train_scripts/CASA-TViM/Run2/`；实现：`models/model/layers/caacp_ss2d.py`
->   （CP 公式）、`models/model/str_fine_head.py`（FRH）、`models/model/casa_tvim_str_net.py`
->   （接线）。
+> **Run2 结论（12/12 全部完成，全部 disagree 带内、deploy 4.880~4.881M ≤5M）**：
+> 1. **LEVIR 定向正向但幅度远小于目标**：三个变体 LEVIR +0.07 / +0.14 / +0.22
+>    （91.07 → 91.14 / 91.21 / 91.29），未达 ≥92；FRH 对 LEVIR 的细粒度收益
+>    与文档机制叙事一致，但不足以跨过 92 门槛。
+> 2. **SYSU 反向退步（−0.34 / −0.50 / −0.62）**：CP 与 FRH 对 SYSU 均为负向，
+>    组合更差——SYSU 的语义依赖强于边界细节，128² 头与 CP 权重都未帮到它；
+>    文档 §15.5/15.6 预注册的"失败即停"分支激活：不再调 score 公式、不再加
+>    更复杂 edge decoder。
+> 3. **WHU/CDD 保持**：E1 是唯一 CDD/WHU 双保变体（97.14 / 95.18，WHU 达标）；
+>    E2/E3 的 WHU 微降（94.71 / 94.98）。E3 恰好保住 CDD 97.18。
+> 4. **下一步（文档预注册路径）**：E1/E2 未过 §15 标准 → 按 §15.5/15.6 转向
+>    RA-CAACP（residual anchored 到 c_avg）与 Fine-STR rank expansion（0 deploy
+>    参数）作为低风险候选。
+> 5. **D1/D2 零成本诊断（`docs/temporary/run2_zero_cost_diag.json`）机制证据自洽**：
+>    - **CP 机制证据（D1）**：LEVIR 零变化图（n=1113，占 54%）的 rank cell 熵
+>      **1.2504（四数据集最低，gap −0.136）**且 abs 分数低（0.638）——rank-only
+>      在零变化图上最强制不均匀，且零变化组熵反而低于高变化组（反直觉），
+>      CP-CAACP 的修复方向证据最强；LEVIR 恰好是 E1/E3 唯一稳定正向的数据集，
+>      但 +0.07/+0.22 的幅度说明 rank-confusion 不是 LEVIR 的主要瓶颈。
+>    - **FRH 失效解释（D2）**：SYSU 的损失集中在 **small components**（F1 仅
+>      **0.1796**，vs large 0.8273）与 boundary 环带（band2 0.6710，四数据集最低），
+>      而 FRH 的 3×3 邻域修正解决"边界锐化"而非"极小目标语义召回"→ SYSU 负向
+>      （−0.50/−0.62）与机制定位一致。LEVIR 的 band2/small（0.8006/0.6274）也
+>      低于 CDD/WHU，但幅度温和，与 FRH 小幅正向（+0.14）相符。
+> - 自动对比报告：`docs/temporary/run2_report.md`；诊断数据：
+>   `docs/temporary/run2_zero_cost_diag.json`；快照：
+>   `docs/temporary/models_and_metrics_CASA-TViM_Run2.txt`；
+>   汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run2 12 新行）。
+> - 实现：`models/model/layers/caacp_ss2d.py`（CP 公式）、`models/model/str_fine_head.py`（FRH）、
+>   `models/model/casa_tvim_str_net.py`（接线）；脚本：`train_scripts/CASA-TViM/Run2/`。
 
 ## 参考文献
 

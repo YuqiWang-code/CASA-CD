@@ -73,7 +73,7 @@ def cell_weight_entropy(score, eps=1e-6):
     s = score.view(B, 1, H // 2, 2, W // 2, 2)
     w = s + eps
     w = w / w.sum(dim=(3, 5), keepdim=True)
-    ent = -(w * (w + 1e-12).log()).sum(dim=(3, 5)).mean(dim=(1, 2, 4))  # per-image 均值
+    ent = -(w * (w + 1e-12).log()).sum(dim=(3, 5)).mean(dim=(1, 2, 3))  # per-image 均值
     return ent
 
 
@@ -133,7 +133,7 @@ def run_d1(model, loader, device):
         for img, label in loader:
             pre = img[:, 0:3].to(device).float()
             post = img[:, 3:6].to(device).float()
-            gt = (label.to(device) >= 128).float()
+            gt = (label.to(device) > 0.5).float()   # Normalize 已把 label 二值化为 0/1
             x2b = torch.cat([pre, post], dim=0)
             _, _, x = model.encoder.forward_stem_s2_prefix(x2b)
             xa, xb = x.chunk(2, dim=0)
@@ -143,6 +143,11 @@ def run_d1(model, loader, device):
             am = s_abs.flatten(1).mean(dim=1).cpu()
             ap95 = torch.quantile(s_abs.flatten(1), 0.95, dim=1).cpu()
             ratio = gt.flatten(1).mean(dim=1).cpu()
+            # 完整 forward 一次，让 CAACP 实际执行以记录 context delta
+            _ = model(pre, post)
+            op = model.encoder.caacp_op
+            delta_rms += op._score_delta ** 2
+            n_delta += 1
             for i in range(len(ratio)):
                 for b, (lo, hi) in RATIO_BINS.items():
                     if lo < ratio[i].item() <= hi or (b == "zero" and ratio[i].item() == 0.0):
@@ -151,9 +156,6 @@ def run_d1(model, loader, device):
                         stats[b]["abs_p95"].append(ap95[i].item())
                         stats[b]["cell_ent"].append(ent[i].item())
                         break
-            op = model.encoder.caacp_op
-            delta_rms += op._score_delta ** 2
-            n_delta += 1
     out = {"beta": beta, "context_delta_rms": (delta_rms / max(n_delta, 1)) ** 0.5}
     for b in RATIO_BINS:
         s = stats[b]
@@ -175,7 +177,7 @@ def run_d2(model, loader, device):
         for img, label in loader:
             pre = img[:, 0:3].to(device).float()
             post = img[:, 3:6].to(device).float()
-            gt = (label.to(device) >= 128)
+            gt = (label.to(device) > 0.5)   # Normalize 已把 label 二值化为 0/1
             pred = model(pre, post) > 0.5
             for i in range(len(gt)):
                 gt_i = gt[i:i + 1]
