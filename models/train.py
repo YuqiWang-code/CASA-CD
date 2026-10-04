@@ -605,9 +605,8 @@ class ChangeViTTrainer(object):
                     f"t={time.time() - t0:.0f}s")
             self.log(line)
 
-            # save last (resume) + best (test F1)
-            self._save_last(epoch, max_batches)
-
+            # P2（Run2 §18）：best 元数据先更新并保存，再写 last.pth ——
+            # 使 last.pth 内 best_f1/best_epoch 与磁盘 best 文件一致（崩溃恢复元数据不落后一拍）。
             if score_val["F1"] > self.best_f1:
                 prev_best = os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth")
                 if self.best_f1 >= 0 and os.path.isfile(prev_best):
@@ -616,6 +615,8 @@ class ChangeViTTrainer(object):
                 self.best_epoch = epoch
                 torch.save(self.model.state_dict(),
                            os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth"))
+
+            self._save_last(epoch, max_batches)
 
         self.log(f"[BEST] F1={self.best_f1:.4f} at epoch {self.best_epoch}")
 
