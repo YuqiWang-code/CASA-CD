@@ -64,12 +64,14 @@ def _build_stage(dim, index, depth, slim=False):
 
 class TinyViMSlim(nn.Module):
     def __init__(self, pretrained_path=None, caacp=False,
-                 widths=WIDTH_S, depths=DEPTH_S, caacp_score_mode="rank"):
+                 widths=WIDTH_S, depths=DEPTH_S, caacp_score_mode="rank",
+                 caacp_residual_mode="current"):
         super().__init__()
         self.widths = list(widths)
         self.depths = list(depths)
         self.caacp = caacp
         self.caacp_score_mode = caacp_score_mode
+        self.caacp_residual_mode = caacp_residual_mode
 
         self.patch_embed = _stem(3, self.widths[0])
 
@@ -114,7 +116,8 @@ class TinyViMSlim(nn.Module):
         dim = self.widths[2]
         new = CAACPSS2D(d_model=dim, d_state=8, ssm_ratio=1.0, dt_rank="auto",
                         d_conv=3, conv_bias=False, index=2,
-                        score_mode=self.caacp_score_mode)
+                        score_mode=self.caacp_score_mode,
+                        residual_mode=self.caacp_residual_mode)
         new.load_state_dict(blk.op.state_dict(), strict=False)   # beta 缺失 → 保持 0
         blk.op = new
         self.caacp_block = blk

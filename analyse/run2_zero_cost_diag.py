@@ -46,6 +46,16 @@ LN4 = 1.3862943611198906
 
 RATIO_BINS = {"zero": (0.0, 0.0), "0-1%": (0.0, 0.01), "1-5%": (0.01, 0.05), ">5%": (0.05, 1.01)}
 
+VARIANT_CFG = {
+    "A0_TVIM_PLAIN": dict(caacp=False, rep_mode="plain"),
+    "A1_CAACP": dict(caacp=True, rep_mode="plain"),
+    "A2_STR": dict(caacp=False, rep_mode="full"),
+    "M1_FULL": dict(caacp=True, rep_mode="full"),
+    "E1_CP_CAACP": dict(caacp=True, rep_mode="full", score_mode="cp"),
+    "E2_FRH": dict(caacp=True, rep_mode="full", frh=1),
+    "E3_CP_FRH": dict(caacp=True, rep_mode="full", score_mode="cp", frh=1),
+}
+
 
 def pick_best(ckpt_dir):
     cands = sorted(glob.glob(os.path.join(ckpt_dir, "best_F1=*.pth")))
@@ -99,8 +109,8 @@ def band_metrics(pred_b, gt_b, band):
     return p, r, f1
 
 
-def component_f1(pred_np, gt_np):
-    """按 GT 连通域面积分组（small<256px / medium<1024 / large）的组件级 F1。"""
+def component_pr(pred_np, gt_np):
+    """按 GT 连通域面积分组（small<256px / medium<1024 / large）的组件级 P/R/F1。"""
     try:
         from scipy import ndimage
     except ImportError:
@@ -119,7 +129,8 @@ def component_f1(pred_np, gt_np):
         fn = ((pred_np == 0) & (gt_np > 0) & m).sum()
         p = tp / max(tp + fp, 1)
         r = tp / max(tp + fn, 1)
-        out[name] = 2 * p * r / max(p + r, 1e-12)
+        out[name] = {"P": float(p), "R": float(r),
+                     "F1": float(2 * p * r / max(p + r, 1e-12))}
     return out
 
 
@@ -172,7 +183,7 @@ def run_d1(model, loader, device):
 def run_d2(model, loader, device):
     """D2：boundary 环带与组件面积分组 F1（逐样本处理，band/连通域均为单张口径）。"""
     band_px = {2: {"tp": 0, "fp": 0, "fn": 0}, 4: {"tp": 0, "fp": 0, "fn": 0}}
-    comp = {c: [] for c in ("small", "medium", "large")}
+    comp = {c: {"P": [], "R": [], "F1": []} for c in ("small", "medium", "large")}
     with torch.no_grad():
         for img, label in loader:
             pre = img[:, 0:3].to(device).float()
@@ -190,18 +201,23 @@ def run_d2(model, loader, device):
                     band_px[px]["tp"] += tp
                     band_px[px]["fp"] += fp
                     band_px[px]["fn"] += fn
-                cf = component_f1(pred_i.squeeze().cpu().numpy(), gt_i.squeeze().cpu().numpy())
+                cf = component_pr(pred_i.squeeze().cpu().numpy(), gt_i.squeeze().cpu().numpy())
                 if cf:
                     for c in comp:
                         if cf[c] is not None:
-                            comp[c].append(cf[c])
+                            for k in ("P", "R", "F1"):
+                                comp[c][k].append(cf[c][k])
     out = {}
     for px, m in band_px.items():
         p = m["tp"] / max(m["tp"] + m["fp"], 1)
         r = m["tp"] / max(m["tp"] + m["fn"], 1)
         out[f"band{px}"] = {"P": p, "R": r, "F1": 2 * p * r / max(p + r, 1e-12)}
     for c in comp:
-        out[f"comp_{c}"] = float(np.mean(comp[c])) if comp[c] else None
+        out[f"comp_{c}"] = {
+            "P": float(np.mean(comp[c]["P"])) if comp[c]["P"] else None,
+            "R": float(np.mean(comp[c]["R"])) if comp[c]["R"] else None,
+            "F1": float(np.mean(comp[c]["F1"])) if comp[c]["F1"] else None,
+        }
     return out
 
 
@@ -210,18 +226,31 @@ def main():
     ap.add_argument("--gpu_id", type=int, default=0)
     ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0, help="0 = full test set")
+    ap.add_argument("--ckpt_run", type=str, default="Run1", help="Run1 | Run2")
+    ap.add_argument("--variants", type=str, default="M1_FULL,A2_STR",
+                    help="comma list, e.g. M1_FULL,A2_STR or E1_CP_CAACP,E2_FRH,E3_CP_FRH")
+    ap.add_argument("--datasets", type=str, default="",
+                    help="comma list or empty = all 4")
     args = ap.parse_args()
     torch.cuda.set_device(args.gpu_id)
     device = f"cuda:{args.gpu_id}"
     torch.backends.cudnn.benchmark = True
 
+    ckpt_root = os.path.join(CKPT_ROOT.replace("Run1", args.ckpt_run))
+    datasets = [d.strip() for d in args.datasets.split(",") if d.strip()] or DATASETS
+    variants = [v.strip() for v in args.variants.split(",") if v.strip()]
+
     results = {}
-    for ds in DATASETS:
+    for ds in datasets:
         root = os.path.join(DATA_ROOT, ds)
         loader = make_loader(root, args.batch_size)
-        for variant, cfg in (("M1_FULL", dict(caacp=True)), ("A2_STR", dict(caacp=False))):
-            ckpt = pick_best(os.path.join(CKPT_ROOT, variant, ds))
-            model = CASATViMSTRNet(PRETRAIN, caacp=cfg["caacp"], rep_mode="full").to(device).eval()
+        for variant in variants:
+            cfg = VARIANT_CFG[variant]
+            ckpt = pick_best(os.path.join(ckpt_root, variant, ds))
+            model = CASATViMSTRNet(
+                PRETRAIN, caacp=cfg["caacp"], rep_mode=cfg.get("rep_mode", "full"),
+                caacp_score_mode=cfg.get("score_mode", "rank"),
+                frh=bool(cfg.get("frh", 0))).to(device).eval()
             model.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=False))
             tag = f"{ds}/{variant}"
             d1 = run_d1(model, loader, device) if cfg["caacp"] else None
@@ -234,8 +263,13 @@ def main():
                     s = d1[b]
                     print(f"  [{b:>5}] n={s['n']:>4} abs_mean={s['abs_mean']} abs_p95={s['abs_p95']} "
                           f"cell_ent={s['cell_entropy']} gap_to_ln4={s['cell_entropy_gap_to_ln4']}")
-            print(f"  D2: band2 F1={d2['band2']['F1']:.4f} band4 F1={d2['band4']['F1']:.4f} "
-                  f"comp_small={d2['comp_small']} comp_medium={d2['comp_medium']} comp_large={d2['comp_large']}")
+            print(f"  D2: band2 F1={d2['band2']['F1']:.4f} band4 F1={d2['band4']['F1']:.4f}")
+            for c in ("comp_small", "comp_medium", "comp_large"):
+                v = d2[c]
+                if v and v["F1"] is not None:
+                    print(f"      {c}: P={v['P']:.4f} R={v['R']:.4f} F1={v['F1']:.4f}")
+                else:
+                    print(f"      {c}: None")
     out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                             "docs", "temporary", "run2_zero_cost_diag.json")
     try:

@@ -8,16 +8,19 @@
     per-time [F1,F2,F3,F4] -> MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
         -> DCRDecoder(D=96) -> head Conv1x1 -> bilinear -> sigmoid
 
-变体（caacp × score_mode × frh × rep_mode，共享同一实现）：
+变体（caacp × score_mode × residual_mode × frh × fs_tar × rep_mode，共享同一实现）：
     A0_TVIM_PLAIN: caacp=0, plain    A1_CAACP: caacp=1, plain
     A2_STR:        caacp=0, full     M1_FULL:  caacp=1, full
     Run2 E1_CP_CAACP: caacp=1, score_mode=cp, frh=0
     Run2 E2_FRH:     caacp=1, score_mode=rank, frh=1
     Run2 E3_CP_FRH:  caacp=1, score_mode=cp, frh=1
+    Run3 E4_RA_CAACP: caacp=1, residual_mode=avg_anchor（residual 锚定 c_avg）
+    Run3 E5_FS_TAR:   caacp=1, fs_tar=1（stage1 TemporalRepFine3x3）
 
 RNG 纪律：head 先于 TAR/DCR aux 构造；CAACP 只有 zero-init β（无 RNG 消耗）；
-FRH gamma zero-init（无 RNG），dw3 kaiming / aux skip_init。
-deploy：switch_to_deploy() 折叠 TAR/DCR + FRH（frh=1 时）；CAACP 是推理期真实模块。
+FRH gamma zero-init（无 RNG），dw3 kaiming / aux skip_init；
+FS-TAR 的 aux 分支 skip_init + zero-init（与 TemporalRep1x1 同流）。
+deploy：switch_to_deploy() 折叠 TAR/DCR/FRH；CAACP 是推理期真实模块。
 """
 import torch
 import torch.nn as nn
@@ -35,20 +38,26 @@ STR_DIM = 96
 
 class CASATViMSTRNet(nn.Module):
     def __init__(self, tinyvim_pretrained_path, caacp=True, rep_mode="full",
-                 str_dim=STR_DIM, caacp_score_mode="rank", frh=False):
+                 str_dim=STR_DIM, caacp_score_mode="rank", frh=False,
+                 caacp_residual_mode="current", fs_tar=False):
         super().__init__()
         assert rep_mode in ("plain", "full")
         assert caacp_score_mode in ("rank", "cp")
+        assert caacp_residual_mode in ("current", "avg_anchor")
         self.caacp = caacp
         self.rep_mode = rep_mode
         self.str_dim = str_dim
         self.caacp_score_mode = caacp_score_mode
+        self.caacp_residual_mode = caacp_residual_mode
         self.frh = frh
+        self.fs_tar = fs_tar
 
         self.encoder = TinyViMSlim(pretrained_path=tinyvim_pretrained_path, caacp=caacp,
-                                   caacp_score_mode=caacp_score_mode)
+                                   caacp_score_mode=caacp_score_mode,
+                                   caacp_residual_mode=caacp_residual_mode)
         if self.encoder.caacp_op is not None:
             assert self.encoder.caacp_op.score_mode == caacp_score_mode
+            assert self.encoder.caacp_op.residual_mode == caacp_residual_mode
 
         # head 先构造（STR RNG 纪律）；CAACP 已在 encoder 内（β zero-init，无 RNG）
         if frh:
@@ -59,6 +68,7 @@ class CASATViMSTRNet(nn.Module):
             encoder_dims=ENCODER_DIMS, dim=str_dim,
             use_temporal_aux=(rep_mode == "full"),
             use_dcr_aux=(rep_mode == "full"), use_residual=True,
+            fine_stage1=fs_tar,
         )
         self.decoder = DCRDecoder(dim=str_dim, use_aux=(rep_mode == "full"), use_residual=True)
 

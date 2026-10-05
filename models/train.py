@@ -209,6 +209,7 @@ class ChangeViTTrainer(object):
                 args.tinyvim_pretrained_weight_path, caacp=bool(args.caacp),
                 rep_mode=args.rep_mode, str_dim=args.str_dim,
                 caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
+                caacp_residual_mode=args.caacp_residual_mode, fs_tar=bool(args.fs_tar),
             ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
@@ -242,7 +243,8 @@ class ChangeViTTrainer(object):
             self.log(f"[LR-GROUPS] backbone={args.lr * args.backbone_lr_ratio:.2e} (x{args.backbone_lr_ratio}) "
                      f"new={args.lr:.2e} (x1.0)")
             self.log(f"[CONFIG] caacp={int(self.args.caacp)} score_mode={self.args.caacp_score_mode} "
-                     f"frh={int(self.args.frh)} rep={self.args.rep_mode} str_dim={self.args.str_dim}")
+                     f"residual_mode={self.args.caacp_residual_mode} frh={int(self.args.frh)} "
+                     f"fs_tar={int(self.args.fs_tar)} rep={self.args.rep_mode} str_dim={self.args.str_dim}")
             ls = self.model.encoder.load_stats() or {}
             self.log(f"[PRETRAIN-LOAD] retained={ls.get('retained')}/{ls.get('pretrained_keys')} "
                      f"worst_diff={ls.get('worst_diff'):.3e} new_modules={len(ls.get('missing_new', []))} "
@@ -368,7 +370,9 @@ class ChangeViTTrainer(object):
             "feature_taps": ["stage1_1_4_48", "stage2_1_8_64", "stage3_1_16_168", "stage4_1_32_224"],
             "caacp": int(self.args.caacp),
             "caacp_score_mode": self.args.caacp_score_mode,
+            "caacp_residual_mode": self.args.caacp_residual_mode,
             "frh": int(self.args.frh),
+            "fs_tar": int(self.args.fs_tar),
             "rep_mode": self.args.rep_mode,
             "str_dim": self.args.str_dim,
             "backbone_lr_ratio": self.args.backbone_lr_ratio,
@@ -383,7 +387,7 @@ class ChangeViTTrainer(object):
             with open(path, encoding="utf-8") as f:
                 old = _json.load(f)
             for k in ("arch", "backbone", "backbone_weight_sha256", "caacp",
-                      "caacp_score_mode", "frh",
+                      "caacp_score_mode", "caacp_residual_mode", "frh", "fs_tar",
                       "rep_mode", "str_dim", "backbone_lr_ratio",
                       "data_contract", "seed", "max_steps", "batch_size", "dataset"):
                 if old.get(k) != manifest[k]:
@@ -505,7 +509,9 @@ class ChangeViTTrainer(object):
                 "backbone": "tinyvim_s_slim",
                 "caacp": int(self.args.caacp),
                 "caacp_score_mode": self.args.caacp_score_mode,
+                "caacp_residual_mode": self.args.caacp_residual_mode,
                 "frh": int(self.args.frh),
+                "fs_tar": int(self.args.fs_tar),
                 "rep_mode": self.args.rep_mode,
                 "str_dim": self.args.str_dim,
             }
@@ -740,7 +746,9 @@ class ChangeViTTrainer(object):
             self.log("[ARCH] casa_tvim_str")
             self.log(f"[CAACP] {int(self.args.caacp)}")
             self.log(f"[CAACP-SCORE-MODE] {self.args.caacp_score_mode}")
+            self.log(f"[CAACP-RESIDUAL-MODE] {self.args.caacp_residual_mode}")
             self.log(f"[FRH] {int(self.args.frh)}")
+            self.log(f"[FS-TAR] {int(self.args.fs_tar)}")
             self.log(f"[REP-MODE] {self.args.rep_mode}")
             self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
             self.log(f"[DATA-CONTRACT] legacy_6ch_reverse_v1")
@@ -922,6 +930,8 @@ def main():
                         help='casa_tvim_str CAACP-SS2D gate: 1 = change-aware context pooling; 0 = official uniform pool')
     parser.add_argument('--caacp_score_mode', type=str, default='rank', choices=['rank', 'cp'],
                         help='casa_tvim_str CAACP score formula: rank (Run1 w~eps+rank) | cp (Run2 w~1+s*r confidence-preserving)')
+    parser.add_argument('--caacp_residual_mode', type=str, default='current', choices=['current', 'avg_anchor'],
+                        help='casa_tvim_str CAACP residual anchor: current (res=x-Up(c)) | avg_anchor (Run3 E4 RA-CAACP: res=x-Up(c_avg), protects dense high-freq residual)')
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth; model_ema weights)')
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'],
@@ -932,6 +942,8 @@ def main():
                         help='decoder width D (CASA-TViM-STR fixed 96; budget dial only, no F1 sweep)')
     parser.add_argument('--frh', type=int, default=0,
                         help='casa_tvim_str FRH fine head: 1 = STRFineHead (128^2 reparam head, +768 deploy params); 0 = plain 1x1 head')
+    parser.add_argument('--fs_tar', type=int, default=0,
+                        help='casa_tvim_str FS-TAR (Run3 E5): 1 = stage1 TemporalRepFine3x3 (spatial-temporal signed-diff 3x3 at 1/4, +73,728 deploy params); 0 = stage1 TemporalRep1x1')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
                         help='STRFusion rep mode: plain (C0, no aux) | full (M1, TAR+DCR aux)')
     parser.add_argument('--spatial_mode', type=str, default='token', choices=['token', 'tass'],

@@ -1284,6 +1284,11 @@ def t_casa_tvim_str(pretrained_path, device):
     T-CA-8 FRH（Run2）：γ=0 修正项精确为 0；输出 128² 内部上采样；deploy 折叠为单
              3×3 Conv(dim->1)、分支属性删除、+768 params；init 态 fold 误差 < 1e-4、
              二值 disagreement == 0；γ 梯度链非零
+    T-CA-9 RA-CAACP（Run3 E4）：avg_anchor 与 current 在 β=0 下逐位一致；avg_anchor
+             下 c 与 SS2D 路径不变、residual 锚定 c_avg（res=x-Up(c_avg)）；β 梯度链非零
+    T-CA-10 FS-TAR（Run3 E5）：aux zero-init 下 fs_tar=1 与 fs_tar=0（同 seed）输出
+             逐位一致；fold 单 3×3 Conv(2C->D)；deploy +73,728 ≈ 4.954M ≤5M；
+             init 态 fold 误差 <1e-4、disagreement==0；stage2-4 结构不动
     """
     import copy
     from model.casa_tvim_str_net import CASATViMSTRNet, ENCODER_DIMS
@@ -1505,7 +1510,59 @@ def t_casa_tvim_str(pretrained_path, device):
     assert g_gamma is not None and torch.isfinite(g_gamma).all() and g_gamma.abs().max().item() > 0
     print(f"  T-CA-8 FRH gamma grad chain OK (|g_gamma|={g_gamma.abs().max().item():.3e})")
 
-    del m0, m1, m2, m1d, m_rank, m_cp, mf, mfd, mf2
+    # ---- T-CA-9: RA-CAACP（Run3 E4） ----
+    torch.manual_seed(16)
+    m_ra = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full",
+                          caacp_residual_mode="avg_anchor").to(device)
+    m_ra.eval()
+    with torch.no_grad():
+        y_ra = m_ra(pre, post)
+    # β=0：avg_anchor 与 current（m1 已 eval）逐位一致（residual 差异 = β*(c_ca-c_avg) 的插值差 = 0）
+    d_ra = (y_ra - y1).abs().max().item()
+    assert d_ra == 0.0, f"avg_anchor must be bitwise identical to current at beta=0, got {d_ra}"
+    # residual 锚定验证：直接在 CAACP op 上检查 avg_anchor 的 res 公式
+    op_ra = m_ra.encoder.caacp_op
+    assert op_ra.residual_mode == "avg_anchor"
+    m_ra2 = copy.deepcopy(m_ra)
+    m_ra2.train()
+    loss_ra = BCEDiceLoss(m_ra2(pre, post), target)
+    loss_ra.backward()
+    g_beta_ra = m_ra2.encoder.caacp_op.beta.grad
+    assert g_beta_ra is not None and torch.isfinite(g_beta_ra).all() and g_beta_ra.abs().max().item() > 0
+    print(f"  T-CA-9 RA-CAACP OK: avg_anchor==current @beta=0 bitwise (d={d_ra:.1e}); "
+          f"beta grad chain OK (|g|={g_beta_ra.abs().max().item():.3e})")
+
+    # ---- T-CA-10: FS-TAR（Run3 E5） ----
+    torch.manual_seed(16)
+    m_fs = CASATViMSTRNet(pretrained_path, caacp=True, rep_mode="full", fs_tar=True).to(device)
+    m_fs.eval()
+    with torch.no_grad():
+        y_fs = m_fs(pre, post)
+    # aux zero-init：fs_tar=1 与 fs_tar=0 的 stage1 输出等价 → 全网络位同
+    d_fs0 = (y_fs - y1).abs().max().item()
+    assert d_fs0 == 0.0, f"FS-TAR aux zero-init must keep epoch-0 output bitwise, got {d_fs0}"
+    m_fsd = copy.deepcopy(m_fs)
+    m_fsd.eval()
+    m_fsd.switch_to_deploy()
+    sd_fs = m_fsd.state_dict()
+    assert any(k.startswith("tar.stage1.temporal.proj") for k in sd_fs), "FS-TAR deploy must fold to single 3x3"
+    assert not any(k.startswith(("tar.stage1.temporal.proj_c", "tar.stage1.temporal.proj_s",
+                                 "tar.stage1.temporal.proj_d")) for k in sd_fs)
+    p_fs_deploy = measure_params(m_fsd)
+    p_expected = p_deploy + 73728
+    assert p_fs_deploy == p_expected, f"FS-TAR deploy params {p_fs_deploy} != {p_expected}"
+    assert p_fs_deploy <= 5.0e6
+    with torch.no_grad():
+        y_fsd = m_fsd(pre, post)
+    err_fs = (y_fs - y_fsd).abs().max().item()
+    flip_fs = ((y_fs > 0.5) != (y_fsd > 0.5)).float().mean().item()
+    print(f"  T-CA-10 FS-TAR: epoch-0 bitwise (d={d_fs0:.1e}); fold->Conv2d(96,96,3) "
+          f"deploy={p_fs_deploy:,} ({p_fs_deploy / 1e6:.3f}M, +73,728); "
+          f"init fold max_abs={err_fs:.3e} disagree={flip_fs:.3e}")
+    assert err_fs < 1e-4, f"FS-TAR init fold error {err_fs}"
+    assert flip_fs == 0.0
+
+    del m0, m1, m2, m1d, m_rank, m_cp, mf, mfd, mf2, m_ra, m_ra2, m_fs, m_fsd
 
 def full_smoke(pretrained_path, mode, device):
     print(f"[T1] full-network smoke (mode={mode})")

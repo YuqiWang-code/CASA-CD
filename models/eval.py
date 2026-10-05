@@ -136,7 +136,9 @@ def main():
     # CASA-TViM-STR（CAACP-SS2D 主线）
     parser.add_argument('--caacp', type=int, default=0)
     parser.add_argument('--caacp_score_mode', type=str, default='rank', choices=['rank', 'cp'])
+    parser.add_argument('--caacp_residual_mode', type=str, default='current', choices=['current', 'avg_anchor'])
     parser.add_argument('--frh', type=int, default=0)
+    parser.add_argument('--fs_tar', type=int, default=0)
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
@@ -173,11 +175,13 @@ def main():
         if args.arch == "casa_tvim_str":
             cli = {"arch": "casa_tvim_str", "backbone": "tinyvim_s_slim",
                    "caacp": args.caacp, "caacp_score_mode": args.caacp_score_mode,
-                   "frh": args.frh, "rep_mode": args.rep_mode,
-                   "str_dim": args.str_dim}
-            # Run1 旧版 arch.json 无 caacp_score_mode/frh（当时默认 rank/0）→ 补齐默认后比较
+                   "caacp_residual_mode": args.caacp_residual_mode,
+                   "frh": args.frh, "fs_tar": args.fs_tar,
+                   "rep_mode": args.rep_mode, "str_dim": args.str_dim}
+            # Run1/Run2 旧版 arch.json 无新字段 → 按当时默认补齐后比较
             arch_cmp = dict(arch)
-            for k, v in (("caacp_score_mode", "rank"), ("frh", 0)):
+            for k, v in (("caacp_score_mode", "rank"), ("caacp_residual_mode", "current"),
+                         ("frh", 0), ("fs_tar", 0)):
                 if k not in arch_cmp:
                     arch_cmp[k] = v
             if arch_cmp != cli:
@@ -205,7 +209,9 @@ def main():
         torch.backends.cudnn.deterministic = True
         model = CASATViMSTRNet(args.tinyvim_pretrained_weight_path, caacp=bool(args.caacp),
                                rep_mode=args.rep_mode, str_dim=args.str_dim,
-                               caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh)).float()
+                               caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
+                               caacp_residual_mode=args.caacp_residual_mode,
+                               fs_tar=bool(args.fs_tar)).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)

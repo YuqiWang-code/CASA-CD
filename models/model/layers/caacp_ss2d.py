@@ -89,13 +89,19 @@ class CAACPSS2D(SS2D):
     score_mode:
       "rank" — Run1 公式 w ∝ eps + rank（默认，向后兼容）；
       "cp"   — Run2 CP 公式 w ∝ 1 + s·r（confidence-preserving）。
+    residual_mode（Run3 E4 RA-CAACP）:
+      "current"    — res = x - Up(c)（官方结构；change-aware c 同时进 SS2D 与 residual 扣除）
+      "avg_anchor" — res = x - Up(c_avg)（RA：residual 永远锚定官方均匀 context，
+                     保护 dense 高频残差不被 change-aware pooling 减掉；β=0 两者等价）
     """
 
-    def __init__(self, eps=1e-6, score_mode="rank", **kwargs):
+    def __init__(self, eps=1e-6, score_mode="rank", residual_mode="current", **kwargs):
         assert kwargs.get("index", -1) == 2, "CAACP only applies to Stage3 (index=2) final TViM"
         assert score_mode in ("rank", "cp")
+        assert residual_mode in ("current", "avg_anchor")
         super().__init__(**kwargs)
         self.score_mode = score_mode
+        self.residual_mode = residual_mode
         self.beta = nn.Parameter(torch.zeros(1))
         self._pair_score = None
         self._pair_abs = None
@@ -164,7 +170,13 @@ class CAACPSS2D(SS2D):
                 c = c_avg + self.beta * (c_ca - c_avg)
             else:
                 c = c_avg
-            res = x0 - F.interpolate(c, (H, W), mode='nearest')
+            # RA-CAACP（Run3 E4）：residual 锚定 c_avg（官方均匀 context），
+            # 使 change-aware c 只进 SS2D、不从 dense residual 中扣除高频证据；
+            # β=0 时两种模式与官方 TinyViM 逐位一致。
+            if self.residual_mode == "avg_anchor":
+                res = x0 - F.interpolate(c_avg, (H, W), mode='nearest')
+            else:
+                res = x0 - F.interpolate(c, (H, W), mode='nearest')
             x_low = c
 
         x_low = cross_selective_scan(
