@@ -535,6 +535,32 @@ binary change detection in remote sensing images.
 > - 实现：`models/model/layers/caacp_ss2d.py`（CP 公式）、`models/model/str_fine_head.py`（FRH）、
 >   `models/model/casa_tvim_str_net.py`（接线）；脚本：`train_scripts/CASA-TViM/Run2/`。
 
+## 实验结果（CASA-TViM Run3 · SYSU 小目标瓶颈定向，训练中）
+
+> 按
+> [`docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md`](docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md)
+> 执行。复盘结论：Run2 的 E1/E2/E3 在 SYSU 都是 Recall 被压掉 3.5~4.3pp（Precision 反升），
+> 交互项全非负 → 不是优化冲突，而是**机制/尺度错配**；SYSU 最大缺口 = small components
+> （<256px）F1 0.1796，这类目标在 1/16 已是 sub-token。
+>
+> - **E4 RA-CAACP（创新一升级，0 参数）**：residual 从 `x−Up(c)` 改为 `x−Up(c_avg)`——
+>   change-aware context 只进 SS2D、不再从 dense residual 中扣除高频证据（保护小目标）。
+> - **E5 FS-TAR（创新二升级，+73,728 deploy ≈ 4.954M）**：stage1（1/4）TemporalRep1x1 →
+>   TemporalRepFine3x3（signed-diff 分支变 3×3，在 tiny target 仍可解析的 1/4 尺度提前
+>   提取双时相空间邻域差异），deploy 折叠为单 3×3 Conv。
+>
+> 开训前证据链：**Z1/Z2 零成本复盘确认 H-E1/H-E2**——E1/E2/E3 的 SYSU small Recall
+> 全部掉到 0.153~0.159（Precision 略升），weak-positive suppression 签名明确
+> （`docs/temporary/run3_z12_summary.md`）；smoke T-CA-9/10 全绿（β=0 逐位、fold 0 误差、
+> deploy 4,953,918 ≤5M）。8 个 80K（2 波 × 4 数据集）训练中；预注册条件见
+> `train_scripts/CASA-TViM/Run3/README.md`（E4：SYSU F1>83.47/Recall≥84.41/small≥0.195；
+> E5：SYSU F1≥83.80/small≥0.205/LEVIR≥91.20，CDD/WHU 均不退）。
+>
+> | 变体 | residual | fs_tar | CDD | LEVIR | SYSU | WHU | 状态 |
+> |---|---|---|---:|---:|---:|---:|---|
+> | E4_RA_CAACP | avg_anchor | 0 | — | — | — | — | Wave1 训练中 |
+> | E5_FS_TAR | current | 1 | — | — | — | — | 待 Wave1 |
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
