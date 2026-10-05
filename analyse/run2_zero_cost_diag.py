@@ -54,6 +54,8 @@ VARIANT_CFG = {
     "E1_CP_CAACP": dict(caacp=True, rep_mode="full", score_mode="cp"),
     "E2_FRH": dict(caacp=True, rep_mode="full", frh=1),
     "E3_CP_FRH": dict(caacp=True, rep_mode="full", score_mode="cp", frh=1),
+    "E4_RA_CAACP": dict(caacp=True, rep_mode="full", residual_mode="avg_anchor"),
+    "E5_FS_TAR": dict(caacp=True, rep_mode="full", fs_tar=1),
 }
 
 
@@ -250,7 +252,9 @@ def main():
             model = CASATViMSTRNet(
                 PRETRAIN, caacp=cfg["caacp"], rep_mode=cfg.get("rep_mode", "full"),
                 caacp_score_mode=cfg.get("score_mode", "rank"),
-                frh=bool(cfg.get("frh", 0))).to(device).eval()
+                frh=bool(cfg.get("frh", 0)),
+                caacp_residual_mode=cfg.get("residual_mode", "current"),
+                fs_tar=bool(cfg.get("fs_tar", 0))).to(device).eval()
             model.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=False))
             tag = f"{ds}/{variant}"
             d1 = run_d1(model, loader, device) if cfg["caacp"] else None

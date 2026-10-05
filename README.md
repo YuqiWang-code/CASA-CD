@@ -535,7 +535,7 @@ binary change detection in remote sensing images.
 > - 实现：`models/model/layers/caacp_ss2d.py`（CP 公式）、`models/model/str_fine_head.py`（FRH）、
 >   `models/model/casa_tvim_str_net.py`（接线）；脚本：`train_scripts/CASA-TViM/Run2/`。
 
-## 实验结果（CASA-TViM Run3 · SYSU 小目标瓶颈定向，训练中）
+## 实验结果（CASA-TViM Run3 · SYSU 小目标瓶颈定向，已完成）
 
 > 按
 > [`docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md`](docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md)
@@ -550,16 +550,31 @@ binary change detection in remote sensing images.
 >   提取双时相空间邻域差异），deploy 折叠为单 3×3 Conv。
 >
 > 开训前证据链：**Z1/Z2 零成本复盘确认 H-E1/H-E2**——E1/E2/E3 的 SYSU small Recall
-> 全部掉到 0.153~0.159（Precision 略升），weak-positive suppression 签名明确
-> （`docs/temporary/run3_z12_summary.md`）；smoke T-CA-9/10 全绿（β=0 逐位、fold 0 误差、
-> deploy 4,953,918 ≤5M）。8 个 80K（2 波 × 4 数据集）训练中；预注册条件见
-> `train_scripts/CASA-TViM/Run3/README.md`（E4：SYSU F1>83.47/Recall≥84.41/small≥0.195；
-> E5：SYSU F1≥83.80/small≥0.205/LEVIR≥91.20，CDD/WHU 均不退）。
+> 全部掉到 0.153~0.159（`docs/temporary/run3_z12_summary.md`）；smoke T-CA-9/10 全绿。
 >
-> | 变体 | residual | fs_tar | CDD | LEVIR | SYSU | WHU | 状态 |
-> |---|---|---|---:|---:|---:|---:|---|
-> | E4_RA_CAACP | avg_anchor | 0 | — | — | — | — | Wave1 训练中 |
-> | E5_FS_TAR | current | 1 | — | — | — | — | 待 Wave1 |
+> | 变体 | CDD | LEVIR | SYSU | WHU | 状态 |
+> |---|---|---:|---:|---:|---|
+> | E4_RA_CAACP | 97.13 / 94.42（−0.05） | 91.07 / 83.60（±0.00） | 83.16 / 71.17（−0.31） | 95.02 / 90.50（−0.05） | **FAIL**（CDD/WHU/SYSU 三硬条件未过） |
+> | E5_FS_TAR | 97.13 / 94.43（−0.05） | 91.18 / 83.78（**+0.11**） | 83.24 / 71.29（−0.23） | 94.91 / 90.31（−0.16） | **FAIL**（硬条件 + small 均未过） |
+>
+> **Run3 结论（8/8 全部完成，全部 disagree 带内、deploy 4.880/4.954M ≤5M）**：
+> 1. **E4/E5 均 FAIL 预注册条件**（`docs/temporary/run3_report.md` 全条件裁决）。按复盘文档
+>    §13/§14 决策树：**停 RA 线**（不再调 Stage3 residual/β/叠 CP）、**不再扩大 spatial kernel**。
+> 2. **两个关键负结果（机制证据价值高）**：
+>    - RA 把 SYSU small 从 0.1796 微抬到 **0.1842**（E1~E5 五个改动中最高），但整体 Recall
+>      −3pp——**推翻"residual cancellation 是 small 主因"**：change-aware c 参与 residual
+>      减法恰恰是 CAACP 高 Recall 的来源（D2 复测 small R 0.1663 vs M1）。
+>    - FS-TAR 的 1/4 尺度 3×3 signed-diff 未恢复 tiny evidence（small R 0.1477 反而最低）——
+>      **空间核扩大不是解**，问题在更早的语义编码层。
+> 3. **五轮结构尝试（E1~E5）稳定模式**：LEVIR 0~+0.22（始终 ≤+0.25）、SYSU 全部
+>    −0.23~−0.62——M1 仍是 SYSU 最优模型；score/头/残差/时相核四个方向的"后端修正"
+>    已系统性耗尽。
+> 4. **下一步（决策树指向）**：**S2-HCAACP**（CAACP 前移 Stage3→Stage2/1/8，small 在 1/8
+>    仍有 <4 cells 可解析，先验 SYSU +0.25~+0.65）与 **SP-DCR**（删末端第二个 DW3，
+>    减少 spatial mixing 压制弱响应，先验 +0.15~+0.45）——两者都在"保护小目标正证据"
+>    主线上，各自单变量、不叠模块。
+> - 报告：`docs/temporary/run3_report.md`；Z 复盘：`docs/temporary/run3_z12_summary.md`；
+>   脚本：`train_scripts/CASA-TViM/Run3/`。
 
 ## 参考文献
 
