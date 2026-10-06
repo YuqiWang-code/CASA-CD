@@ -1,11 +1,11 @@
 ## GitHub 更新（手动操作）
 
-代码或文档更新后，手动同步到 GitHub（提交信息统一用 `update code`）：
+代码或文档更新后，手动同步到 GitHub：
 
 ```bash
 cd f:/Code_Repositories_2/CursorCode/CASA-CD
-git add models/ train_scripts/ analyse/ docs/ others/ README.md .gitignore
-git commit -m "update code"
+git add -A
+git commit -m "<描述性提交信息>"
 git push origin main
 ```
 
@@ -17,486 +17,122 @@ git push origin main
 
 # CASA-CD
 
-Change-Aware Selective Aggregation Network for ultra-lightweight fully-supervised
-binary change detection in remote sensing images.
+CASA-TViM-STRNet：超轻量遥感二值变化检测（变化感知上下文聚合 + 结构重参数化）。
 
-硕士课题：极轻量遥感二值变化检测中的变化感知非对称 Token 建模。路线记录见
-[`docs/temporary/CASA-CD_研究路线_ChatGPT方案记录.md`](docs/temporary/CASA-CD_研究路线_ChatGPT方案记录.md)，
+硕士课题：极轻量遥感二值变化检测。当前主线 **CASA-TViM-STRNet** =
+TinyViM-S-Slim（ICCV 2025 主干瘦身版）+ CAACP-SS2D（创新一）+ TAR/DCR（创新二），
+deploy 4.880M ≤5M。早期路线（ChangeViT baseline / CASAA / UltraLight / STR-Fusion /
+CASA-STR/SHViT）已全部归档——历史实验记录见 git 历史、
+`docs/temporary/过去的想法/` 与 `docs/experiment_metrics.xlsx`（历史 sheet 行），
+本 README 只保留当前主线。
 服务器与数据规范见
 [`docs/RSML-3_服务器环境与变化检测数据统一说明.md`](docs/RSML-3_服务器环境与变化检测数据统一说明.md)。
 
 ## 研究定位与约定
 
-- **方法创新导向**：这是研究生论文课题，核心是方法创新（变化感知非对称 token 建模 + 极轻量结构），
+- **方法创新导向**：核心是方法创新（变化感知上下文聚合 + 结构重参数化），
   不做工程化堆叠，也不把 loss 调参 / 训练技巧包装成创新贡献。
 - **最终硬目标（必须同时全部达到）**：四数据集 F1——**SYSU ≥85、LEVIR ≥92.5、
-  WHU ≥95、CDD ≥98**（IoU 与 F1 同方向）；同时满足：**有效推理参数 ≤5M**
-  （2026-10 由 <3M 放宽；Run1–Run9 与 STRFusion Run1 的历史记录保持当时的
-  <3M 口径不变）、本 README 与各方案文档已写明的全部约束（训练协议、单 seed、
-  预注册 gate、不改 loss 等），以及**创新性、故事性、可解释性、轻量化**四项要求。
-- **从头训练纪律（2026-10 起）**：每个实验（主实验与全部消融对照）**一律从头训练**——
-  同一 ImageNet 预训练权重 + 固定 seed 构建后完整 80K，禁止用任何已有 checkpoint
-  微调/续训作为实验组；实验目的是**证明模块本身的有效性**（唯一变量、C0 对照 +
-  M1 主实验），不是工程化堆 SOTA。
-- **单 seed**：当前阶段只用单 seed 验证有效性与创新性，不做多 seed 统计显著；如需论文级结果，再按需补充。
-- **训练协议**：沿用 ChangeViT 官方协议（BCE+Dice、poly LR、max_steps=80000、seed 16），
-  **test 集当验证集、每 epoch 在 test 上挑 best**，与本实验室其它 CD 项目一致。
+  WHU ≥95、CDD ≥98**（IoU 与 F1 同方向）；同时满足：**有效推理（deploy）参数 ≤5M**、
+  训练协议（BCE+Dice、Adam 2e-4、poly+200 warmup、80K、batch 32、seed 16、
+  test-as-val、threshold 0.5）、单 seed、预注册 gate、不改 loss/增广/阈值，
+  以及**创新性、故事性、可解释性、轻量化**四项要求。
+- **从头训练纪律**：每个实验（主实验与全部消融对照）一律从头训练——同一 ImageNet
+  预训练权重 + 固定 seed 构建后完整 80K，禁止用已有 checkpoint 微调/续训作为实验组；
+  实验目的是证明模块本身的有效性（唯一变量），不是工程化堆 SOTA。
+- **单 seed**：当前阶段只用单 seed 验证有效性与创新性，不做多 seed 统计显著。
+- **结构改动纪律**：新模块 β/γ/aux 分支一律零初始化（epoch-0 与官方预训练逐位一致）；
+  重参数化分支必须可折叠为单卷积并通过 train↔deploy 等价性 smoke
+  （0.5 二值 disagreement = 0）；CAACP 只允许改 Stage3 末个 TViM 的低频池化。
 
 ## 方法
 
-- **Baseline：ChangeViT-Tiny**（Pattern Recognition 2025）：Plain ViT（DeiT-Tiny 预训练）+
-  ResNet18 detail-capture branch + Feature Injector + Decoder。
-- **参数量口径**：官方代码的 ResNet18 含未参与前向的 `layer4+fc`（死参数 ~8.9M），
-  我们复现保持官方代码原样，日志报总参数 **20.66M** / FLOPs **26.32G**；
-  论文表格的 11.68M 是按有效参数统计（ViT 5.54M + ResNet≤layer3 2.78M + Decoder 3.44M ≈ 11.76M），
-  两者前向计算完全一致，FLOPs 吻合（26.32G ≈ 论文 27.15G）。CASA-CD 轻量化时再删死参数。
-- **CASA-CD 计划（baseline 复现后推进）**：
-  - **CASAA**（Change-Aware Asymmetric Token Modeling，灵感来自 SAT, CVPR 2026）：
-    完整保留 Query（逐位置判别能力不变），只压缩提供上下文的 K/V；疑似变化 token 保留、
-    稳定背景 token 强聚合，注意力交互量 `O(N²) → O(NK), K≪N`。已实现为 Paired
-    Late-Stage CASAA（ViT blocks 8-11，K=64=Kc32 直保留+Kb32 背景聚类，**零新增参数**）。
-    **终局（Run1-3，2026-09-29）**：change-aware router 按预注册停止规则终止——
-    Oracle（GT 路由）证明机制上限 SYSU +1.48，但 cosine / detail / rank-fused 三个可部署
-    信号都无法转化为 F1 收益（detail-only 相对 A1 −0.12）；留存结论：冻结 ViT 下
-    Full-Q + K=64 content 压缩基本无损（A1），论文中降为 analysis/ablation。
-  - **Ultra-Light Multi-Scale Change Representation（主线二，Run9 收束）**：
-    目标 `<3M` 有效推理参数（**当时口径；2026-10 已放宽至 ≤5M**）+ 四数据集硬目标（SYSU 85 / LEVIR 92.5 / WHU 95 /
-    CDD 98）。Run4-9 共七轮结构搜索（自定义 detail×3 / MobileNet prefix / P0
-    重建 / B2 截断 / B4-only / O-PRE 采样格变密）全部被各自的预注册零训练 gate
-    否决——**正式 80K 总消耗始终只有 1 个（R4-2d）**；`<3M` 终模型与四数据集
-    硬目标均未达成。最新一轮（Run9 B4-OPRE）结果见
-    [`docs/temporary/CASA-CD_Run9_可执行预注册方案.md`](docs/temporary/CASA-CD_Run9_可执行预注册方案.md)、
-    [`docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md`](docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md)。
+**CASA-TViM-STRNet**（deploy 4,880,190 参数 / FLOPs 2.93G / 256² 输入）：
 
-- 模型入口：`models/train.py`（训练）、`models/eval.py`（独立测试）、`models/smoke_test.py`（冒烟）
-- 网络定义：`models/model/`（encoder / decoder / layers / resnet，上游 ChangeViT 微调）
-- 损失 `BCE + Dice`；`max_steps=80000`，batch 16，256×256，seed 16，lr 2e-4（poly）
-- 日志：开头输出全部配置 + 总参数量 + 可训练参数量 + FLOPs(G)；每 epoch 一行
-  （Loss + Recall/Precision/OA/F1/IoU/Kappa）；结尾 `=== TEST RESULTS ===` 正式测试区块
+```
+[A;B] (2B) → TinyViM-S-Slim shared
+    stem → F1(1/4,48) → F2(1/8,64) → stage2 prefix(1/16,168)
+    → [CAACP 共享 score] → stage2 final TViM → F3(1/16,168)
+    → slim stage4 → F4(1/32,224)
+per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
+    → DCRDecoder(D=96) → head Conv1x1 → bilinear → sigmoid
+```
 
-## 实验结果（Baseline Run1）
-
-> ChangeViT-T（官方协议：BCE+Dice、poly LR、max_steps=80000、batch 16、seed 16，加载
-> `deit_tiny_patch16_224-a1311bcf.pth`）在 4 数据集的复现，**全部完成**。
-
-| 数据集 | ChangeViT-T 官方 (F1) | 复现 F1 | IoU | OA | Kappa | 说明 |
-|---|---|---|---|---|---|---|
-| CDD | — | **97.75** | 95.60 | 99.44 | 97.43 | 官方未评测 CDD |
-| LEVIR | 91.81 | **91.95** | 85.10 | 99.18 | 91.52 | 建筑小目标、极不平衡 |
-| SYSU | — | **82.48** | 70.19 | 91.91 | 77.23 | 官方未评测 SYSU |
-| WHU | 94.53 | **94.84** | 90.18 | 99.60 | 94.63 | 建筑小目标、极不平衡 |
-
-- 官方评测过的两个数据集复现均略高于论文：LEVIR 91.95 vs 91.81（+0.14，IoU 85.10 vs 84.86）、
-  WHU 94.84 vs 94.53（+0.31，IoU 90.18 vs 89.63）——复现成立（差异主要来自 label 阈值
-  gray≥128 与数据集版本）。
-- 复杂度：TOTAL 20.661M（含死参数）/ **EFFECTIVE 11.754M**（论文口径 11.68M）/ FLOPs 26.32G（论文 27.15G）。
-- SYSU 运行期间与 STR-RepNet 的新任务挤 GPU0，触发 196 次 OOM 自动断点续训（协议未变，
-  每个 epoch 均为完整训练，崩溃只丢半截 epoch），最后在 GPU1 上跑完。该结果为官方协议下
-  的有效结果；如需更干净对照，可在空卡上重跑 SYSU。
-
-## 实验结果（CASAA Run1）
-
-> Paired Late-Stage CASAA：ChangeViT-T 最后 4 个 ViT block（0-based 8-11）换成
-> 变化感知非对称注意力——**Full Q（N=256，逐位置判别不变）+ 压缩 K/V（K=64）**：
-> A2 主方法 `router=change`（Kc=32 change-score TopK 直保留 + Kb=32 共享背景聚类），
-> A1 对照 `router=content`（K=64 纯内容聚类，SAA-style）。routing 参数自由、
-> 确定性、T1/T2 对称；qkv/proj 原位继承 DeiT-Tiny 预训练，**零新增参数**；
-> 训练协议与 baseline 完全一致（BCE+Dice、poly、80000 steps、batch 16、seed 16）。
-> 实现：`models/model/layers/casaa.py`；脚本：`train_scripts/CASAA/Run1/`。
-> 实验设计与判据：`docs/temporary/CASA-CD_CASAA_Run1_修改与实验设计建议.md`。
-
-| 变体 | LEVIR F1 | LEVIR IoU | SYSU F1 | SYSU IoU | 说明 |
-|---|---:|---:|---:|---:|---|
-| baseline（已有） | **91.95** | 85.10 | 82.48 | 70.19 | ChangeViT-T 复现 |
-| A1 SAA-style（对照） | 91.94 | 85.08 | **82.50** | 70.21 | K=64 纯内容聚类，无变化感知 |
-| A2 CASAA（主方法） | 91.86 | 84.94 | 82.35 | 70.00 | Kc=32 直保留 + Kb=32 背景聚类 |
-
-- 复杂度：参数 11.754M 不变（零新增）；FLOPs 26.2593G（baseline 26.3246G）；
-  4 个 run 均 0 retry、无 OOM。完整日志：`outputs/CASAA/Run1/`。
-- **机制结论**：
-  1. **A1 ≈ baseline**（LEVIR −0.01 / SYSU +0.02）→ 晚阶段把 K/V 压到 25% 基本无损，
-     「压缩冗余上下文」成立；
-  2. **A2 ≈ A1 且略低**（−0.08 / −0.15）→ 参数自由的 cosine 变化路由未带来可测的
-     额外收益，change-aware 的机制价值在 Run1 设定下未被证明（单 seed，±0.15 属噪声量级）。
-- **筛选判据（设计文档 §16）未通过**：A2 未优于 baseline，也未优于 A1，故按预注册
-  规则**未启动** CDD/WHU 补全。下一步候选（§17 预设路径）：keep_ratio 0.5 /
-  只改最后 2 个 block / adaptive change quota / 更换更敏感的 change 信号。
-
-- **⚠️ Run1 重要勘误（2026-09-28 发现）**：官方协议（统一 lr=2e-4）会把 ViT 在
-  ~1600 steps 内训练成**精确零权重**（Adam 小梯度全步长 + 归零后梯度消失的吸收态）。
-  核验全部 Run1 checkpoint：LEVIR/CDD/WHU 的 ViT 150/150 键全零（optimizer 矩也全零），
-  SYSU 仅 best 检查点健康——**Run1 的 LEVIR 数字全部来自「死 ViT」模型，不检验
-  CASAA**；SYSU 的比较仅在 best（epoch 9）附近有效。Run2 起全部改为
-  `--freeze_vit 1`（冻结 ViT）重做机制实验。详见
-  [`docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`](docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md)。
-
-## 实验结果（CASAA Run2）
-
-> 冻结 ViT 的 Oracle 机制诊断（A3，DIAGNOSTIC-ONLY，GT patch occupancy 路由）。
-> 背景：Run1 后证实官方协议会把 ViT 训练成零权重（见上节勘误与
-> `docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`），Run2 起全部 `--freeze_vit 1`，
-> 唯一变量 = router。实现：`models/model/layers/casaa.py`（qkv 切片投影 + oracle
-> 路由 + 诊断统计）、`analyse/casaa_router_diagnostic.py`（Router Audit）；
-> 脚本：`train_scripts/CASAA/Run2/`。
-
-| 变体 | LEVIR F1 / IoU | SYSU F1 / IoU | 说明 |
-|---|---:|---:|---|
-| baseline Run1（训练 ViT） | 91.95 / 85.10 | 82.48 / 70.19 | LEVIR 死 ViT，SYSU best 有效 |
-| A1 content-only（冻结 ViT） | 91.84 / 84.91 | 82.04 / 69.55 | Run2 有效对照 |
-| **A3 Oracle（冻结 ViT，诊断）** | 91.88 / 84.98 | **83.52 / 71.70** | GT occupancy 路由，不可部署 |
-
-- **判据（决策文档 §4.5）：通过。** Oracle 相对 A1：SYSU **F1 +1.48**（门槛 +0.30）、
-  IoU +2.15 同向；LEVIR +0.04（未降超 0.15）。冻结 ViT + Oracle（83.52）甚至超过
-  完全训练的 baseline（82.48）——「知道变化在哪」比训练 ViT 本身更值钱。
-- **收益分布**：只在 SYSU（密集变化，中位变化 patch 50）出现；LEVIR（54% 图像零变化）
-  上 Oracle 几乎无增益——机制在「变化真正存在且多」时有效。
-- **Router Audit（冻结健康 ViT）**：cosine 分数质量明显不足——Spearman 0.10-0.29、
-  Top32 precision 0.13-0.39；SYSU 真实变化 patch 数 P10=11/P50=50/P90=182，
-  固定 Kc=32 严重错配。→ 结论：**机制有价值，瓶颈在 deployable change signal**。
-- **下一步（预注册分支 A）**：CASAA-v2 = Detail-guided parameter-free score
-  （已有 1/8 detail 特征 32×32→AvgPool→16×16 的 `1−cos(d̄1,d̄2)` 与 ViT cosine 分数
-  rank 归一化 1:1 融合，零新增参数/零新 loss），仍 K=64/Kc=32、冻结 ViT，
-  `train_scripts/CASAA/Run3/`，LEVIR+SYSU。
-
-## 实验结果（CASAA Run3）
-
-> 可部署信号终局（冻结 ViT，Router Audit gate → detail-only 救援 run）。
-> 实现：`router=detail_fused`（0.5R(ViT cosine)+0.5R(detail 1/8 cosine)）与
-> `router=detail`（纯 detail）；detail 1/8 = resnet.layer3 32×32 → AvgPool → 16×16。
-> 脚本：`train_scripts/CASAA/Run3/`；决策：`docs/temporary/CASA-CD_CASAA-v2_A4_Run3审查与主线二启动方案.md`。
-
-- **Router Audit（SYSU）**：fused 未过 gate（PR-AUC +0.014 < 0.03、Spearman −0.052）；
-  detail-only 明显优于 ViT cosine（PR-AUC +0.059、Top32 precision 0.39→**0.63**、
-  coverage 0.24→**0.46**）→ 按决策树只做 1 个 SYSU detail-only 80K。
-- **A4-D 最终（SYSU）**：F1 **81.92** vs A1 82.04（−0.12，判据 ≤82.19 → **失败**）。
-- **完整证据链（SYSU，相对 A1）**：ranking Top32 precision 0.39 → −0.15；
-  0.63 → −0.12；1.0（oracle）→ +1.48——可部署 ranking 提高 60% 未转化为 F1 收益，
-  机制只在 ranking 接近完美时有效。→ **按预注册规则停止 change-aware router 迭代，
-  转主线二**（见下节）。
-
-## 实验结果（Run4 · 主线二极轻量结构）
-
-> UL-V4：TinyViT4-192（DeiT prefix-4 原位继承 + pos_embed 14×14→16×16 插值，
-> corrected loader）+ 逐组件轻量化。全部冻结 ViT、BCE+Dice、80000 steps、batch 16、
-> seed 16、test-as-val；只用 GPU1；脚本：`train_scripts/UltraLight/Run4/`。
-
-| Run（SYSU） | 结构变化 | F1 | IoU | Params | FLOPs | 判据 |
-|---|---|---:|---:|---:|---:|---|
-| R4-0 A0_FULL12_FROZEN | 健康 full12 冻结参考 | **83.14** | 71.14 | 11.754M | 26.32G | 参考 |
-| R4-1 VIT4_OLDHEAD | depth 12→4 | 82.77 | 70.61 | 8.195M | 24.10G | **通过**（ΔF1 −0.37 ≥ −0.50） |
-| R4-2 VIT4_LIGHTDETAIL | ResNet→LightDetail 32/64/128 | 82.30 | 69.92 | 5.492M | **10.73G** | 未过（ΔF1 −0.47 > −0.30） |
-| R4-2b LIGHTDETAIL48 | 预注册容量 fallback 48/96/160 | 82.32 | 69.95 | 5.533M | 10.98G | 未过（ΔF1 −0.45） |
-| R4-D0 DETAIL_AUDIT | 无训练 feature interface audit | — | — | — | — | 判定 **C** → 跳过 adapter，走 PSD |
-| R4-2d PSD_DETAIL | PSD-Detail 0.078M（pretrained stem + residual DS） | 82.02 | 69.52 | 5.491M | 11.52G | **未过**（ΔF1 −0.75 > −0.30）→ Stop-3 |
-
-- 关键事实：4-block 冻结 prefix（82.77）已超过 trained baseline（82.48）与全部
-  CASAA 冻结模型；corrected loader 的健康 full12 参考 = **83.14**（新基线）。
-- **R4-D0 审计结论（2026-09-30）**：用 R4-1/R4-2/R4-2b best checkpoint 在完整 SYSU
-  test 上对比三尺度 detail feature 的变化判别能力（PR-AUC/Spearman/Top32）——
-  浅层 1/2 尺度 Light raw ≥ ResNet（0.555 vs 0.547），但 1/4、1/8 深层 raw 崩坏
-  （PR-AUC 0.32 量级 vs ResNet 0.63/0.65，仅略高于随机基率）；adapter 前后变化
-  ≤0.03、width bump 远不足以弥补 → **不是 adapter 问题，是随机初始化 + 无 residual +
-  先 DW 降采样后混合的表达力问题**。预注册规则 A=0/3、B=1/3 → 判定 C →
-  按规则直接进入 R4-2d PSD_DETAIL（adapter 修补 R4-2c 永久停止）。详见
-  [`docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md`](docs/temporary/CASA-CD_Run4_R4-D0审计结果与R4-2d启动.md)。
-- **R4-2d PSD 最终结果（2026-09-30）**：F1 **82.02** / IoU 69.52（Recall 79.78 /
-  Precision 84.39 / OA 91.75 / Kappa 76.68；5.491M / 11.52G），gate FAIL
-  （ΔF1 −0.75 vs R4-1）——PSD 反而比随机初始化 LightDetail 低 0.28。训练证据排除
-  欠训练（best@epoch64，末段无上升趋势）。**按预注册 Stop-3 终止轻量 detail 路线
-  （不启动 SABI/DFPD），Run4 正式收束**；Run5 候选方向（预算重分配 / 成熟超轻
-  pretrained 子层 / 去掉独立 detail 分支）需重新预注册。详见
-  [`docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md`](docs/temporary/CASA-CD_Run4_R4-2d_PSD结果与轻量detail路线终止.md)。
-- Run4 留存正面资产：健康 full12 frozen 参考 83.14、depth-4 证据（12→4 block 仅
-  −0.37 F1、−3.56M 参数）、R4-D0 无训练 feature 诊断方法（可复用于 Run5 筛选）。
-
-## 实验结果（Run5 · 成熟预训练 MicroDetail + SGDP）
-
-> Run5 方案：`docs/temporary/CASA-CD_Run5_成熟预训练MicroDetail_SGDP可执行方案.md`；
-> 脚本：`train_scripts/UltraLight/Run5/`。R5-D0 无训练 audit 已跑完 → **Mobile raw
-> gate FAIL → 按预注册规则 Run5 候选② 永久停止（未启动任何 80K）**。结果与 Run6
-> 决策叉见
-> [`docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md`](docs/temporary/CASA-CD_Run5_R5-D0结果与Run5停止.md)。
-
-| Run（SYSU） | 结构变化 | F1 | IoU | Params | FLOPs | 判据 |
-|---|---:|---:|---:|---:|---:|---|
-| R5-D0 MOBILE_AUDIT | MobileDetail-P3 raw gate（无训练） | — | — | — | — | **FAIL**（D4 PR 0.4831<0.50，其余 3/4 项过） |
-
-- R5-D0 关键数字（完整 test 4000 对）：Mobile 1/4 PR-AUC 0.4831（门槛 0.50）、
-  1/8 0.5317（0.52）、Top32 prec 0.5006/0.5105（0.46/0.48）——3/4 子门槛过、
-  1/4 PR 差 0.017，按预注册规则**不放行**（这是 raw gate 省 80K 的设计目的）。
-  MobileDetail 仍是迄今最强非 ResNet detail（1/4 比 Light48 高 0.087，达 ResNet 77%）。
-- Postmortem 附加结论：① H2 强支持「PSD 失败主因是 pretrained stem 被重写」
-  （PSD conv rel_L2 0.639 vs R4-1 0.211）；② H1 否定「adapter 关键」假设
-  （TileAdapter ΔF1 仅 −0.013）；③ 发现旧 FI 的零权重吸收：R4-1 参考模型的 FI
-  只有 1/8 一路注入活跃（1/2、1/4 权重精确归零）——legacy head 下的 detail 对照
-  并非严格同接口比较，已记入研究记录。
-- 代码：`models/model/mobile_detail.py`（10,488 参数，ImageNet 原位继承）、
-  `models/model/sgdp_head.py`（115,267 参数，FLOPs 1.68G 达标，Run6 可复用）；
-  审计：`analyse/run5_postmortem_and_mobile_audit.py`。
-- **下一步（Run6，需重新预注册）**：ViT semantic 参数预算重分配（更浅/更窄 ViT
-  腾预算、或去掉独立 detail、或换 semantic 源），先做零训练 raw gate 再决定 80K。
-
-## 实验结果（Run6 · ViT 语义预算重分配）
-
-> Run6 方案：`docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md`；
-> 脚本：`train_scripts/UltraLight/Run6/`。**R6-D0 零训练 gate FAIL → 按预注册规则
-> 路线永久停止（未实现 PTPR、未启动任何 80K）**。完整记录见
-> [`docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md`](docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md)。
-
-| Run（SYSU） | 内容 | 判据 |
-|---|---|---|
-| R6-D0 SEMANTIC_TOKEN_AUDIT | P0/B1-B4/B12/Fuse token 级 raw gate（无训练） | **FAIL**（G1 P0 PR 0.3711<0.44；G3 Fuse 0.4753<0.50；G2 B4 PASS 0.6127） |
-
-- 审计有效性：冻结 ViT checksum 逐位一致 ✓；同 run 精确复现 R4-1 ResNet 1/8
-  对照（PR 0.6535 / Top32 0.5948）✓。
-- 关键发现：PatchEmbed raw token（P0）变化判别力弱（PR 0.3711）→「从 pre-position
-  patch token 重建局部细节」假设（H6-A）证伪；P0+B4 参数自由融合反而稀释 B4
-  （0.4753 < 0.6127，H6-B 证伪）；**B4（ViT4 终 token）自身 PR-AUC 0.6127 >
-  B12（full12）0.5143**，shallow ViT 终 token 是合格的 semantic change source。
-- 下一步（需重新预注册）：**semantic source replacement**（候选 3）——
-  更浅 ViT 终 token / MobileNetV3 深层 1/16 语义 / ViT4 中段 block token 等，
-  照 R6-D0 模式先零训练 gate（`analyse/run6_semantic_token_audit.py` 可直接复用）。
-
-## 实验结果（Run7 · CSDP-CD 变化敏感深度金字塔）
-
-> Run7 方案：`docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md`；脚本：
-> `train_scripts/UltraLight/Run7/`。**R7-D0 四数据集零训练 gate FAIL → 按预注册
-> 规则 CSDP-CD 停止（未启动 R7-0/R7-1 任何 80K）**。完整记录见
-> [`docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md`](docs/temporary/CASA-CD_Run7_R7-D0结果与CSDP停止.md)。
-
-| Run | 内容 | 判据 |
-|---|---|---|
-| R7-D0 DEPTH_AUDIT | CDD/LEVIR/SYSU/WHU 的 P0/B1-B4/B12 token ranking（零训练） | **FAIL**（C1=3/4、C2=2/4、C3=4/4） |
-
-- 四数据集 PR-AUC（B2 / B4 / B12）：CDD 0.4164 / **0.4594** / 0.3980；
-  LEVIR **0.2947** / 0.3009 / 0.2465；SYSU 0.6008 / 0.6127 / 0.5143；
-  WHU 0.2660 / 0.3449 / 0.1693 → B2≈B4 只在 SYSU/LEVIR 成立；
-  **B4 为稳健最优语义源，full12 全面劣化，最优 change-sensitive depth
-  是 dataset-dependent**。
-- CSDP head 代码（`models/model/depth_pyramid_head.py`，ViT2+head=1,177,936 参数、
-  FLOPs 0.673G、严格时间交换对称，smoke 全绿）留作资产，未进入训练。
-- 调研文献（2024–2026）见 [`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)，
-  参考代码见 `others/`。
-
-## 实验结果（Run8 · B4-SPE 最终路线）
-
-> Run8 方案：`docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md`；脚本：
-> `train_scripts/UltraLight/Run8/`。**R8-D0 四数据集 dense recoverability gate
-> FAIL → 按预注册规则 B4-only 路线永久停止（未启动任何 80K）；课题实验阶段
-> 正式收束**。完整记录见
-> [`docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md`](docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md)。
-
-| Run | 内容 | 判据 |
-|---|---|---|
-| R8-D0 B4_DENSE_AUDIT | B4 vs B12 像素/边界带 dense recoverability（零训练，四数据集） | **FAIL**（C1=2/4、C2=1/4、C3=4/4） |
-
-- 关键数字（rank(B4/B12) bilinear→256×256 的边界带 PR-AUC lift）：
-  CDD −0.0006、LEVIR +0.0164、SYSU +0.0171、WHU +0.0377——B4 的 token 级
-  优势（R7-D0）在真实边界 ±4px 邻域基本消失 → **ranking quality ≠ detail-free
-  dense reconstruction ability**（ViT-CoMer inner-patch limitation 的实证）。
-- B4-SPE head 代码已实现并通过 T-R8 smoke（2,030,704 参数 / trainable 53,872 /
-  FLOPs 1.2186G / 严格时间对称），作为被 gate 否决的最终候选存档。
-- **课题收束立场**：R4-1（82.77/70.61，8.195M）为最强已验证轻量化结构；
-  论文按分析型收尾（depth/token 双冗余证据 + 五轮负结果 budget allocation study）；
-  `<3M` 终模型未被验证达成（论文中如实声明）。
-
-## 实验结果（Run9 · B4-OPRE）
-
-> Run9 方案：`docs/temporary/CASA-CD_Run9_可执行预注册方案.md`；脚本：
-> `train_scripts/UltraLight/Run9/`。**R9-D0 四数据集 O-PRE 互补性 gate FAIL
-> （G0=0/4、G1=0/4、G3=False）→ 按预注册规则 Run9 停止（0 个 80K）**。
-> 完整记录见
-> [`docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md`](docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md)。
-
-| Run | 内容 | 判据 |
-|---|---|---|
-| R9-D0 OPRE_AUDIT | P0/B4/O-PRE(共享 patch kernel, stride8)/proxy 的像素与边界带 PR-AUC（零训练，四数据集） | **FAIL**（G0=0/4、G1=0/4、G2a=3/4、G2b=1/4、G3=False） |
-
-- 关键数字（边界带 lift）：O-PRE vs canonical P0：CDD +0.0154、LEVIR −0.0094、
-  SYSU +0.0042、WHU −0.0160；proxy vs B4：CDD +0.0171、LEVIR −0.0154、
-  SYSU +0.0038、WHU −0.0361——**改变 patch 采样 lattice 不提供与 B4 互补的
-  边界 evidence**（H9 证伪）。第七轮负结果。
-- B4-OPRE head 代码已实现并通过 T-R9 smoke（2,036,945 参数 / trainable 60,113 /
-  FLOPs 1.5270G / 严格时间对称 / 零新增 encoder 参数），作为被 gate 否决的
-  候选存档，未训练。
-- **七轮负结果后**：正式 80K 总消耗仍只有 1 个（R4-2d）；四数据集硬目标
-  （85/92.5/95/98）远未达成；冻结 ViT 框架内的极小参数 dense 重建路径已被
-  系统排除。下一步需要新的机制假设并重新预注册。
-
-## 实验结果（STR-Fusion Run1 · CASA-CD × STR-RepNet 融合，SF-D0 终止）
-
-> 融合主线：冻结 ViT4 四深度 token 金字塔（B1→64×64 / B2→32×32 / B3→16×16 /
-> B4→8×8）＋ STR-RepNet 的 TAR 二时相 bridge ＋ DCR 可折叠解码器，CASA-CD 协议。
-> 方案：`docs/temporary/CASA-CD_STR融合_Run1_设计与预注册方案.md`；脚本：
-> `train_scripts/STR-Fusion/Run1/`。**SF-D0 四数据集接口 gate FAIL（G1=0/4 且
-> SYSU 必过项未过）→ 按预注册规则终止（0 个 80K，未跑 dry run）**。完整记录见
-> [`docs/temporary/CASA-CD_STR融合_Run1_SF-D0结果与融合主线终止.md`](docs/temporary/CASA-CD_STR融合_Run1_SF-D0结果与融合主线终止.md)。
-
-| Run | 内容 | 判据 |
-|---|---|---|
-| SF-D0 INTERFACE_AUDIT | 多深度 token 金字塔（fuse4/fuse2）vs B4-only 的边界带 PR-AUC（零训练，四数据集） | **FAIL**（G0 PASS；G1=0/4：CDD +0.0100 / SYSU +0.0089 / LEVIR −0.0061 / WHU −0.0090；G2=3/4） |
-
-- **关键结论**：冻结 plain ViT 的 token 流无论取多少个深度做参数自由融合，在真实
-  变化边界 ±4px 邻域都不比 B4-only 多出可辨识证据——**「ranking ≠ dense 重建」
-  （R8-D0）从单深度推广到多深度融合**；可训练折叠解码器（TAR/DCR）无法从
-  16×16 token 网格重建 sub-patch 证据。第八轮负结果。
-- **留存正面资产（全部机器验证）**：折叠等价性 T0/T1/T2/T2b 全过（活分支全模型
-  折叠 5.1e-7/5.4e-7、二值化 disagreement=0）；smoke T-SF-1..8 全过（C0/M1 epoch-0
-  逐位一致、aux 双梯度家族、冻结 checksum、部署分支删除）；预算 G4 PASS——deploy
-  **2,596,353 参数（2.596M < 3M）** / FLOPs **2.2136G**（vs baseline 26.32G）、
-  C0/M1 deploy 参数逐位相等；`skip_init`+本地 Generator 的 RNG 纪律落地。
-  全套实现（`models/model/str_*.py`）与审计工具（`analyse/run1_strfusion_*.py`）
-  存档，供后续预注册复用。
-- 补救方向（可训练 stem 作 fine-scale 源 / 受限解冻 ViT / 放弃融合线）需**重新
-  预注册**，不自动执行；预算口径已放宽至 **≤5M**（见「研究定位与约定」），
-  F1 硬目标不变，所有实验（含消融）一律从头训练。
-
-## 实验结果（STR-Fusion Run2_TASS · Run11，已完成）
-
-> **TASS（Task-Adaptive Spatial Stem）**：冻结 ViT4 语义锚点 + 固定 TAR/DCR +
-> 极小可训练共享 Siamese 空间 stem（1/4–1/16 三尺度 zero-init α 残差注入）。
-> 方案：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`；脚本：
-> `train_scripts/STR-Fusion/Run2_TASS/`。
-> **背景（gate 记录）**：TASS-D0 零训练 raw source gate FAIL（G1=1/4：仅 SYSU
-> +0.0309；G2=2/4）——按预注册曾判停止；**用户决策（2026-10）取消 gate 拦截、
-> 双卡可用、必须训练**，TASS-D0 FAIL 保留为已知负证据、结论不回改。完整记录见
-> [`docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md`](docs/temporary/CASA-CD_Run11_TASS-D0结果与Run11终止.md)。
-
-**正式结果（只认各 train_log.txt 最后一个完整 TEST RESULTS 区块；全部从头 80K，seed 16）**：
-
-| 数据集 | C0_TOKEN F1 | M1_TASS F1 | ΔF1(M1−C0) | M1 Recall/Precision/IoU | 硬目标 | 差距 |
-|---|---|---:|---:|---|---:|---:|
-| SYSU | 0.8215 | 0.8174 | **−0.41pp** | 0.7873 / 0.8498 / 0.6911 | ≥85 | −3.26 |
-| LEVIR | 0.8779 | **0.9016** | **+2.37pp** | 0.8842 / 0.9197 / 0.8208 | ≥92.5 | −2.48 |
-| WHU | 0.9202 | **0.9320** | **+1.18pp** | 0.9164 / 0.9482 / 0.8727 | ≥95 | −1.80 |
-| CDD | 0.9413 | **0.9541** | **+1.28pp** | 0.9470 / 0.9613 / 0.9122 | ≥98 | −2.59 |
-
-- **模块有效性结论（受控 C0/M1，0.858M 参数的 TASS）**：**3/4 数据集正向且
-  Recall/Precision 双升**——LEVIR +2.37pp、WHU +1.18pp、CDD +1.28pp（建筑数据集
-  全部正向，非 STR 历史「置信度锐化」签名）；SYSU −0.41pp（唯一负，轻微锐化）。
-  **TASS 的 task-adaptive spatial residual 在建筑小目标上被证明有效**——与
-  TASS-D0 的「仅 SYSU raw 正信号」形成对照：端到端训练后的空间表征与零训练 raw
-  证据的可行性是两回事。
-- **四数据集硬目标未达**（差距 1.80–3.26pp）：C0 的 token-only 语义路径本身远低于
-  目标（LEVIR 87.79 比冻结 A1 锚点 91.84 低 −4.05pp），TASS 只补回一部分；
-  test-as-val 下 SYSU best 早现（epoch 8）。
-- 硬条件全程合格：VIT checksum 不变、deploy 3.455M ≤5M、FLOPs 3.5459G
-  （baseline 26.32G 的 −87%）、折叠二值化 disagreement 0~1.1e-5。
-- 汇总：`docs/experiment_metrics.xlsx`（8 新行）；快照：
-  `docs/temporary/models_and_metrics_STR-Fusion_Run2_TASS.txt`。
-
-## 实验结果（CASA-STR Run1 · 主线重构，已暂停待分析）
-
-> **主线重构（2026-10 起）**：按
-> [`docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md`](docs/temporary/CASA-CD_主线重构_CASAA_STR_完整调研与实验方案_2026-10-02.md)
-> 最终建议执行——**CASA-STRNet = 预训练 SHViT-S1 截断分层主干（patch_embed + blocks1 + blocks2，
-> 可训练 @0.1×）+ CASAA@1/16（变化感知非对称注意力，K=64=Kc32 变化直保留+Kb32 背景共享聚合，
-> change score 来自 1/8 双时相特征、参数自由）+ TAR 二时相 bridge + DCR 可折叠解码器**。
-> 实施清单见 [`docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md`](docs/temporary/CASA-CD_本地实施注意事项_导师原始思路对齐与P0-P2审查_2026-10-02.md)；
-> 脚本：`train_scripts/CASA-STR/Run1/`。
->
-> 6 变体（attn_mode × rep_mode）× 4 数据集从头 80K 的网格按 Phase1（A0/M1）→ Phase2（A1/A2）
-> → Phase3（C1/C2）双卡并行执行。**2026-10-03 用户决策暂停训练**（已完成 16/24 个 run，
-> C1 中断于 CDD 113/128、SYSU 91/107，C2 未启动；checkpoint 全部保留可续训）。
-> 暂停原因：距四数据集硬目标仍差 1.3–2.5pp，判断瓶颈在**骨干表征强度**（SHViT-S1 6.3M
-> 单头注意力、ImageNet-1K 预训练，对遥感变化语义可能不足），下一步调研 VMamba 等更强
-> 预训练骨干替换可行性（含四向扫描 token 的变化感知压缩）。
->
-> 已机器验证（服务器 GPU smoke 全绿）：SHViT-S1 预训练 6 问审计（trunk 1,861,296、
-> 246/246 逐位继承）；β=0 epoch-0 逐位一致；β/qkv/proj 梯度链非零；deploy 折叠
-> **2.4155M ≤ 5M**；routing N=256/K=64/Kc=32/Kb=32 且 T1/T2 交换对称。折叠等价性按
-> STR T2 协议（TF32 off + cudnn deterministic）双 batch 测量，全部完成 run 的
-> `[REPARAM-REAL-ARGMAX-DISAGREE]` 为 0 或带内 1 像素（1.9e-6，详见 Run1 README）。
->
-> | 变体 | attn | rep | CDD | LEVIR | SYSU | WHU | ΔF1 vs A0 |
-> |---|---|---:|---:|---:|---:|---|
-> | A0_BASE_PLAIN | none | plain | 0.9467 / 0.8987 | 0.8990 / 0.8166 | 0.8246 / 0.7016 | 0.9370 / 0.8815 | —（基线） |
-> | M1_CASAA_STR | change | full | **0.9554 / 0.9145** | **0.9037 / 0.8243** | **0.8302 / 0.7097** | **0.9372 / 0.8819** | +0.87 / +0.47 / +0.56 / +0.02 |
-> | A1_CASAA_PLAIN | change | plain | 0.9454 / 0.8964 | 0.8987 / 0.8160 | 0.8249 / 0.7020 | 0.9365 / 0.8807 | −0.13 / −0.03 / +0.03 / −0.05 |
-> | A2_STR_ONLY | none | full | 0.9553 / 0.9145 | 0.9028 / 0.8229 | 0.8249 / 0.7019 | 0.9341 / 0.8763 | +0.86 / +0.38 / +0.03 / −0.29 |
-> | C1_FULLATTN_PLAIN | full | plain | 中断(113/128) | — | 中断(91/107) | — | 未完成 |
-> | C2_CONTENT_SAA_PLAIN | content | plain | — | — | — | — | 未启动 |
->
-> **Run1 结论（16/24 完成）**：
-> 1. **创新机制成立但幅度不足以弥补骨干缺口**：M1（双创新）四数据集全部 ≥ A0
->    （CDD +0.87、LEVIR +0.47、SYSU +0.56、WHU +0.02）；STR-rep 是 CDD/LEVIR 增益主载体
->    （A2 0.9553/0.9028 ≈ M1），CASAA 单独 ≈ A0（A1），SYSU 上 CASAA×rep 有组合增益。
-> 2. **硬目标未达**（M1 vs 目标）：CDD 95.54 vs 98（−2.46）、LEVIR 90.37 vs 92.5（−2.13）、
->    SYSU 83.02 vs 85（−1.98）、WHU 93.72 vs 95（−1.28）；且 A0 基线本身
->    （94.67/89.90/82.46/93.70）就比 ChangeViT-T 完整基线低（CDD −3.08、LEVIR −2.05、
->    WHU −1.14，SYSU 持平）——**瓶颈在 SHViT-S1 截断主干的语义容量，而非训练策略
->    或创新模块**（协议/折叠/门槛全部合格，loss 曲线健康）。
-> 3. 硬门槛全部合格：deploy 2.378–2.416M ≤5M、FLOPs 1.21–1.24G、折叠 disagree 全 0/带内。
-> - 汇总：`docs/experiment_metrics.xlsx`（CASA-STR/Run1 16 新行）；快照：
->   `docs/temporary/models_and_metrics_CASA-STR_Run1.txt`。
-> - 下一步（调研中）：骨干替换——VMamba（四向扫描 + SSM）等更强预训练主干作为
->   backbone 的可行性、四向扫描 token 的变化感知压缩（CASAA 化）可行性，
->   详见向网页 GPT 提交的调研分析 prompt。
+- **主干 TinyViM-S-Slim**（ICCV 2025，1000e ImageNet EMA 权重，744 键逐位继承）：
+  Stage4 深度裁剪（Local×3 + final TViM）+ key 重映射；1/4–1/32 四级特征；
+  Laplace 频率解耦（低频下采样进 SS2D + 高频 RepDW dense 路径完整保留）。
+- **创新一 CAACP-SS2D**：Stage3 末个 TViM 的低频 2×2 AvgPool 替换为
+  **双时相变化分数加权的 2×2 cell 聚合**（A/B 共享权重、规则网格、dense 路径不变）：
+  `c = c_avg + β·(c_ca − c_avg)`，β=0 初始化 → epoch-0 精确恢复官方预训练。
+  变体：`score_mode=rank`（Run1 公式 `w∝ε+rank`）/ `cp`（Run2 公式 `w∝1+s·r`）；
+  `residual_mode=current` / `avg_anchor`（Run3 E4）。
+- **创新二 STR（TAR/DCR）**：TAR = 每尺度双时相代数重参数化
+  （concat + sum + signed-diff 三分支，aux 零初始化，deploy 折叠为单 1×1；
+  Run3 E5 提供 stage1 专用 `TemporalRepFine3x3` 折叠为单 3×3）；
+  DCR = 可折叠解码器（RepLocalBlock/RepPW1x1，deploy 无 BN 残留）。
+  可选 `frh=1` 时 head 换 STRFineHead（128² 重参数化头，deploy 折叠单 3×3，+768）。
+- **SS2D kernel 后端**：`selective_scan_cuda_oflex`（自建 .so，需 LD_LIBRARY_PATH 指向
+  torch/lib；已对拍 torch 参考 <2e-5）；官方 kernel 在 torch 2.14/CUDA 13.2/sm_120
+  无可用 wheel。兜底 mamba-ssm / vendored Triton。
+- 模型入口：`models/train.py`（训练，`--arch casa_tvim_str`）、`models/eval.py`（独立测试）、
+  `models/smoke_test.py`（冒烟，`--mode casa_tvim_str`，T-CA-1..10）
+- 损失 BCE + Dice；`max_steps=80000`、batch 32、256×256、seed 16、lr 2e-4（poly）
+- 日志：开头全部配置 + 参数/FLOPs；每 epoch 一行六项指标（test 集）；
+  结尾 `=== TEST RESULTS ===` 正式测试区块（含 deploy 折叠等价性、
+  [CAACP-BETA]/[CAACP-WEIGHT-ENTROPY]/[PRETRAIN-DRIFT] 等诊断行）
 
 ## 实验结果（CASA-TViM Run1 · CAACP-SS2D 主线，已完成）
 
 > **当前主线（2026-10-03 起）**：按
-> [`docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md`](docs/temporary/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md)
-> 执行——**CASA-TViM-STRNet = TinyViM-S-Slim（ICCV 2025，5.6M 预训练骨干瘦身版，
-> 1000e EMA 权重）+ CAACP-SS2D（创新一：变化感知非对称上下文聚合，只改 Stage3 末个
-> TViM 的低频池化为双时相 change-score 加权的 2×2 cell 聚合，β=0 精确继承预训练）
-> + TAR/DCR 可折叠解码器（创新二，D=96）**。SHViT 版 CASA-STR 已归档（上节）。
+> [`docs/temporary/过去的想法/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md`](docs/temporary/过去的想法/CASA-CD_VMamba骨干与变化感知SS2D_调研分析与可执行方案_2026-10-03.md)
+> 执行——**CASA-TViM-STRNet = TinyViM-S-Slim + CAACP-SS2D + TAR/DCR**。
 >
 > 机器验证（服务器 GPU smoke T-CA-1..6 全绿）：slim trunk **4,645,180** 参数；
-> 预训练 744 键逐位继承（stage4 深度裁剪 key 重映射）；epoch-0 恒等 bitwise 0
-> （CAACP β=0 与 rep aux 双验证）；β/x_proj/A_logs/stem 梯度链非零；change score
-> T1/T2 交换对称；**deploy 4,880,190 ≤ 5M**、FLOPs 2.93G。SS2D kernel 用
-> `selective_scan_cuda_oflex`（STR-RepNet 生产同款，已对拍 torch 参考 <2e-5；
-> 官方 CUDA kernel 在 torch 2.14/CUDA 13.2/sm_120 无可用 wheel）。
+> 预训练 744 键逐位继承；epoch-0 恒等 bitwise 0（β=0 与 rep aux 双验证）；
+> β/x_proj/A_logs/stem 梯度链非零；change score T1/T2 交换对称；
+> **deploy 4,880,190 ≤ 5M**、FLOPs 2.93G。
 >
-> 训练：16 run（4 变体 × 4 数据集）全部完整 80K，**run_all.sh 单脚本串 4 波、
-> 每波 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU，每卡 2 并发）、batch 32
-> （用户指示翻倍，占满双卡 ~19GB/卡）**；崩溃自动续训、整波失败即中止。
+> 训练：16 run（4 变体 × 4 数据集）全部完整 80K，run_all.sh 单脚本串 4 波、
+> 每波 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU，每卡 2 并发）、batch 32；
+> 崩溃自动续训、整波失败即中止。
 >
 > | 变体 | caacp | rep | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---:|---|
-> | A0_TVIM_PLAIN | 0 | plain | 0.9676 / 0.9373 | 0.9108 / 0.8362 | 0.8238 / 0.7006 | 0.9478 / 0.9008 | 完成（vs SHViT A0 +2.09 / +1.18 / −0.08 / +1.08） |
+> | A0_TVIM_PLAIN | 0 | plain | 0.9676 / 0.9373 | 0.9108 / 0.8362 | 0.8238 / 0.7006 | 0.9478 / 0.9008 | 完成（vs SHViT 版 A0 +2.09 / +1.18 / −0.08 / +1.08） |
 > | M1_FULL | 1 | full | **0.9718 / 0.9451** | 0.9107 / 0.8360 | **0.8347 / 0.7163** | **0.9507 / 0.9060** | 完成（Δ vs A0 +0.42 / −0.01 / **+1.09** / +0.29；**WHU 达标**） |
 > | A1_CAACP | 1 | plain | 0.9675 / 0.9370 | 0.9103 / 0.8353 | 0.8211 / 0.6965 | 0.9484 / 0.9019 | 完成（CAACP 单独≈A0） |
 > | A2_STR | 0 | full | 0.9711 / 0.9439 | **0.9119 / 0.8381** | 0.8321 / 0.7125 | 0.9453 / 0.8963 | 完成（STR 单独：CDD +0.35 / LEVIR +0.11 / SYSU +0.83 / WHU −0.25） |
 >
 > **Run1 结论（16/16 全部完成，全部 disagree 带内、deploy 4.880M ≤5M）**：
 > 1. **骨干 floor 大幅抬升**：TinyViM-S-Slim A0 比 SHViT 版 A0 高 CDD +2.09 /
->    LEVIR +1.18 / WHU +1.08（SYSU 持平）；backbone 适配充分（rel_L2 9-14%）。
+>    LEVIR +1.18 / WHU +1.08（SYSU 持平）。
 > 2. **CAACP-SS2D（创新一）机制成立且 β 被训练采纳**（β 5.6e-3~3.9e-2）：单独 ≈ A0，
->    但 M1−A2 边际 SYSU +0.26 / WHU +0.54——**变化感知上下文聚合与 STR-rep 组合
->    在 SYSU/WHU 上有条件互补**；M1 完整方法 SYSU **+1.09pp**（A0 0.8238→0.8347）。
+>    但 M1−A2 边际 SYSU +0.26 / WHU +0.54——变化感知上下文聚合与 STR-rep 组合
+>    在 SYSU/WHU 上有条件互补；M1 完整方法 SYSU **+1.09pp**（A0 0.8238→0.8347）。
 > 3. **STR-rep（创新二）跨骨干保持数据集依赖模式**：CDD/LEVIR/SYSU 正向（SYSU +0.83）、
->    WHU 负向——与 SHViT 版一致，transferability 再次验证。
+>    WHU 负向——transferability 再次验证。
 > 4. **硬目标**：**WHU 95.07 ≥ 95 ✓（达标）**；CDD 97.18（−0.82）、LEVIR 91.19
 >    （−1.31）、SYSU 83.47（−1.53）逼近但未达。对照 29.57M 的 VMamba-Tiny
 >    full_last2（98.42/91.44/83.45/95.14）：本模型以 **1/6 参数（4.88M）** 达到
 >    LEVIR −0.25 / SYSU +0.02 / WHU −0.07 / CDD −1.24 的接近水平。
-> - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 新行）；快照：
+> - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 行）；快照：
 >   `docs/temporary/models_and_metrics_CASA-TViM_Run1.txt`。
 
 ## 实验结果（CASA-TViM Run2 · LEVIR/SYSU 定向提升，已完成）
 
 > **目标**：保持 CDD ≥ 97.18、WHU ≥ 95.07，同时把 LEVIR 91.07 → ≥ 92、SYSU 83.47 → ≥ 84。
 > 按
-> [`docs/temporary/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md`](docs/temporary/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md)
+> [`docs/temporary/过去的想法/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md`](docs/temporary/过去的想法/CASA-CD_Run2_LEVIR_SYSU定向提升_证据调研与结构改进方案_2026-10-04.md)
 > 执行，两项纯结构性改进（无 loss/aug/threshold 调参）：
 >
 > - **CP-CAACP（首选一，0 新参数）**：CAACP 的 cell 权重从 `w∝ε+rank` 改为
 >   `w∝1+s·r`（s=1−cos 余弦变化 × rank 归一化，置信度保留）。零变化像素 q=0 →
->   全零变化 cell 严格退化为均匀池化，修复 rank-only 在零变化图上的强制不均匀
->   （LEVIR Precision 拖低主因）。`--caacp_score_mode cp`；rank 公式保留用于单变量消融。
+>   全零变化 cell 严格退化为均匀池化。`--caacp_score_mode cp`。
 > - **FRH（首选二，deploy +768 参数）**：预测头 64² 1×1 → **128² 重参数化细粒度头**
->   `up2 → base 1×1 + γ·[RepDW3→1×1]`（γ=0 初始化，epoch-0 修正精确为 0），
->   deploy 折叠为单个 3×3 Conv(96→1)；**deploy 4,880,958 ≤ 5M**。
+>   `up2 → base 1×1 + γ·[RepDW3→1×1]`（γ=0 初始化），deploy 折叠为单个 3×3 Conv(96→1)。
 >
-> 机器验证（smoke T-CA-7/8 全绿，Run1 回归 T-CA-1..6 不变）：rank/cp 两模式在
-> β=0 下逐位一致；零变化图严格退化均匀池化、cell 权重与手算 w=(1+s·r)/Σ 一致；
-> FRH 折叠单层 865 参数、init fold 误差 0、二值 disagreement 0、γ 梯度链非零。
->
-> 训练：12 run（3 变体 × 4 数据集）完整 80K，`run_all.sh` 单脚本串 3 波、每波
-> 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU），batch 32、seed 16，协议与
-> Run1 逐项一致（唯一变量 = 结构改进）。
+> 机器验证（smoke T-CA-7/8 全绿，Run1 回归 T-CA-1..6 不变）；12 run（3 变体 × 4 数据集）
+> 完整 80K，batch 32、seed 16，协议与 Run1 逐项一致。
 >
 > | 变体 | caacp | score | frh | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---|---:|---:|---:|---:|---|
@@ -505,52 +141,36 @@ binary change detection in remote sensing images.
 > | E3_CP_FRH | 1 | cp | 1 | **97.18 / 94.51**（±0.00） | **91.29 / 83.98**（**+0.22**） | 82.85 / 70.72（−0.62） | 94.98 / 90.44（−0.09） | 完成（LEVIR 最好但 SYSU 最差） |
 >
 > **Run2 结论（12/12 全部完成，全部 disagree 带内、deploy 4.880~4.881M ≤5M）**：
-> 1. **LEVIR 定向正向但幅度远小于目标**：三个变体 LEVIR +0.07 / +0.14 / +0.22
->    （91.07 → 91.14 / 91.21 / 91.29），未达 ≥92；FRH 对 LEVIR 的细粒度收益
->    与文档机制叙事一致，但不足以跨过 92 门槛。
+> 1. **LEVIR 定向正向但幅度远小于目标**：+0.07 / +0.14 / +0.22（91.07 → 91.29 峰值），
+>    未达 ≥92；FRH 的细粒度收益与机制叙事一致，但不足以跨过门槛。
 > 2. **SYSU 反向退步（−0.34 / −0.50 / −0.62）**：CP 与 FRH 对 SYSU 均为负向，
->    组合更差——SYSU 的语义依赖强于边界细节，128² 头与 CP 权重都未帮到它；
->    文档 §15.5/15.6 预注册的"失败即停"分支激活：不再调 score 公式、不再加
->    更复杂 edge decoder。
-> 3. **WHU/CDD 保持**：E1 是唯一 CDD/WHU 双保变体（97.14 / 95.18，WHU 达标）；
->    E2/E3 的 WHU 微降（94.71 / 94.98）。E3 恰好保住 CDD 97.18。
-> 4. **下一步（文档预注册路径）**：E1/E2 未过 §15 标准 → 按 §15.5/15.6 转向
->    RA-CAACP（residual anchored 到 c_avg）与 Fine-STR rank expansion（0 deploy
->    参数）作为低风险候选。
-> 5. **D1/D2 零成本诊断（`docs/temporary/run2_zero_cost_diag.json`）机制证据自洽**：
->    - **CP 机制证据（D1）**：LEVIR 零变化图（n=1113，占 54%）的 rank cell 熵
->      **1.2504（四数据集最低，gap −0.136）**且 abs 分数低（0.638）——rank-only
->      在零变化图上最强制不均匀，且零变化组熵反而低于高变化组（反直觉），
->      CP-CAACP 的修复方向证据最强；LEVIR 恰好是 E1/E3 唯一稳定正向的数据集，
->      但 +0.07/+0.22 的幅度说明 rank-confusion 不是 LEVIR 的主要瓶颈。
->    - **FRH 失效解释（D2）**：SYSU 的损失集中在 **small components**（F1 仅
->      **0.1796**，vs large 0.8273）与 boundary 环带（band2 0.6710，四数据集最低），
->      而 FRH 的 3×3 邻域修正解决"边界锐化"而非"极小目标语义召回"→ SYSU 负向
->      （−0.50/−0.62）与机制定位一致。LEVIR 的 band2/small（0.8006/0.6274）也
->      低于 CDD/WHU，但幅度温和，与 FRH 小幅正向（+0.14）相符。
-> - 自动对比报告：`docs/temporary/run2_report.md`；诊断数据：
->   `docs/temporary/run2_zero_cost_diag.json`；快照：
+>    组合更差；文档 §15.5/15.6 预注册的"失败即停"分支激活。
+> 3. **WHU/CDD 保持**：E1 是唯一 CDD/WHU 双保变体（97.14 / 95.18，WHU 达标）。
+> 4. **D1/D2 零成本诊断（`docs/temporary/run2_zero_cost_diag.json`）机制证据自洽**：
+>    - D1：LEVIR 零变化图（占 54%）rank cell 熵 **1.2504 四数据集最低**且 abs 分数低
+>      ——rank-only 在零变化图上最强制不均匀，CP 的修复方向证据最强；但 +0.07/+0.22
+>      的幅度说明 rank-confusion 不是 LEVIR 的主瓶颈。
+>    - D2：SYSU 损失集中在 **small components（F1 仅 0.1796，vs large 0.8273）**与
+>      boundary 环带（band2 0.6710 最低）——FRH 的 3×3 邻域修正解决"边界锐化"而非
+>      "极小目标语义召回"，与 SYSU 负向一致。
+> - 自动对比报告：`docs/temporary/run2_report.md`；快照：
 >   `docs/temporary/models_and_metrics_CASA-TViM_Run2.txt`；
->   汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run2 12 新行）。
-> - 实现：`models/model/layers/caacp_ss2d.py`（CP 公式）、`models/model/str_fine_head.py`（FRH）、
->   `models/model/casa_tvim_str_net.py`（接线）；脚本：`train_scripts/CASA-TViM/Run2/`。
+>   汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run2 12 行）。
 
 ## 实验结果（CASA-TViM Run3 · SYSU 小目标瓶颈定向，已完成）
 
 > 按
-> [`docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md`](docs/temporary/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md)
+> [`docs/temporary/过去的想法/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md`](docs/temporary/过去的想法/CASA-CD_Run2复盘_SYSU小目标瓶颈与下一轮结构实验设计_2026-10-05.md)
 > 执行。复盘结论：Run2 的 E1/E2/E3 在 SYSU 都是 Recall 被压掉 3.5~4.3pp（Precision 反升），
 > 交互项全非负 → 不是优化冲突，而是**机制/尺度错配**；SYSU 最大缺口 = small components
 > （<256px）F1 0.1796，这类目标在 1/16 已是 sub-token。
 >
-> - **E4 RA-CAACP（创新一升级，0 参数）**：residual 从 `x−Up(c)` 改为 `x−Up(c_avg)`——
->   change-aware context 只进 SS2D、不再从 dense residual 中扣除高频证据（保护小目标）。
+> - **E4 RA-CAACP（创新一升级，0 参数）**：residual 从 `x−Up(c)` 改为 `x−Up(c_avg)`。
 > - **E5 FS-TAR（创新二升级，+73,728 deploy ≈ 4.954M）**：stage1（1/4）TemporalRep1x1 →
->   TemporalRepFine3x3（signed-diff 分支变 3×3，在 tiny target 仍可解析的 1/4 尺度提前
->   提取双时相空间邻域差异），deploy 折叠为单 3×3 Conv。
+>   TemporalRepFine3x3（signed-diff 分支变 3×3），deploy 折叠为单 3×3 Conv。
 >
-> 开训前证据链：**Z1/Z2 零成本复盘确认 H-E1/H-E2**——E1/E2/E3 的 SYSU small Recall
-> 全部掉到 0.153~0.159（`docs/temporary/run3_z12_summary.md`）；smoke T-CA-9/10 全绿。
+> 开训前证据链：Z1/Z2 零成本复盘确认 H-E1/H-E2（E1/E2/E3 的 SYSU small Recall
+> 全部 0.153~0.159，`docs/temporary/run3_z12_summary.md`）；smoke T-CA-9/10 全绿。
 >
 > | 变体 | CDD | LEVIR | SYSU | WHU | 状态 |
 > |---|---|---:|---:|---:|---|
@@ -558,21 +178,20 @@ binary change detection in remote sensing images.
 > | E5_FS_TAR | 97.13 / 94.43（−0.05） | 91.18 / 83.78（**+0.11**） | 83.24 / 71.29（−0.23） | 94.91 / 90.31（−0.16） | **FAIL**（硬条件 + small 均未过） |
 >
 > **Run3 结论（8/8 全部完成，全部 disagree 带内、deploy 4.880/4.954M ≤5M）**：
-> 1. **E4/E5 均 FAIL 预注册条件**（`docs/temporary/run3_report.md` 全条件裁决）。按复盘文档
->    §13/§14 决策树：**停 RA 线**（不再调 Stage3 residual/β/叠 CP）、**不再扩大 spatial kernel**。
+> 1. **E4/E5 均 FAIL 预注册条件**（`docs/temporary/run3_report.md` 全条件裁决）。
+>    按决策树：**停 RA 线**（不再调 Stage3 residual/β/叠 CP）、**不再扩大 spatial kernel**。
 > 2. **两个关键负结果（机制证据价值高）**：
->    - RA 把 SYSU small 从 0.1796 微抬到 **0.1842**（E1~E5 五个改动中最高），但整体 Recall
->      −3pp——**推翻"residual cancellation 是 small 主因"**：change-aware c 参与 residual
->      减法恰恰是 CAACP 高 Recall 的来源（D2 复测 small R 0.1663 vs M1）。
->    - FS-TAR 的 1/4 尺度 3×3 signed-diff 未恢复 tiny evidence（small R 0.1477 反而最低）——
->      **空间核扩大不是解**，问题在更早的语义编码层。
+>    - RA 把 SYSU small 从 0.1796 微抬到 **0.1842**（E1~E5 五个改动中最高），但整体
+>      Recall −3pp——**推翻"residual cancellation 是 small 主因"**：change-aware c
+>      参与 residual 减法恰恰是 CAACP 高 Recall 的来源。
+>    - FS-TAR 未恢复 tiny evidence（small R 0.1477 反而最低）——**空间核扩大不是解**，
+>      问题在更早的语义编码层。
 > 3. **五轮结构尝试（E1~E5）稳定模式**：LEVIR 0~+0.22（始终 ≤+0.25）、SYSU 全部
->    −0.23~−0.62——M1 仍是 SYSU 最优模型；score/头/残差/时相核四个方向的"后端修正"
->    已系统性耗尽。
-> 4. **下一步（决策树指向）**：**S2-HCAACP**（CAACP 前移 Stage3→Stage2/1/8，small 在 1/8
->    仍有 <4 cells 可解析，先验 SYSU +0.25~+0.65）与 **SP-DCR**（删末端第二个 DW3，
->    减少 spatial mixing 压制弱响应，先验 +0.15~+0.45）——两者都在"保护小目标正证据"
->    主线上，各自单变量、不叠模块。
+>   −0.23~−0.62——M1 仍是 SYSU 最优模型；score/头/残差/时相核四个方向的"后端修正"
+>   已系统性耗尽。
+> 4. **下一步（决策树指向）**：**S2-HCAACP**（CAACP 前移 Stage3→Stage2/1/8，small 在
+>   1/8 仍有 <4 cells 可解析，先验 SYSU +0.25~+0.65）与 **SP-DCR**（删末端第二个 DW3，
+>   减少 spatial mixing 压制弱响应，先验 +0.15~+0.45）——各自单变量、不叠模块。
 > - 报告：`docs/temporary/run3_report.md`；Z 复盘：`docs/temporary/run3_z12_summary.md`；
 >   脚本：`train_scripts/CASA-TViM/Run3/`。
 
@@ -580,76 +199,62 @@ binary change detection in remote sensing images.
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
   2024–2026 调研文献清单（分层级/官方链接/存放位置），新增文献 PDF 时先在此登记。
-- Baseline：`docs/参考文献/baseline/ChangeViT(PR2026).pdf`
-  （Zhu et al., ChangeViT: Unleashing Plain Vision Transformers for Change Detection in
-  Remote Sensing Images, Pattern Recognition 2025；代码 https://github.com/zhuduowang/ChangeViT）
-- 创新点来源：`docs/参考文献/baseline/SAT(CVPR2026).pdf`
-  （SAT: Selective Aggregation Transformer for Image Super-Resolution；
-  arXiv:2604.07994；https://github.com/PhuTran1005/SAT）
-- 主干来源（CAACP-SS2D 当前主线）：`docs/参考文献/baseline/Ma_TinyViM_Frequency_Decoupling_for_Tiny_Hybrid_Vision_Mamba_ICCV_2025_paper.pdf`
+- 主干来源：`docs/参考文献/baseline/Ma_TinyViM_Frequency_Decoupling_for_Tiny_Hybrid_Vision_Mamba_ICCV_2025_paper.pdf`
   （TinyViM: Frequency Decoupling for Tiny Hybrid Vision Mamba, ICCV 2025；
   S=5.6M/0.9G@224、ImageNet-1K 79.2(300e)/80.3(1000e)；代码 https://github.com/xwmaxwma/TinyViM；
   slim 重实现 `models/model/tinyvim_s_slim.py`）
-- 主干来源（CASA-STR，已归档）：`docs/参考文献/baseline/SHViT(CVPR2024).pdf`
-  （SHViT: Single-Head Vision Transformer with Memory Efficient Macro Design, CVPR 2024；
-  S1=6.3M/241M；代码 https://github.com/ysj9909/SHViT）
-- SAT 核心机制提取（SAA + 聚类压缩 K/V，去框架化，供 CASAA 直接复用）：
-  [`others/SAT/saa.py`](others/SAT/saa.py)，说明见 [`others/SAT/README.md`](others/SAT/README.md)
+- Novelty 边界文献（PDF 与差异说明见文献索引 §1.2）：SChanger / SCAM / CFNet /
+  CAM-CD / SeCoR / Mamba-CD（JSTARS 2025-2026）——CAACP 与它们的分界必须落在
+  "scan 前 structured context compression / 固定 cell lattice"，不是方向加权、
+  显式对齐或普通 cosine focuser。
+- 历史基线（已归档，仅论文背景引用）：ChangeViT（PR 2025，`docs/参考文献/baseline/`）；
+  SAT（CVPR 2026 Findings，CASAA 历史机制来源）。
 
 ## 目录结构
 
 ```
-models/                        # 全部代码（ChangeViT 上游 + 本仓库改造）
-  train.py                     #   训练入口（baseline / --mode casaa|saa / --vit_depth / --detail_mode）
+models/                        # 全部代码（当前主线 casa_tvim_str）
+  train.py                     #   训练入口（--arch casa_tvim_str）
   eval.py                      #   独立测试入口（同款架构参数）
-  smoke_test.py                #   冒烟测试（baseline 等价 + CASAA 机制 + Run4 深度/轻量测试）
-  main.py                      #   上游原版（仅参考）
-  model/                       #   encoder / decoder / trainer / layers / resnet
-  model/layers/casaa.py        #   CASAA 核心（change score + 确定性聚类 + 非对称注意力）
-  model/layers/ss2d.py         #   SS2D 自包含移植（TinyViM 频率解耦；oflex/mamba-ssm 双后端）
-  model/layers/caacp_ss2d.py   #   CAACP-SS2D（创新一：变化感知 2×2 cell 上下文聚合，β gate）
-  model/layers/mamba_scan_triton.py  #  vendored mamba-ssm Triton kernel（兜底后端）
-  model/tinyvim_s_slim.py      #   TinyViM-S-Slim（Stage4 深度裁剪 + 预训练 key 重映射）
-  model/casa_tvim_str_net.py   #   CASA-TViM-STRNet（当前主线主架构）
-  model/light_detail.py        #   Run4 LightDetail（32/64/128 与 48/96/160 DSConv）
-  model/psd_detail.py          #   Run4 PSD-Detail（pretrained stem + residual DS pyramid，0.078M）
+  smoke_test.py                #   冒烟测试（--mode casa_tvim_str，T-CA-1..10）
+  model/
+    tinyvim_s_slim.py          #   TinyViM-S-Slim（Stage4 裁剪 + 预训练 key 重映射）
+    casa_tvim_str_net.py       #   CASA-TViM-STRNet（当前主线主架构）
+    str_tar.py                 #   TAR（TemporalRep1x1 / TemporalRepFine3x3）
+    str_dcr.py                 #   DCRDecoder + RepLocalBlock/RepPW1x1
+    str_reparam.py             #   折叠原语（fold_conv_bn / RepDW3 等）
+    str_fine_head.py           #   STRFineHead（Run2 FRH，可选）
+    layers/ss2d.py             #   SS2D 自包含移植（oflex/mamba-ssm/Triton 三后端）
+    layers/caacp_ss2d.py       #   CAACP-SS2D（创新一：score_mode / residual_mode）
+    layers/mamba_scan_triton.py#   vendored Triton 兜底 kernel
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
-  baseline/Run1/               # ChangeViT-T baseline 启动脚本（4 数据集 + 串行队列）
-  CASAA/Run1/                  # CASAA Run1（A1/A2 × 4 数据集 + 双卡/单卡串行队列）
-  CASAA/Run2/                  # CASAA Run2（冻结 ViT：A1 对照 + A3 Oracle 诊断）
-  CASAA/Run3/                  # CASAA Run3（A4 detail 可部署信号终局）
-  UltraLight/Run4/             # 主线二：R4-0/1/2/2b 逐组件单变量（阶段 gate）
-  CASA-STR/Run1/               # 主线重构（SHViT 版，已归档）：6 变体 × 4 数据集
-  CASA-TViM/Run1/              # 当前主线（TinyViM + CAACP-SS2D）：4 变体 × 4 数据集全并行
+  CASA-TViM/Run1/              #   4 变体 × 4 数据集（A0/M1/A1/A2，已完成）
+  CASA-TViM/Run2/              #   CP-CAACP / FRH / 组合 × 4（E1/E2/E3，已完成）
+  CASA-TViM/Run3/              #   RA-CAACP / FS-TAR × 4（E4/E5，已完成）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
-  casaa_router_diagnostic.py   #   Router Audit（V/D/F 三路 score 对齐 GT）
-  run4_detail_interface_audit.py  #  R4-D0：ResNet vs Light raw/adapted 三尺度对齐 GT
-  param_breakdown.py           #   Run4 U1：组件级参数预算
-  vit_pretrain_audit.py        #   Run4 U2：corrected DeiT loader 原位继承审计
-  models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
+  run2_zero_cost_diag.py       #   D1/D2 零成本诊断（score 分组 + boundary/component F1）
+  run2_report.py               #   Run2 自动对比报告
+  run3_report.py               #   Run3 自动对比报告（含 §13 预注册裁决）
 others/                        # 参考实现（非本仓库模型代码）
-  SAT/                         #   SAT(CVPR2026) 核心机制提取：saa.py（SAA + 聚类压缩）
-  SHViT/                       #   SHViT(CVPR2024) 官方核心（shvit.py + S1 build，供审计对照）
   TinyViM-main/                #   TinyViM(ICCV2025) 官方核心（tinyvim.py + tvimblock.py）
 outputs/                       # 训练日志（训练结束后下载到这里）
 docs/                          # 项目文档（temporary / 参考文献 / 服务器说明）
-.claude/                       # 服务器部署 skill 与 SSH 辅助脚本（不进 git）
+.claude/                       # 服务器部署与 SSH 辅助脚本（不进 git）
 ```
 
 ## 服务器环境（RSML-3）
 
-- 环境 `casacd`（clone 自 `cd_base`）：**torch 2.14.0+cu132 / Python 3.10 / CUDA 13.2**，
-  补装 `einops opencv-python fvcore`。
-- GPU：2 × RTX 5090（Blackwell `sm_120`，每卡 32 GB），PCIe 无 NVLink。
+- 环境 `casacd`：**torch 2.14.0+cu132 / Python 3.10 / CUDA 13.2**。
+- GPU：2 × RTX 5090（Blackwell `sm_120`，每卡 32 GB）。
 - 关键路径：
   - 代码 `/home/yqwang/projects/CASA-CD/`
   - 数据集 `/share_datasets/CD/{CDD,LEVIR,SYSU,WHU}-CD-256/`
-  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/{deit_tiny_patch16_224-a1311bcf.pth, shvit_s1.pth, tinyvim_s_1000e.pth}`
-  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/{baseline,CASA-STR,CASA-TViM}/...`
-  - 训练日志 `/home/yqwang/outputs/CASA-CD/baseline/Run1/<dataset>/train_log.txt`
+  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/tinyvim_s_1000e.pth`
+  - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/<Run>/<variant>/<dataset>/`
+  - 训练日志 `/home/yqwang/outputs/CASA-CD/CASA-TViM/<Run>/<variant>/<dataset>/train_log.txt`
 
 ## 数据集（A/B/label + list 格式）
 
@@ -662,43 +267,37 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 
 ## 训练 / 测试
 
-1. 本地改代码 → `python .claude/_deploy.py` 同步到服务器。
-2. 服务器启动（`nohup`，每脚本带断点续训重试循环），脚本在 `train_scripts/baseline/Run1/`：
+1. 本地改代码 → `python .claude/_deploy.py` 同步到服务器（models/ + train_scripts/ + analyse/）。
+2. 服务器启动（`nohup`，每脚本带断点续训重试循环），脚本在 `train_scripts/CASA-TViM/<Run>/`：
    ```bash
-   cd /home/yqwang/projects/CASA-CD/train_scripts/baseline/Run1
-   nohup bash run_queue.sh > /dev/null 2>&1 &   # CDD → LEVIR → SYSU → WHU 串行
+   cd /home/yqwang/projects/CASA-CD/train_scripts/CASA-TViM/Run3
+   nohup bash run_all.sh > /home/yqwang/outputs/CASA-CD/CASA-TViM/Run3/run_all.log 2>&1 &
    ```
-   CASAA 实验脚本在 `train_scripts/CASAA/Run1-3/`（`run_screen.sh` 双卡并行 /
-   `run_screen_gpu1_serial.sh` 单卡串行，`--mode casaa|saa`，详见各目录 README）；
-   主线二脚本在 `train_scripts/UltraLight/Run4/`（逐组件 gate，只用 GPU1）。
-   **CASA-STR 主线重构脚本在 `train_scripts/CASA-STR/Run1/`**（`run_queue_phase1-3_gpu0|1.sh`
-   双卡并行队列；先 `dryrun_a0_gpu0|1.sh` 验证 LR-GROUPS 0.1× 与完整 TEST 链路）。
-   **注意必须串行**：ChangeViT-T batch 16 单任务 ~15.7GB（FeatureInjector 对 c2 全 token
-   交叉注意力 ~8.6GB 注意力矩阵），两个任务并跑会超过单张 5090 的 32GB 导致 OOM。
+   run_all.sh 串行多波、每波 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU，每卡 2 并发
+   batch 32，~19GB/卡）；任一 run 3 次 retry 失败 → WAVE-ABORT。
 3. 训练日志格式：
-   - 开头：全部配置 + 总参数量 + 有效参数量（论文口径）+ 可训练参数量 + FLOPs(G)。
-   - 每个 epoch 一行：Loss + Recall / Precision / OA / F1 / IoU / Kappa 六项指标（test 集）。
-   - 结尾：`=== TEST RESULTS ===` 参数量 + FLOPs + 六项指标（best checkpoint 正式测试）。
-4. checkpoint：每 run 一个文件夹，只放 `last.pth`（断点续训，含优化器）与 `best_F1=xxx.pth`（测试用）。
-5. 训练结束后把 `train_log.txt` 下载回本地 `outputs/`（`baseline/Run1/`），权重不下载。
+   - 开头：全部配置 + 参数量 + FLOPs(G)。
+   - 每个 epoch 一行：Loss + Recall / Precision / OA / F1 / IoU / Kappa（test 集）。
+   - 结尾：`=== TEST RESULTS ===`（含 deploy 折叠等价性、β/熵/drift 诊断行）。
+4. checkpoint：每 run 一个文件夹，只放 `last.pth`（断点续训，含优化器）与
+   `best_F1=xxx.pth`（测试用）。
+5. 训练结束后把 `train_log.txt` 下载回本地 `outputs/CASA-TViM/<Run>/`（权重不下载）。
 
 ## 运行监控 / 分析
 
 ```bash
-python .claude/_monitor.py              # 查看 baseline 训练进度 + GPU 占用
-python .claude/_monitor_casaa.py        # 查看 CASAA/Run1 训练进度 + GPU 占用
 python .claude/_ssh.py '<cmd>'          # 通用 SSH 执行
+python .claude/_download_tvim_logs_run3.py   # 下载某 Run 的 train_log.txt
 python analyse/extract_metrics_to_excel.py   # outputs → docs/experiment_metrics.xlsx
-python analyse/models_to_txt.py --tag baseline --run Run1  # models 快照 + 指标 → docs/temporary/
-python analyse/models_to_txt.py --tag CASAA --run Run1
-python analyse/models_to_txt.py --tag CASAA --run Run2
-python analyse/models_to_txt.py --tag UltraLight --run Run4
+python analyse/models_to_txt.py --tag CASA-TViM --run Run3   # models 快照 + 指标
+python analyse/run3_report.py           # 自动对比报告 + 预注册裁决
+python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --datasets SYSU-CD-256
+                                         # D1/D2 机制诊断（服务器上跑）
 ```
 
 ## 注意事项
 
-- ChangeViT 官方协议在 epoch 0 后跳过一次评估（原代码行为），复现沿用。
-- `torch.load` 加载含优化器状态的 `last.pth` 需 `weights_only=False`（torch 2.6+ 默认
-  `weights_only=True` 会拒收非张量对象），train.py 已处理。
-- `.sh` 脚本需 LF 行尾（Windows 编辑后 `_deploy.py` 上传，本地已确认 LF）。
-- ChangeViT 依赖 xformers 是可选的：缺失时代码自动回退到原生 attention。
+- `torch.load` 加载含优化器状态的 `last.pth` 需 `weights_only=False`（train.py 已处理）。
+- `.sh` 脚本需 LF 行尾（Windows 编辑后由 `_deploy.py` 上传，本地已确认 LF）。
+- 训练脚本必须导出 `LD_LIBRARY_PATH=.../torch/lib:.../env/lib`（oflex kernel 依赖）。
+- `run_all.sh` 的 `wait` 必须传 `$pid`（数值），直接传变量名会被 bash 当作 job 名。
