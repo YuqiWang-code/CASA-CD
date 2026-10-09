@@ -115,8 +115,10 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 >    （−1.31）、SYSU 83.47（−1.53）逼近但未达。对照 29.57M 的 VMamba-Tiny
 >    full_last2（98.42/91.44/83.45/95.14）：本模型以 **1/6 参数（4.88M）** 达到
 >    LEVIR −0.25 / SYSU +0.02 / WHU −0.07 / CDD −1.24 的接近水平。
-> - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 行）；快照：
->   `docs/temporary/models_and_metrics_CASA-TViM_Run1.txt`。
+> - 汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run1 16 行）；快照与指标表：
+>   `docs/temporary/CASA-TViM_Run1/models_and_metrics_CASA-TViM_Run1.txt`、
+>   `docs/temporary/CASA-TViM_Run1/metrics_tables.md`（4 变体 × 4 数据集 × 六指标 + 训练/推理参数 + FLOPs）；
+>   架构图：`docs/temporary/CASA-TViM_Run1/*.png`。
 
 ## 实验结果（CASA-TViM Run2 · LEVIR/SYSU 定向提升，已完成）
 
