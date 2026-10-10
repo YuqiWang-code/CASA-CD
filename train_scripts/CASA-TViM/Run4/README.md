@@ -115,7 +115,41 @@ best 的**只读软链**（临时目录，不写任何历史目录）跑一遍�
 裁决脚本自身的决策树已用合成 TEST 区块双向演练：畸形区块（IoU 与 `F1/(2−F1)` 不符）→ `INVALID`
 且打印具体失败检查项；自洽区块 → `PAPER-TARGET-PASS`。
 
-## 6. 预注册门槛（不得事后放宽）
+## 6. 断点恢复（T11 实测）与崩溃缓解
+
+T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，batch32 → 10 iter/epoch，
+`--max_steps 40 --exact_max_steps 1`，`fine_tap=1`）：
+
+* **A**：一次连续跑完 40 步；
+* **B**：在 `last.pth` 完整写入 `epoch=2 / actual_steps=20` 的瞬间用 SIGSTOP 冻结确认、
+  再 SIGKILL，然后自动 resume 跑完剩余 20 步；
+* **C**（对照）：**同 seed 16 的第二次连续从头 run**，新进程、新目录。
+
+| 比较 | 键集合 | 不同张量 | max\|Δw\| | optimizer 状态不同项 | 步数 / 末步 LR |
+|---|---|---:|---:|---:|---|
+| A vs B（连续 vs 恢复） | 相同 | 1098/1302 | 1.97e+01 | 1288 | 40 / 40，7.23062774795963e-07（相同） |
+| **A vs C（对照：两次连续从头）** | 相同 | **1098/1302** | 1.09e+00 | **1288** | 40 / 40，同上 |
+
+**结论（如实记录，不得含糊）**
+
+1. 恢复路径的**结构性事实全部正确**：`[MANIFEST] validated`（逐字段）、
+   `[RESUME] actual_steps=20 (epoch=2, iters/epoch=10)`、`rng_state`（torch CPU / CUDA / numpy / python
+   四项）恢复、per-group LR（0.1× / 1.0×）与 optimizer 状态恢复、`[EXACT-STEPS]` 预算续算、最终恰好 40 步。
+2. **逐位等价不可达，且原因不在恢复路径**：对照组 A vs C 是**两次完全独立、无中断、同 seed**
+   的从头训练，其不同张量数与 optimizer 状态差异数与 A vs B **完全相同**（1098/1302、1288），
+   只有数值幅度不同。⇒ 本项目训练管线（`cudnn.benchmark=True` + 非确定性卷积核）
+   **跨进程即不可逐位复现**，A vs B 的差异不能归因于 resume。
+3. 因此按设计文档纪律**不声称"精确恢复"**；正确表述是
+   **"协议精确恢复（protocol-exact），非逐位恢复"**。证据：
+   `$OUTObj/T11_RESUME_EVIDENCE.json`（`$OUTObj=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_preflight_checks`）。
+4. **崩溃缓解（零代码改动）**：`ckpt_backup_watchdog.py` 周期性把**能被成功 `torch.load`** 的
+   `last.pth` 原子复制为 `last.pth.bak`（不触碰 `last.pth`、不介入训练进程、不改训练代码身份）。
+   若 `last.pth` 因写盘中崩溃而半截化（实测会抛 `EOFError` 使自动恢复失败），可
+   `cp last.pth.bak last.pth` 继续，最多损失一个 epoch；若备份也不可用，则按设计文档用
+   **独立新目录**从头训练，不覆盖历史文件。
+
+## 7. 预注册门槛（不得事后放宽）
+
 * **层 A（P0）**：deploy ≤5M；train/deploy 双 batch 二值 disagreement=0；TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
 * **层 B（SYSU 机制，绝对 + 同期增量同时满足）**：small pooled Recall ≥0.2474 且 ≥CTRL+0.05；
   Hit@25 ≥0.2396 且 ≥CTRL+0.05；ObjRecall ≥CTRL+0.01；ObjPrecision ≥CTRL；
@@ -126,7 +160,7 @@ best 的**只读软链**（临时目录，不写任何历史目录）跑一遍�
 `gate.json` / `verdict.json` 非 PASS ⇒ 按 §6.4 决策树**停止该线**，不去试 FET 1/8、3×3、FRH+FET，
 也不以阈值/loss/seed 搜索挤分；失败时保留日志与权重做机制归因。
 
-## 7. 禁止的捷径
+## 8. 禁止的捷径
 
 用 Run1/M1 best 微调 E6；沿用旧伪 small F1；用 1/32 cosine 代理推断信息总量丢失；提高 3×3 参数越过 5M；
 `disagreement>0` 仍发 PASS；`strict=False` 载错 checkpoint；覆盖 Diag1/Run1–3 产物；

@@ -285,6 +285,8 @@ poly 归一化分母固定 `args.max_steps=80000`；历史整 epoch 口径仍为
 | T0–T9 验收 | **PASS=53 / FAIL=0 / SKIP=0** |
 | §10.2 互补性 preflight | **PASS**（4000 张、12.8 s；`n_missed_small=295`、`rescue_rate=0.5085`、`gap=0.1303`，按图 bootstrap 95%CI **[0.0669, 0.1934]**；复现 Diag1 small recall 0.19742 / Hit@25 0.18956、n=364） |
 | 真实数据 3-step dry-run | **PASS**（E6 与 CTRL；几何增广同步、`gray>=128` 逐位一致、batch32 峰值 ≈9.8 GB/进程） |
+| 对象指标口径预校验 | **`OBJECT_PASS_MATCHES_DIAG1_D5`**：四库 M1 部署图上 small recall/Hit@25/ObjP/ObjR 与 Diag1 §14 D5 逐项一致（SYSU 0.19742/0.18956/0.53200/0.76744 等） |
+| T11 断点恢复 | **协议精确，非逐位**：步数/per-group LR/optimizer/四项 RNG 状态逐项恢复；对照组（同 seed 的两次连续从头 run）差异数与"连续 vs 恢复"**完全相同**（1098/1302、1288）⇒ 管线跨进程即不可逐位复现，故**不声称"精确恢复"**；已启用 `ckpt_backup_watchdog.py` 做 `last.pth.bak` 原子备份缓解写盘崩溃 |
 
 关键实测：epoch-0 前向 `torch.equal`=True（`max_abs=0`）；整模型 train↔deploy
 `max_abs=0.000e+00` 且二值 disagreement=0（随机与真实 batch=16）；FET 折叠 FP64 `1.2e-15`；
