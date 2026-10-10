@@ -73,6 +73,19 @@ python analyse/tvim_linear_probe.py --dataset SYSU-CD-256 --run Run1 --variant M
 预算偏差：拟合样本 3011（<全部 12,000），已写入 `probe_protocol.json:budget_deviation`。
 产物：`probe_protocol.json`、`probe_results.json`、`probe_<layer>_PROBE_ONLY.pth`（诊断权重，**不入正式 checkpoint 目录**）、`gate.json`。
 
+## 5b. D3b：可学习时相口径补证（本轮追加，§11）
+
+```bash
+python analyse/tvim_linear_probe.py --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
+  --device cuda:0 --out-dir "$DIAG/D3_concat/M1_FULL" --encoder-input concat \
+  --layers L01b_norm0,L03b_norm2,L05_stage3_last_prefix,L06b_norm4,L07_network5,L08b_norm6,P00_head_logits \
+  --max-train 3000 --steps 1500
+```
+实测耗时：约 2.5–3 min（含 7 层 test 一次性评估）。
+唯一变量 = 编码器 probe 输入口径（`absdiff` → `concat(F_A,F_B,|F_A−F_B|)`）；其余（checkpoint / 3011 训练样本 /
+seed / steps / lr / batch）与 §5 完全一致；输出写入**新目录**，不覆盖 `D3/M1_FULL`。
+一致性锚点：`P00_head_logits`（与口径无关）两次运行 pooled AP 在小数点后 9 位一致。
+
 ## 6. D4：CAACP β 受控反事实
 
 ```bash

@@ -1,0 +1,31 @@
+{
+  "probe": "Conv2d(C_in,1,1) + BCEWithLogitsLoss on bilinear-upsampled logits vs native 256² mask",
+  "encoder_input": "concat(F_A, F_B, abs(F_A - F_B))（C_in = 3C，含可学习时相组合空间）",
+  "encoder_input_mode": "concat",
+  "single_path_input": "节点自身融合特征（无 A/B）",
+  "capacity_caveat": "concat 口径下 probe 输入通道为 3C，读出容量大于 absdiff（C）；两者不可直接称为公平容量对照，须并列输入通道数解读",
+  "split": "SYSU train.txt 按文件名 SHA1 hash 固定 90% probe-train / 10% probe-val",
+  "test_usage": "一次性评估，不参与任何优化/早停/调参",
+  "hyperparams": {
+    "lr": 0.001,
+    "steps": 1500,
+    "batch": 16,
+    "optimizer": "AdamW(wd=0)",
+    "seed": 16
+  },
+  "budget_deviation": "--max-train=3000（0=全部）; --extract-batch=16",
+  "layers": [
+    "L01b_norm0",
+    "L03b_norm2",
+    "L05_stage3_last_prefix",
+    "L06b_norm4",
+    "L07_network5",
+    "L08b_norm6",
+    "P00_head_logits"
+  ],
+  "checkpoint": {
+    "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+    "sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457"
+  },
+  "frozen_model": true
+}

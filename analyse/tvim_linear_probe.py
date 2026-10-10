@@ -37,6 +37,7 @@ HOOK_TARGETS = {
     "L03b_norm2": ("enc", "norm2"),
     "L05_stage3_last_prefix": ("enc", "s3prefix"),
     "L06b_norm4": ("enc", "norm4"),
+    "L07_network5": ("enc", "network5"),
     "L08b_norm6": ("enc", "norm6"),
     "T01_tar1": ("tar", "stage1"),
     "T03_tar3": ("tar", "stage3"),
@@ -45,6 +46,23 @@ HOOK_TARGETS = {
 }
 ENCODER_KEYS = [k for k in HOOK_TARGETS if k.startswith(("L0",))]
 SINGLE_KEYS = [k for k in HOOK_TARGETS if k not in ENCODER_KEYS]
+
+# 编码器双时相 probe 输入口径（全层一致）：
+#   absdiff : |F_A - F_B|                    （C_in = C）
+#   concat  : concat(F_A, F_B, |F_A - F_B|)  （C_in = 3C，含可学习的时相组合空间）
+ENCODER_INPUT_MODES = ("absdiff", "concat")
+
+
+def _encoder_probe_input(fa, fb, mode):
+    d = (fa - fb).abs()
+    if mode == "absdiff":
+        return d
+    return torch_cat3(fa, fb, d)
+
+
+def torch_cat3(a, b, c):
+    import torch
+    return torch.cat([a, b, c], dim=0)
 
 
 def _hash_split(name, val_frac=0.10):
@@ -59,6 +77,8 @@ def _resolve_module(model, key):
             return model.encoder.patch_embed
         if attr == "s3prefix":
             return model.encoder.network[4][model.encoder.depths[2] - 2]
+        if attr == "network5":
+            return model.encoder.network[5]
         return getattr(model.encoder, attr)
     if kind == "tar":
         return getattr(model.tar, attr)
@@ -103,7 +123,11 @@ def extract_features(model, args, device, keys, names_filter=None, max_images=No
                         if k in ENCODER_KEYS:
                             fa = t[i].float()
                             fb = t[B + i].float()
-                            feat = (fa - fb).abs()
+                            feat = _encoder_probe_input(fa, fb, args.encoder_input)
+                            if feat.shape[0] > args.probe_max_channels:
+                                raise RuntimeError(
+                                    f"probe input channels {feat.shape[0]} for {k} exceed "
+                                    f"--probe-max-channels={args.probe_max_channels}")
                         else:
                             feat = t[i].float()
                         store[k].append(feat.half().cpu().numpy())
@@ -189,7 +213,8 @@ def evaluate_probe(probe, args, device, key):
                 B = pre.shape[0]
                 for i in range(B):
                     if key in ENCODER_KEYS:
-                        feat = (t[i].float() - t[B + i].float()).abs()[None]
+                        feat = _encoder_probe_input(t[i].float(), t[B + i].float(),
+                                                    probe["encoder_input"])[None]
                     else:
                         feat = t[i].float()[None]
                     logits = probe["module"](feat)
@@ -225,8 +250,12 @@ def run_d3(args):
 
     protocol = {
         "probe": "Conv2d(C_in,1,1) + BCEWithLogitsLoss on bilinear-upsampled logits vs native 256² mask",
-        "encoder_input": "abs(F_A - F_B)（全编码器层统一主口径）",
+        "encoder_input": ("abs(F_A - F_B)" if args.encoder_input == "absdiff"
+                          else "concat(F_A, F_B, abs(F_A - F_B))（C_in = 3C，含可学习时相组合空间）"),
+        "encoder_input_mode": args.encoder_input,
         "single_path_input": "节点自身融合特征（无 A/B）",
+        "capacity_caveat": ("concat 口径下 probe 输入通道为 3C，读出容量大于 absdiff（C）；"
+                            "两者不可直接称为公平容量对照，须并列输入通道数解读"),
         "split": "SYSU train.txt 按文件名 SHA1 hash 固定 90% probe-train / 10% probe-val",
         "test_usage": "一次性评估，不参与任何优化/早停/调参",
         "hyperparams": {"lr": args.lr, "steps": args.steps, "batch": args.probe_batch,
@@ -262,7 +291,8 @@ def run_d3(args):
     results = {"per_layer": {}, "protocol": protocol}
     for k in keys:
         r, probe = train_probe(feats[k], gts, args, device, out_dir, k)
-        r["test"] = evaluate_probe({"model": model, "module": probe}, args, device, k)
+        r["test"] = evaluate_probe({"model": model, "module": probe,
+                                    "encoder_input": args.encoder_input}, args, device, k)
         results["per_layer"][k] = r
         print(f"[D3] {k}: C_in={r['C_in']} n_train={r['n_train_samples']} "
               f"test pooled AP={r['test']['pooled_AP']}", flush=True)
@@ -291,6 +321,10 @@ def main():
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--layers", default="L01b_norm0,L03b_norm2,L05_stage3_last_prefix,L06b_norm4,"
                                        "T01_tar1,DOUT_decoder_refine,P00_head_logits")
+    ap.add_argument("--encoder-input", default="absdiff", choices=list(ENCODER_INPUT_MODES),
+                    help="编码器 probe 输入口径：absdiff=abs(F_A-F_B) | concat=concat(F_A,F_B,|F_A-F_B|)")
+    ap.add_argument("--probe-max-channels", type=int, default=2048,
+                    help="probe 输入通道上限（防止 concat 口径下内存/容量失控）")
     ap.add_argument("--max-train", type=int, default=3000)
     ap.add_argument("--steps", type=int, default=1500)
     ap.add_argument("--probe-batch", type=int, default=16)

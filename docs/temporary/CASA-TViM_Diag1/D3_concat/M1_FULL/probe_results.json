@@ -1,0 +1,108 @@
+{
+  "per_layer": {
+    "L01b_norm0": {
+      "C_in": 144,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.4823170419429054,
+      "test": {
+        "pooled_AP": 0.5469824576014067,
+        "per_image_AP_mean": 0.4933345326226089,
+        "n_images": 4000
+      }
+    },
+    "L03b_norm2": {
+      "C_in": 192,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.5719534273621167,
+      "test": {
+        "pooled_AP": 0.6232127485577623,
+        "per_image_AP_mean": 0.5394296525330889,
+        "n_images": 4000
+      }
+    },
+    "L05_stage3_last_prefix": {
+      "C_in": 504,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.732945273464854,
+      "test": {
+        "pooled_AP": 0.7892951407317347,
+        "per_image_AP_mean": 0.6775570471995054,
+        "n_images": 4000
+      }
+    },
+    "L06b_norm4": {
+      "C_in": 504,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.6987424669096045,
+      "test": {
+        "pooled_AP": 0.7506320077256677,
+        "per_image_AP_mean": 0.6265372926314192,
+        "n_images": 4000
+      }
+    },
+    "L07_network5": {
+      "C_in": 672,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.8045558213144299,
+      "test": {
+        "pooled_AP": 0.828550447957656,
+        "per_image_AP_mean": 0.7035489462496834,
+        "n_images": 4000
+      }
+    },
+    "L08b_norm6": {
+      "C_in": 672,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.6976087119200518,
+      "test": {
+        "pooled_AP": 0.6744176433497098,
+        "per_image_AP_mean": 0.5679696879673422,
+        "n_images": 4000
+      }
+    },
+    "P00_head_logits": {
+      "C_in": 1,
+      "n_train_samples": 3011,
+      "probe_train_subset_AP": 0.979883329357584,
+      "test": {
+        "pooled_AP": 0.9048965015933668,
+        "per_image_AP_mean": 0.8234907143795358,
+        "n_images": 4000
+      }
+    }
+  },
+  "protocol": {
+    "probe": "Conv2d(C_in,1,1) + BCEWithLogitsLoss on bilinear-upsampled logits vs native 256² mask",
+    "encoder_input": "concat(F_A, F_B, abs(F_A - F_B))（C_in = 3C，含可学习时相组合空间）",
+    "encoder_input_mode": "concat",
+    "single_path_input": "节点自身融合特征（无 A/B）",
+    "capacity_caveat": "concat 口径下 probe 输入通道为 3C，读出容量大于 absdiff（C）；两者不可直接称为公平容量对照，须并列输入通道数解读",
+    "split": "SYSU train.txt 按文件名 SHA1 hash 固定 90% probe-train / 10% probe-val",
+    "test_usage": "一次性评估，不参与任何优化/早停/调参",
+    "hyperparams": {
+      "lr": 0.001,
+      "steps": 1500,
+      "batch": 16,
+      "optimizer": "AdamW(wd=0)",
+      "seed": 16
+    },
+    "budget_deviation": "--max-train=3000（0=全部）; --extract-batch=16",
+    "layers": [
+      "L01b_norm0",
+      "L03b_norm2",
+      "L05_stage3_last_prefix",
+      "L06b_norm4",
+      "L07_network5",
+      "L08b_norm6",
+      "P00_head_logits"
+    ],
+    "checkpoint": {
+      "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+      "sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457"
+    },
+    "frozen_model": true
+  },
+  "frozen_unchanged": true,
+  "model_sha256_before": "bac8a0ae40cdd81bfc1c5c28190dee0eb1b3182c5b2100408a40592630ee521c",
+  "model_sha256_after": "bac8a0ae40cdd81bfc1c5c28190dee0eb1b3182c5b2100408a40592630ee521c"
+}
