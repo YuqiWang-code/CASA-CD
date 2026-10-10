@@ -84,6 +84,10 @@ python analyse/run4_fet_report.py --mode verdict \
   --object-dir "${OBJ_DIR}" --out "${LOG_ROOT}/verdict.json"
 _verdict_rc=$?
 
+echo "########## 4) README-ready markdown (rendered from verdict.json, no manual transcription) ##########"
+python analyse/run4_fet_report.py --mode markdown --verdict "${LOG_ROOT}/verdict.json" \
+  --out "${LOG_ROOT}/README_SNIPPET.md" || echo "[WARN] markdown render failed"
+
 echo "########## SUMMARY ##########"
 echo "protocol_audit_fail=${_audit_fail} check_run_fail=${_gate_fail} object_pass_fail=${_obj_fail} verdict_rc=${_verdict_rc}"
 python - <<PY

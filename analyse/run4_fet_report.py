@@ -405,7 +405,18 @@ def verdict(args):
                     "proceed to writing, no further modules")
 
     payload = {"status": status, "decision": decision, "layers": layers, "runs": runs,
-               "object_metrics_available": sorted(obj), "thresholds": {
+               "object_metrics_available": sorted(obj),
+               "object_metrics": {
+                   k: {"train_params": o.get("train_params"),
+                       "train_trainable": o.get("train_trainable"),
+                       "deploy_params": o.get("deploy_params"),
+                       "fet_deploy_conv_shape": o.get("fet_deploy_conv_shape"),
+                       "small": {kk: o["small"].get(kk) for kk in ("n_objects", "pixel_recall_micro", "hit25")},
+                       "object": {kk: o["object"].get(kk) for kk in ("ObjPrecision_loose", "ObjRecall_loose")},
+                       "unmatched_pred_lt256": o.get("unmatched_pred_lt256"),
+                       "ckpt_sha256": o.get("ckpt_sha256")}
+                   for k, o in obj.items()},
+               "thresholds": {
                    "mech_abs": MECH_ABS, "mech_delta": MECH_DELTA, "guardrail": GUARDRAIL,
                    "paper_target": PAPER_TARGET, "budget": BUDGET},
                "historical_m1_sysu": HIST_M1_SYSU}
@@ -460,26 +471,107 @@ def verdict(args):
     return 0
 
 
+def render_markdown(verdict_path, out_path=None):
+    """把 verdict.json 渲染成可直接粘进 README 的 markdown（数字全部来自 JSON，不经手工转抄）。"""
+    with open(verdict_path, encoding="utf-8") as f:
+        v = json.load(f)
+    runs, layers = v["runs"], v["layers"]
+    om = v.get("object_metrics", {})
+
+    def f(x, nd=4):
+        return "-" if x is None else (f"{x:.{nd}f}" if isinstance(x, float) else str(x))
+
+    L = [f"**STATUS：`{v['status']}`**", "", f"> {v['decision']}", ""]
+
+    L += ["### 1. 每 run 六指标与部署实测（来源：各 `train_log.txt` 最后一个完整 TEST 区块）", "",
+          "| run | F1 | IoU | Recall | Precision | OA | Kappa | steps | deploy M | FLOPs G | unsup | γ | 分歧(随机/真实) | 状态 |",
+          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
+    for key in sorted(runs):
+        r = runs[key]
+        vv, dd = key.split("/")
+        if not r.get("valid"):
+            L.append(f"| {vv} / {dd} | " + " | ".join(["-"] * 12) + f" | INVALID（{r.get('reason')}） |")
+            continue
+        m = r["metrics"]
+        a_ok = layers["A_p0_validity"]["per_run"][key]["pass"]
+        L.append(f"| {vv} / {dd} | {f(m['F1'])} | {f(m['IoU'])} | {f(m['Recall'])} | {f(m['Precision'])} | "
+                 f"{f(m['OA'])} | {f(m['Kappa'])} | {r['actual_opt_steps']} | {f(r['deploy_params_M'], 3)} | "
+                 f"{f(r['deploy_flops_G'])} | {r['unsupported_ops']} | {f(r['fet_gamma'], 6)} | "
+                 f"{f(r['disagree_random'], 3)}/{f(r['disagree_real'], 3)} | {'OK' if a_ok else 'INVALID(A)'} |")
+
+    L += ["", "### 2. 对象指标与参数（来源：`--mode object` 在同一部署图上重算）", "",
+          "| run | train 参数(可训练) | deploy 参数 | FET 折叠卷积 | small n | small pooled Recall | Hit@25 | ObjP | ObjR | 未匹配 <256px |",
+          "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|"]
+    for key in sorted(om):
+        o = om[key]
+        vv, dd = key.split("/")
+        L.append(f"| {vv} / {dd} | {o['train_params']} ({o['train_trainable']}) | {o['deploy_params']} | "
+                 f"{o.get('fet_deploy_conv_shape') or '-'} | {o['small']['n_objects']} | "
+                 f"{f(o['small']['pixel_recall_micro'])} | {f(o['small']['hit25'])} | "
+                 f"{f(o['object']['ObjPrecision_loose'])} | {f(o['object']['ObjRecall_loose'])} | "
+                 f"{o['unmatched_pred_lt256']} |")
+
+    mech = layers.get("B_mechanism_sysu", {})
+    L += ["", "### 3. 层 B：SYSU 机制（绝对门槛与同期增量门槛必须同时满足）", ""]
+    if mech.get("available"):
+        L += ["| 指标 | M1_R4CTRL | E6_FET1 | 增量 | 绝对门槛 | 增量门槛 | 判定 |",
+              "|---|---:|---:|---:|---:|---:|---|"]
+        for k, row in mech["rows"].items():
+            L.append(f"| {k} | {f(row.get('ctrl'))} | {f(row.get('e6'))} | {f(row.get('delta'))} | "
+                     f"{f(row.get('abs_threshold'))} | {f(row.get('delta_threshold'))} | "
+                     f"{'PASS' if row['pass'] else 'FAIL'} |")
+        L.append("")
+        L.append(f"机制总判：**{'PASS' if mech.get('pass') else 'FAIL'}**"
+                 + ("；判定为**伪变化放大而非证据恢复**" if mech.get("false_change_amplification") else ""))
+    else:
+        L.append("（对象指标缺失，未评估）")
+
+    L += ["", "### 4. 层 C：跨库守门与论文硬目标", "",
+          "| 数据集 | E6 F1 | 同期 CTRL F1 | 不退守门 | 守门判定 | 论文硬目标 | 硬目标判定 |",
+          "|---|---:|---:|---:|---|---:|---|"]
+    g, p = layers["C_guardrail"]["per_dataset"], layers["C_paper_target"]["per_dataset"]
+    for d in DATASETS:
+        L.append(f"| {d} | {f(g[d]['e6_F1_pct'], 2)} | {f(g[d]['ctrl_F1_pct'], 2)} | {g[d]['guardrail_pct']:.2f} | "
+                 f"{'PASS' if g[d]['pass'] else 'FAIL'} | {p[d]['paper_target_pct']:.2f} | "
+                 f"{'PASS' if p[d]['pass'] else 'FAIL'} |")
+    L += ["", f"IoU/F1 自洽（同一混淆矩阵 `IoU = F1/(2−F1)`）且 E6/CTRL 同向："
+              f"**{'PASS' if layers['C_iou_direction']['pass'] else 'FAIL'}**", ""]
+
+    text = "\n".join(L) + "\n"
+    if out_path:
+        with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        print(f"wrote {out_path}")
+    else:
+        print(text)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["object", "verdict"], required=True)
+    ap.add_argument("--mode", choices=["object", "verdict", "markdown"], required=True)
     ap.add_argument("--device", type=str, default="cuda:0")
     ap.add_argument("--run", type=str, default="Run4")
     ap.add_argument("--variant", type=str, default=None)
     ap.add_argument("--dataset", type=str, default=None)
     ap.add_argument("--log-root", type=str, default=None)
-    ap.add_argument("--ckpt-root", type=str, required=True)
+    ap.add_argument("--ckpt-root", type=str, default=None)
     ap.add_argument("--object-dir", type=str, default=None)
     ap.add_argument("--out-dir", type=str, default=None)
     ap.add_argument("--out", type=str, default=None)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--num-workers", type=int, default=4)
+    ap.add_argument("--verdict", type=str, default=None,
+                    help="--mode markdown: path to verdict.json")
     args = ap.parse_args()
 
     if args.mode == "object":
-        assert args.variant and args.dataset and args.out_dir
+        assert args.variant and args.dataset and args.out_dir and args.ckpt_root
         return object_pass(args)
-    assert args.log_root and args.object_dir and args.out
+    if args.mode == "markdown":
+        assert args.verdict, "--mode markdown needs --verdict <path>"
+        return render_markdown(args.verdict, args.out)
+    assert args.log_root and args.object_dir and args.out and args.ckpt_root
     return verdict(args)
 
 
