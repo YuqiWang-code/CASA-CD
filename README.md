@@ -251,6 +251,52 @@ small(1–255px) pooled **0.1974**、Hit@25 **0.1896** ⇒ **size gap 65.0pp**�
 **注意**：3×3 Conv(144→96) 折叠 ≈ +124.5K 参数会把 deploy 推到 ~5.005M **超 5M**，须改 1×1
 折叠（+13.9K）或降通道。候选 B（减少 1/16→1/32 的 small-margin 坍塌）属骨干改动，须导师批准。
 
+## Run4（CASA-TViM R4-FET1 · 1/4 细尺度证据 1×1 可折叠旁路，进行中）
+
+> 设计文档：`docs/temporary/CASA-CD_Run4_小目标瓶颈结构改进与实验设计_2026-10-10.md`；
+> 脚本：`train_scripts/CASA-TViM/Run4/`（`README.md` 含完整执行顺序与预注册门槛）；
+> 代码身份：`train_scripts/CASA-TViM/Run4/SOURCE_IDENTITY.json`（与 Diag1 manifest 的逐文件差异）。
+> **状态：代码已实现并部署到 RSML-3；全部训练前门已 PASS；两波 8×80,000 步正在训练。
+> 本节不预填任何 Run4 TEST 成绩，也不声称已达成论文目标。**
+
+**唯一结构变量 `fine_tap`（其余全部相同）**
+
+| 变体 | `fine_tap` | 说明 |
+|---|---:|---|
+| `M1_R4CTRL` | 0 | 同期唯一变量对照，先跑 |
+| `E6_FET1` | 1 | 唯一正式主实验，后跑 |
+
+`P=f1a`、`Q=f1b` 取自共享编码器 `norm0`（1/4、48C、64²）：`D=|Q−P|`，
+`U=Conv1x1([P,Q])+b`，`V=Conv1x1_noBias(D)`，`T=γ(U+V)`，`R'=R+T`（加在 DCR refine 之后）。
+`γ`、`W_diff` 零初始化且新模块最后构造（`fork_rng` 局部 RNG）⇒ epoch-0 与关掉 FET **逐位一致**。
+训练图 **+13,921**、部署图折叠为单条 `Conv1x1(144→96)` **+13,920** ⇒ deploy
+**4,894,110 ≤ 5,000,000**（CTRL 4,880,190）。
+
+**exact-80K（P0 协议修正）**：`--exact_max_steps 1` 在第 80,000 次 `optimizer.step()` 处严格停止，
+poly 归一化分母固定 `args.max_steps=80000`；历史整 epoch 口径仍为默认（`exact_max_steps=0`），
+两个变体同版本同实现。
+
+**训练前门（全部 PASS，2026-10-10，RSML-3）**
+
+| 门 | 结果 |
+|---|---|
+| 代码身份 | 服务器 SHA256 与本地/`SOURCE_IDENTITY.json` **逐条相同**；Diag1 的 12 文件里仅 `casa_tvim_str_net.py`/`train.py`/`eval.py` 改动，其余逐字节相同 |
+| 现有 `casa_tvim_str` smoke | **ALL OK**（旧行为未改，含 T-CA-2 `retained=744/805 worst=0.00e+00`） |
+| T0–T9 验收 | **PASS=53 / FAIL=0 / SKIP=0** |
+| §10.2 互补性 preflight | **PASS**（4000 张、12.8 s；`n_missed_small=295`、`rescue_rate=0.5085`、`gap=0.1303`，按图 bootstrap 95%CI **[0.0669, 0.1934]**；复现 Diag1 small recall 0.19742 / Hit@25 0.18956、n=364） |
+| 真实数据 3-step dry-run | **PASS**（E6 与 CTRL；几何增广同步、`gray>=128` 逐位一致、batch32 峰值 ≈9.8 GB/进程） |
+
+关键实测：epoch-0 前向 `torch.equal`=True（`max_abs=0`）；整模型 train↔deploy
+`max_abs=0.000e+00` 且二值 disagreement=0（随机与真实 batch=16）；FET 折叠 FP64 `1.2e-15`；
+deploy fvcore **2.7313 G**（`unsupported_ops=20`，与设计预测一致）；第 1 步 `γ.grad` 非零、
+γ 开门后 `W_diff` 梯度非零、encoder/TAR/DCR/head 均仍有梯度。
+
+**预注册门槛（不得事后放宽）**：SYSU small(1–255px) pooled Recall ≥ **0.2474** 且 ≥CTRL+5.0pp，
+Hit@25 ≥ **0.2396** 且 ≥CTRL+5.0pp，ObjRecall ≥CTRL+1.0pp，ObjPrecision 与 <256px 未匹配预测
+不劣于 CTRL；跨库守门 CDD ≥97.18、LEVIR ≥91.07、SYSU ≥83.47、WHU ≥95.07 且不低于同期 CTRL；
+四库同时 ≥98.00 / 92.50 / 85.00 / 95.00 才是 `PAPER-TARGET-PASS`。判定走
+`analyse/run4_fet_report.py`，失败按设计文档 §6.4 决策树**停止该线**。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
