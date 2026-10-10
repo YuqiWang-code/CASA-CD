@@ -1,0 +1,1049 @@
+{
+  "run": "Run1",
+  "variant": "M1_FULL",
+  "dataset": "CDD-CD-256",
+  "checkpoint": {
+    "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/CDD-CD-256/best_F1=0.9718.pth",
+    "sha256": "5527258b1cd51506e7250d6837f8794a625bc9121012aabeab04dae1bad33be1"
+  },
+  "config": {
+    "caacp": true,
+    "rep_mode": "full",
+    "caacp_score_mode": "rank",
+    "frh": false,
+    "caacp_residual_mode": "current",
+    "fs_tar": false
+  },
+  "n_images_processed": 3000,
+  "limited": false,
+  "dry_run": false,
+  "not_for_conclusion": false,
+  "encoder_nodes": {
+    "L00_patch_embed": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.1812386540716435,
+      "per_image_AP_mean": 0.1933388461240592,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.1933388461240592,
+        "lo": 0.1850561856897778,
+        "hi": 0.20287190484626388,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.17054409117930716,
+        "medium": 0.16872457193515114,
+        "large": 0.18307868112227815
+      },
+      "group_score_p90": {
+        "small": 0.2795,
+        "medium": 0.2925,
+        "large": 0.3115
+      },
+      "group_score_max": {
+        "small": 0.696,
+        "medium": 0.79,
+        "large": 0.821
+      },
+      "background_score_mean": 0.14262797334362268,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.008588175957919606,
+        "median": 0.0039020442317746623,
+        "per_image_mean": 0.007804851714434913,
+        "per_image_bootstrap_CI": {
+          "mean": 0.007804851714434913,
+          "lo": 0.00646673284013322,
+          "hi": 0.009202438433747137,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.03844764777063704,
+          "bootstrap_CI": {
+            "mean": 0.03844764777063704,
+            "lo": 0.035336892049466134,
+            "hi": 0.04146603629323883,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.11498123751086618,
+          "bootstrap_CI": {
+            "mean": 0.11498123751086615,
+            "lo": 0.10894115574256687,
+            "hi": 0.12098877348651775,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L01_network0": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.24025625619786253,
+      "per_image_AP_mean": 0.20740163533448316,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.20740163533448316,
+        "lo": 0.19958939990265107,
+        "hi": 0.21528507042872494,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.8791549497130754,
+        "medium": 0.8617269668200508,
+        "large": 0.8620463194460246
+      },
+      "group_score_p90": {
+        "small": 1.1535,
+        "medium": 1.1155,
+        "large": 1.1085
+      },
+      "group_score_max": {
+        "small": 1.514,
+        "medium": 1.536,
+        "large": 1.565
+      },
+      "background_score_mean": 0.7448402595350011,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.06830945928847931,
+        "median": 0.0644671956731232,
+        "per_image_mean": 0.04877146822995621,
+        "per_image_bootstrap_CI": {
+          "mean": 0.04877146822995621,
+          "lo": 0.04501926856749286,
+          "hi": 0.052880430762546976,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.05103184168133165,
+          "bootstrap_CI": {
+            "mean": 0.05103184168133165,
+            "lo": 0.04792445076481145,
+            "hi": 0.053972944429458186,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.158028299251679,
+          "bootstrap_CI": {
+            "mean": 0.158028299251679,
+            "lo": 0.15278065600941695,
+            "hi": 0.16318256023708677,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L01b_norm0": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.19626935721320934,
+      "per_image_AP_mean": 0.1769498287414991,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.1769498287414991,
+        "lo": 0.16927588812220765,
+        "hi": 0.18505226473645098,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.959015879900578,
+        "medium": 0.954387611190278,
+        "large": 0.9797218181707583
+      },
+      "group_score_p90": {
+        "small": 1.1995,
+        "medium": 1.1825,
+        "large": 1.1925
+      },
+      "group_score_max": {
+        "small": 1.603,
+        "medium": 1.585,
+        "large": 1.613
+      },
+      "background_score_mean": 0.8771516973139422,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.04413576396972719,
+        "median": 0.0424048624796356,
+        "per_image_mean": 0.020983465750417738,
+        "per_image_bootstrap_CI": {
+          "mean": 0.020983465750417738,
+          "lo": 0.01729254465140014,
+          "hi": 0.024943425202287473,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.027729246701997563,
+          "bootstrap_CI": {
+            "mean": 0.027729246701997563,
+            "lo": 0.026179277154647598,
+            "hi": 0.029283490899806364,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.10968150829193114,
+          "bootstrap_CI": {
+            "mean": 0.10968150829193114,
+            "lo": 0.1058406279614997,
+            "hi": 0.11338270924414846,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L02_network1": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.2761712454357216,
+      "per_image_AP_mean": 0.24018160242491587,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.24018160242491587,
+        "lo": 0.23157151022766462,
+        "hi": 0.24938226373685288,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.6214129315506149,
+        "medium": 0.6519194180708137,
+        "large": 0.6930328380270568
+      },
+      "group_score_p90": {
+        "small": 0.9495,
+        "medium": 0.9685,
+        "large": 0.9955
+      },
+      "group_score_max": {
+        "small": 1.5,
+        "medium": 1.508,
+        "large": 1.594
+      },
+      "background_score_mean": 0.5186254611078532,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.031217283464654577,
+        "median": 0.019949442963851094,
+        "per_image_mean": 0.03006498183877751,
+        "per_image_bootstrap_CI": {
+          "mean": 0.03006498183877751,
+          "lo": 0.027815791146959604,
+          "hi": 0.03266003467080275,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.054025318101613665,
+          "bootstrap_CI": {
+            "mean": 0.05402531810161367,
+            "lo": 0.05070000054406773,
+            "hi": 0.057228448259643606,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.17166807027116787,
+          "bootstrap_CI": {
+            "mean": 0.1716680702711679,
+            "lo": 0.1655706261361659,
+            "hi": 0.17795603883464087,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L03_network2": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.32972317657327666,
+      "per_image_AP_mean": 0.23929354860630686,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.23929354860630686,
+        "lo": 0.22946148015942555,
+        "hi": 0.24885241024261362,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.827260423244641,
+        "medium": 0.8524799337345089,
+        "large": 0.9106423098168085
+      },
+      "group_score_p90": {
+        "small": 1.0905,
+        "medium": 1.1075,
+        "large": 1.1555
+      },
+      "group_score_max": {
+        "small": 1.542,
+        "medium": 1.52,
+        "large": 1.588
+      },
+      "background_score_mean": 0.7120044943284948,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.02957654445459045,
+        "median": 0.02393713881049231,
+        "per_image_mean": 0.024006739872321724,
+        "per_image_bootstrap_CI": {
+          "mean": 0.024006739872321724,
+          "lo": 0.021792530368046056,
+          "hi": 0.02631448123951473,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.046760448248897905,
+          "bootstrap_CI": {
+            "mean": 0.046760448248897905,
+            "lo": 0.04367426430857912,
+            "hi": 0.04969179192944809,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.16214442497292486,
+          "bootstrap_CI": {
+            "mean": 0.16214442497292486,
+            "lo": 0.15585427013238465,
+            "hi": 0.16856242247084527,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L03b_norm2": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.29109532250527953,
+      "per_image_AP_mean": 0.22216656661532244,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.22216656661532244,
+        "lo": 0.21310180693910893,
+        "hi": 0.23177644524616411,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.887902780617505,
+        "medium": 0.9131023693529644,
+        "large": 0.9779227652819532
+      },
+      "group_score_p90": {
+        "small": 1.1185,
+        "medium": 1.1345,
+        "large": 1.1855
+      },
+      "group_score_max": {
+        "small": 1.478,
+        "medium": 1.48,
+        "large": 1.555
+      },
+      "background_score_mean": 0.8027224724774181,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.024827075505671287,
+        "median": 0.020097393532646834,
+        "per_image_mean": 0.01828657182637211,
+        "per_image_bootstrap_CI": {
+          "mean": 0.01828657182637211,
+          "lo": 0.01613605781589108,
+          "hi": 0.02045220833600866,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.03647162917630852,
+          "bootstrap_CI": {
+            "mean": 0.03647162917630853,
+            "lo": 0.03391607171171162,
+            "hi": 0.038881946819216424,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.1377321360583811,
+          "bootstrap_CI": {
+            "mean": 0.1377321360583811,
+            "lo": 0.13199168809113285,
+            "hi": 0.14313458813287558,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L04_network3": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.35936175586147956,
+      "per_image_AP_mean": 0.2514414068984964,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.2514414068984964,
+        "lo": 0.24157847081498726,
+        "hi": 0.261406414347383,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.8264102153707928,
+        "medium": 0.8560520020802856,
+        "large": 0.9502772751570634
+      },
+      "group_score_p90": {
+        "small": 1.1725,
+        "medium": 1.1945,
+        "large": 1.2915
+      },
+      "group_score_max": {
+        "small": 1.605,
+        "medium": 1.727,
+        "large": 1.758
+      },
+      "background_score_mean": 0.691352667017034,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.01240817589461954,
+        "median": 0.004769531885782996,
+        "per_image_mean": 0.013527677047122771,
+        "per_image_bootstrap_CI": {
+          "mean": 0.013527677047122771,
+          "lo": 0.012287863488572996,
+          "hi": 0.01485069880862429,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.04836654747861773,
+          "bootstrap_CI": {
+            "mean": 0.04836654747861773,
+            "lo": 0.04471443548301926,
+            "hi": 0.05195510561227586,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.16752661573584846,
+          "bootstrap_CI": {
+            "mean": 0.1675266157358484,
+            "lo": 0.15986866220895457,
+            "hi": 0.17459908293242876,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L05_stage3_last_prefix": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.3530894189301938,
+      "per_image_AP_mean": 0.26172045713836734,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.26172045713836734,
+        "lo": 0.2520624672517071,
+        "hi": 0.2716370745664447,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.8062902210329793,
+        "medium": 0.8569428420403277,
+        "large": 0.9123660278666488
+      },
+      "group_score_p90": {
+        "small": 0.9995,
+        "medium": 1.0225,
+        "large": 1.0435
+      },
+      "group_score_max": {
+        "small": 1.207,
+        "medium": 1.281,
+        "large": 1.304
+      },
+      "background_score_mean": 0.7285480631429091,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.007898151459248054,
+        "median": 0.0035573484169112435,
+        "per_image_mean": 0.008164331187783728,
+        "per_image_bootstrap_CI": {
+          "mean": 0.008164331187783728,
+          "lo": 0.007394405541810155,
+          "hi": 0.009014242487620887,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.04930304204366732,
+          "bootstrap_CI": {
+            "mean": 0.04930304204366732,
+            "lo": 0.045771318900633094,
+            "hi": 0.05270418054549972,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.18516088085894497,
+          "bootstrap_CI": {
+            "mean": 0.18516088085894494,
+            "lo": 0.1778771993138801,
+            "hi": 0.19189891534654294,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L06b_norm4": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.33269066776443146,
+      "per_image_AP_mean": 0.23855577765291083,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.23855577765291083,
+        "lo": 0.2287894299942726,
+        "hi": 0.24806128319919393,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.8966859824607577,
+        "medium": 0.9517565219496225,
+        "large": 1.0051966529887841
+      },
+      "group_score_p90": {
+        "small": 1.0555,
+        "medium": 1.0775,
+        "large": 1.1085
+      },
+      "group_score_max": {
+        "small": 1.259,
+        "medium": 1.295,
+        "large": 1.317
+      },
+      "background_score_mean": 0.8470830812627859,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.005653845683630704,
+        "median": 0.0024546176195144875,
+        "per_image_mean": 0.005853403664424467,
+        "per_image_bootstrap_CI": {
+          "mean": 0.005853403664424467,
+          "lo": 0.005223120663102686,
+          "hi": 0.0065273341128100305,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.035791844087570475,
+          "bootstrap_CI": {
+            "mean": 0.035791844087570475,
+            "lo": 0.03290157856356464,
+            "hi": 0.038528890493986494,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.1505957782091196,
+          "bootstrap_CI": {
+            "mean": 0.15059577820911962,
+            "lo": 0.14453085240049457,
+            "hi": 0.15655838888321486,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L07_network5": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.22588402717031725,
+      "per_image_AP_mean": 0.21566356538336875,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.21566356538336875,
+        "lo": 0.2063605045079345,
+        "hi": 0.22529269313863254,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.30578390472637385,
+        "medium": 0.3446215776513708,
+        "large": 0.4110227227918136
+      },
+      "group_score_p90": {
+        "small": 0.4255,
+        "medium": 0.4895,
+        "large": 0.5285
+      },
+      "group_score_max": {
+        "small": 1.845,
+        "medium": 1.813,
+        "large": 1.854
+      },
+      "background_score_mean": 0.31580330473222995,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.0005079523282842463,
+        "median": 1.4156103123053043e-08,
+        "per_image_mean": 0.0008478731185934335,
+        "per_image_bootstrap_CI": {
+          "mean": 0.0008478731185934335,
+          "lo": 0.0006262265467228738,
+          "hi": 0.001120048865080174,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.030357287308013625,
+          "bootstrap_CI": {
+            "mean": 0.030357287308013632,
+            "lo": 0.02737947679487429,
+            "hi": 0.033591720065468705,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.11925381872126198,
+          "bootstrap_CI": {
+            "mean": 0.11925381872126199,
+            "lo": 0.11260238334508962,
+            "hi": 0.12574150486280547,
+            "n": 2975
+          }
+        }
+      }
+    },
+    "L08b_norm6": {
+      "n_positive_pixels": 24268299.0,
+      "n_pixels": 196608000.0,
+      "positive_prior": 0.12343495178222656,
+      "pooled_AP_hist": 0.2561278140021686,
+      "per_image_AP_mean": 0.1989834249478369,
+      "per_image_AP_bootstrap_CI": {
+        "mean": 0.1989834249478369,
+        "lo": 0.1909049421056269,
+        "hi": 0.20787268281372878,
+        "n": 2975
+      },
+      "per_image_AP_n": 3000,
+      "group_score_mean": {
+        "small": 0.9135829763560563,
+        "medium": 0.9607268940895728,
+        "large": 1.0121250747783945
+      },
+      "group_score_p90": {
+        "small": 1.0505,
+        "medium": 1.0635,
+        "large": 1.0955
+      },
+      "group_score_max": {
+        "small": 1.243,
+        "medium": 1.244,
+        "large": 1.426
+      },
+      "background_score_mean": 0.8988526599912235,
+      "small_object_margin": {
+        "n_objects": 6767,
+        "mean": 0.0005255028359350395,
+        "median": 4.967053723881065e-08,
+        "per_image_mean": 0.0007611906075440169,
+        "per_image_bootstrap_CI": {
+          "mean": 0.0007611906075440169,
+          "lo": 0.0005797181328101125,
+          "hi": 0.0009695616074738254,
+          "n": 1755
+        }
+      },
+      "budget_recall": {
+        "fp_budget_1pct": {
+          "per_image_mean": 0.018258928056976466,
+          "bootstrap_CI": {
+            "mean": 0.018258928056976466,
+            "lo": 0.01626640611611718,
+            "hi": 0.020326300482552837,
+            "n": 2975
+          }
+        },
+        "fp_budget_5pct": {
+          "per_image_mean": 0.09189556430540502,
+          "bootstrap_CI": {
+            "mean": 0.09189556430540502,
+            "lo": 0.08646423850987874,
+            "hi": 0.09756859090131809,
+            "n": 2975
+          }
+        }
+      }
+    }
+  },
+  "single_path_nodes": {
+    "L06a_caacp_block": {
+      "shapes": [
+        [
+          168,
+          16,
+          16
+        ]
+      ],
+      "gt_norm_mean": 36.59807226331993,
+      "bg_norm_mean": 35.235982656058994,
+      "small_gt_over_bg_norm_ratio_mean": 1.2219244661953366,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.2219244661953366,
+        "lo": 1.201361879026178,
+        "hi": 1.2461007077088542,
+        "n": 2964
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "T01_tar1": {
+      "shapes": [
+        [
+          96,
+          64,
+          64
+        ]
+      ],
+      "gt_norm_mean": 2.387205770737135,
+      "bg_norm_mean": 1.9605493920245936,
+      "small_gt_over_bg_norm_ratio_mean": 1.2162720829600226,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.2162720829600226,
+        "lo": 1.2097261800794135,
+        "hi": 1.2239152575252834,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "T02_tar2": {
+      "shapes": [
+        [
+          96,
+          32,
+          32
+        ]
+      ],
+      "gt_norm_mean": 2.600503380051783,
+      "bg_norm_mean": 2.119116749735861,
+      "small_gt_over_bg_norm_ratio_mean": 1.2178378058927257,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.2178378058927257,
+        "lo": 1.2104391823490395,
+        "hi": 1.225020706113836,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "T03_tar3": {
+      "shapes": [
+        [
+          96,
+          16,
+          16
+        ]
+      ],
+      "gt_norm_mean": 3.7887010912277455,
+      "bg_norm_mean": 2.8261388352695556,
+      "small_gt_over_bg_norm_ratio_mean": 1.3402854884282136,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.3402854884282136,
+        "lo": 1.3326801199611784,
+        "hi": 1.3483123706575788,
+        "n": 2964
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "T04_tar4": {
+      "shapes": [
+        [
+          96,
+          8,
+          8
+        ]
+      ],
+      "gt_norm_mean": 3.6598205296886612,
+      "bg_norm_mean": 2.4852619919125303,
+      "small_gt_over_bg_norm_ratio_mean": 1.3410815611295213,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.3410815611295213,
+        "lo": 1.3299477544464207,
+        "hi": 1.3525968567060989,
+        "n": 2957
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "D03_decoder_block3": {
+      "shapes": [
+        [
+          96,
+          16,
+          16
+        ]
+      ],
+      "gt_norm_mean": 4.469188477460109,
+      "bg_norm_mean": 3.0886469662882443,
+      "small_gt_over_bg_norm_ratio_mean": 1.3728961391366927,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.3728961391366927,
+        "lo": 1.3646599407128075,
+        "hi": 1.3809996468310373,
+        "n": 2964
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "D02_decoder_block2": {
+      "shapes": [
+        [
+          96,
+          32,
+          32
+        ]
+      ],
+      "gt_norm_mean": 4.012844634274754,
+      "bg_norm_mean": 2.847450373996919,
+      "small_gt_over_bg_norm_ratio_mean": 1.4710817134802499,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.4710817134802499,
+        "lo": 1.460876735988596,
+        "hi": 1.479673409530827,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "D01_decoder_block1": {
+      "shapes": [
+        [
+          96,
+          64,
+          64
+        ]
+      ],
+      "gt_norm_mean": 7.929211441891217,
+      "bg_norm_mean": 5.60591221208408,
+      "small_gt_over_bg_norm_ratio_mean": 1.2474698906001112,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.2474698906001112,
+        "lo": 1.240209807260543,
+        "hi": 1.2546060360040874,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "DOUT_decoder_refine": {
+      "shapes": [
+        [
+          96,
+          64,
+          64
+        ]
+      ],
+      "gt_norm_mean": 23.136726527013593,
+      "bg_norm_mean": 16.671414134029547,
+      "small_gt_over_bg_norm_ratio_mean": 1.2422888367111726,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 1.2422888367111726,
+        "lo": 1.234158996756473,
+        "hi": 1.2501741030495646,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    },
+    "P00_head_logits": {
+      "shapes": [
+        [
+          1,
+          64,
+          64
+        ]
+      ],
+      "gt_norm_mean": 13.543022772165887,
+      "bg_norm_mean": 14.965978578246645,
+      "small_gt_over_bg_norm_ratio_mean": 0.6430600823454471,
+      "small_gt_over_bg_norm_ratio_bootstrap_CI": {
+        "mean": 0.6430600823454471,
+        "lo": 0.6337856350215325,
+        "hi": 0.6534115857819431,
+        "n": 2965
+      },
+      "caveat": "单路融合特征：不适用 A/B cosine；此处的范数信噪比仅为描述性，不可与编码器 AP 直接比较"
+    }
+  },
+  "node_shapes": {
+    "L00_patch_embed": [
+      32,
+      48,
+      64,
+      64
+    ],
+    "L01_network0": [
+      32,
+      48,
+      64,
+      64
+    ],
+    "L01b_norm0": [
+      32,
+      48,
+      64,
+      64
+    ],
+    "L02_network1": [
+      32,
+      64,
+      32,
+      32
+    ],
+    "L03_network2": [
+      32,
+      64,
+      32,
+      32
+    ],
+    "L03b_norm2": [
+      32,
+      64,
+      32,
+      32
+    ],
+    "L04_network3": [
+      32,
+      168,
+      16,
+      16
+    ],
+    "L05_stage3_last_prefix": [
+      32,
+      168,
+      16,
+      16
+    ],
+    "L06a_caacp_block": [
+      32,
+      168,
+      16,
+      16
+    ],
+    "L06b_norm4": [
+      32,
+      168,
+      16,
+      16
+    ],
+    "L07_network5": [
+      32,
+      224,
+      8,
+      8
+    ],
+    "L08_network6": [
+      32,
+      224,
+      8,
+      8
+    ],
+    "L08b_norm6": [
+      32,
+      224,
+      8,
+      8
+    ],
+    "T01_tar1": [
+      16,
+      96,
+      64,
+      64
+    ],
+    "T02_tar2": [
+      16,
+      96,
+      32,
+      32
+    ],
+    "T03_tar3": [
+      16,
+      96,
+      16,
+      16
+    ],
+    "T04_tar4": [
+      16,
+      96,
+      8,
+      8
+    ],
+    "D03_decoder_block3": [
+      16,
+      96,
+      16,
+      16
+    ],
+    "D02_decoder_block2": [
+      16,
+      96,
+      32,
+      32
+    ],
+    "D01_decoder_block1": [
+      16,
+      96,
+      64,
+      64
+    ],
+    "DOUT_decoder_refine": [
+      16,
+      96,
+      64,
+      64
+    ],
+    "P00_head_logits": [
+      16,
+      1,
+      64,
+      64
+    ]
+  },
+  "reconstruction_check": {
+    "max_abs_recon_vs_model": 0.0,
+    "binary_disagreement": 0.0
+  },
+  "resolution_protocol": {
+    "main": "score 上采样到原生 256²（bilinear, align_corners=False），GT 保持原生原样",
+    "secondary": "native feature grid occupancy = adaptive_avg_pool2d(GT)，用于分桶描述",
+    "AP": "pooled AP 由 2000-bin 分数直方图累计；per-image AP 精确计算并做 image-level bootstrap",
+    "budgets": [
+      "固定背景预测比例 1%（诊断曲线采样点，非部署阈值）",
+      "固定背景预测比例 5%（诊断曲线采样点，非部署阈值）"
+    ]
+  },
+  "caveats": [
+    "编码器节点为 A/B cosine proxy（观测性）",
+    "单路融合节点禁止 cosine，仅描述性范数信噪比",
+    "pooled AP 近似来自直方图；跨数据集绝对 AP 不可直接横比（须看正类先验）"
+  ]
+}

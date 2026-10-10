@@ -351,6 +351,95 @@ def build_report(root):
         A(f"- Gate D4-COUNTERFACT：**{(d.get('gate') or {}).get('status')}**")
         A(f"- 解释边界：{s.get('interpretation_boundary')}\n")
 
+    # ---------------------------------------------------------------- D3c 分层 probe
+    strat = []
+    for d in sorted(glob.glob(_g(root, "D3_stratified", "*"))):
+        r = _load(_g(d, "probe_stratified.json"))
+        if r:
+            strat.append((os.path.basename(d), r, _load(_g(d, "gate.json"))))
+    if strat:
+        A("## 6b. D3c：分层 probe 可读性（自动表）\n")
+        for name, r, g in strat:
+            A(f"### {name}（{r['protocol'].get('n_images_scored')} 张；gate={(g or {}).get('status')}）\n")
+            A("| 节点 | pooled AP | small vs 背景 AP | medium | large | small margin | medium margin | large margin |")
+            A("|---|---:|---:|---:|---:|---:|---:|---:|")
+            for k, v in (r.get("per_layer") or {}).items():
+                gg = v["groups"]
+                A(f"| {k} | {_fmt(v.get('pooled_AP_all_gt_vs_bg'))} | "
+                  f"{_fmt(gg['small'].get('AP_vs_background'), 5)} | {_fmt(gg['medium'].get('AP_vs_background'), 5)} | "
+                  f"{_fmt(gg['large'].get('AP_vs_background'))} | {_fmt(gg['small'].get('margin_mean'), 5)} | "
+                  f"{_fmt(gg['medium'].get('margin_mean'), 5)} | {_fmt(gg['large'].get('margin_mean'), 5)} |")
+            A("")
+            A(f"- 口径：{r['protocol'].get('positives_per_group')} / 负样本：{r['protocol'].get('negatives')}")
+        A("")
+
+    # ---------------------------------------------------------------- D2b margin 配对 CI
+    mp = None
+    for d in sorted(glob.glob(_g(root, "D2", "*"))):
+        mp = _load(_g(d, "margin_paired_ci.json"))
+        if mp:
+            A("## 6c. D2b：cosine small-object margin 的配对 bootstrap CI（自动表）\n")
+            A("| 相邻边界 | 同分辨率 | margin 从 → 到 | Δ | 配对 95% CI | 相对 | ≥10% 且同号 |")
+            A("|---|---|---:|---:|---|---:|---|")
+            for a in mp["adjacent"]:
+                rel = a["relative_delta"]
+                A(f"| {a['from']} → {a['to']} | {a['same_resolution']} | "
+                  f"{_fmt(a['margin_from_mean'], 5)} → {_fmt(a['margin_to_mean'], 5)} | "
+                  f"{_fmt(a['delta_margin_mean'], 5)} | "
+                  f"[{_fmt(a['delta_margin_CI'][0], 5)}, {_fmt(a['delta_margin_CI'][1], 5)}] | "
+                  f"{'—' if rel is None else f'{rel:.2%}'} | "
+                  f"{'是' if a['criterion_relative_drop_10pct_same_sign'] else '否'} |")
+            A(f"\n- 抽样单位：{mp['method']['paired_unit']}；bootstrap={mp['method']['bootstrap']}，seed=16\n")
+            break
+
+    # ---------------------------------------------------------------- D5 跨数据集
+    d5 = sorted(glob.glob(_g(root, "D5", "*")))
+    if d5:
+        A("## 6d. D5：跨数据集一致性（自动表；SYSU 为主对象，其余为收窄复现）\n")
+        A("| 数据集 | D0 | D1 | D2 | 正类先验 | small 对象数 | small pooled R | large pooled R | small Hit@25 | CCA@L05 | CCA@L06b | CCA@L07 | ObjP(loose) | ObjR(loose) |")
+        A("|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        rows = []
+        sysd1 = _load(_g(root, "D1", "M1_FULL", "summary.json"))
+        sysd2 = _load(_g(root, "D2", "M1_FULL", "stage_summary.json"))
+        if sysd1 and sysd2:
+            rows.append(("SYSU-CD-256", _load(_g(root, "D0", "M1_FULL", "gate.json")),
+                         _load(_g(root, "D1", "M1_FULL", "gate.json")),
+                         _load(_g(root, "D2", "M1_FULL", "gate.json")), sysd1, sysd2))
+        for d in d5:
+            ds = os.path.basename(d)
+            s1 = _load(_g(d, "D1", "summary.json"))
+            s2 = _load(_g(d, "D2", "stage_summary.json"))
+            if s1 and s2:
+                rows.append((ds, _load(_g(d, "D0", "gate.json")), _load(_g(d, "D1", "gate.json")),
+                             _load(_g(d, "D2", "gate.json")), s1, s2))
+        for ds, g0, g1, g2, s1, s2 in rows:
+            lg = s1["legacy_groups"]
+            enc = s2["encoder_nodes"]
+            A(f"| {ds} | {(g0 or {}).get('status')} | {(g1 or {}).get('status')} | {(g2 or {}).get('status')} | "
+              f"{_fmt(s1['pixel'].get('positive_prior'))} | {lg['small']['n_objects']} | "
+              f"{_fmt(lg['small'].get('pixel_recall_micro'))} | {_fmt(lg['large'].get('pixel_recall_micro'))} | "
+              f"{_fmt(lg['small'].get('hit25'))} | "
+              f"{_fmt(enc.get('L05_stage3_last_prefix', {}).get('pooled_AP_hist'))} | "
+              f"{_fmt(enc.get('L06b_norm4', {}).get('pooled_AP_hist'))} | "
+              f"{_fmt(enc.get('L07_network5', {}).get('pooled_AP_hist'))} | "
+              f"{_fmt(s1['object'].get('ObjPrecision_loose'))} | {_fmt(s1['object'].get('ObjRecall_loose'))} |")
+        A("\n- **跨数据集绝对 AP 不可直接横比**（正类先验差异极大，见 prior 列）；CCA = cosine-proxy pooled AP。\n")
+
+    # ---------------------------------------------------------------- D1 8 连通敏感性
+    c8 = _load(_g(root, "D1_conn8", "M1_FULL", "summary.json"))
+    c4 = _load(_g(root, "D1", "M1_FULL", "summary.json"))
+    if c8 and c4:
+        A("## 6e. 8 连通敏感性分析（自动表；主口径 = 4 连通）\n")
+        A("| 口径 | small 对象数 | small pooled R | medium | large | ObjP(loose) | ObjR(loose) | N_gt | N_pred |")
+        A("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for tag, s in (("4 连通（主口径）", c4), ("8 连通（敏感性）", c8)):
+            lg = s["legacy_groups"]
+            A(f"| {tag} | {lg['small']['n_objects']} | {_fmt(lg['small'].get('pixel_recall_micro'))} | "
+              f"{_fmt(lg['medium'].get('pixel_recall_micro'))} | {_fmt(lg['large'].get('pixel_recall_micro'))} | "
+              f"{_fmt(s['object'].get('ObjPrecision_loose'))} | {_fmt(s['object'].get('ObjRecall_loose'))} | "
+              f"{s['object'].get('n_gt')} | {s['object'].get('n_pred')} |")
+        A("")
+
     # ---------------------------------------------------------------- gates + auto assessment
     A("## 7. Gate 汇总与自动评估（§10.2 / §10.3）\n")
     gates = []
@@ -467,10 +556,10 @@ def write_run_manifest(root, out_path):
             "variant_cfg": (t.get("build_info") or {}).get("cfg"),
         }
     gates = {}
-    for stage in ("P0", "D0", "D1", "D2", "D3", "D4"):
-        for g in sorted(glob.glob(os.path.join(root, stage, "*", "gate.json"))):
-            gj = _load(g) or {}
-            gates[f"{stage}/" + os.path.basename(os.path.dirname(g))] = gj.get("status")
+    # 扫描任意深度的 gate.json（覆盖 D0/D1/D2/D3/D3_concat/D3_stratified/D4/D1_conn8/D5/*/...）
+    for g in sorted(glob.glob(os.path.join(root, "**", "gate.json"), recursive=True)):
+        rel = os.path.relpath(g, root).replace(os.sep, "/")
+        gates[rel[:-len("/gate.json")]] = (_load(g) or {}).get("status")
     payload = {
         "diagnosis": "TViM-TinyLoss-Diag1",
         "created": env.get("time"),

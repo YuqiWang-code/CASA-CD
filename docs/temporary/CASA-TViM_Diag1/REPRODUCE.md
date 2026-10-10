@@ -101,12 +101,25 @@ python analyse/tvim_caacp_counterfactual.py --dataset SYSU-CD-256 --run Run1 --v
 ```bash
 python analyse/tvim_diag_report.py --root "$DIAG" --out "$DIAG/DIAGNOSIS_REPORT.md" --write-manifest
 ```
-产出 `DIAGNOSIS_REPORT.md`（含 §8 偏差、§9 结论、§10 Run4 候选）与 `RUN_MANIFEST.json`
-（代码 SHA256、环境、数据 list SHA256、checkpoint SHA256、各 Gate 状态、两份协议）。
+产出 `DIAGNOSIS_REPORT.md`（机器章节 + 自动追加 `INTERPRETATION.md`）与 `RUN_MANIFEST.json`
+（代码 SHA256、环境、数据 list SHA256、checkpoint SHA256、**全部阶段 Gate 状态**、两份协议）。
+
+## 7b. 追加阶段（同一 `run_diag.sh`，可单独调用）
+
+```bash
+cd train_scripts/CASA-TViM/Diag1
+bash run_diag.sh d3c        # 分层 probe（复用 D3_concat 的 PROBE_ONLY 权重），~5 min
+bash run_diag.sh d2b        # cosine margin 配对 bootstrap CI（CPU，秒级）
+bash run_diag.sh d1conn8    # 8 连通敏感性分析，~1 min
+D5_DATASETS="LEVIR-CD-256 WHU-CD-256" bash run_diag.sh d5   # 跨数据集 D0+D1+D2
+```
+实测：D3c 约 5 min（4000 张 × 7 层 probe 前向）；每数据集 D5 约 5–6 min（D0 15 s + D1 60 s + D2 3–4 min）；
+8 连通敏感性约 1 min。双卡并行时的分配示例：GPU0 = `d3c d2b d5(LEVIR,WHU) d1conn8`，GPU1 = `d5(CDD)`。
 
 ## 8. 本轮未执行（明确记录，避免误读）
 
-- **D5 跨数据集**（LEVIR/WHU/CDD）：按文档要求，仅在 SYSU 结论稳健后收窄执行；本轮未做。
-- **8 连通敏感性分析**：模块已支持（`connectivity=8`），未在本报告展开。
-- **编码器 probe 的 `concat(F_A,F_B,|Δ|)` 口径**：本轮固定使用紧凑口径 `abs(F_A−F_B)`，作为下一轮首要补证项。
+- 未对 LEVIR/CDD/WHU 训练 probe（D5 按文档只做 D0+D1+D2 收窄复现）。
+- 未做 TAR/DCR 中间层的 probe（单路节点仅记录范数信噪比 + D3 的 T01/DOUT 两个参考节点）。
+- 未做 per-object margin 的**按组配对** bootstrap CI（§13 给出的是节点级 small-object margin 的配对 CI；
+  按面积组的 margin CI 仅在 D3c 以 image-level bootstrap 形式给出）。
 - 未做任何新的 80K 训练；未修改/删除历史 checkpoint、原始 train_log、既有 `docs/temporary/*.json`。

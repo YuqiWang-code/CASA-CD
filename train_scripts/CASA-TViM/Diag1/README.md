@@ -10,10 +10,13 @@
 # 服务器
 cd /home/yqwang/projects/CASA-CD/train_scripts/CASA-TViM/Diag1
 bash run_diag.sh                 # 默认：p0 + d0(M1) + d1 + d2 + d4 + report
-bash run_diag.sh p0 d0 d1 d2 d3 d4 report   # 含 D3 probe
-LIMIT=16 bash run_diag.sh p0 d0 d1 d2       # smoke（结果标 dry_run，禁止用于结论）
+bash run_diag.sh p0 d0 d1 d2 d3 d4 report       # 含 D3 probe
+bash run_diag.sh d3c d2b d5 d1conn8             # 追加阶段（分层 probe / margin CI / 跨数据集 / 8 连通）
+LIMIT=16 bash run_diag.sh p0 d0 d1 d2           # smoke（结果标 dry_run，禁止用于结论）
+D5_DATASETS="LEVIR-CD-256 WHU-CD-256" bash run_diag.sh d5   # 跨数据集（可指定子集以并行）
 ```
 
+阶段：`p0 d0 d1 d2 d3 d3c d2b d5 d1conn8 d4 report`。
 `run_diag.sh` 按 Gate 纪律执行：`P0` 与 `D0(M1)` 必须 PASS 才继续；`D3` 只在 D1/D2 均 PASS 时运行。
 所有产物写入 `/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1`（独立目录，不复用历史输出）。
 
@@ -25,7 +28,9 @@ LIMIT=16 bash run_diag.sh p0 d0 d1 d2       # smoke（结果标 dry_run，禁止
 | `analyse/tvim_object_metrics.py` | **P0 核心**：正确的 GT 面积分组（tiny_1_15 / tiny_16_63 / small_64_255 / medium / large）、pooled & object-macro 像素 Recall、ObjectHit@1/25/50、真正的对象级 ObjP/ObjR/ObjF1（IoU≥0.10/0.50，一次性最大权重二分匹配）、边界带 ±2/±4 |
 | `analyse/tvim_small_error_audit.py` | D1：逐 GT 对象的错误画像 + M1/A2 same-object 配对 Δrecall + 预注册样例图 |
 | `analyse/tvim_stage_recoverability.py` | D2：L00–L08 / T / D / head 节点 hook；编码器 A/B cosine proxy + 原生 256² 评价、native occupancy 副口径；CAACP 内部（β、ΔC、βΔC、entropy、分组统计）；重建校验 |
-| `analyse/tvim_linear_probe.py` | D3：冻结线性 probe（train 拟合 / val 固定 / test 一次性评估） |
+| `analyse/tvim_linear_probe.py` | D3：冻结线性 probe（train 拟合 / val 固定 / test 一次性评估）；`--encoder-input {absdiff,concat}` 支持可学习时相口径对比 |
+| `analyse/tvim_probe_stratified.py` | D3c：**按 GT 面积分层**的 probe AP 与 per-object margin（复用已保存的 PROBE_ONLY 权重） |
+| `analyse/tvim_stage_raw_stats.py` | D2b：从 `stage_raw.csv` 计算 cosine margin 的**配对** image-level bootstrap CI |
 | `analyse/tvim_caacp_counterfactual.py` | D4：β ON/OFF 受控反事实 + 完整性核对 |
 | `analyse/tvim_diag_report.py` | 汇总报告 + 预注册判据自动评估 + `RUN_MANIFEST.json` |
 | `analyse/tests/test_tvim_object_metrics.py` | P0 的 10 项人造阵列单测（含旧 FP≡0 bug 的回归用例） |
@@ -39,12 +44,18 @@ LIMIT=16 bash run_diag.sh p0 d0 d1 d2       # smoke（结果标 dry_run，禁止
 2. **[F]+[I] 叙事更正**：正确指标下的 same-object 配对显示 CAACP **提升**小目标 per-object recall
    （tiny_16_63 +1.24pp、small_64_255 +1.39pp），代价是中/大目标（−4.2/−4.7pp）；
    "CAACP 伤害 small" 的旧结论**撤回**。
-3. **[I] 衰减位置**：编码器 proxy 中唯一满足预注册判据的相邻边界是 `L06b(1/16) → L07(1/32)`（AP −41%），
-   但跨分辨率；同分辨率的 CAACP 边界 `L05→L06b` 呈 **AP ↑ / small margin ↓15.8%**，且 D3 probe 同向（−0.036）⇒ 该阶段存在**稳健但有限**的证据弱化。
-4. **[F]+[I] CAACP β 修正项不是主因**：`||βΔC||/||c_avg|| = 0.19%`；β 置零后 ΔF1 = −2.2e-6、Hit@25 不变。
-5. **[I] 输出端不是瓶颈**：decoder refine 与 head logits 的 probe AP 相同（0.9053 / 0.9049）。
-6. **[M] 缺口**：编码器 probe 只跑了 `abs(F_A−F_B)` 紧凑口径，需要 `concat(F_A,F_B,|Δ|)` 才能区分
-   "早期信息不足"与"proxy 口径不足"——这是下一轮的首要补证项（零 80K）。
+3. **[F] H1 否证**：可学习时相口径（`concat(F_A,F_B,|Δ|)`）probe 在 1/16 达 **0.789**、1/32 达 **0.829**
+   （L07 为编码器最可分层）；D2 的"1/16→1/32 信息衰减（−41%）"被证伪（proxy 失效）。
+4. **[F] 新增主结论 H5 —— 尺度选择性可读性坍塌**：分层 probe 显示整体可读性几乎全部来自大目标
+   （small-vs-背景 AP 0.00045–0.0043，large 0.55–0.91）；**small margin 随深度单调坍塌**
+   0.0779(1/4)→0.0022(1/32)，small/large margin 比 0.64→0.013，决策头 13× 失衡；
+   cosine 配对 margin（§13）与 probe margin（§12）同向指出 **1/16→1/32 下采样**是 small margin 的最大损失点。
+5. **[F] CAACP 与输出端均非瓶颈**：CAACP 块配对 margin −1.1%（未过判据）、β 项 0.19%、β 置零 ΔF1≈−2e-6；
+   decoder refine 与 head logits 的 probe AP 相同（0.9053/0.9049）。
+6. **[F] 跨数据集（D5）**：SYSU small pooled Recall 0.1974 显著差于 LEVIR 0.7046 / CDD 0.7369 / WHU 0.6420，
+   且 ObjPrecision 最低（0.5320）；8 连通敏感性下结论不变。
+7. **[I] 下一轮唯一推荐候选（A）**：把 1/4–1/8 的细尺度变化证据以**可折叠 + γ=0 零初始化门控**接入 DCR 64² 层级
+   （先做 deploy 预算核算，须保证 ≤5M）；候选 B（减少 1/16→1/32 坍塌）属骨干改动，须导师批准。
 
 ## 注意事项
 

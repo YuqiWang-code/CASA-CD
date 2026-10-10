@@ -21,6 +21,8 @@ DEVICE=${DEVICE:-cuda:0}
 LIMIT=${LIMIT:-0}                  # >0 时仅为 smoke（结果标 dry_run，不可用于结论）
 MAX_TRAIN=${MAX_TRAIN:-3000}       # D3 probe 拟合样本上限（0=全部 train）
 STEPS=${STEPS:-1500}
+ENC_INPUT=${ENC_INPUT:-concat}     # D3c 分层评价使用的 probe 目录口径：concat | absdiff
+D5_DATASETS=${D5_DATASETS:-"LEVIR-CD-256 WHU-CD-256 CDD-CD-256"}
 
 source /home/yqwang/miniforge3/etc/profile.d/conda.sh
 conda activate casacd
@@ -103,6 +105,46 @@ fi
 if has report || has all; then
   echo "===== report ====="
   python analyse/tvim_diag_report.py --root "$DIAG" --out "$DIAG/DIAGNOSIS_REPORT.md" --write-manifest
+fi
+
+# ---------------------------------------------------------------- D3c 分层 probe（用已保存权重）
+if has d3c || has all; then
+  PROBE_DIR="$DIAG/D3_${ENC_INPUT}/$VARIANT"
+  [ -d "$PROBE_DIR" ] || PROBE_DIR="$DIAG/D3/$VARIANT"
+  echo "===== D3c: stratified probe ($PROBE_DIR) ====="
+  python analyse/tvim_probe_stratified.py --probe-dir "$PROBE_DIR" --dataset "$DATASET" \
+    --run "$RUN" --variant "$VARIANT" --device "$DEVICE" \
+    --out-dir "$DIAG/D3_stratified/$VARIANT"
+  echo "[Diag1] D3c gate=$(gate_status "$DIAG/D3_stratified/$VARIANT/gate.json")"
+fi
+
+# ---------------------------------------------------------------- D2b margin 配对 CI（CPU）
+if has d2b || has all; then
+  echo "===== D2b: margin paired bootstrap CI ====="
+  python analyse/tvim_stage_raw_stats.py --stage-raw "$DIAG/D2/$VARIANT/stage_raw.csv" \
+    --out "$DIAG/D2/$VARIANT/margin_paired_ci.json"
+fi
+
+# ---------------------------------------------------------------- D1 8 连通敏感性
+if has d1conn8 || has all; then
+  echo "===== D1 sensitivity: 8-connectivity ====="
+  python analyse/tvim_small_error_audit.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+    --device "$DEVICE" --out-dir "$DIAG/D1_conn8/$VARIANT" --connectivity 8
+fi
+
+# ---------------------------------------------------------------- D5 跨数据集（收窄：D0+D1+D2）
+if has d5 || has all; then
+  for ds in $D5_DATASETS; do
+    echo "===== D5: $ds (D0 + D1 + D2) ====="
+    python analyse/tvim_diag_common.py audit --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+      --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D0"
+    python analyse/tvim_small_error_audit.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+      --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D1" --no-compare
+    python analyse/tvim_stage_recoverability.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+      --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D2"
+    echo "[Diag1] D5 $ds: D0=$(gate_status "$DIAG/D5/$ds/D0/gate.json") \
+D1=$(gate_status "$DIAG/D5/$ds/D1/gate.json") D2=$(gate_status "$DIAG/D5/$ds/D2/gate.json")"
+  done
 fi
 
 echo "[Diag1] done. artifacts under $DIAG"

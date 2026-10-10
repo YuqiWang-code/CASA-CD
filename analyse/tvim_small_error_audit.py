@@ -99,7 +99,7 @@ def run_one_variant(args, variant, run, out_dir, write_rows=True):
                                     num_workers=args.num_workers)
     names = read_list_names(list_path)
 
-    acc = ObjectMetricAccumulator(connectivity=4, bands=(2, 4))
+    acc = ObjectMetricAccumulator(connectivity=args.connectivity, bands=(2, 4))
     idx = 0
     with torch.no_grad():
         for img, label in loader:
@@ -122,6 +122,9 @@ def run_one_variant(args, variant, run, out_dir, write_rows=True):
     summary["dry_run"] = bool(args.limit)
     summary["not_for_conclusion"] = bool(args.limit)
     summary["n_images_processed"] = idx
+    summary["connectivity"] = args.connectivity
+    summary["primary_connectivity"] = 4
+    summary["sensitivity_only"] = bool(args.connectivity != 4)
     summary["checkpoint"] = {"path": ckpt_path, "sha256": ckpt_meta["sha256"]}
     summary["build_info"] = build_info
     summary["test_list_sha256"] = sha256_text_lines(list_path)
@@ -348,7 +351,12 @@ def main():
     ap.add_argument("--bootstrap", type=int, default=1000)
     ap.add_argument("--examples", action="store_true")
     ap.add_argument("--no-compare", action="store_true")
+    ap.add_argument("--connectivity", type=int, default=4, choices=[4, 8],
+                    help="连通性主口径=4；8 仅作一次性敏感性分析（此时自动跳过 paired/examples）")
     args = ap.parse_args()
+    if args.connectivity != 4:
+        args.no_compare = True
+        args.examples = False
 
     out_dir = ensure_dir(args.out_dir)
     write_json(os.path.join(out_dir, "metrics_protocol.json"), METRICS_PROTOCOL)
