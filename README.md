@@ -395,6 +395,72 @@ SYSU 83.26（83.47）、WHU 94.79（95.06）—— 即 **exact-80K 协议修正�
 服务器运行时快照：`$LOG/STATUS.md`（逐 run 步数/速率/ETA）；正式结果落盘为
 `$LOG/verdict.json` 与 `$LOG/README_SNIPPET.md`（四张表由 JSON 渲染，无人工转抄）。
 
+---
+
+# Run5 结果（已完成，`STATUS = NO_80K`；正式训练次数 = 0）
+
+> 设计文档：`docs/temporary/CASA-CD_Run5_原生高频证据复用与结构改进实验设计_2026-10-10.md`
+> （SHA256 `8d721d77…1239bc`）；执行索引与证据：`train_scripts/CASA-TViM/Run5/README.md`；
+> 决策锁：`train_scripts/CASA-TViM/Run5/SELECTION_LOCK.json`。
+> **只读前测在 val 初筛即判定不合格，`models/` 未被修改，未写训练脚本，未跑任何 80K。**
+
+## 1. 前测做了什么
+
+唯一问题：TinyViM 内部、`cat(x_low,x_high)` 与 `out_proj` **混合之前**的
+`local_conv(x_high)`（原生局部/高频路径），对 M1 已漏检的 SYSU small 对象（1–255px）
+是否提供**同尺度旧 tap（`L03b_norm2`/`L06b_norm4` 冻结 probe）之外**的增量判别证据。
+两个候选插点互斥：`Pair-2` = 1/8 → `TAR.stage2.temporal`；`Pair-3` = 1/16(CAACP) → `TAR.stage3.temporal`。
+选层只用 `train.txt` 的 D3 SHA1-hash 10% 固定 val（1212 张），test 不参与选层。
+
+执行链路：S0 源码/资产身份 `--require-all` PASS → 单测 46 项 PASS → P0 素材锁
+（M1 `best_F1=0.8347.pth` SHA256、SYSU test list `sha256_text_lines`、两个 probe 的
+`concat`/`C_in=192/504`）逐条匹配 → DRY 排练（`--limit 600`）→ 正式前测（val + 统计 26.8 s，
+预算 600 s）→ **独立最小复算审计 25/25 OK**。
+
+## 2. 判定证据（val，`n_missed_small=101`、`n_fp_like=387`，有效样本数门通过）
+
+初筛门（预注册）：`gap>=0.05` 且 `novel_rescue>=0.05`。
+
+| 候选 | rescue(HF) | fp_like(HF) | **gap** | novel_rescue | tap_rescue（同尺度旧 probe） | 初筛 |
+|---|---:|---:|---:|---:|---:|---|
+| `Pair-2`（1/8） | 0.2970 | 0.2636 | **0.0335** | 0.1683 | 0.2772 | ❌ `gap<0.05` |
+| `Pair-3`（1/16 CAACP） | 0.0891 | 0.1137 | **−0.0246** | 0.0693 | 0.1089 | ❌ `gap<0.05` |
+
+`eligible = []` ⇒ 无合格候选 ⇒ 按 §5.3.2/§5.3.3 **退出 `NO_80K`**，且**禁止对 test 做任何挑选**
+（`test_pass_executed=false`，G1–G8 未评价，阈值保持预注册值未被修改）。
+
+## 3. 机制读数（val，同尺度 256² rank 口径）
+
+| 量 | Pair-2 HF | Pair-2 TAP | Pair-3 HF | Pair-3 TAP |
+|---|---:|---:|---:|---:|
+| small margin | 0.00697 | 0.00685 | 0.00120 | 0.00086 |
+| medium margin | 0.01343 | **0.07808** | 0.01737 | 0.02521 |
+| large margin | **−0.01465** | **0.14478** | 0.02313 | 0.13069 |
+| small-vs-bg AP | 0.01418 | 0.02056 | 0.00257 | **0.02132** |
+
+- 在 small 尺度上原生 HF 与同尺度冻结 tap **几乎无差别**（Δ=+0.0001 / +0.0003）；
+  在 medium/large 尺度上原生 HF 明显更差（1/8 的 large margin 甚至为负）。
+- 原生 HF 对**未匹配小预测**的响应与其对**真实漏检对象**的响应几乎相同
+  （Pair-2：0.2636 vs 0.2970；Pair-3：0.1137 vs 0.0891）⇒ 它**不选择性编码漏检 small 变化**。
+- 与设计文档预注册失败模式 **R1（`x_high` 主要是纹理/配准伪差）与 R2（与 `norm2/norm4` 旧 tap 冗余）**
+  一致：`novel_rescue` 非零（Pair-2 17/101）说明不是完全冗余，但判别性（gap）门不过。
+
+## 4. 缺陷记录与纪律
+
+前测脚本首版有一处 P1 缺陷（`missed_small` 漏掉 `bin_index(area) ∈ small` 组过滤，
+medium/large 漏检被计入，1250 vs 正确 295），由**独立最小复算**发现——该复算精确重现
+Diag1/Run4 冻结值（`n_small=364`、pooled `0.19742166`、`Hit@25=0.18956044`、missed `295`）。
+修复后新增回归单测，并在 `gate.json` 增加 `small_reference_reconciliation` 区块与 Diag1 冻结值直接对账。
+缺陷期与标签取代期产物以 `_INVALID_*` / `_SUPERSEDED_*` **改名保留，未删除**；
+失败口径下的任何数字都未被采用为结论。
+
+## 5. 下一步（按 Run5 设计文档 §8.4 D1 / §10，唯一立即动作）
+
+只读 **SYSU FP 空间画像**：对预测 <256px 未匹配连通域统计 `(i)` 与 GT 边界距离 ≤4px 的比例、
+`(ii)` 变化图与 A/B 单时相边缘的重叠、`(iii)` 组件面积/纹理能量、`(iv)` 与错位邻域关系，
+按图像级 bootstrap 报 CI；**不增模型、不跑 80K**。若结论指向 1/16→1/32 表征尺度，
+再组织导师会审骨干级改动并**重新立项**（需写明不再保证 ImageNet epoch0 对应）。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——

@@ -1,0 +1,100 @@
+{
+  "run": "Run5",
+  "stage": "FHR-TAR S1 preflight decision lock",
+  "generated": "2026-10-11T00:36:00+08:00",
+  "decision": "NO_80K",
+  "training_runs_executed": 0,
+  "training_runs_allowed": 0,
+  "models_directory_modified": false,
+  "frozen_inputs": {
+    "plan": "docs/temporary/CASA-CD_Run5_原生高频证据复用与结构改进实验设计_2026-10-10.md",
+    "plan_sha256": "8d721d77cf3a362c24687db54f20ecd1fad7bab05fd5b46f910f1501351239bc",
+    "repository_head": "a6d49bc151674a93a8274aca52e2ca707f8d070a",
+    "m1_sysu_best_ckpt": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+    "m1_sysu_best_ckpt_sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457",
+    "sysu_test_list": "/share_datasets/CD/SYSU-CD-256/list/test.txt",
+    "sysu_test_list_sha256_kind": "sha256_text_lines",
+    "sysu_test_list_sha256": "5f4122c9d32cb6db475f4f361618b2ac8bb10938df93d9550e0bb9a422a45797",
+    "sysu_test_list_raw_sha256": "b24e5b0750cbf3d5dea007f4e09cc7742e65c617fbbe0f377285c265b3950df6",
+    "frozen_tap_probes": {
+      "L03b_norm2": {
+        "path": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1/D3_concat/M1_FULL/probe_L03b_norm2_PROBE_ONLY.pth",
+        "sha256": "9f1a0356a3864c14190c4f4e479c95adeec04ce2d14bbf7cc0e5be581056fed4",
+        "C_in": 192,
+        "encoder_input": "concat"
+      },
+      "L06b_norm4": {
+        "path": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1/D3_concat/M1_FULL/probe_L06b_norm4_PROBE_ONLY.pth",
+        "sha256": "9c765989d84a6a3cd91380dab8750aa07ff361925e55ff026c2d54b98b3063f8",
+        "C_in": 504,
+        "encoder_input": "concat"
+      }
+    },
+    "pretrained_tinyvim_sha256": "f63e58da8109dbb1"
+  },
+  "preflight_artefacts": {
+    "root": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run5-HF-PREFLIGHT-20261010",
+    "gate_json_sha256": "a1cf4b2cc7c856a64e58d33300655b3ddee7fd7cc98d6a23e69a6ff424b9cd91",
+    "selection_val_json_sha256": "f363cd3cd9abf24d9ce7a3a64517a88e78bb199b8e60591e26c98b41b5749d91",
+    "independent_audit_json_sha256": "efbbd211eff5905354340cd027b982ae46ce484f3b8fcb4038f51f4a1fdccb79",
+    "sha256sums": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run5-HF-PREFLIGHT-20261010/SHA256SUMS.txt",
+    "status": "FAIL",
+    "val_screen_status": "BOTH_SCREENED_OUT",
+    "test_pass_executed": false,
+    "selected_pair": null,
+    "independent_audit": "ALL OK (25/25 checks)"
+  },
+  "val_screen_evidence": {
+    "val_split": "SYSU train.txt D3 sha1-hash 10% (1212 images)",
+    "n_missed_small": 101,
+    "n_fp_like": 387,
+    "counts_ok": true,
+    "screen_rule": "gap>=0.05 and novel_rescue>=0.05",
+    "Pair-2": {
+      "stage": "2 (1/8)", "source": "encoder.network[2][-1].op.local_conv",
+      "target": "TAR.stage2.temporal", "hf_channels": 32, "deploy_delta_params": 6144,
+      "rescue": 0.297029702970297, "fp_like": 0.26356589147286824,
+      "gap": 0.033463811497428775, "novel_rescue": 0.16831683168316833,
+      "tap_rescue": 0.27722772277227725, "n_hf_only": 17, "n_hf_hit": 30, "n_tap_hit": 28,
+      "screen_gap_pass": false, "screen_novel_pass": true,
+      "margin_small_HF": 0.006969294888285585, "margin_small_TAP": 0.006851400838356533,
+      "margin_medium_HF": 0.013429925231005592, "margin_medium_TAP": 0.07807558526227362,
+      "margin_large_HF": -0.014648312160063333, "margin_large_TAP": 0.1447848865261808,
+      "small_ap_HF": 0.014182418520437045, "small_ap_TAP": 0.020563038149577616,
+      "excluded_by": "gap<0.05"
+    },
+    "Pair-3": {
+      "stage": "3 (1/16, CAACP block)", "source": "encoder.network[4][-1].op.local_conv",
+      "target": "TAR.stage3.temporal", "hf_channels": 84, "deploy_delta_params": 16128,
+      "rescue": 0.0891089108910891, "fp_like": 0.11369509043927649,
+      "gap": -0.024586179548187384, "novel_rescue": 0.06930693069306931,
+      "tap_rescue": 0.10891089108910891, "n_hf_only": 7, "n_hf_hit": 9, "n_tap_hit": 11,
+      "screen_gap_pass": false, "screen_novel_pass": true,
+      "margin_small_HF": 0.0012032082724054846, "margin_small_TAP": 0.0008586490842287243,
+      "margin_medium_HF": 0.01736975224799958, "margin_medium_TAP": 0.025208787085102317,
+      "margin_large_HF": 0.023126889825180078, "margin_large_TAP": 0.1306926399108304,
+      "small_ap_HF": 0.0025675353684447328, "small_ap_TAP": 0.021319935953259653,
+      "excluded_by": "gap<0.05"
+    }
+  },
+  "gate_values_frozen_but_unevaluated": {
+    "note": "G1–G8 未评价：test pass 依 §5.3.3 未运行。阈值仍为预注册值，未被修改。",
+    "G2_n_missed_small_min": 100, "G3_n_fp_like_min": 100, "G4_rescue_rate_min": 0.25,
+    "G5_gap_min": 0.15, "G5_gap_ci_low_min": 0.03, "G6_novel_rescue_min": 0.10,
+    "G6_novel_ci_low_min": 0.02, "G7_margin_delta_min": 0.02, "G7_margin_ci_low_min": 0.0
+  },
+  "stop_actions_taken": [
+    "不写任何 Run5 训练脚本（train_scripts/CASA-TViM/Run5/ 内无 _gen_scripts.py/run_all.sh/post_train.sh）",
+    "不修改 models/（casa_tvim_str_net.py / str_tar.py / train.py / eval.py 与 Run4 后状态逐字节相同）",
+    "不另选次优 Pair、不改 G5/G6/G7 阈值、不转试 res",
+    "不删除任何产物：缺陷期产物以 _INVALID / _SUPERSEDED 后缀隔离保留"
+  ],
+  "isolated_artefacts": [
+    "TViM-Run5-HF-PREFLIGHT-20261010_DRY_INVALID_20261011T0030",
+    "TViM-Run5-HF-PREFLIGHT-20261010_INVALID_20261011T0055_bugfix_missed_small_group",
+    "TViM-Run5-HF-PREFLIGHT-20261010_DRY_INVALID_20261011T0055_bugfix_missed_small_group",
+    "TViM-Run5-HF-PREFLIGHT-20261010_SUPERSEDED_20261011T0100_superseded_valscreen_label",
+    "TViM-Run5-HF-PREFLIGHT-20261010_DRY_SUPERSEDED_20261011T0100_superseded_valscreen_label"
+  ],
+  "next_action_per_plan": "§8.4 D1 / §10：只读 SYSU FP 空间画像（tvim_small_error_audit.py + tvim_object_metrics.py，图像级 bootstrap，不增模型、不跑 80K）；若指向 1/16→1/32 表征尺度，再组织导师会审骨干级改动（需重新立项，且不再保证 ImageNet epoch0 对应）"
+}

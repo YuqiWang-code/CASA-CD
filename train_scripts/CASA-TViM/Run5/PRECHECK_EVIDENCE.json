@@ -1,0 +1,334 @@
+{
+  "run": "Run5",
+  "stage": "S1 FHR-TAR preflight terminal evidence (verbatim server artefact copies)",
+  "server_root": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run5-HF-PREFLIGHT-20261010",
+  "artefact_sha256": {
+    "bootstrap.json": "d28e3ed7c73ed78e70673186d6baa3c6a8bc889ad964fb3dd1f24d8a1ddb21dc",
+    "gate.json": "a1cf4b2cc7c856a64e58d33300655b3ddee7fd7cc98d6a23e69a6ff424b9cd91",
+    "inputs.json": "608bce0a9306de0b94acd0752a5185270da834fd14488b2bc2176a8ceff9fbf0",
+    "layer_diagnostics.json": "31bd28f962ae1963e094745848f7a61c226578563cc300204e878545b3975ee8",
+    "selection_val.json": "f363cd3cd9abf24d9ce7a3a64517a88e78bb199b8e60591e26c98b41b5749d91",
+    "test_per_image.csv": "7ea26d4b340bd5f00afe9863b639e94300d6ca2f314f3043512173ab3998ef59",
+    "test_per_object.csv": "ec6138c03bda9456e8050c5db3c833367e85b61c95d8551321a7a7214fe47215",
+    "val_per_object.csv": "38b66aa08ca12adfec73107604381f3ea1bed0baf84be3bb35c4944a72906479",
+    "INDEPENDENT_AUDIT.json": "efbbd211eff5905354340cd027b982ae46ce484f3b8fcb4038f51f4a1fdccb79"
+  },
+  "decision": "NO_80K",
+  "status": "FAIL",
+  "val_screen_status": "BOTH_SCREENED_OUT",
+  "test_pass_executed": false,
+  "selected_pair": null,
+  "training_runs_executed": 0,
+  "gate_json": {
+    "stage": "run5_hf_pair_preflight",
+    "status": "FAIL",
+    "val_screen_status": "BOTH_SCREENED_OUT",
+    "preflight_version": "run5_hf_pair_preflight_v1",
+    "selected_pair": null,
+    "test_pass_executed": false,
+    "test_pass_not_run_reason": "§5.3.2/§5.3.3：val 初筛后无合格候选，禁止对 test 做任何挑选",
+    "reason": "val split insufficient or both candidates screened out (§5.3.2 → NO_80K；不转备选位置、不改阈值重跑)",
+    "gates": {
+      "G0": {
+        "pass": true,
+        "value": "P0 inputs OK",
+        "threshold": "SHA256 + frozen probes + out-dir new",
+        "note": ""
+      },
+      "G1": {
+        "pass": false,
+        "value": null,
+        "threshold": "n_test=4000 & elapsed<=600 & boot>=950",
+        "note": "test 未运行：val 初筛未通过"
+      },
+      "G2": {
+        "pass": false,
+        "value": null,
+        "threshold": "test 未运行（val n_missed=101）",
+        "note": ""
+      },
+      "G3": {
+        "pass": false,
+        "value": null,
+        "threshold": "test 未运行（val n_fp_like=387）",
+        "note": ""
+      },
+      "G4": {
+        "pass": false,
+        "value": null,
+        "threshold": ">=0.25",
+        "note": "test 未运行"
+      },
+      "G5": {
+        "pass": false,
+        "value": null,
+        "threshold": "gap>=0.15 & CI_low>0.03",
+        "note": "test 未运行"
+      },
+      "G6": {
+        "pass": false,
+        "value": null,
+        "threshold": "novel>=0.10 & CI_low>0.02",
+        "note": "test 未运行"
+      },
+      "G7": {
+        "pass": false,
+        "value": null,
+        "threshold": "margin_delta>=0.02 & CI_low>0",
+        "note": "test 未运行"
+      },
+      "G8": {
+        "pass": false,
+        "value": null,
+        "threshold": "selected_pair locked",
+        "note": "test 未运行"
+      }
+    },
+    "val_summary": {
+      "n_missed": 101,
+      "n_fp_like": 387,
+      "counts_ok": true,
+      "eligible": [],
+      "val_screen_status": "BOTH_SCREENED_OUT",
+      "candidates": {
+        "Pair-2": {
+          "n_missed": 101,
+          "n_fp_like": 387,
+          "n_hf_hit": 30,
+          "n_tap_hit": 28,
+          "n_hf_only": 17,
+          "rescue": 0.297029702970297,
+          "fp_like": 0.26356589147286824,
+          "gap": 0.033463811497428775,
+          "novel_rescue": 0.16831683168316833,
+          "tap_rescue": 0.27722772277227725,
+          "margins": {
+            "small": 0.006969294888285585,
+            "medium": 0.013429925231005592,
+            "large": -0.014648312160063333
+          },
+          "n_margin": {
+            "small": 121,
+            "medium": 216,
+            "large": 1302
+          },
+          "small_ap": 0.014182418520437045,
+          "tap_margins": {
+            "small": 0.006851400838356533,
+            "medium": 0.07807558526227362,
+            "large": 0.1447848865261808
+          },
+          "tap_small_ap": 0.020563038149577616,
+          "deploy_delta_params": 6144,
+          "deploy_mac": 6291456
+        },
+        "Pair-3": {
+          "n_missed": 101,
+          "n_fp_like": 387,
+          "n_hf_hit": 9,
+          "n_tap_hit": 11,
+          "n_hf_only": 7,
+          "rescue": 0.0891089108910891,
+          "fp_like": 0.11369509043927649,
+          "gap": -0.024586179548187384,
+          "novel_rescue": 0.06930693069306931,
+          "tap_rescue": 0.10891089108910891,
+          "margins": {
+            "small": 0.0012032082724054846,
+            "medium": 0.01736975224799958,
+            "large": 0.023126889825180078
+          },
+          "n_margin": {
+            "small": 121,
+            "medium": 216,
+            "large": 1302
+          },
+          "small_ap": 0.0025675353684447328,
+          "tap_margins": {
+            "small": 0.0008586490842287243,
+            "medium": 0.025208787085102317,
+            "large": 0.1306926399108304
+          },
+          "tap_small_ap": 0.021319935953259653,
+          "deploy_delta_params": 16128,
+          "deploy_mac": 4128768
+        }
+      }
+    },
+    "decision": "NO_80K",
+    "elapsed_s": 26.8,
+    "note": "§5.4：任一不通过即当日停止；不另选次优 Pair、不改阈值重跑。test 未运行 ⇒ 未产生任何对象级 test 统计，不存在事后选层。"
+  },
+  "selection_val_json": {
+    "preflight_version": "run5_hf_pair_preflight_v1",
+    "selection_source": "train.txt D3 sha1-hash 10% probe-val only",
+    "selection_from_train_val_only": true,
+    "test_used_for_selection": false,
+    "n_val_images": 1212,
+    "val_rule": {
+      "min_missed": 30,
+      "min_fp_like": 50,
+      "screen_gap_min": 0.05,
+      "screen_novel_min": 0.05,
+      "tie_eps": 0.01
+    },
+    "n_missed_val": 101,
+    "n_fp_like_val": 387,
+    "candidates": {
+      "Pair-2": {
+        "n_missed": 101,
+        "n_fp_like": 387,
+        "n_hf_hit": 30,
+        "n_tap_hit": 28,
+        "n_hf_only": 17,
+        "rescue": 0.297029702970297,
+        "fp_like": 0.26356589147286824,
+        "gap": 0.033463811497428775,
+        "novel_rescue": 0.16831683168316833,
+        "tap_rescue": 0.27722772277227725,
+        "margins": {
+          "small": 0.006969294888285585,
+          "medium": 0.013429925231005592,
+          "large": -0.014648312160063333
+        },
+        "n_margin": {
+          "small": 121,
+          "medium": 216,
+          "large": 1302
+        },
+        "small_ap": 0.014182418520437045,
+        "tap_margins": {
+          "small": 0.006851400838356533,
+          "medium": 0.07807558526227362,
+          "large": 0.1447848865261808
+        },
+        "tap_small_ap": 0.020563038149577616,
+        "deploy_delta_params": 6144,
+        "deploy_mac": 6291456
+      },
+      "Pair-3": {
+        "n_missed": 101,
+        "n_fp_like": 387,
+        "n_hf_hit": 9,
+        "n_tap_hit": 11,
+        "n_hf_only": 7,
+        "rescue": 0.0891089108910891,
+        "fp_like": 0.11369509043927649,
+        "gap": -0.024586179548187384,
+        "novel_rescue": 0.06930693069306931,
+        "tap_rescue": 0.10891089108910891,
+        "margins": {
+          "small": 0.0012032082724054846,
+          "medium": 0.01736975224799958,
+          "large": 0.023126889825180078
+        },
+        "n_margin": {
+          "small": 121,
+          "medium": 216,
+          "large": 1302
+        },
+        "small_ap": 0.0025675353684447328,
+        "tap_margins": {
+          "small": 0.0008586490842287243,
+          "medium": 0.025208787085102317,
+          "large": 0.1306926399108304
+        },
+        "tap_small_ap": 0.021319935953259653,
+        "deploy_delta_params": 16128,
+        "deploy_mac": 4128768
+      }
+    },
+    "eligible": [],
+    "selected_pair": null,
+    "selected_stage": null,
+    "selected_hf_channels": null,
+    "selected_target": null,
+    "selected_hf_source": null,
+    "tie_breaker": null,
+    "locked": true,
+    "val_timed_out": false,
+    "val_screen_status": "BOTH_SCREENED_OUT",
+    "val_elapsed_s": 26.8
+  },
+  "independent_audit_json": {
+    "gate_status": "FAIL",
+    "val_screen_status": "BOTH_SCREENED_OUT",
+    "test_pass_executed": false,
+    "fresh_count": {
+      "n_images": 4000,
+      "groups": {
+        "tiny_1_15": {
+          "n": 66,
+          "px": 412,
+          "tp": 31,
+          "hit25": 9
+        },
+        "tiny_16_63": {
+          "n": 96,
+          "px": 3421,
+          "tp": 426,
+          "hit25": 16
+        },
+        "small_64_255": {
+          "n": 202,
+          "px": 32004,
+          "tp": 6618,
+          "hit25": 44
+        },
+        "medium_256_1023": {
+          "n": 692,
+          "px": 456253,
+          "tp": 192213,
+          "hit25": 336
+        },
+        "large_1024_inf": {
+          "n": 4706,
+          "px": 61328827,
+          "tp": 51986747,
+          "hit25": 4106
+        }
+      },
+      "small_n": 364,
+      "small_px": 35837,
+      "small_tp": 7075,
+      "small_hit25": 69,
+      "small_pooled_recall": 0.19742165917906074,
+      "small_hit25_rate": 0.18956043956043955,
+      "small_missed_r_lt_0.25": 295
+    },
+    "frozen_reference": {
+      "n_small": 364,
+      "pooled": 0.19742165917906074,
+      "hit25": 0.18956043956043955,
+      "missed": 295
+    },
+    "checks": {
+      "fresh_reproduces_diag1_n_small": true,
+      "fresh_reproduces_diag1_pooled": true,
+      "fresh_reproduces_diag1_hit25": true,
+      "fresh_reproduces_run4_missed": true,
+      "Pair-2_val_n_missed_matches": true,
+      "Pair-2_val_n_fp_matches": true,
+      "Pair-2_val_rescue_matches": true,
+      "Pair-2_val_fp_like_matches": true,
+      "Pair-2_val_gap_matches": true,
+      "Pair-2_val_novel_matches": true,
+      "Pair-3_val_n_missed_matches": true,
+      "Pair-3_val_n_fp_matches": true,
+      "Pair-3_val_rescue_matches": true,
+      "Pair-3_val_fp_like_matches": true,
+      "Pair-3_val_gap_matches": true,
+      "Pair-3_val_novel_matches": true,
+      "val_n_missed_matches_gate": true,
+      "val_n_fp_matches_gate": true,
+      "eligible_is_empty": true,
+      "gate_eligible_matches": true,
+      "screen_status_is_both_screened_out": true,
+      "counts_ok": true,
+      "decision_is_no_80k": true,
+      "no_selected_pair": true,
+      "gates_not_passed": true
+    }
+  },
+  "note": "服务器产物的逐字副本 + SHA256 清单，供仓库内独立核验；权威原件在 server_root，绝不修改。"
+}
