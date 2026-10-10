@@ -74,10 +74,15 @@ def _pct(x):
 # 模式 1：对象指标 pass（部署图）
 # ======================================================================================
 def build_run_model(variant, ckpt_path, device, ckpt_root):
-    """按 sidecar 严格构造 Run4 变体并严格加载 train 图权重，然后折叠为部署图。"""
+    """按 sidecar 严格构造 Run4 变体并严格加载 train 图权重，然后折叠为部署图。
+
+    返回 (model, deploy_info)：deploy_info 含**从 checkpoint 独立实测**的部署参数量
+    （T10 的日志外证据：E6=4,894,110 / CTRL=4,880,190）与 FET 折叠后的卷积形状。
+    """
     import torch
     from model.casa_tvim_str_net import CASATViMSTRNet
 
+    expected = 4_894_110 if variant == "E6_FET1" else 4_880_190
     fine_tap = 1 if variant == "E6_FET1" else 0
     model = CASATViMSTRNet(
         os.path.join(os.environ.get("CASA_PROJECT", "/home/yqwang/projects/CASA-CD"),
@@ -93,7 +98,13 @@ def build_run_model(variant, ckpt_path, device, ckpt_root):
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
-    return model
+    deploy_info = {
+        "deploy_params": int(sum(p.numel() for p in model.parameters())),
+        "trainable": int(sum(p.numel() for p in model.parameters() if p.requires_grad)),
+        "expected": expected,
+        "fet_shape": (model.fet_deploy_conv_shape() if fine_tap else None),
+    }
+    return model, deploy_info
 
 
 def object_pass(args):
@@ -108,7 +119,7 @@ def object_pass(args):
     if not cands:
         raise SystemExit(f"[REPORT] no best_F1=*.pth in {ckpt_dir}")
     ckpt_path = cands[-1]
-    model = build_run_model(args.variant, ckpt_path, device, args.ckpt_root)
+    model, deploy_info = build_run_model(args.variant, ckpt_path, device, args.ckpt_root)
 
     loader, list_path = make_loader(args.dataset, "test", batch_size=args.batch_size,
                                     num_workers=args.num_workers)
@@ -136,6 +147,12 @@ def object_pass(args):
         "ckpt": ckpt_path,
         "ckpt_sha256": sha256_file(ckpt_path),
         "deploy_graph": True,
+        "deploy_params": deploy_info["deploy_params"],
+        "deploy_params_expected": deploy_info["expected"],
+        "deploy_params_ok": deploy_info["deploy_params"] == deploy_info["expected"],
+        "deploy_trainable": deploy_info["trainable"],
+        "deploy_params_le_5M": deploy_info["deploy_params"] <= BUDGET,
+        "fet_deploy_conv_shape": deploy_info["fet_shape"],
         "connectivity": 4,
         "threshold": "p > 0.5",
         "n_images": s["n_images"],
@@ -157,6 +174,9 @@ def object_pass(args):
           f"F1={s['pixel']['F1']:.4f} small_recall={small['pixel_recall_micro']} "
           f"small_hit25={small['hit25']} ObjP={s['object']['ObjPrecision_loose']} "
           f"ObjR={s['object']['ObjRecall_loose']} unmatched_lt256={payload['unmatched_pred_lt256']}")
+    print(f"[REPORT] {args.variant}/{args.dataset}: deploy_params={deploy_info['deploy_params']} "
+          f"(expected {deploy_info['expected']}, ok={payload['deploy_params_ok']}, "
+          f"<=5M={payload['deploy_params_le_5M']}) fet_conv={deploy_info['fet_shape']}")
     print(f"[REPORT] wrote {path}")
     return 0
 
@@ -251,6 +271,13 @@ def verdict(args):
             }
             if v == e6:
                 checks["fet_gamma_recorded"] = r.get("fet_gamma") is not None
+            # checkpoint 级独立证据（对象 pass 从 best ckpt 重新折叠后实测；与日志互为交叉校验）
+            if o:
+                checks["ckpt_deploy_params_expected"] = bool(o.get("deploy_params_ok"))
+                checks["ckpt_deploy_params_le_5M"] = bool(o.get("deploy_params_le_5M"))
+                checks["ckpt_deploy_params_matches_log"] = (
+                    o.get("deploy_params") is not None and r.get("deploy_params_M") is not None
+                    and abs(o["deploy_params"] / 1e6 - r["deploy_params_M"]) < 1e-3)
             p0[f"{v}/{d}"] = {"checks": checks, "pass": all(checks.values())}
     layers["A_p0_validity"] = {"per_run": p0, "pass": all(x["pass"] for x in p0.values())}
 
