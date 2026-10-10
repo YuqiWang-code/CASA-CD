@@ -219,6 +219,13 @@ def _fet_gamma(block):
     return float(m.group(1)) if m else None
 
 
+def _fold_err(block, real=False):
+    """§8.5 要求报告的 train↔deploy 误差（随机 batch / 真实 batch 各一）。"""
+    tag = r"\[REPARAM-REAL-MAX-ABS-ERROR\]" if real else r"\[REPARAM-MAX-ABS-ERROR\]"
+    m = re.search(tag + r"\s*([0-9.eE+-]+)", block)
+    return float(m.group(1)) if m else None
+
+
 def read_last_test_block(log_root, variant, dataset):
     path = os.path.join(log_root, variant, dataset, "train_log.txt")
     block, info, span = parse_test_block(path)
@@ -241,6 +248,8 @@ def read_last_test_block(log_root, variant, dataset):
         "deploy_flops_G": _deploy_flops(block),
         "unsupported_ops": _unsupported(block),
         "fet_gamma": _fet_gamma(block),
+        "fold_max_abs_error": _fold_err(block, real=False),
+        "fold_real_max_abs_error": _fold_err(block, real=True),
     }
 
 
@@ -445,7 +454,9 @@ def verdict(args):
                       f"train_params={o.get('train_params', '-')}/{o.get('train_trainable', '-')} "
                       f"deploy_params={o.get('deploy_params', '-')} (log {r['deploy_params_M']}M) "
                       f"flops={r['deploy_flops_G']}G unsup={r['unsupported_ops']} "
-                      f"gamma={r['fet_gamma']} dis={r['disagree_random']}/{r['disagree_real']} | "
+                      f"gamma={r['fet_gamma']} "
+                      f"fold_err={r['fold_max_abs_error']}/{r['fold_real_max_abs_error']} "
+                      f"dis={r['disagree_random']}/{r['disagree_real']} | "
                       f"small_recall={o.get('small', {}).get('pixel_recall_micro')} "
                       f"small_hit25={o.get('small', {}).get('hit25')} "
                       f"ObjP={o.get('object', {}).get('ObjPrecision_loose')} "
@@ -493,19 +504,21 @@ def render_markdown(verdict_path, out_path=None):
     L = [f"**STATUS：`{v['status']}`**", "", f"> {v['decision']}", ""]
 
     L += ["### 1. 每 run 六指标与部署实测（来源：各 `train_log.txt` 最后一个完整 TEST 区块）", "",
-          "| run | F1 | IoU | Recall | Precision | OA | Kappa | steps | deploy M | FLOPs G | unsup | γ | 分歧(随机/真实) | 状态 |",
-          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
+          "| run | F1 | IoU | Recall | Precision | OA | Kappa | steps | deploy M | FLOPs G | unsup | γ | "
+          "折叠误差(随机/真实) | 分歧(随机/真实) | 状态 |",
+          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|"]
     for key in sorted(runs):
         r = runs[key]
         vv, dd = key.split("/")
         if not r.get("valid"):
-            L.append(f"| {vv} / {dd} | " + " | ".join(["-"] * 12) + f" | INVALID（{r.get('reason')}） |")
+            L.append(f"| {vv} / {dd} | " + " | ".join(["-"] * 13) + f" | INVALID（{r.get('reason')}） |")
             continue
         m = r["metrics"]
         a_ok = layers["A_p0_validity"]["per_run"][key]["pass"]
         L.append(f"| {vv} / {dd} | {f(m['F1'])} | {f(m['IoU'])} | {f(m['Recall'])} | {f(m['Precision'])} | "
                  f"{f(m['OA'])} | {f(m['Kappa'])} | {r['actual_opt_steps']} | {f(r['deploy_params_M'], 3)} | "
                  f"{f(r['deploy_flops_G'])} | {r['unsupported_ops']} | {f(r['fet_gamma'], 6)} | "
+                 f"{f(r['fold_max_abs_error'], 3)}/{f(r['fold_real_max_abs_error'], 3)} | "
                  f"{f(r['disagree_random'], 3)}/{f(r['disagree_real'], 3)} | {'OK' if a_ok else 'INVALID(A)'} |")
 
     L += ["", "### 2. 对象指标与参数（来源：`--mode object` 在同一部署图上重算）", "",
