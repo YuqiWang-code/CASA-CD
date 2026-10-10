@@ -41,6 +41,9 @@
 | 收口脚本 fail-closed 守卫 | 工具 `train_scripts/CASA-TViM/Run4/post_train.sh`（实测于训练中途） | 8 个 run 未全部产出完整 TEST 区块时 **exit 3** 且不写 `verdict.json`/`objects/`；协议审计不过则 **exit 4**；仅 `FORCE=1` 可产出已记录的部分裁决 |
 | README 报告机器生成 | `analyse/run4_fet_report.py --mode markdown`（`post_train.sh` 第 4 段 → `$LOG/README_SNIPPET.md`） | 四张表（每 run 六指标+部署实测 / 对象指标+参数 / 层 B / 层 C）全部取自 `verdict.json`，杜绝人工转抄；已在真实短跑 ckpt 上渲染验证 |
 | 运行时防护 | `$LOG/ckpt_backup_watchdog.log` | `last.pth` → `last.pth.bak` 原子备份持续运行（只备份能成功 `torch.load` 的文件） |
+| 同期 CTRL 轨迹对照（SYSU） | 工具 `analyse/run4_progress_eta.py` 同目录的轨迹核对；数据源 `$LOG/M1_R4CTRL/SYSU-CD-256/train_log.txt` vs Run1 `M1_FULL` 同名日志 | 31 个可比 epoch 的 ΔF1 均值 **−0.0008**（区间 [−0.0158, +0.0168]），CTRL best 0.8326 vs Run1 官方 0.8347 ⇒ **exact-80K 协议修正未实质改变轨迹**，文档要求的"≥ 同期 CTRL / 不退守门"比较才有意义 |
+| 重启一致性抽查 | 同上（重启前波次已判 INVALID，仅作对照） | 四库同 epoch ΔF1 ≤ |0.003|、正负号混合 ⇒ 重启无系统性偏差 |
+| 运行状态快照 | `$LOG/STATUS.md`（`analyse/run4_progress_eta.py --write-status` 生成） | 逐 run 步数/速率/ETA 与收口命令，可随时刷新 |
 
 ## 四、失效产物隔离
 
