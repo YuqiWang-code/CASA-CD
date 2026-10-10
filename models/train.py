@@ -805,9 +805,6 @@ class ChangeViTTrainer(object):
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
-        if is_casa:
-            self.log(f"[ACTUAL-OPT-STEPS] {int(self.cur_iter)}")
-            self.log(f"[PROTOCOL-VERSION] {PROTOCOL_VERSION}")
         self.log("=== END TEST RESULTS ===")
 
     def test_best_strfusion(self, best_path):
@@ -957,6 +954,11 @@ class ChangeViTTrainer(object):
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
+        if getattr(self.args, "arch", "changevit") == "casa_tvim_str":
+            # R4（设计文档 §6.2 / T10）：exact-80K 的步数证据必须落在**最后一个完整 TEST 区块内**，
+            # 训练期的 per-epoch [ACTUAL-OPT-STEPS] 行在区块之外、不作为正式结果来源。
+            self.log(f"[ACTUAL-OPT-STEPS] {int(self.cur_iter)}")
+            self.log(f"[PROTOCOL-VERSION] {PROTOCOL_VERSION}")
         self.log("=== END TEST RESULTS ===")
         torch.backends.cudnn.allow_tf32 = prev_tf32
         torch.backends.cudnn.deterministic = prev_det

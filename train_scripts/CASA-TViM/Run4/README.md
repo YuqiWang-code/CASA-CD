@@ -148,7 +148,35 @@ T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，bat
    `cp last.pth.bak last.pth` 继续，最多损失一个 epoch；若备份也不可用，则按设计文档用
    **独立新目录**从头训练，不覆盖历史文件。
 
-## 7. 预注册门槛（不得事后放宽）
+## 7. 事故与修复记录（2026-10-10，波次 1 重启）
+
+**现象**：第 1 波 `M1_R4CTRL` 跑到 ~6.8k/80k 步时，用**真实**短跑（320 样本、`max_steps=30`）
+取出真实 TEST 区块做门禁演练，发现区块里**没有 `[ACTUAL-OPT-STEPS]`**。
+
+**根因**：`models/train.py` 里这两行被加到了 `test_best()`（changevit 路径）而不是
+`test_best_strfusion()`（casa/STR 路径）。Run4 走的是后者，因此正式日志的最后一个完整 TEST
+区块缺少设计文档 §6.2 / §7-T10 要求的 `[ACTUAL-OPT-STEPS] 80000`。
+
+**为什么必须重启而不是放宽门禁**：§6.4 第 1 条明确「P0 INVALID → 修复后重跑 smoke + dry-run；
+未达 80K 的训练不能入结果表」；`check_run.py` 的步数门是**预注册**的，事后放宽属禁止行为。
+且两个变体必须跑在**同一份实现**上，若只修 E6 波次则 CTRL/E6 不同版本。
+
+**处置**（全部留痕）：
+
+1. 停机（SIGKILL 4 个 `train.py`；用 `[p]ython` 括号模式避免 `pkill -f` 误杀自己的 SSH shell）；
+2. 修 `train.py`：把 `[ACTUAL-OPT-STEPS]` / `[PROTOCOL-VERSION]` 移入 `test_best_strfusion()`
+   的 TEST 区块（紧接 `[BEST-F1]`），并撤回 `test_best()` 里的误加；
+   `source_code_sha256` 随之更新，`SOURCE_IDENTITY.json` 已重算并上传；
+3. **真实短跑复核**（非合成日志）：E6 与 CTRL 的 TEST 区块都出现 `[ACTUAL-OPT-STEPS] 30` 与
+   `[PROTOCOL-VERSION] run4_exact80k_v1`，`check_run.py` 除 `steps==80000`（短跑预期）外**全 PASS**；
+4. **重新验收**：T0–T9 `PASS=53 / FAIL=0 / SKIP=0`（含 SHA 身份核对），两个 dry-run `RESULT=PASS`；
+5. 旧产物**不删除**，整体移到 `Run4/_INVALID_pre_gatefix_20261010/`（ckpt 与 log 各一份），
+   附 `README.json` 标注 `not_used_for_any_conclusion=true`；
+6. 在新代码上**同时重启两个波次**。
+
+**代价**：损失约 35 min GPU 时间（~6.8k 步），换取两变体同版本 + 预注册门禁完整。
+
+## 8. 预注册门槛（不得事后放宽）
 
 * **层 A（P0）**：deploy ≤5M；train/deploy 双 batch 二值 disagreement=0；TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
 * **层 B（SYSU 机制，绝对 + 同期增量同时满足）**：small pooled Recall ≥0.2474 且 ≥CTRL+0.05；
@@ -160,7 +188,7 @@ T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，bat
 `gate.json` / `verdict.json` 非 PASS ⇒ 按 §6.4 决策树**停止该线**，不去试 FET 1/8、3×3、FRH+FET，
 也不以阈值/loss/seed 搜索挤分；失败时保留日志与权重做机制归因。
 
-## 8. 禁止的捷径
+## 9. 禁止的捷径
 
 用 Run1/M1 best 微调 E6；沿用旧伪 small F1；用 1/32 cosine 代理推断信息总量丢失；提高 3×3 参数越过 5M；
 `disagreement>0` 仍发 PASS；`strict=False` 载错 checkpoint；覆盖 Diag1/Run1–3 产物；
