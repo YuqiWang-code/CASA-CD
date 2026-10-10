@@ -46,6 +46,7 @@ train_scripts/CASA-TViM/Run4/
   E6_FET1/train_<DS>.sh      fine_tap=1（后跑）
   run_all.sh                 两波；每波 4 库并发（GPU0=CDD+LEVIR，GPU1=SYSU+WHU）
   check_run.py               收尾硬门：只认最后一个完整 TEST 区块 + [ACTUAL-OPT-STEPS] 80000
+  post_train.sh              训练后收口：check_run ×8 → 部署图对象指标 ×8 → verdict.json
   gpu_concurrency_probe.py   每 GPU 并发 2 个 batch32 进程的显存 probe（R8）
   SOURCE_IDENTITY.json       Run4 代码身份（与 Diag1 manifest 的逐文件差异记录）
 
@@ -90,15 +91,9 @@ python models/test_run4_fine_tap.py --device cuda:0 \
 bash train_scripts/CASA-TViM/Run4/run_all.sh
 
 # ⑥ 每库 best 的对象指标 pass（部署图）与最终裁决
-for v in M1_R4CTRL E6_FET1; do for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
-  python analyse/run4_fet_report.py --mode object --variant $v --dataset $d --run Run4 \
-    --ckpt-root /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM \
-    --out-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/objects; done; done
-python analyse/run4_fet_report.py --mode verdict \
-  --log-root /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4 \
-  --ckpt-root /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM \
-  --object-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/objects \
-  --out /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/verdict.json
+GPU=0 bash train_scripts/CASA-TViM/Run4/post_train.sh
+# 等价于下面三步（post_train.sh 已封装，含 check_run.py 的 8 个硬门）：
+#   check_run.py × 8 → run4_fet_report.py --mode object × 8 → --mode verdict
 ```
 
 ## 5. 预注册门槛（不得事后放宽）

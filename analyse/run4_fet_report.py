@@ -60,6 +60,16 @@ PAPER_TARGET = {"CDD-CD-256": 98.00, "LEVIR-CD-256": 92.50, "SYSU-CD-256": 85.00
 BUDGET = 5_000_000
 
 
+def _pct(x):
+    """TEST 区块里的 F1/IoU 是比例值（0.8316 = 83.16%）；门槛表用百分数，统一换算并显式校验。"""
+    if x is None:
+        return None
+    if x > 1.5:
+        raise SystemExit(f"[REPORT] metric {x} looks like a percentage; expected a proportional "
+                         "value in the TEST block (F1=0.8316 means 83.16%) -- refusing to compare")
+    return x * 100.0
+
+
 # ======================================================================================
 # 模式 1：对象指标 pass（部署图）
 # ======================================================================================
@@ -274,9 +284,15 @@ def verdict(args):
                      and oc.get("unmatched_pred_lt256") is not None
                      and oe["unmatched_pred_lt256"] <= oc["unmatched_pred_lt256"]),
             "rule": "不得高于同期 CTRL"}
-        fc, fe = oc["pixel_scores"].get("F1"), oe["pixel_scores"].get("F1")
-        rows["SYSU_F1"] = {"ctrl": fc, "e6": fe, "pass": (fc is not None and fe is not None and fe >= fc),
-                           "rule": "F1 >= 同期 CTRL"}
+        fc, fe = _pct(oc["pixel_scores"].get("F1")), _pct(oe["pixel_scores"].get("F1"))
+        lc = _pct(runs[key_c].get("metrics", {}).get("F1"))
+        le = _pct(runs[key_e].get("metrics", {}).get("F1"))
+        rows["SYSU_F1_official_log"] = {"ctrl": lc, "e6": le, "delta": (le - lc) if None not in (le, lc) else None,
+                                        "pass": (lc is not None and le is not None and le >= lc),
+                                        "rule": "F1 >= 同期 CTRL（取自最后一个完整 TEST 区块）"}
+        rows["SYSU_F1"] = {"ctrl": fc, "e6": fe, "delta": (fe - fc) if None not in (fe, fc) else None,
+                           "pass": (fc is not None and fe is not None and fe >= fc),
+                           "rule": "F1 >= 同期 CTRL（对象 pass 在同一部署图上重算，交叉校验）"}
         mech["rows"] = rows
         mech["pass"] = all(r["pass"] for r in rows.values())
         mech["false_change_amplification"] = (
@@ -286,23 +302,49 @@ def verdict(args):
     # ---------------------------------------------------------------- 层 C：跨库守门 + 论文目标
     guard, paper = {}, {}
     for d in DATASETS:
-        e = runs[f"{e6}/{d}"].get("metrics", {}).get("F1")
-        c = runs[f"{ctrl}/{d}"].get("metrics", {}).get("F1")
-        guard[d] = {"e6_F1": e, "ctrl_F1": c, "guardrail": GUARDRAIL[d],
+        e = _pct(runs[f"{e6}/{d}"].get("metrics", {}).get("F1"))
+        c = _pct(runs[f"{ctrl}/{d}"].get("metrics", {}).get("F1"))
+        guard[d] = {"e6_F1_pct": e, "ctrl_F1_pct": c, "guardrail_pct": GUARDRAIL[d],
                     "pass": (e is not None and c is not None
                              and e >= GUARDRAIL[d] and e >= c)}
-        paper[d] = {"e6_F1": e, "paper_target": PAPER_TARGET[d],
+        paper[d] = {"e6_F1_pct": e, "paper_target_pct": PAPER_TARGET[d],
                     "pass": (e is not None and e >= PAPER_TARGET[d])}
     layers["C_guardrail"] = {"per_dataset": guard, "pass": all(v["pass"] for v in guard.values())}
     layers["C_paper_target"] = {"per_dataset": paper, "pass": all(v["pass"] for v in paper.values())}
-    layers["C_iou_direction"] = {"note": "IoU = F1/(2-F1) on the same confusion matrix; check same direction",
-                                 "pass": None}
+
+    # IoU 与 F1 必须同方向，且同混淆矩阵上须满足 IoU = F1/(2−F1)（按比例值计算）
+    iou_rows, iou_ok = {}, True
+    for d in DATASETS:
+        e = runs[f"{e6}/{d}"].get("metrics", {})
+        c = runs[f"{ctrl}/{d}"].get("metrics", {})
+        for tag, m in (("e6", e), ("ctrl", c)):
+            f1, iou = m.get("F1"), m.get("IoU")
+            if f1 is None or iou is None:
+                continue
+            ref = f1 / (2.0 - f1) if f1 < 2.0 else None
+            cons = ref is not None and abs(iou - ref) < 1e-3
+            iou_rows[f"{d}:{tag}"] = {"F1": f1, "IoU": iou, "IoU_from_F1": ref, "consistent": cons}
+            iou_ok = iou_ok and cons
+        f1e, f1c = e.get("F1"), c.get("F1")
+        ioue, iouc = e.get("IoU"), c.get("IoU")
+        if None not in (f1e, f1c, ioue, iouc):
+            same_dir = (f1e >= f1c) == (ioue >= iouc)
+            iou_rows[f"{d}:direction"] = {"dF1": f1e - f1c, "dIoU": ioue - iouc, "same_direction": same_dir}
+            iou_ok = iou_ok and same_dir
+    layers["C_iou_direction"] = {
+        "note": "same confusion matrix ⇒ IoU = F1/(2−F1); E6 vs CTRL must move in the same direction",
+        "rows": iou_rows, "pass": bool(iou_ok and iou_rows)}
 
     # ---------------------------------------------------------------- 最终判定（§6.4 决策树）
     if not layers["A_p0_validity"]["pass"]:
         status = "INVALID"
         decision = ("P0 INVALID -> fix code/fold/protocol and re-run smoke + dry-run; "
                     "a run that did not reach 80,000 updates cannot enter the results table")
+    elif not layers["C_iou_direction"]["pass"]:
+        status = "INVALID"
+        decision = ("IoU/F1 inconsistency (same confusion matrix requires IoU = F1/(2-F1)) or "
+                    "E6/CTRL moving in opposite directions -> the TEST block is not self-consistent; "
+                    "do not read F1 until the block is fixed")
     elif not mech.get("available") or not mech.get("pass"):
         if mech.get("available") and mech.get("false_change_amplification"):
             status = "MECHANISM-FAIL"
@@ -332,7 +374,7 @@ def verdict(args):
                "historical_m1_sysu": HIST_M1_SYSU}
     write_json(args.out, payload)
 
-    print(f"\n=== RUN4 VERDICT ===")
+    print("\n=== RUN4 VERDICT ===")
     for v in VARIANTS:
         for d in DATASETS:
             r = runs[f"{v}/{d}"]
@@ -343,10 +385,26 @@ def verdict(args):
                       f"dis={r['disagree_random']}/{r['disagree_real']}")
             else:
                 print(f"{v:11s} {d:13s} INVALID ({r.get('reason')})")
+
+    # 层 A 失败原因必须直接可读（否则 INVALID 无法定位）
+    for run_key, info in layers["A_p0_validity"]["per_run"].items():
+        bad = [k for k, ok in info["checks"].items() if not ok]
+        if bad:
+            print(f"A | {run_key:26s} FAILED checks: {', '.join(bad)}")
+    for run_key, row in layers["C_iou_direction"].get("rows", {}).items():
+        if "consistent" in row and not row["consistent"]:
+            print(f"C | {run_key:26s} IoU {row['IoU']} != F1/(2-F1) {row['IoU_from_F1']}")
+        if "same_direction" in row and not row["same_direction"]:
+            print(f"C | {run_key:26s} E6/CTRL opposite: dF1={row['dF1']:+.4f} dIoU={row['dIoU']:+.4f}")
+
     if mech.get("available"):
         for k, r in mech["rows"].items():
-            print(f"B | {k:22s} ctrl={r['ctrl']} e6={r['e6']} delta={r['delta'] if 'delta' in r else '-'} "
-                  f"pass={r['pass']}")
+            print(f"B | {k:24s} ctrl={r['ctrl']} e6={r['e6']} "
+                  f"delta={r['delta'] if 'delta' in r else '-'} pass={r['pass']}")
+    for d in DATASETS:
+        g, p = guard[d], paper[d]
+        print(f"C | {d:13s} E6={g['e6_F1_pct']} CTRL={g['ctrl_F1_pct']} guard={g['guardrail_pct']} "
+              f"paper={p['paper_target_pct']} guard_pass={g['pass']} paper_pass={p['pass']}")
     print(f"STATUS={status}")
     print(f"DECISION={decision}")
     print(f"wrote {args.out}")
