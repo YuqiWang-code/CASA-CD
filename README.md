@@ -152,9 +152,10 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 >    - D1：LEVIR 零变化图（占 54%）rank cell 熵 **1.2504 四数据集最低**且 abs 分数低
 >      ——rank-only 在零变化图上最强制不均匀，CP 的修复方向证据最强；但 +0.07/+0.22
 >      的幅度说明 rank-confusion 不是 LEVIR 的主瓶颈。
->    - D2：SYSU 损失集中在 **small components（F1 仅 0.1796，vs large 0.8273）**与
->      boundary 环带（band2 0.6710 最低）——FRH 的 3×3 邻域修正解决"边界锐化"而非
->      "极小目标语义召回"，与 SYSU 负向一致。
+>    - D2：SYSU 运行期 D2 诊断曾报告"small components F1 仅 0.1796"——**该数值来自后续
+>      Diag1 证实的伪指标（FP 恒为 0），已作废**；正确口径见下方「Diag1」章节
+>      （small pooled pixel Recall **0.1974**、ObjRecall 0.7674、ObjPrecision 0.5320）。
+>      FRH 对 SYSU 负向的结论仍成立（F1 −0.50），但"因为小目标召不回"的机制解释已被 Diag1 修正。
 > - 自动对比报告：`docs/temporary/run2_report.md`；快照：
 >   `docs/temporary/models_and_metrics_CASA-TViM_Run2.txt`；
 >   汇总：`docs/experiment_metrics.xlsx`（CASA-TViM/Run2 12 行）。
@@ -183,19 +184,72 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 > 1. **E4/E5 均 FAIL 预注册条件**（`docs/temporary/run3_report.md` 全条件裁决）。
 >    按决策树：**停 RA 线**（不再调 Stage3 residual/β/叠 CP）、**不再扩大 spatial kernel**。
 > 2. **两个关键负结果（机制证据价值高）**：
->    - RA 把 SYSU small 从 0.1796 微抬到 **0.1842**（E1~E5 五个改动中最高），但整体
->      Recall −3pp——**推翻"residual cancellation 是 small 主因"**：change-aware c
->      参与 residual 减法恰恰是 CAACP 高 Recall 的来源。
->    - FS-TAR 未恢复 tiny evidence（small R 0.1477 反而最低）——**空间核扩大不是解**，
->      问题在更早的语义编码层。
+>    - RA 曾被认为"把 SYSU small 从 0.1796 微抬到 0.1842"——**该组数值已被 Diag1 证伪
+>      （伪指标）**；Diag1 用正确口径的 same-object 配对显示 CAACP **提升**小目标 per-object
+>      recall（tiny_16_63 **+1.24pp**、small_64_255 **+1.39pp**），代价是中/大目标
+>      （medium −4.17pp、large −4.69pp），像素级 F1 净 +0.26pp。
+>    - FS-TAR 未恢复小目标（correct 口径下小目标 margin 仍下降）——**空间核扩大不是解**，
+>      与 Diag1「瓶颈在尺度选择性可读性」一致。
 > 3. **五轮结构尝试（E1~E5）稳定模式**：LEVIR 0~+0.22（始终 ≤+0.25）、SYSU 全部
->   −0.23~−0.62——M1 仍是 SYSU 最优模型；score/头/残差/时相核四个方向的"后端修正"
->   已系统性耗尽。
-> 4. **下一步（决策树指向）**：**S2-HCAACP**（CAACP 前移 Stage3→Stage2/1/8，small 在
->   1/8 仍有 <4 cells 可解析，先验 SYSU +0.25~+0.65）与 **SP-DCR**（删末端第二个 DW3，
->   减少 spatial mixing 压制弱响应，先验 +0.15~+0.45）——各自单变量、不叠模块。
+>   −0.23~−0.62——**M1 仍是 SYSU 最优模型**；score/头/残差/时相核四个方向的"后端修正"
+>   已系统性耗尽（Diag1 进一步证明：β 项 0.19%、head 与 decoder 可读性相同）。
+> 4. **下一步**：Run3 决策树曾指向 **S2-HCAACP** 与 **SP-DCR**，但 **Diag1 已撤回其动机**
+>   （CAACP 块配对 margin −1.1%、无读出瓶颈）。当前唯一推荐候选见下方「Diag1」章节。
 > - 报告：`docs/temporary/run3_report.md`；Z 复盘：`docs/temporary/run3_z12_summary.md`；
 >   脚本：`train_scripts/CASA-TViM/Run3/`。
+
+## 诊断（CASA-TViM Diag1 · SYSU 小目标瓶颈分阶段诊断，已完成）
+
+> 任务文档：`docs/temporary/CASA-CD 小目标瓶颈分阶段诊断｜DSH 完整执行文档.md`；
+> 流水线：`train_scripts/CASA-TViM/Diag1/run_diag.sh`（P0/D0/D1/D2/D3/D3c/D2b/D5/D1conn8/D4/report，
+> Gate 不 PASS 即停）；报告：服务器 `$DIAG/DIAGNOSIS_REPORT.md`（本地副本
+> `docs/temporary/CASA-TViM_Diag1/`）。**只读诊断，未训练任何新 80K，未覆盖历史产物。**
+
+**Gate**：P0/D0-M1/D1/D2/D3/D3_concat/D3_stratified/D4/D1_conn8 及 D5（CDD/LEVIR）全 PASS；
+D5-WHU D1 = WARN（small 仅 79 个对象，仅描述性）；**D0-A2 = FAIL**（固定真实 batch 上 1 个像素
+（1/1,048,576）概率恰在 0.5 的刀锋翻转，如实保留、未用于任何结论）。
+
+**1. 指标口径修复（旧结论作废）**：`analyse/run2_zero_cost_diag.py::component_pr` 的 FP 被 GT 局部
+掩码过滤后**恒为 0**，故旧 `small 0.1796 / medium 0.4620 / large 0.8273` 是**受限正样本伪指标**。
+新口径（4 连通、`p>0.5`、原生 256²、真实对象匹配）：
+
+| GT 面积组 | 对象数 | pooled pixel Recall | object-macro Recall | Hit@25% |
+|---|---:|---:|---:|---:|
+| tiny_1_15 | 66 | 0.0752 | 0.1263 | 0.1364 |
+| tiny_16_63 | 96 | 0.1245 | 0.1483 | 0.1667 |
+| small_64_255 | 202 | 0.2068 | 0.1863 | 0.2178 |
+| medium_256_1023 | 692 | 0.4213 | 0.3988 | 0.4855 |
+| large_1024_inf | 4706 | **0.8477** | 0.7491 | 0.8725 |
+
+small(1–255px) pooled **0.1974**、Hit@25 **0.1896** ⇒ **size gap 65.0pp**；对象级（IoU≥0.10）
+**ObjPrecision 0.5320 / ObjRecall 0.7674 / ObjF1 0.6284**，3077 个未匹配预测连通域中 **2430 个 <256px**
+（小目标区域同时存在漏检与碎片化假阳性）。8 连通敏感性下结论不变。
+
+**2. 分阶段证据（D2/D3，SYSU，4000 张）**
+- **整体变化信息充足**：可学习时相口径 probe（`concat(F_A,F_B,|Δ|)`）AP — 1/4 **0.547**、1/8 **0.623**、
+  1/16 **0.789**、1/32 **0.829**（L07 为编码器最可分层）⇒ **H1（早期编码不足）否证**；
+  固定 `abs(F_A−F_B)` 口径只有 0.46–0.53（口径差异已记录，容量 caveat 已写入协议）。
+- **输出端不是瓶颈**：decoder refine probe 0.9053 ≈ head logits 0.9049。
+- **D2 的"1/16→1/32 信息衰减（−41%）"被证伪**：属 cosine proxy 失效（§6.4），不是信息丢失。
+- **CAACP β 修正项可忽略**：`||βΔC||/||c_avg|| = 0.19%`；β 置零 ΔF1 = −2.2e-6、small Hit@25 不变；
+  CAACP 块的配对 margin 变化仅 **−1.1%**（未过 10% 判据）。
+
+**3. 本轮新增主结论 H5 —— 尺度选择性可读性坍塌（D3c + D2b + D5 三向一致）**
+- **分层 probe**：整体可读性几乎全部来自大目标（small-vs-背景 AP **0.00045–0.0043**，large **0.55–0.91**）；
+  **small-object margin 随深度单调坍塌** 0.0779(1/4) → 0.0400(1/8) → 0.0238(1/16) → 0.0152(CAACP 后)
+  → **0.0022(1/32)**，而 large margin 反升至 0.21；**small/large margin 比 0.64 → 0.013**，
+  决策头 P00 为 0.0281 vs 0.3732（**13× 失衡**）。
+- **配对 cosine margin CI**：仅 3 个边界过 ≥10%+同号判据 —— Stage3 前缀内 `L03→L03b` **−11.6%**、
+  `L04→L05` **−23.2%**、`1/16→1/32` **−75.6%**（与 probe margin −86% 同向）。
+- **跨数据集 D5 一致性**：SYSU small pooled Recall **0.1974** vs LEVIR **0.7046** / CDD **0.7369** /
+  WHU **0.6420**（低 3.3–3.7 倍），SYSU **ObjPrecision 最低（0.5320）**、变化先验最高（0.236）
+  ⇒ **SYSU 的小目标问题是数据集特异的严重异常**。
+
+**4. 下一轮唯一推荐候选（A，待 deploy 预算核算）**：把 **1/4–1/8 的细尺度变化证据**（small margin
+最高处）以 **可折叠 + γ=0 零初始化门控**接入 DCR 的 64² 层级；与 FRH（末端加头）和 E5 FS-TAR
+（只改 1/4 时相代数的核形状）的本质区别是"把浅层小目标证据显式送进决策层"。
+**注意**：3×3 Conv(144→96) 折叠 ≈ +124.5K 参数会把 deploy 推到 ~5.005M **超 5M**，须改 1×1
+折叠（+13.9K）或降通道。候选 B（减少 1/16→1/32 的 small-margin 坍塌）属骨干改动，须导师批准。
 
 ## 参考文献
 
@@ -234,10 +288,21 @@ train_scripts/
   CASA-TViM/Run1/              #   4 变体 × 4 数据集（A0/M1/A1/A2，已完成）
   CASA-TViM/Run2/              #   CP-CAACP / FRH / 组合 × 4（E1/E2/E3，已完成）
   CASA-TViM/Run3/              #   RA-CAACP / FS-TAR × 4（E4/E5，已完成）
+  CASA-TViM/Diag1/             #   小目标瓶颈分阶段诊断流水线（run_diag.sh，只读；已完成）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
   models_to_txt.py             #   models 代码快照 + 指标 → docs/temporary/*.txt
-  run2_zero_cost_diag.py       #   D1/D2 零成本诊断（score 分组 + boundary/component F1）
+  tvim_object_metrics.py       #   ★正确口径：GT 面积分组 Recall / ObjectHit / 对象级 ObjP-ObjR-F1 / 边界带
+  tvim_diag_common.py          #   诊断基础设施 + D0 对拍审计（audit / protocol 子命令）
+  tvim_small_error_audit.py    #   D1：逐 GT 对象错误画像 + same-object 配对 Δ + 预注册样例图（--connectivity）
+  tvim_stage_recoverability.py #   D2：分阶段 hook（编码器 A/B cosine proxy + CAACP 内部）
+  tvim_stage_raw_stats.py      #   D2b：cosine margin 的配对 image-level bootstrap CI
+  tvim_linear_probe.py         #   D3：冻结线性 probe（--encoder-input absdiff|concat）
+  tvim_probe_stratified.py     #   D3c：按 GT 面积分层的 probe AP / per-object margin
+  tvim_caacp_counterfactual.py #   D4：CAACP β ON/OFF 受控反事实
+  tvim_diag_report.py          #   汇总报告 + 预注册判据自动评估 + RUN_MANIFEST.json
+  tests/test_tvim_*.py         #   P0 单测（对象指标 10 项 + 日志解析器逐字对拍）
+  run2_zero_cost_diag.py       #   ⚠️ 历史诊断（component_pr 的 FP 恒为 0，口径已被 tvim_object_metrics 取代）
   run2_report.py               #   Run2 自动对比报告
   run3_report.py               #   Run3 自动对比报告（含 §13 预注册裁决）
 others/                        # 参考实现（非本仓库模型代码）
@@ -297,14 +362,21 @@ python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --dat
                                          # D1/D2 机制诊断（服务器上跑）
 ```
 
-### 小目标瓶颈分阶段诊断（Diag1，只读）
+### 小目标瓶颈分阶段诊断（Diag1，只读；已完成）
 
 任务文档：`docs/temporary/CASA-CD 小目标瓶颈分阶段诊断｜DSH 完整执行文档.md`；
-一键流水线：`train_scripts/CASA-TViM/Diag1/run_diag.sh`（P0 指标口径 → D0 复算/折叠 → D1 错误画像 →
-D2 分阶段 hook → D3 冻结 probe → D4 β 反事实 → 报告，Gate 不 PASS 即停）。
+一键流水线：`train_scripts/CASA-TViM/Diag1/run_diag.sh`，阶段
+`p0 d0 d1 d2 d3 d3c d2b d5 d1conn8 d4 report`（Gate 不 PASS 即停）：
+
+```bash
+cd /home/yqwang/projects/CASA-CD/train_scripts/CASA-TViM/Diag1
+bash run_diag.sh                                    # p0+d0(M1)+d1+d2+d4+report
+bash run_diag.sh d3c d2b d5 d1conn8                 # 分层 probe / margin CI / 跨数据集 / 8 连通
+D5_DATASETS="LEVIR-CD-256 WHU-CD-256" bash run_diag.sh d5   # 指定子集（可双卡并行）
+```
 产物（服务器）：`/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1/`
-（`DIAGNOSIS_REPORT.md`、`RUN_MANIFEST.json`、`REPRODUCE.md`、各阶段 `gate.json`/`summary.json`）；
-本地副本：`docs/temporary/CASA-TViM_Diag1/`。
+（`DIAGNOSIS_REPORT.md`＝机器章节 + 自动追加 `INTERPRETATION.md`、`RUN_MANIFEST.json`、
+`REPRODUCE.md`、各阶段 `gate.json`/`summary.json`/CSV/PNG）；本地副本：`docs/temporary/CASA-TViM_Diag1/`。
 
 ## 注意事项
 
