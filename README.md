@@ -309,6 +309,22 @@ Hit@25 ≥ **0.2396** 且 ≥CTRL+5.0pp，ObjRecall ≥CTRL+1.0pp，ObjPrecision
 四库同时 ≥98.00 / 92.50 / 85.00 / 95.00 才是 `PAPER-TARGET-PASS`。判定走
 `analyse/run4_fet_report.py`，失败按设计文档 §6.4 决策树**停止该线**。
 
+**产物与交接**（`train_scripts/CASA-TViM/Run4/`）
+
+| 文件 | 作用 |
+|---|---|
+| `README.md` | 设计、执行顺序、预注册门槛、事故记录（§7）、断点恢复（§6）、禁止的捷径 |
+| `EVIDENCE_INDEX.md` | ①–⑥ 全部已完成的验证证据与其结论、绝对路径（服务器副本 `$OUT/EVIDENCE_INDEX.md`） |
+| `HANDOFF.md` | 会话中断时的接手说明：进程清单、产物落盘路径、手工收口命令、结果读法、不得改动的纪律 |
+| `SOURCE_IDENTITY.json` | 代码身份（含与 Diag1 manifest 的逐文件差异分类） |
+| `audit_protocol.py` / `check_run.py` | 协议审计（步数预算/epoch 算术/manifest/LR 计划/区块内步数标记）与逐 run 日志硬门 |
+| `post_train.sh` | 收口五段：协议审计 → 日志硬门 ×8 → 部署图对象指标 ×8 → 三层裁决 → README markdown（前两段失败即 fail-closed） |
+| `auto_post_train.sh` | 无人值守守候：8 个 run 全部完成且无 trainer 运行时自动执行 `post_train.sh` |
+| `ckpt_backup_watchdog.py` | `last.pth` → `last.pth.bak` 原子备份（写盘崩溃缓解） |
+
+服务器运行时快照：`$LOG/STATUS.md`（逐 run 步数/速率/ETA）；正式结果落盘为
+`$LOG/verdict.json` 与 `$LOG/README_SNIPPET.md`（四张表由 JSON 渲染，无人工转抄）。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
