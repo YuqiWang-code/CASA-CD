@@ -9,7 +9,7 @@
 |---|---|---|
 | `run_all.sh` + 4 × `train.py` | 服务器 `bash train_scripts/CASA-TViM/Run4/run_all.sh` | 两波 × 4 库，每库 80,000 optimizer updates |
 | `ckpt_backup_watchdog.py` | 服务器 | `last.pth` → `last.pth.bak` 原子备份（写盘崩溃缓解） |
-| `auto_post_train.sh` | 服务器 | 等 8 个 run 全部产出完整 TEST 区块后**自动**执行收口 |
+| `auto_post_train.sh` | 服务器 | 当**8 个 run 全部产出完整 TEST 区块、且没有任何 `train.py` 在运行**时，**自动**执行收口（协议审计 → 日志硬门 ×8 → 部署图对象指标 ×8 → 三层裁决 → README markdown） |
 
 映射：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU；先 `M1_R4CTRL`（fine_tap=0，同期对照），
 后 `E6_FET1`（fine_tap=1，唯一正式主实验）。
