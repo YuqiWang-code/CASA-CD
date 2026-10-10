@@ -204,6 +204,11 @@ def _trainable_params(block):
     return float(m.group(1)) if m else None
 
 
+def _effective_params(block):
+    m = re.search(r"\[DEPLOY-PARAMS\][^\n]*effective=([0-9.]+)\s*M", block)
+    return float(m.group(1)) if m else None
+
+
 def _deploy_flops(block):
     m = re.search(r"\[DEPLOY-FLOPS\]\s*([0-9.]+)\s*G", block)
     return float(m.group(1)) if m else None
@@ -245,6 +250,7 @@ def read_last_test_block(log_root, variant, dataset):
         "disagree_real": float(dis2.group(1)) if dis2 else None,
         "deploy_params_M": _deploy_params(block),
         "deploy_trainable_M": _trainable_params(block),
+        "deploy_effective_M": _effective_params(block),
         "deploy_flops_G": _deploy_flops(block),
         "unsupported_ops": _unsupported(block),
         "fet_gamma": _fet_gamma(block),
@@ -504,9 +510,9 @@ def render_markdown(verdict_path, out_path=None):
     L = [f"**STATUS：`{v['status']}`**", "", f"> {v['decision']}", ""]
 
     L += ["### 1. 每 run 六指标与部署实测（来源：各 `train_log.txt` 最后一个完整 TEST 区块）", "",
-          "| run | F1 | IoU | Recall | Precision | OA | Kappa | steps | deploy M | FLOPs G | unsup | γ | "
-          "折叠误差(随机/真实) | 分歧(随机/真实) | 状态 |",
-          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|"]
+          "| run | F1 | IoU | Recall | Precision | OA | Kappa | steps | deploy M (total/trainable/effective) | "
+          "FLOPs G | unsup | γ | 折叠误差(随机/真实) | 分歧(随机/真实) | 状态 |",
+          "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|---|---|"]
     for key in sorted(runs):
         r = runs[key]
         vv, dd = key.split("/")
@@ -516,7 +522,8 @@ def render_markdown(verdict_path, out_path=None):
         m = r["metrics"]
         a_ok = layers["A_p0_validity"]["per_run"][key]["pass"]
         L.append(f"| {vv} / {dd} | {f(m['F1'])} | {f(m['IoU'])} | {f(m['Recall'])} | {f(m['Precision'])} | "
-                 f"{f(m['OA'])} | {f(m['Kappa'])} | {r['actual_opt_steps']} | {f(r['deploy_params_M'], 3)} | "
+                 f"{f(m['OA'])} | {f(m['Kappa'])} | {r['actual_opt_steps']} | "
+                 f"{f(r['deploy_params_M'], 3)}/{f(r['deploy_trainable_M'], 3)}/{f(r['deploy_effective_M'], 3)} | "
                  f"{f(r['deploy_flops_G'])} | {r['unsupported_ops']} | {f(r['fet_gamma'], 6)} | "
                  f"{f(r['fold_max_abs_error'], 3)}/{f(r['fold_real_max_abs_error'], 3)} | "
                  f"{f(r['disagree_random'], 3)}/{f(r['disagree_real'], 3)} | {'OK' if a_ok else 'INVALID(A)'} |")
