@@ -45,16 +45,26 @@ VARIANTS = {
 
 
 class _Probe(object):
-    """插在几何变换之间的探针：img/label 空间尺寸必须始终一致。"""
+    """插在几何变换之间的探针：img/label 空间尺寸必须始终一致。
+
+    注意布局差异：几何变换阶段 img 是 numpy HWC、label 是 HW；`ToTensor` 之后
+    img 是 CHW、label 是 [1,H,W]。比较的是**空间**尺寸，不是前两维。
+    """
 
     def __init__(self, name, rec):
         self.name = name
         self.rec = rec
 
+    @staticmethod
+    def _spatial(t):
+        if hasattr(t, "dim") and t.dim() == 3:      # torch CHW / [1,H,W]
+            return int(t.shape[-2]), int(t.shape[-1])
+        return int(t.shape[0]), int(t.shape[1])     # numpy HWC / HW
+
     def __call__(self, img, label):
-        ih, iw = img.shape[:2]
-        lh, lw = label.shape[:2]
-        self.rec.append({"stage": self.name, "img": [int(ih), int(iw)], "label": [int(lh), int(lw)],
+        ih, iw = self._spatial(img)
+        lh, lw = self._spatial(label)
+        self.rec.append({"stage": self.name, "img": [ih, iw], "label": [lh, lw],
                          "sync": bool(ih == lh and iw == lw)})
         return [img, label]
 
@@ -83,21 +93,40 @@ def build_eval_transform(size=256):
     ])
 
 
-def check_label_gray128(ds, n=4):
-    """label 张量必须逐位等于 (raw_gray >= 128)；同时统计 raw 中的中间灰度。"""
+def geom_probe_pass(args, n=4):
+    """几何同步探针：在主进程里用**训练增广链**逐样本走一遍，记录每个几何变换后的空间尺寸。
+
+    不能依赖 DataLoader 的 worker 进程（probe_rec 不会被写回父进程），
+    因此显式 num_workers=0 地逐样本取样。
+    """
+    rec = []
+    tf = build_train_transform(rec)
+    ds = myDataLoader.Dataset(file_root=args.dataset_root, list_path=args.train_list, transform=tf)
+    for i in range(min(n, len(ds))):
+        _ = ds[i]
+    return rec
+
+
+def check_label_gray128(args, n=4):
+    """label 张量必须逐位等于 (raw_gray >= 128)；同时统计 raw 中的中间灰度。
+
+    必须用**独立**的确定性 eval 链数据集（不能复用带随机增广的训练 Dataset，
+    否则 crop/flip 会让比较失去意义）。
+    """
     import cv2
     tf = build_eval_transform()
+    ds = myDataLoader.Dataset(file_root=args.dataset_root, list_path=args.train_list, transform=tf)
     rows, ok = [], True
     n_inter = 0
     for i in range(min(n, len(ds))):
         img, lab = ds[i]
         raw = cv2.imread(ds.gts[i], 0)
-        n_inter += int(((raw > 0) & (raw < 255) & (raw != 127) & (raw != 128)).sum())
+        n_inter += int(((raw > 0) & (raw < 255)).sum())
         ref = torch.from_numpy((raw >= 128).astype("int64")).unsqueeze(0)
-        same = torch.equal(lab, ref)
+        same = (lab.shape == ref.shape) and torch.equal(lab, ref)
         ok = ok and same
         rows.append({"idx": i, "same_as_gray128": bool(same),
-                     "unique": sorted(set(lab.flatten().tolist()))[:5],
+                     "unique": sorted(set(int(v) for v in lab.flatten().tolist()))[:5],
                      "raw_min": int(raw.min()), "raw_max": int(raw.max()),
                      "raw_intermediate_px": int(((raw > 0) & (raw < 255)).sum())})
         _ = img
@@ -157,8 +186,7 @@ def main():
         args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
 
     # ---------------------------------------------------------------- data
-    probe_rec = []
-    tf = build_train_transform(probe_rec)
+    tf = build_train_transform([])
     ds = myDataLoader.Dataset(file_root=args.dataset_root, list_path=args.train_list, transform=tf)
     loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size, shuffle=True,
                                          num_workers=2, pin_memory=True, drop_last=False)
@@ -208,9 +236,10 @@ def main():
         f"(n={len(zero_grad_params)})")
 
     # ------------------------------------------------------- label contract
-    lab_ok, lab_rows, n_inter = check_label_gray128(ds)
+    lab_ok, lab_rows, n_inter = check_label_gray128(args)
     log(f"[DRY] label gray>=128 check: ok={lab_ok} rows={json.dumps(lab_rows)}")
 
+    probe_rec = geom_probe_pass(args)
     geom_sync = bool(probe_rec) and all(r["sync"] for r in probe_rec)
     log(f"[DRY] geometry sync probes={len(probe_rec)} all_sync={geom_sync}")
     for r in probe_rec:
