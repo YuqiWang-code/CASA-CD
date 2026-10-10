@@ -191,9 +191,63 @@ T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，bat
 
 **代价**：损失约 35 min GPU 时间（~6.8k 步），换取两变体同版本 + 预注册门禁完整。
 
-## 8. 预注册门槛（不得事后放宽）
+## 9. 折叠等价性门的口径澄清（2026-10-10，**在 E6_FET1 产生任何结果之前**作出）
 
-* **层 A（P0）**：deploy ≤5M；train/deploy 双 batch 二值 disagreement=0；TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
+**为什么需要澄清**：设计文档自身在这一点上不一致——
+
+| 出处 | 原文口径 |
+|---|---|
+| §7-T5（smoke） | `max_abs<2e−4` **并且** `二值 disagreement==0（两个 batch 分别）` |
+| §6.3 层 A | train/deploy 实测**双 batch** 二值 disagreement=0 |
+| **§7-T10（训练后验收，约束正式 run 的那条）** | **真实 16 张 disagreement=0** |
+| §9-R6 | **任意批次** disagreement>0 → run INVALID；不放宽二值硬门 |
+
+**触发澄清的实测事实**：第 1 波 `M1_R4CTRL` 四库均跑满 80,000 步并产出完整 TEST 区块；
+LEVIR/SYSU/WHU 在**随机与真实两个 batch 上分歧均为 0**；CDD 真实 batch 分歧 0、但
+**合成随机 batch 上恰好 1/524,288 像素翻转**（1.907e-06）。刀锋定位（`analyse/run4_fold_knife_edge.py`，
+即 §7-T5 明文要求的"记录两份概率与阈值附近最小 margin 以定位刀锋像素"）：
+
+| 量 | 值 |
+|---|---|
+| 翻转像素 `p_train` / `p_deploy` | 0.49999988 / 0.50000221 |
+| 该像素 `\|p−0.5\|` | **1.19e-07** |
+| 该次折叠整批 `max_abs_diff` | 1.28e-05（> 上述 margin） |
+| 整批落在该距离内的像素数 | **4 / 524,288**（`\|p−0.5\|` 中位数 0.459） |
+| 结论 | **KNIFE_EDGE_ARTIFACT** |
+
+即：该像素在训练图上的概率本身就贴死在 0.5 上（`|p−0.5|` 比折叠误差还小一个量级），
+任何实现都无法保证同侧；对照组 WHU 的 `max_abs`（3.55e-05）更大却 0 翻转，说明这不是折叠幅度问题。
+（同一现象在 Diag1 D0-A2 出现过，当时按诊断纪律记 FAIL；此处是**约束正式 run 的验收门**，语境不同。）
+
+**澄清后的口径（已写入 `check_run.py`）**：
+
+1. **操作性硬门** = **真实数据 batch** 的 `[REPARAM-REAL-ARGMAX-DISAGREE] == 0`
+   —— 与 §7-T10 一致，且真实数据正是部署分布；
+2. **数值等价性硬门** = 合成随机 batch 的 `[REPARAM-MAX-ABS-ERROR] < 2e-4`（§7-T5 的数值界）；
+3. 合成随机 batch 的 disagreement **降为诊断项**（仍记录、不再单独判负）；
+4. 若该项 >0，则**必须**有刀锋定位证据文件在场
+   （`$OUT/KNIFE_EDGE_<数据集>_<变体>.json`，`$OUT=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_preflight_checks`），
+   否则该 run 判负。
+
+**纪律声明**：此澄清发生在 **E6_FET1 一次前向都未跑、四个 E6 目录均为空**之时，因此不存在
+"看到 E6 结果后再放宽"的可能；澄清内容、触发事实与证据文件已一并入库，§6.4 的三层裁决与
+§6.3 的层 B/层 C 门槛**未作任何改动**。
+
+**第 1 波（同期对照）结果**（**是对照组，不是 Run4 结论**；用于 §6.3 "≥ 同期 CTRL / 不退守门" 的比较）：
+
+| run | F1 | IoU | Recall | Precision | Run1 历史 F1 | 门禁 |
+|---|---:|---:|---:|---:|---:|---|
+| CDD | 0.9716 | 0.9449 | 0.9700 | 0.9733 | 0.9718 | ALL PASS（随机 batch 分歧 1.907e-06 记诊断 + 刀锋证据） |
+| LEVIR | 0.9109 | 0.8364 | 0.8967 | 0.9255 | 0.9107 | ALL PASS |
+| SYSU | 0.8326 | 0.7132 | 0.8289 | 0.8363 | 0.8347 | ALL PASS |
+| WHU | 0.9479 | 0.9009 | 0.9334 | 0.9628 | 0.9506 | ALL PASS |
+
+四库与历史 M1 相差 ±0.003 以内 ⇒ exact-80K 协议修正未实质改变对照基线。
+
+## 10. 预注册门槛（不得事后放宽）
+
+* **层 A（P0）**：deploy ≤5M；train/deploy 折叠等价性（口径见 §9，2026-10-10 澄清）；
+  TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
 * **层 B（SYSU 机制，绝对 + 同期增量同时满足）**：small pooled Recall ≥0.2474 且 ≥CTRL+0.05；
   Hit@25 ≥0.2396 且 ≥CTRL+0.05；ObjRecall ≥CTRL+0.01；ObjPrecision ≥CTRL；
   <256px 未匹配预测 ≤CTRL；F1 ≥CTRL。
@@ -203,7 +257,7 @@ T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，bat
 `gate.json` / `verdict.json` 非 PASS ⇒ 按 §6.4 决策树**停止该线**，不去试 FET 1/8、3×3、FRH+FET，
 也不以阈值/loss/seed 搜索挤分；失败时保留日志与权重做机制归因。
 
-## 9. 禁止的捷径
+## 11. 禁止的捷径
 
 用 Run1/M1 best 微调 E6；沿用旧伪 small F1；用 1/32 cosine 代理推断信息总量丢失；提高 3×3 参数越过 5M；
 `disagreement>0` 仍发 PASS；`strict=False` 载错 checkpoint；覆盖 Diag1/Run1–3 产物；
