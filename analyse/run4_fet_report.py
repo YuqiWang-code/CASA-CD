@@ -94,11 +94,17 @@ def build_run_model(variant, ckpt_path, device, ckpt_root):
         sd = sd["state_dict"]
     res = model.load_state_dict(sd, strict=True)
     assert not res.missing_keys and not res.unexpected_keys, res
+    # 折叠前 = 训练图（§8.5 要求报告「训练图总/可训练参数」，此处从 checkpoint 独立实测）
+    train_params = int(sum(p.numel() for p in model.parameters()))
+    train_trainable = int(sum(p.numel() for p in model.parameters() if p.requires_grad))
     model.switch_to_deploy()
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
     deploy_info = {
+        "train_params": train_params,
+        "train_trainable": train_trainable,
+        "expected_train": 5_097_938 if variant == "E6_FET1" else 5_084_017,
         "deploy_params": int(sum(p.numel() for p in model.parameters())),
         "trainable": int(sum(p.numel() for p in model.parameters() if p.requires_grad)),
         "expected": expected,
@@ -147,6 +153,10 @@ def object_pass(args):
         "ckpt": ckpt_path,
         "ckpt_sha256": sha256_file(ckpt_path),
         "deploy_graph": True,
+        "train_params": deploy_info["train_params"],
+        "train_trainable": deploy_info["train_trainable"],
+        "train_params_expected": deploy_info["expected_train"],
+        "train_params_ok": deploy_info["train_params"] == deploy_info["expected_train"],
         "deploy_params": deploy_info["deploy_params"],
         "deploy_params_expected": deploy_info["expected"],
         "deploy_params_ok": deploy_info["deploy_params"] == deploy_info["expected"],
@@ -405,11 +415,23 @@ def verdict(args):
     for v in VARIANTS:
         for d in DATASETS:
             r = runs[f"{v}/{d}"]
+            o = obj.get(f"{v}/{d}", {})
             if r.get("valid"):
                 m = r["metrics"]
-                print(f"{v:11s} {d:13s} F1={m['F1']:.2f} IoU={m['IoU']:.2f} steps={r['actual_opt_steps']} "
-                      f"deploy={r['deploy_params_M']}M flops={r['deploy_flops_G']}G "
-                      f"dis={r['disagree_random']}/{r['disagree_real']}")
+                a_ok = layers["A_p0_validity"]["per_run"][f"{v}/{d}"]["pass"]
+                run_status = "OK" if a_ok else "INVALID(A)"
+                print(f"{v:11s} {d:13s} F1={m['F1']:.4f} IoU={m['IoU']:.4f} "
+                      f"R={m['Recall']:.4f} P={m['Precision']:.4f} OA={m['OA']:.4f} K={m['Kappa']:.4f} | "
+                      f"steps={r['actual_opt_steps']} "
+                      f"train_params={o.get('train_params', '-')}/{o.get('train_trainable', '-')} "
+                      f"deploy_params={o.get('deploy_params', '-')} (log {r['deploy_params_M']}M) "
+                      f"flops={r['deploy_flops_G']}G unsup={r['unsupported_ops']} "
+                      f"gamma={r['fet_gamma']} dis={r['disagree_random']}/{r['disagree_real']} | "
+                      f"small_recall={o.get('small', {}).get('pixel_recall_micro')} "
+                      f"small_hit25={o.get('small', {}).get('hit25')} "
+                      f"ObjP={o.get('object', {}).get('ObjPrecision_loose')} "
+                      f"ObjR={o.get('object', {}).get('ObjRecall_loose')} "
+                      f"unm<256={o.get('unmatched_pred_lt256')} | {run_status}")
             else:
                 print(f"{v:11s} {d:13s} INVALID ({r.get('reason')})")
 
