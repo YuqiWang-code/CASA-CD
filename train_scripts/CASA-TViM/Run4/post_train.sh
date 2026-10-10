@@ -20,6 +20,11 @@ OBJ_DIR=${LOG_ROOT}/objects
 mkdir -p "${OBJ_DIR}"
 
 DATASETS="CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256"
+_audit_fail=0
+
+echo "########## 0) protocol audit (LR plan / step budget / manifest / in-block step marker) ##########"
+python train_scripts/CASA-TViM/Run4/audit_protocol.py \
+  --log-root "${LOG_ROOT}" --ckpt-root "${CKPT_ROOT}/Run4" --require-finished 1 || _audit_fail=1
 
 echo "########## 1) per-run log gate (check_run.py) ##########"
 _gate_fail=0
@@ -48,7 +53,7 @@ python analyse/run4_fet_report.py --mode verdict \
 _verdict_rc=$?
 
 echo "########## SUMMARY ##########"
-echo "check_run_fail=${_gate_fail} object_pass_fail=${_obj_fail} verdict_rc=${_verdict_rc}"
+echo "protocol_audit_fail=${_audit_fail} check_run_fail=${_gate_fail} object_pass_fail=${_obj_fail} verdict_rc=${_verdict_rc}"
 python - <<PY
 import json
 v = json.load(open("${LOG_ROOT}/verdict.json"))
