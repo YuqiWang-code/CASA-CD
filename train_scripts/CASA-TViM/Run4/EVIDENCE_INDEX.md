@@ -44,6 +44,8 @@
 | 同期 CTRL 轨迹对照（SYSU） | 工具 `analyse/run4_progress_eta.py` 同目录的轨迹核对；数据源 `$LOG/M1_R4CTRL/SYSU-CD-256/train_log.txt` vs Run1 `M1_FULL` 同名日志 | 31 个可比 epoch 的 ΔF1 均值 **−0.0008**（区间 [−0.0158, +0.0168]），CTRL best 0.8326 vs Run1 官方 0.8347 ⇒ **exact-80K 协议修正未实质改变轨迹**，文档要求的"≥ 同期 CTRL / 不退守门"比较才有意义 |
 | 重启一致性抽查 | 同上（重启前波次已判 INVALID，仅作对照） | 四库同 epoch ΔF1 ≤ |0.003|、正负号混合 ⇒ 重启无系统性偏差 |
 | 运行状态快照 | `$LOG/STATUS.md`（`analyse/run4_progress_eta.py --write-status` 生成） | 逐 run 步数/速率/ETA 与收口命令，可随时刷新 |
+| 训练日志健康 | `$LOG/M1_R4CTRL/*/train_log.txt` 计数 | 四库 **0 error / 0 NaN**，仅各 8 条启动期 xFormers `not available` 告警；`run4_run_all.log` 无 ABORT/FAIL 标记 |
+| 自动收口守候 | `train_scripts/CASA-TViM/Run4/auto_post_train.sh`；日志 `$LOG/auto_post_train.log`；完成标记 `$LOG/AUTO_POST_TRAIN_DONE` | 等 8 个 run 全部产出完整 TEST 区块后**自动**执行 `post_train.sh`（只读、自带 fail-closed 守卫）⇒ 即使监控会话中断，第 ⑧ 步结果也一定被产出 |
 
 ## 四、失效产物隔离
 
