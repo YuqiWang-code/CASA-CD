@@ -96,8 +96,26 @@ GPU=0 bash train_scripts/CASA-TViM/Run4/post_train.sh
 #   check_run.py × 8 → run4_fet_report.py --mode object × 8 → --mode verdict
 ```
 
-## 5. 预注册门槛（不得事后放宽）
+## 5. 训练后测量口径预校验（在任何 Run4 结果出现之前完成）
 
+`analyse/run4_fet_report.py --mode object` 是第 ⑦ 步的**唯一**对象指标口径。用 Run1 `M1_FULL` 四库历史
+best 的**只读软链**（临时目录，不写任何历史目录）跑一遍该口径，逐项对齐 Diag1 §14 D5：
+
+| 数据集 | small 对象数 | small pooled Recall | Hit@25 | ObjPrecision | ObjRecall | F1 / IoU |
+|---|---:|---:|---:|---:|---:|---|
+| SYSU | 364 (ref 364) | **0.19742** (0.1974) | **0.18956** (0.1896) | **0.53200** (0.5320) | **0.76744** (0.7674) | 0.8347 / 0.7163 |
+| LEVIR | 1572 (1572) | **0.70459** (0.7046) | **0.59924** (0.5992) | **0.91284** (0.9128) | **0.85262** (0.8526) | 0.9107 / 0.8360 |
+| CDD | 6767 (6767) | **0.73691** (0.7369) | **0.72735** (0.7274) | **0.85918** (0.8592) | **0.79399** (0.7940) | 0.9718 / 0.9451 |
+| WHU | 79 (79) | **0.64197** (0.6420) | **0.45570** (0.4557) | **0.78235** (0.7824) | **0.81762** (0.8176) | 0.9507 / 0.9060 |
+
+结论 **`OBJECT_PASS_MATCHES_DIAG1_D5`**（证据：服务器
+`$OUTObj/objcheck4/CALIBRATION.json`，`$OUTObj=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_preflight_checks`）。
+四库 F1 同时复现 Run1 best 文件名（0.9718 / 0.9107 / 0.8347 / 0.9506），说明部署图 eval 也复现了官方成绩。
+
+裁决脚本自身的决策树已用合成 TEST 区块双向演练：畸形区块（IoU 与 `F1/(2−F1)` 不符）→ `INVALID`
+且打印具体失败检查项；自洽区块 → `PAPER-TARGET-PASS`。
+
+## 6. 预注册门槛（不得事后放宽）
 * **层 A（P0）**：deploy ≤5M；train/deploy 双 batch 二值 disagreement=0；TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
 * **层 B（SYSU 机制，绝对 + 同期增量同时满足）**：small pooled Recall ≥0.2474 且 ≥CTRL+0.05；
   Hit@25 ≥0.2396 且 ≥CTRL+0.05；ObjRecall ≥CTRL+0.01；ObjPrecision ≥CTRL；
@@ -108,7 +126,7 @@ GPU=0 bash train_scripts/CASA-TViM/Run4/post_train.sh
 `gate.json` / `verdict.json` 非 PASS ⇒ 按 §6.4 决策树**停止该线**，不去试 FET 1/8、3×3、FRH+FET，
 也不以阈值/loss/seed 搜索挤分；失败时保留日志与权重做机制归因。
 
-## 6. 禁止的捷径
+## 7. 禁止的捷径
 
 用 Run1/M1 best 微调 E6；沿用旧伪 small F1；用 1/32 cosine 代理推断信息总量丢失；提高 3×3 参数越过 5M；
 `disagreement>0` 仍发 PASS；`strict=False` 载错 checkpoint；覆盖 Diag1/Run1–3 产物；
