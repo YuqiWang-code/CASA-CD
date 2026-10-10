@@ -1,0 +1,41 @@
+{
+  "version": "tvim_object_metrics/v1 (Diag1)",
+  "connectivity_primary": 4,
+  "connectivity_sensitivity": 8,
+  "st5": "4-邻接 structuring element [[0,1,0],[1,1,1],[0,1,0]]",
+  "iou_loose": 0.1,
+  "iou_strict": 0.5,
+  "matching": "scipy.optimize.linear_sum_assignment on -IoU (one-shot max-weight bipartite)",
+  "threshold_rule": "pred_bool = (prob > 0.5)  # 与 models/train.py 一致（严格大于）",
+  "area_edges": [
+    1,
+    16,
+    64,
+    256,
+    1024
+  ],
+  "area_groups": [
+    "tiny_1_15",
+    "tiny_16_63",
+    "small_64_255",
+    "medium_256_1023",
+    "large_1024_inf"
+  ],
+  "legacy_group_alias": {
+    "small": [
+      "tiny_1_15",
+      "tiny_16_63",
+      "small_64_255"
+    ],
+    "medium": [
+      "medium_256_1023"
+    ],
+    "large": [
+      "large_1024_inf"
+    ]
+  },
+  "empty_group_policy": "None (NA), macro 分母不含空组",
+  "empty_image_policy": "无 GT 且无 Pred → 不计入 N_gt/N_pred/N_matched；有 Pred 无 GT → 计入 N_pred 且全部 unmatched(FP)",
+  "boundary_band": "band_r = binary_dilation(gt, st5, iterations=r, border_value=0) & ~binary_erosion(gt, st5, iterations=r, border_value=0)；记录贴边 GT 像素数说明截断",
+  "note": "旧 run2_zero_cost_diag.py 的 comp_* 因 FP 恒为 0，仅为受限正样本伪指标，不得用作对象级 F1"
+}

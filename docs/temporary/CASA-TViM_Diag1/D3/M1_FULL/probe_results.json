@@ -1,0 +1,106 @@
+{
+  "per_layer": {
+    "L01b_norm0": {
+      "C_in": 48,
+      "n_train_samples": 3011,
+      "test_AP": 0.3809293795328396,
+      "test": {
+        "pooled_AP": 0.4588097662445869,
+        "per_image_AP_mean": 0.4050515349784837,
+        "n_images": 4000
+      }
+    },
+    "L03b_norm2": {
+      "C_in": 64,
+      "n_train_samples": 3011,
+      "test_AP": 0.40835879600030345,
+      "test": {
+        "pooled_AP": 0.48713729775909587,
+        "per_image_AP_mean": 0.4021481718999019,
+        "n_images": 4000
+      }
+    },
+    "L05_stage3_last_prefix": {
+      "C_in": 168,
+      "n_train_samples": 3011,
+      "test_AP": 0.47735156782929083,
+      "test": {
+        "pooled_AP": 0.5324136160143216,
+        "per_image_AP_mean": 0.5043347439692681,
+        "n_images": 4000
+      }
+    },
+    "L06b_norm4": {
+      "C_in": 168,
+      "n_train_samples": 3011,
+      "test_AP": 0.430802301473758,
+      "test": {
+        "pooled_AP": 0.496145130313345,
+        "per_image_AP_mean": 0.4725906275114388,
+        "n_images": 4000
+      }
+    },
+    "T01_tar1": {
+      "C_in": 96,
+      "n_train_samples": 3011,
+      "test_AP": 0.6225934990934543,
+      "test": {
+        "pooled_AP": 0.691149396798804,
+        "per_image_AP_mean": 0.6076780675858448,
+        "n_images": 4000
+      }
+    },
+    "DOUT_decoder_refine": {
+      "C_in": 96,
+      "n_train_samples": 3011,
+      "test_AP": 0.980226128697952,
+      "test": {
+        "pooled_AP": 0.905253235395662,
+        "per_image_AP_mean": 0.8239933089199954,
+        "n_images": 4000
+      }
+    },
+    "P00_head_logits": {
+      "C_in": 1,
+      "n_train_samples": 3011,
+      "test_AP": 0.979883329136459,
+      "test": {
+        "pooled_AP": 0.9048965016725635,
+        "per_image_AP_mean": 0.8234907142830243,
+        "n_images": 4000
+      }
+    }
+  },
+  "protocol": {
+    "probe": "Conv2d(C_in,1,1) + BCEWithLogitsLoss on bilinear-upsampled logits vs native 256² mask",
+    "encoder_input": "abs(F_A - F_B)（全编码器层统一主口径）",
+    "single_path_input": "节点自身融合特征（无 A/B）",
+    "split": "SYSU train.txt 按文件名 SHA1 hash 固定 90% probe-train / 10% probe-val",
+    "test_usage": "一次性评估，不参与任何优化/早停/调参",
+    "hyperparams": {
+      "lr": 0.001,
+      "steps": 1500,
+      "batch": 16,
+      "optimizer": "AdamW(wd=0)",
+      "seed": 16
+    },
+    "budget_deviation": "--max-train=3000（0=全部）; --extract-batch=16",
+    "layers": [
+      "L01b_norm0",
+      "L03b_norm2",
+      "L05_stage3_last_prefix",
+      "L06b_norm4",
+      "T01_tar1",
+      "DOUT_decoder_refine",
+      "P00_head_logits"
+    ],
+    "checkpoint": {
+      "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+      "sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457"
+    },
+    "frozen_model": true
+  },
+  "frozen_unchanged": true,
+  "model_sha256_before": "bac8a0ae40cdd81bfc1c5c28190dee0eb1b3182c5b2100408a40592630ee521c",
+  "model_sha256_after": "bac8a0ae40cdd81bfc1c5c28190dee0eb1b3182c5b2100408a40592630ee521c"
+}

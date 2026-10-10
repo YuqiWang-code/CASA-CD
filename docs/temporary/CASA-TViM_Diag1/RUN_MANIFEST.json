@@ -1,0 +1,153 @@
+{
+  "diagnosis": "TViM-TinyLoss-Diag1",
+  "created": "2026-10-10T11:26:05",
+  "code_identity": {
+    "project": "/home/yqwang/projects/CASA-CD",
+    "files": {
+      "models/model/casa_tvim_str_net.py": "14c7e4a45ba90d175afbe53a2846889d28a4f253288c8c60ecbce9fc9760b102",
+      "models/model/tinyvim_s_slim.py": "5731c7ca259da5a33575d01f41c4b5b860ac0e85593e69e95f958f483940bce4",
+      "models/model/layers/caacp_ss2d.py": "85f1ff42ec04dac04317b845ccd70de0b1cc01e717e577e71cbdab3092057310",
+      "models/model/layers/ss2d.py": "a2e9112489f28c43b38639f1cf5a79dd6dbe67bd29991dcc9f1fcc3fb9a83eab",
+      "models/model/str_tar.py": "34f4aadbe432a4857372b5f552dbbcb05155839ac59577ada8053812362f2ba4",
+      "models/model/str_dcr.py": "11c223e1ce9cf086609ffc25cbcde9c350490f509b303db2fba226f758d1e2ac",
+      "models/model/str_reparam.py": "31531809c6fe62e4937b120de36e73e8a6b50443778c1583bd7ccf1e619ecf56",
+      "models/model/metric_tool.py": "9e4311ed154a7fe002ac5bb72792cb31ec5b412f36c89fb4aaf89a389c11675d",
+      "models/dataset/dataset.py": "5d4ffbb7b0b9f8a330b2e0039e7479fac299469d0912db46e98bacb353e8d4ec",
+      "models/dataset/Transforms.py": "4e9e1fd6e2aea459219ec7b50fdb4c1730bd8d1da89c3827ffb693112936f59d",
+      "models/train.py": "422d724d82265eef4538b89097b6e0bed7f9906665ad64e8521a5d477d97f613",
+      "models/eval.py": "7ef6b26312dbf694d0ba48f7cc819a7160ec4c8f90878c9e24438cf9e5726d24"
+    },
+    "git": null
+  },
+  "env": {
+    "python": "3.10.21",
+    "torch": "2.14.0+cu132",
+    "cuda_build": "13.2",
+    "cudnn": 92400,
+    "gpu_count": 2,
+    "gpu_names": [
+      "NVIDIA GeForce RTX 5090",
+      "NVIDIA GeForce RTX 5090"
+    ],
+    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+    "time": "2026-10-10T11:26:05",
+    "scipy": "1.15.2",
+    "sklearn": "1.7.2",
+    "cv2": "5.0.0"
+  },
+  "datasets": {
+    "SYSU-CD-256": {
+      "test_list": "/share_datasets/CD/SYSU-CD-256/list/test.txt",
+      "test_list_sha256": "5f4122c9d32cb6db475f4f361618b2ac8bb10938df93d9550e0bb9a422a45797",
+      "n_test": 4000,
+      "train_list": "/share_datasets/CD/SYSU-CD-256/list/train.txt",
+      "train_list_sha256": "cfce5dda36e06836888cd7fdad0ec5d2b41f9e98fbc725c491704ec332abbd0c"
+    }
+  },
+  "models": {
+    "A2_STR": {
+      "checkpoint": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/A2_STR/SYSU-CD-256/best_F1=0.8322.pth",
+      "checkpoint_sha256": "01c9458c65882b3faa062de2c78c58f4b430b0255cc3f7692c41d771654cb3f7",
+      "variant_cfg": {
+        "caacp": false,
+        "rep_mode": "full",
+        "caacp_score_mode": "rank",
+        "frh": false,
+        "caacp_residual_mode": "current",
+        "fs_tar": false
+      }
+    },
+    "M1_FULL": {
+      "checkpoint": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+      "checkpoint_sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457",
+      "variant_cfg": {
+        "caacp": true,
+        "rep_mode": "full",
+        "caacp_score_mode": "rank",
+        "frh": false,
+        "caacp_residual_mode": "current",
+        "fs_tar": false
+      }
+    }
+  },
+  "gates": {
+    "D0/A2_STR": "FAIL",
+    "D0/M1_FULL": "PASS",
+    "D1/M1_FULL": "PASS",
+    "D2/M1_FULL": "PASS",
+    "D3/M1_FULL": "PASS",
+    "D4/M1_FULL": "PASS"
+  },
+  "protocols": {
+    "metrics": {
+      "version": "tvim_object_metrics/v1 (Diag1)",
+      "connectivity_primary": 4,
+      "connectivity_sensitivity": 8,
+      "st5": "4-邻接 structuring element [[0,1,0],[1,1,1],[0,1,0]]",
+      "iou_loose": 0.1,
+      "iou_strict": 0.5,
+      "matching": "scipy.optimize.linear_sum_assignment on -IoU (one-shot max-weight bipartite)",
+      "threshold_rule": "pred_bool = (prob > 0.5)  # 与 models/train.py 一致（严格大于）",
+      "area_edges": [
+        1,
+        16,
+        64,
+        256,
+        1024
+      ],
+      "area_groups": [
+        "tiny_1_15",
+        "tiny_16_63",
+        "small_64_255",
+        "medium_256_1023",
+        "large_1024_inf"
+      ],
+      "legacy_group_alias": {
+        "small": [
+          "tiny_1_15",
+          "tiny_16_63",
+          "small_64_255"
+        ],
+        "medium": [
+          "medium_256_1023"
+        ],
+        "large": [
+          "large_1024_inf"
+        ]
+      },
+      "empty_group_policy": "None (NA), macro 分母不含空组",
+      "empty_image_policy": "无 GT 且无 Pred → 不计入 N_gt/N_pred/N_matched；有 Pred 无 GT → 计入 N_pred 且全部 unmatched(FP)",
+      "boundary_band": "band_r = binary_dilation(gt, st5, iterations=r, border_value=0) & ~binary_erosion(gt, st5, iterations=r, border_value=0)；记录贴边 GT 像素数说明截断",
+      "note": "旧 run2_zero_cost_diag.py 的 comp_* 因 FP 恒为 0，仅为受限正样本伪指标，不得用作对象级 F1"
+    },
+    "probe": {
+      "probe": "Conv2d(C_in,1,1) + BCEWithLogitsLoss on bilinear-upsampled logits vs native 256² mask",
+      "encoder_input": "abs(F_A - F_B)（全编码器层统一主口径）",
+      "single_path_input": "节点自身融合特征（无 A/B）",
+      "split": "SYSU train.txt 按文件名 SHA1 hash 固定 90% probe-train / 10% probe-val",
+      "test_usage": "一次性评估，不参与任何优化/早停/调参",
+      "hyperparams": {
+        "lr": 0.001,
+        "steps": 1500,
+        "batch": 16,
+        "optimizer": "AdamW(wd=0)",
+        "seed": 16
+      },
+      "budget_deviation": "--max-train=3000（0=全部）; --extract-batch=16",
+      "layers": [
+        "L01b_norm0",
+        "L03b_norm2",
+        "L05_stage3_last_prefix",
+        "L06b_norm4",
+        "T01_tar1",
+        "DOUT_decoder_refine",
+        "P00_head_logits"
+      ],
+      "checkpoint": {
+        "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+        "sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457"
+      },
+      "frozen_model": true
+    }
+  }
+}

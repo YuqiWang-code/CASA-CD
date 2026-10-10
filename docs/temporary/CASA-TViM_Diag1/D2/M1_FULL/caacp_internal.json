@@ -1,0 +1,27 @@
+{
+  "beta": 0.005570305977016687,
+  "mean_abs_deltaC": 0.055411915466189385,
+  "mean_abs_beta_deltaC": 0.000308661321294494,
+  "beta_delta_rms_exact": 0.0016056300704172975,
+  "ratio_beta_delta_over_cavg": 0.001857721616396719,
+  "cell_weight_entropy_mean": 1.2651227946281434,
+  "cell_weight_top1_mean": 0.4938036277294159,
+  "xlow_feature_norm_mean": 10.680771774291992,
+  "n_samples": 8000,
+  "group_mean_abs_deltaC": {
+    "small": 0.07406441958526913,
+    "medium": 0.046199654311384106,
+    "large": 0.035184674364459816
+  },
+  "group_mean_abs_residual_current": {
+    "small": 0.3215888259896484,
+    "medium": 0.26930706386875225,
+    "large": 0.1849587723961008
+  },
+  "group_mean_abs_residual_avg_anchor": {
+    "small": 0.32170578150278917,
+    "medium": 0.26938215792512893,
+    "large": 0.184969811189305
+  },
+  "note": "mean_abs_deltaC / mean_abs_beta_deltaC 为 batch 内 |·| 均值；beta_delta_rms_exact = sqrt(mean((βΔC)²))（不使用旧脚本 mean² 汇总口径）；分组统计：把 native GT 分组掩码用 adaptive_avg_pool2d 降采样为 8²（ΔC）与 16²（residual）occupancy 权重后加权平均（权重和为浮点像素质量，非取整计数）"
+}

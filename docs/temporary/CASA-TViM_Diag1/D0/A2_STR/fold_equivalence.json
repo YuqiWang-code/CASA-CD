@@ -1,0 +1,33 @@
+{
+  "random_batch": {
+    "max_abs_error": 2.086162567138672e-06,
+    "binary_disagreement": 0.0,
+    "n_elements": 1048576,
+    "n_flipped": 0
+  },
+  "real_batch": {
+    "max_abs_error": 2.8014183044433594e-06,
+    "binary_disagreement": 9.5367431640625e-07,
+    "n_elements": 1048576,
+    "n_flipped": 1
+  },
+  "deploy_params_total": 4880189,
+  "train_graph_params_total": 5084016,
+  "note": "disagreement 分母 = N×H×W（全部元素）；hard gate = 0",
+  "deploy_flops_G": 2.674693066,
+  "deploy_flops_unsupported_ops": [
+    "aten::add",
+    "aten::avg_pool2d",
+    "aten::exp",
+    "aten::gelu",
+    "aten::mul",
+    "aten::neg",
+    "aten::sigmoid",
+    "aten::silu",
+    "aten::sub",
+    "prim::PythonOp.CrossMerge",
+    "prim::PythonOp.CrossScan",
+    "prim::PythonOp.SelectiveScan"
+  ],
+  "deploy_flops_unsupported_count": 12
+}

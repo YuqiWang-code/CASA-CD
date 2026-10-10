@@ -1,0 +1,60 @@
+{
+  "base_variant": "M1_FULL",
+  "compare_variant": "A2_STR",
+  "n_common_objects": 5762,
+  "n_images": 4000,
+  "mean_delta_recall_object_level": -0.04305275108241262,
+  "image_level_bootstrap_CI": {
+    "mean": -0.04319528398511987,
+    "lo": -0.04930035303356466,
+    "hi": -0.03718213352477427,
+    "n": 4000
+  },
+  "by_area_group": {
+    "tiny_1_15": {
+      "n_objects": 66,
+      "mean_delta_recall": -0.035871535871535874,
+      "positive_frac": 0.06060606060606061,
+      "negative_frac": 0.09090909090909091
+    },
+    "tiny_16_63": {
+      "n_objects": 96,
+      "mean_delta_recall": 0.012361740257418033,
+      "positive_frac": 0.11458333333333333,
+      "negative_frac": 0.07291666666666667
+    },
+    "small_64_255": {
+      "n_objects": 202,
+      "mean_delta_recall": 0.013943439532566824,
+      "positive_frac": 0.15346534653465346,
+      "negative_frac": 0.15841584158415842
+    },
+    "medium_256_1023": {
+      "n_objects": 692,
+      "mean_delta_recall": -0.04172026179485841,
+      "positive_frac": 0.2514450867052023,
+      "negative_frac": 0.3453757225433526
+    },
+    "large_1024_inf": {
+      "n_objects": 4706,
+      "mean_delta_recall": -0.04692633044147658,
+      "positive_frac": 0.3081172970675733,
+      "negative_frac": 0.5788355291117722
+    }
+  },
+  "by_width_stratum": {
+    "<4": {
+      "n_objects": 105,
+      "mean_delta_recall": -0.011771425032294598
+    },
+    "4-7": {
+      "n_objects": 107,
+      "mean_delta_recall": 0.006121150284601464
+    },
+    ">=8": {
+      "n_objects": 5550,
+      "mean_delta_recall": -0.044592597331337476
+    }
+  },
+  "note": "paired 视角以 sample_name+GT component_id 稳定匹配；CI 抽样单位=图像；仅表征有限 test 集采样不确定性"
+}

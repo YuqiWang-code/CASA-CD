@@ -297,6 +297,15 @@ python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --dat
                                          # D1/D2 机制诊断（服务器上跑）
 ```
 
+### 小目标瓶颈分阶段诊断（Diag1，只读）
+
+任务文档：`docs/temporary/CASA-CD 小目标瓶颈分阶段诊断｜DSH 完整执行文档.md`；
+一键流水线：`train_scripts/CASA-TViM/Diag1/run_diag.sh`（P0 指标口径 → D0 复算/折叠 → D1 错误画像 →
+D2 分阶段 hook → D3 冻结 probe → D4 β 反事实 → 报告，Gate 不 PASS 即停）。
+产物（服务器）：`/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1/`
+（`DIAGNOSIS_REPORT.md`、`RUN_MANIFEST.json`、`REPRODUCE.md`、各阶段 `gate.json`/`summary.json`）；
+本地副本：`docs/temporary/CASA-TViM_Diag1/`。
+
 ## 注意事项
 
 - `torch.load` 加载含优化器状态的 `last.pth` 需 `weights_only=False`（train.py 已处理）。

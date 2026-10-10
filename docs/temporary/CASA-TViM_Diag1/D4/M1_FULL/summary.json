@@ -1,0 +1,251 @@
+{
+  "variant": "M1_FULL",
+  "run": "Run1",
+  "dataset": "SYSU-CD-256",
+  "checkpoint": {
+    "path": "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run1/M1_FULL/SYSU-CD-256/best_F1=0.8347.pth",
+    "sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457"
+  },
+  "beta_on": 0.005570305977016687,
+  "beta_off": 0.0,
+  "n_images_on": 4000,
+  "n_images_off": 4000,
+  "pixel": {
+    "on": {
+      "recall": 0.8441485104467134,
+      "precision": 0.8254758350281323,
+      "OA": 0.9211571350097653,
+      "F1": 0.8347076977942847,
+      "IoU": 0.7163076581741946,
+      "Kappa": 0.7829484435084132
+    },
+    "off": {
+      "recall": 0.8441351492731805,
+      "precision": 0.825492867175414,
+      "OA": 0.9211596260070797,
+      "F1": 0.8347098731448878,
+      "IoU": 0.7163108621583748,
+      "Kappa": 0.7829525252398372
+    },
+    "delta": {
+      "recall": 1.3361173532899784e-05,
+      "precision": -1.703214728177027e-05,
+      "OA": -2.4909973144193742e-06,
+      "F1": -2.1753506030952607e-06,
+      "IoU": -3.203984180188968e-06,
+      "Kappa": -4.081731423966062e-06
+    },
+    "counts_on": {
+      "tp": 52186035,
+      "fp": 11033302,
+      "fn": 9634882,
+      "tn": 189289781
+    },
+    "counts_off": {
+      "tp": 52185209,
+      "fp": 11031823,
+      "fn": 9635708,
+      "tn": 189291260
+    }
+  },
+  "groups": {
+    "tiny_1_15": {
+      "on_microR": 0.07524271844660194,
+      "off_microR": 0.07524271844660194,
+      "delta_microR": 0.0,
+      "on_macroR": 0.12626262626262624,
+      "off_macroR": 0.12626262626262624,
+      "on_hit25": 0.13636363636363635,
+      "off_hit25": 0.13636363636363635,
+      "delta_hit25": 0.0,
+      "n_objects": 66
+    },
+    "tiny_16_63": {
+      "on_microR": 0.12452499269219526,
+      "off_microR": 0.12452499269219526,
+      "delta_microR": 0.0,
+      "on_macroR": 0.14825440157975162,
+      "off_macroR": 0.14825440157975162,
+      "on_hit25": 0.16666666666666666,
+      "off_hit25": 0.16666666666666666,
+      "delta_hit25": 0.0,
+      "n_objects": 96
+    },
+    "small_64_255": {
+      "on_microR": 0.20678665166854143,
+      "off_microR": 0.20675540557430322,
+      "delta_microR": 3.124609423821312e-05,
+      "on_macroR": 0.18634644376798465,
+      "off_macroR": 0.18631511152083588,
+      "on_hit25": 0.21782178217821782,
+      "off_hit25": 0.21782178217821782,
+      "delta_hit25": 0.0,
+      "n_objects": 202
+    },
+    "medium_256_1023": {
+      "on_microR": 0.4212859970235812,
+      "off_microR": 0.42125969582665757,
+      "delta_microR": 2.6301196923650405e-05,
+      "on_macroR": 0.39875324106107407,
+      "off_macroR": 0.3987363636560546,
+      "on_hit25": 0.48554913294797686,
+      "off_hit25": 0.48554913294797686,
+      "delta_hit25": 0.0,
+      "n_objects": 692
+    },
+    "large_1024_inf": {
+      "on_microR": 0.8476722863132536,
+      "off_microR": 0.8476590299044852,
+      "delta_microR": 1.3256408768480554e-05,
+      "on_macroR": 0.7490796982136384,
+      "off_macroR": 0.7490642251417199,
+      "on_hit25": 0.8725031874203145,
+      "off_hit25": 0.8725031874203145,
+      "delta_hit25": 0.0,
+      "n_objects": 4706
+    }
+  },
+  "legacy_groups": {
+    "small": {
+      "on_microR": 0.19742165917906074,
+      "off_microR": 0.19739375505762202,
+      "delta_microR": 2.7904121438715457e-05,
+      "on_hit25": 0.18956043956043955,
+      "off_hit25": 0.18956043956043955
+    },
+    "medium": {
+      "on_microR": 0.4212859970235812,
+      "off_microR": 0.42125969582665757,
+      "delta_microR": 2.6301196923650405e-05,
+      "on_hit25": 0.48554913294797686,
+      "off_hit25": 0.48554913294797686
+    },
+    "large": {
+      "on_microR": 0.8476722863132536,
+      "off_microR": 0.8476590299044852,
+      "delta_microR": 1.3256408768480554e-05,
+      "on_hit25": 0.8725031874203145,
+      "off_hit25": 0.8725031874203145
+    }
+  },
+  "object_level": {
+    "on": {
+      "n_gt": 5762,
+      "n_pred": 8312,
+      "n_matched_loose": 4422,
+      "n_matched_strict": 3455,
+      "unmatched_pred_loose": 3890,
+      "ObjPrecision_loose": 0.5320019249278152,
+      "ObjRecall_loose": 0.7674418604651163,
+      "ObjF1_loose": 0.6283927810146369,
+      "ObjPrecision_strict": 0.4156641000962464,
+      "ObjRecall_strict": 0.5996181881291218,
+      "ObjF1_strict": 0.49097626829614893,
+      "fp_pixels": 11033302,
+      "pred_cc_count_by_area": {
+        "tiny_1_15": 1047,
+        "tiny_16_63": 742,
+        "small_64_255": 723,
+        "medium_256_1023": 1038,
+        "large_1024_inf": 4762
+      },
+      "unmatched_pred_cc_count_by_area": {
+        "tiny_1_15": 1047,
+        "tiny_16_63": 732,
+        "small_64_255": 651,
+        "medium_256_1023": 647,
+        "large_1024_inf": 813
+      },
+      "gt_cc_count_by_area": {
+        "tiny_1_15": 66,
+        "tiny_16_63": 96,
+        "small_64_255": 202,
+        "medium_256_1023": 692,
+        "large_1024_inf": 4706
+      }
+    },
+    "off": {
+      "n_gt": 5762,
+      "n_pred": 8309,
+      "n_matched_loose": 4422,
+      "n_matched_strict": 3455,
+      "unmatched_pred_loose": 3887,
+      "ObjPrecision_loose": 0.532194006498977,
+      "ObjRecall_loose": 0.7674418604651163,
+      "ObjF1_loose": 0.6285267571601165,
+      "ObjPrecision_strict": 0.4158141773980022,
+      "ObjRecall_strict": 0.5996181881291218,
+      "ObjF1_strict": 0.4910809466278161,
+      "fp_pixels": 11031823,
+      "pred_cc_count_by_area": {
+        "tiny_1_15": 1044,
+        "tiny_16_63": 747,
+        "small_64_255": 719,
+        "medium_256_1023": 1038,
+        "large_1024_inf": 4761
+      },
+      "unmatched_pred_cc_count_by_area": {
+        "tiny_1_15": 1044,
+        "tiny_16_63": 737,
+        "small_64_255": 647,
+        "medium_256_1023": 647,
+        "large_1024_inf": 812
+      },
+      "gt_cc_count_by_area": {
+        "tiny_1_15": 66,
+        "tiny_16_63": 96,
+        "small_64_255": 202,
+        "medium_256_1023": 692,
+        "large_1024_inf": 4706
+      }
+    }
+  },
+  "object_paired_delta": {
+    "n_common_objects": 5762,
+    "n_images": 4000,
+    "mean_delta_recall_object_level": 1.57626786963328e-05,
+    "image_level_bootstrap_CI": {
+      "mean": 1.796361346905564e-05,
+      "lo": 1.0266847052376858e-05,
+      "hi": 2.5939509700554096e-05,
+      "n": 4000
+    },
+    "by_area_group": {
+      "small": {
+        "n_objects": 364,
+        "mean_delta_recall": 1.7387675615523506e-05
+      },
+      "medium": {
+        "n_objects": 692,
+        "mean_delta_recall": 1.6877405019539013e-05
+      },
+      "large": {
+        "n_objects": 4706,
+        "mean_delta_recall": 1.547307191897536e-05
+      }
+    },
+    "small_objects_mean_delta": 1.7387675615523506e-05
+  },
+  "image_level_F1_paired_bootstrap": {
+    "mean": 9.922937348446764e-07,
+    "lo": -6.258941575203167e-06,
+    "hi": 8.385943341067498e-06,
+    "n": 4000
+  },
+  "integrity": {
+    "diff_state_dict_keys": [
+      "encoder.caacp_block.op.beta",
+      "encoder.caacp_op.beta",
+      "encoder.network.4.8.op.beta"
+    ],
+    "beta_alias_keys": [
+      "encoder.caacp_block.op.beta",
+      "encoder.caacp_op.beta",
+      "encoder.network.4.8.op.beta"
+    ],
+    "only_beta_changed": true,
+    "bn_checksum_on_unchanged_by_eval": true,
+    "on_forward_reproducible_max_abs": 0.0
+  },
+  "interpretation_boundary": "Y_on − Y_off 仅衡量当前训练权重对 CAACP 修正项的**局部依赖**；M1 其余参数是在 β 可学习条件下训练的，因此这不是 A2（从头训练无 CAACP）的受控对照，也不能据此断言 Stage3 是最早损失源。禁止表述为'关闭 CAACP 可提升模型'。"
+}
