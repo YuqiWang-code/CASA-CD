@@ -46,8 +46,11 @@ train_scripts/CASA-TViM/Run4/
   E6_FET1/train_<DS>.sh      fine_tap=1（后跑）
   run_all.sh                 两波；每波 4 库并发（GPU0=CDD+LEVIR，GPU1=SYSU+WHU）
   check_run.py               收尾硬门：只认最后一个完整 TEST 区块 + [ACTUAL-OPT-STEPS] 80000
-  post_train.sh              训练后收口：check_run ×8 → 部署图对象指标 ×8 → verdict.json
+  audit_protocol.py          协议审计：步数预算/epoch 算术/exact_max_steps/manifest 全字段/
+                             LR 计划逐点/完成后区块内步数标记；写 PROTOCOL_AUDIT.json
+  post_train.sh              收口四段：协议审计 → check_run ×8 → 部署图对象指标 ×8 → verdict.json
   gpu_concurrency_probe.py   每 GPU 并发 2 个 batch32 进程的显存 probe（R8）
+  ckpt_backup_watchdog.py    把可加载的 last.pth 原子备份为 last.pth.bak（写盘崩溃缓解）
   SOURCE_IDENTITY.json       Run4 代码身份（与 Diag1 manifest 的逐文件差异记录）
 
 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run4/{M1_R4CTRL,E6_FET1}/<DS>/
@@ -90,10 +93,22 @@ python models/test_run4_fine_tap.py --device cuda:0 \
 # ⑤ 正式训练：两波 × 4 库（先 CTRL，后 E6）
 bash train_scripts/CASA-TViM/Run4/run_all.sh
 
-# ⑥ 每库 best 的对象指标 pass（部署图）与最终裁决
+# ⑥ 收口：协议审计 → 8 个日志硬门 → 部署图对象指标 ×8 → 三层裁决
 GPU=0 bash train_scripts/CASA-TViM/Run4/post_train.sh
-# 等价于下面三步（post_train.sh 已封装，含 check_run.py 的 8 个硬门）：
-#   check_run.py × 8 → run4_fet_report.py --mode object × 8 → --mode verdict
+# post_train.sh 内部四段（任一失败都会体现在汇总行与退出码）：
+#   0) audit_protocol.py --require-finished 1   （LR 计划 / 步数预算 / manifest / 区块内步数标记）
+#   1) check_run.py × 8                          （只认最后一个完整 TEST 区块 + 硬门）
+#   2) run4_fet_report.py --mode object × 8      （部署图对象指标，含 train/deploy 参数实测）
+#   3) run4_fet_report.py --mode verdict         （§6.3 三层裁决 → verdict.json）
+```
+
+**单独运行协议审计**（训练中也可跑，用于随时核对协议；训练未结束时会因缺少 `finished` 而 FAIL，
+这是预期行为，去掉 `--require-finished` 即只查协议本身）：
+
+```bash
+python train_scripts/CASA-TViM/Run4/audit_protocol.py \
+  --log-root /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4 \
+  --ckpt-root /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM --run Run4
 ```
 
 ## 5. 训练后测量口径预校验（在任何 Run4 结果出现之前完成）
