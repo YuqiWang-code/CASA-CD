@@ -24,7 +24,7 @@ _audit_fail=0
 
 echo "########## 0) protocol audit (LR plan / step budget / manifest / in-block step marker) ##########"
 python train_scripts/CASA-TViM/Run4/audit_protocol.py \
-  --log-root "${LOG_ROOT}" --ckpt-root "${CKPT_ROOT}/Run4" --require-finished 1 || _audit_fail=1
+  --log-root "${LOG_ROOT}" --ckpt-root "${CKPT_ROOT}" --run Run4 --require-finished 1 || _audit_fail=1
 
 echo "########## 1) per-run log gate (check_run.py) ##########"
 _gate_fail=0

@@ -43,9 +43,9 @@ def expected_lr(g, iters_per_epoch, lr, max_steps):
     return lr * (1 - g / max_steps) ** 0.9, "poly"
 
 
-def audit_one(variant, dataset, log_root, ckpt_root):
+def audit_one(variant, dataset, log_root, ckpt_root, run="Run4"):
     log = os.path.join(log_root, variant, dataset, "train_log.txt")
-    man_path = os.path.join(ckpt_root, variant, dataset, "run_manifest.json")
+    man_path = os.path.join(ckpt_root, run, variant, dataset, "run_manifest.json")
     r = {"variant": variant, "dataset": dataset, "log": log, "manifest": man_path,
          "checks": {}, "pass": False, "detail": {}}
     if not os.path.isfile(log):
@@ -120,7 +120,10 @@ def audit_one(variant, dataset, log_root, ckpt_root):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log-root", required=True)
-    ap.add_argument("--ckpt-root", required=True)
+    ap.add_argument("--ckpt-root", required=True,
+                    help="CASA-TViM checkpoint root (the tool appends --run); same convention "
+                         "as analyse/run4_fet_report.py --ckpt-root")
+    ap.add_argument("--run", default="Run4")
     ap.add_argument("--variant", default=None, choices=[None] + VARIANTS)
     ap.add_argument("--require-finished", type=int, default=0,
                     help="1 = also require the final TEST block to carry [ACTUAL-OPT-STEPS] max_steps")
@@ -131,7 +134,7 @@ def main():
     all_rows, ok_all = [], True
     for v in variants:
         for d in DATASETS:
-            r = audit_one(v, d, args.log_root, args.ckpt_root)
+            r = audit_one(v, d, args.log_root, args.ckpt_root, args.run)
             if args.require_finished and not r["detail"].get("finished"):
                 r["checks"]["finished"] = False
                 r["pass"] = False
