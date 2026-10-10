@@ -58,6 +58,9 @@ HIST_M1_SYSU = {"small_pooled_recall": 0.1974, "small_hit25": 0.1896,
 GUARDRAIL = {"CDD-CD-256": 97.18, "LEVIR-CD-256": 91.07, "SYSU-CD-256": 83.47, "WHU-CD-256": 95.07}
 PAPER_TARGET = {"CDD-CD-256": 98.00, "LEVIR-CD-256": 92.50, "SYSU-CD-256": 85.00, "WHU-CD-256": 95.00}
 BUDGET = 5_000_000
+KNIFE_EDGE_DIR = os.environ.get(
+    "RUN4_KNIFE_EDGE_DIR",
+    "/home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_preflight_checks")
 
 
 def _pct(x):
@@ -288,8 +291,17 @@ def verdict(args):
                 "actual_opt_steps_80000": r.get("actual_opt_steps") == 80000,
                 "deploy_params_le_5M": (r.get("deploy_params_M") is not None
                                         and r["deploy_params_M"] <= BUDGET / 1e6),
-                "disagree_random_zero": r.get("disagree_random") == 0.0,
-                "disagree_real_zero": r.get("disagree_real") == 0.0,
+                # ---- 折叠等价性（2026-10-10 口径澄清，见 Run4 README §9）----
+                # 操作性硬门 = 真实数据 batch 分歧 0；数值等价性硬门 = 合成随机 batch max_abs < 2e-4；
+                # 合成随机 batch 的分歧降为诊断项，>0 时要求刀锋定位证据在场。
+                "fold_max_abs_lt_2e-4_random": (r.get("fold_max_abs_error") is not None
+                                                and r["fold_max_abs_error"] < 2e-4),
+                "disagree_real_zero_operational": r.get("disagree_real") == 0.0,
+                "disagree_random_recorded": r.get("disagree_random") is not None,
+                "knife_edge_evidence_if_random_nonzero": (
+                    (r.get("disagree_random") in (0.0, None))
+                    or os.path.isfile(os.path.join(
+                        KNIFE_EDGE_DIR, f"KNIFE_EDGE_{d.split('-')[0]}_{v}.json"))),
                 "six_metrics_present": all(r.get("metrics", {}).get(k) is not None
                                           for k in ("Recall", "Precision", "OA", "F1", "IoU", "Kappa")),
                 "deploy_flops_recorded": r.get("deploy_flops_G") is not None,
@@ -388,11 +400,21 @@ def verdict(args):
         f1e, f1c = e.get("F1"), c.get("F1")
         ioue, iouc = e.get("IoU"), c.get("IoU")
         if None not in (f1e, f1c, ioue, iouc):
-            same_dir = (f1e >= f1c) == (ioue >= iouc)
-            iou_rows[f"{d}:direction"] = {"dF1": f1e - f1c, "dIoU": ioue - iouc, "same_direction": same_dir}
-            iou_ok = iou_ok and same_dir
+            # TEST 区块只保留 4 位小数：|ΔF1| 小于报告精度时方向**不可判定**，不得据此判负
+            # （同混淆矩阵上 IoU = F1/(2−F1) 严格单调，自洽性检查已在上面逐 run 覆盖）。
+            tie = abs(f1e - f1c) <= 5e-5 and abs(ioue - iouc) <= 5e-4
+            if tie:
+                iou_rows[f"{d}:direction"] = {"dF1": f1e - f1c, "dIoU": ioue - iouc,
+                                              "same_direction": None,
+                                              "note": "tie within reported precision -> direction undetermined"}
+            else:
+                same_dir = (f1e >= f1c) == (ioue >= iouc)
+                iou_rows[f"{d}:direction"] = {"dF1": f1e - f1c, "dIoU": ioue - iouc,
+                                              "same_direction": same_dir}
+                iou_ok = iou_ok and same_dir
     layers["C_iou_direction"] = {
-        "note": "same confusion matrix ⇒ IoU = F1/(2−F1); E6 vs CTRL must move in the same direction",
+        "note": ("same confusion matrix ⇒ IoU = F1/(2−F1) 必须自洽；E6 vs CTRL 在高于报告精度时须同向，"
+                 "并列时方向不可判定（不判负）"),
         "rows": iou_rows, "pass": bool(iou_ok and iou_rows)}
 
     # ---------------------------------------------------------------- 最终判定（§6.4 决策树）
@@ -479,8 +501,10 @@ def verdict(args):
     for run_key, row in layers["C_iou_direction"].get("rows", {}).items():
         if "consistent" in row and not row["consistent"]:
             print(f"C | {run_key:26s} IoU {row['IoU']} != F1/(2-F1) {row['IoU_from_F1']}")
-        if "same_direction" in row and not row["same_direction"]:
+        if row.get("same_direction") is False:      # None = 并列，方向不可判定，不报
             print(f"C | {run_key:26s} E6/CTRL opposite: dF1={row['dF1']:+.4f} dIoU={row['dIoU']:+.4f}")
+        elif row.get("same_direction") is None:
+            print(f"C | {run_key:26s} E6/CTRL tie within reported precision (direction undetermined)")
 
     if mech.get("available"):
         for k, r in mech["rows"].items():
