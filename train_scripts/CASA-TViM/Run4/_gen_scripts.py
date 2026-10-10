@@ -72,6 +72,8 @@ fi
 cd "${{MODELS}}"
 
 for attempt in $(seq 1 3); do
+    # set -e 下必须先关掉 errexit，否则训练失败会直接终止脚本、拿不到 rc 做重试判定
+    set +e
     python train.py \\
         --dataset "${{DATASET}}" \\
         --dataset_root "${{DS_ROOT}}" \\
@@ -105,6 +107,7 @@ for attempt in $(seq 1 3); do
         --gpu_id 0 \\
         >> "${{LOG_DIR}}/train_log.txt" 2>&1
     rc=$?
+    set -e
     if [ ${{rc}} -eq 0 ]; then
         echo "[DONE] training loop exited 0 (attempt ${{attempt}})" >> "${{LOG_DIR}}/train_log.txt"
         break
