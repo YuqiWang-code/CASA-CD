@@ -324,9 +324,17 @@ def verdict(args):
         fc, fe = _pct(oc["pixel_scores"].get("F1")), _pct(oe["pixel_scores"].get("F1"))
         lc = _pct(runs[key_c].get("metrics", {}).get("F1"))
         le = _pct(runs[key_e].get("metrics", {}).get("F1"))
-        rows["SYSU_F1_official_log"] = {"ctrl": lc, "e6": le, "delta": (le - lc) if None not in (le, lc) else None,
-                                        "pass": (lc is not None and le is not None and le >= lc),
-                                        "rule": "F1 >= 同期 CTRL（取自最后一个完整 TEST 区块）"}
+        # 设计文档 §6.3 层 B 的 SYSU F1 行是**双条件**：F1 ≥ 83.47（历史基线）**且** ≥ 同期 CTRL；
+        # IoU 同方向由层 C 的 C_iou_direction 检查。
+        abs_f1 = HIST_M1_SYSU["F1"]
+        rows["SYSU_F1_official_log"] = {
+            "ctrl": lc, "e6": le,
+            "delta": (le - lc) if None not in (le, lc) else None,
+            "abs_threshold": abs_f1, "delta_threshold": 0.0,
+            "abs_pass": (le is not None and le >= abs_f1),
+            "delta_pass": (lc is not None and le is not None and le >= lc),
+            "pass": (le is not None and lc is not None and le >= abs_f1 and le >= lc),
+            "rule": "F1 >= 83.47（历史基线）且 >= 同期 CTRL（取自最后一个完整 TEST 区块）"}
         rows["SYSU_F1"] = {"ctrl": fc, "e6": fe, "delta": (fe - fc) if None not in (fe, fc) else None,
                            "pass": (fc is not None and fe is not None and fe >= fc),
                            "rule": "F1 >= 同期 CTRL（对象 pass 在同一部署图上重算，交叉校验）"}
@@ -460,7 +468,8 @@ def verdict(args):
     if mech.get("available"):
         for k, r in mech["rows"].items():
             print(f"B | {k:24s} ctrl={r['ctrl']} e6={r['e6']} "
-                  f"delta={r['delta'] if 'delta' in r else '-'} pass={r['pass']}")
+                  f"delta={r['delta'] if 'delta' in r else '-'} "
+                  f"abs_thr={r.get('abs_threshold')} pass={r['pass']}")
     for d in DATASETS:
         g, p = guard[d], paper[d]
         print(f"C | {d:13s} E6={g['e6_F1_pct']} CTRL={g['ctrl_F1_pct']} guard={g['guardrail_pct']} "
