@@ -1,0 +1,63 @@
+{
+  "run": "Run6",
+  "stage": "structural readout gate — preflight pending",
+  "generated": "2026-10-11T01:20:00+08:00",
+  "decision": "PREFLIGHT_PENDING",
+  "training_runs_executed": 0,
+  "training_runs_allowed": 0,
+  "models_directory_modified": false,
+  "plan": {
+    "path": "docs/temporary/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md",
+    "sha256": "d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b",
+    "lines": 461,
+    "bytes": 45282,
+    "frozen_before_any_run6_execution": true
+  },
+  "frozen_repository_state": {
+    "run5_preflight_commit": "3e92974",
+    "run5_fp_profile_commit": "2df046a",
+    "note": "Run6 前测开始前必须重核服务器逐文件 SHA256（服务器工作副本非 git 仓库）"
+  },
+  "locked_inputs": {
+    "m1_sysu_best_ckpt_sha256": "45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457",
+    "sysu_test_list_sha256_kind": "sha256_text_lines",
+    "sysu_test_list_sha256": "5f4122c9d32cb6db475f4f361618b2ac8bb10938df93d9550e0bb9a422a45797",
+    "sysu_train_list_sha256_kind": "sha256_text_lines",
+    "sysu_train_list_raw_sha256": "3fd039fa22f1d002"
+  },
+  "preflight_gate_values_frozen": {
+    "K2_test_auc_min": 0.80,
+    "K2_test_auc_ci_low_min": 0.75,
+    "K3_test_ap_min": 0.35,
+    "K3_test_ap_ci_low_min": 0.25,
+    "K4_auc_over_handcrafted_baseline_min": 0.15,
+    "K4_handcrafted_baseline_auc": 0.5992,
+    "K5_auc_over_amplitude_baseline_min": 0.10,
+    "K1_n_pos_min": 300,
+    "K1_n_neg_min": 2000,
+    "expected_test_n_pos": 327,
+    "expected_test_n_neg": 2430
+  },
+  "selection_rule_frozen": {
+    "order": ["train_cv_auc desc", "fewer deploy params (C1) on tie<=0.005", "lexicographic"],
+    "test_used_for_selection": false,
+    "note": "gate_impl 与 gate_stat 由前测唯一决定，四库必须同一值"
+  },
+  "not_yet_written": [
+    "analyse/tvim_run6_discriminability.py",
+    "models/test_run6_gate.py",
+    "train_scripts/CASA-TViM/Run6/{_gen_scripts.py,run_all.sh,post_train.sh,check_run.py,audit_protocol.py,auto_post_train.sh}",
+    "models/ 的任何修改"
+  ],
+  "stop_rules": [
+    "§4.2 K2/K3/K4 任一 FAIL -> NO_80K，训练次数 = 0，按 §7.6 收口",
+    "K5 FAIL -> gate_stat 强制 amplitude，且论文不得声称跨尺度一致性贡献",
+    "前测未 PASS 之前不修改 models/、不写训练脚本",
+    "禁止 rm -rf：失败产物一律 _INVALID_YYYYMMDD_HHMM 隔离保留"
+  ],
+  "paper_targets_not_claimed": {
+    "cdd": 98.0, "levir": 92.5, "sysu": 85.0, "whu": 95.0,
+    "current_mainline_run1": {"cdd": 97.18, "levir": 91.07, "sysu": 83.47, "whu": 95.07},
+    "note": "Run6 PASS 只称本固定协议上的机制收益；SYSU 85.00 高于项目自带 29.57M VMamba-Tiny 参照的 83.45"
+  }
+}
