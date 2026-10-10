@@ -47,6 +47,11 @@ EXPECT = {
     "budget": 5_000_000,
 }
 
+# T0：与未改动的 M1 原生 smoke（T-CA-2）逐字一致的预训练加载基线。
+# 61 个键按 Slim 结构有意丢弃（Stage4=Localx3+final TViM），不是加载缺失。
+EXPECT_RETAINED = 744
+EXPECT_PRETRAINED_KEYS = 805
+
 FOLD_FP64_TOL = 1e-10
 FOLD_FP32_TOL = 2e-5
 WHOLE_FP32_TOL = 2e-4
@@ -134,9 +139,14 @@ def t0_identity(h, args, device):
 
     model = build_model(1, path, device)
     ls = model.encoder.load_stats() or {}
-    ok_load = (ls.get("retained") == ls.get("pretrained_keys")) and float(ls.get("worst_diff", 1.0)) == 0.0
-    h.check("T0", "ImageNet backbone exact-loaded (retained==pretrained, worst_diff==0)", ok_load,
-            f"retained={ls.get('retained')}/{ls.get('pretrained_keys')} worst_diff={ls.get('worst_diff')}")
+    ok_load = (ls.get("retained") == EXPECT_RETAINED
+               and ls.get("pretrained_keys") == EXPECT_PRETRAINED_KEYS
+               and float(ls.get("worst_diff", 1.0)) == 0.0)
+    h.check("T0", f"ImageNet backbone exact-loaded (retained=={EXPECT_RETAINED}/"
+                  f"{EXPECT_PRETRAINED_KEYS}, worst_diff==0; 61 keys intentionally dropped by Slim)",
+            ok_load,
+            f"retained={ls.get('retained')}/{ls.get('pretrained_keys')} worst_diff={ls.get('worst_diff')} "
+            f"dropped_intentional={len(ls.get('dropped_intentional', []))}")
     h.check("T0", "no FET key came from the pretrained file",
             all("fine_evidence_tap" not in k for k in (ls.get("loaded_keys") or [])),
             f"new_modules={len(ls.get('missing_new', []))}")
@@ -469,7 +479,9 @@ def t9_eval_injection(h, args, device):
                     "caacp_score_mode": "rank", "caacp_residual_mode": "current",
                     "frh": 0, "fs_tar": 0, "fine_tap": 1,
                     "fine_tap_form": FET_FORM, "fine_tap_source": FET_SOURCE, "fine_tap_fuse": FET_FUSE,
-                    "rep_mode": "full", "str_dim": 96}
+                    "rep_mode": "full", "str_dim": 96,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "source_code_sha256": source_code_identity()}
         arch_ctrl = dict(arch_fet, fine_tap=0, fine_tap_form="none",
                          fine_tap_source="none", fine_tap_fuse="none")
         cases = []
@@ -490,6 +502,11 @@ def t9_eval_injection(h, args, device):
         make_case("fet_ckpt_but_arch_says_ctrl", arch_ctrl, fet.state_dict(), 1, "[ARCH-MISMATCH]")
         make_case("missing_fet_weights", arch_fet, ctrl.state_dict(), 1, None)
         make_case("deploy_state_misused_as_train_ckpt", arch_fet, fet_deploy.state_dict(), 1, None)
+        # R4 fail-closed：FET checkpoint 的身份字段必须齐备，缺一即拒绝
+        no_proto = {k: v for k, v in arch_fet.items() if k != "protocol_version"}
+        make_case("fet_sidecar_without_protocol_version", no_proto, fet.state_dict(), 1, "[ARCH-MISMATCH]")
+        no_src = {k: v for k, v in arch_fet.items() if k != "source_code_sha256"}
+        make_case("fet_sidecar_without_source_code_sha256", no_src, fet.state_dict(), 1, "[ARCH-MISMATCH]")
 
         # T9 只检验 sidecar/strict-load 门；用结构合法但不含任何权重的假预训练文件，
         # 避免 FileNotFoundError 掩盖真正的判定（真实 T0 已单独核验预训练身份）。
