@@ -32,7 +32,10 @@ while :; do
   done
   # 额外条件：没有任何 train.py 在跑。否则最后一个 run 还在收尾（写 last.pth / 跑最终 TEST）时
   # 就开始对象指标 pass 会与其争抢 GPU，且理论上可能读到正在写入的 checkpoint。
-  if [ "$(pgrep -c -f '[t]rain.py --dataset' || echo 0)" -ne 0 ]; then
+  # 注意：`pgrep -c` 无匹配时**本身就会打印 0 并返回退出码 1**，因此不能用 `|| echo 0`——
+  # 那会得到 "0\n0" 使 `-ne` 报 integer expression expected（2026-10-10 实测踩到，守候因此永不触发）。
+  n_train=$(pgrep -c -f '[t]rain.py --dataset' 2>/dev/null); n_train=${n_train:-0}
+  if [ "${n_train}" -ne 0 ]; then
     ready=0
   fi
   if [ "${ready}" -eq 1 ]; then
