@@ -69,7 +69,13 @@ def adjust_learning_rate(args, optimizer, epoch, iter, max_batches, lr_factor=1)
         lr = args.lr * (0.1 ** (epoch // args.step_loss))
     elif args.lr_mode == 'poly':
         cur_iter = iter
-        max_iter = max_batches * args.max_epochs
+        # R4（方案 §6.2）：exact-80K 协议下 last epoch 被截断，poly 分母必须固定为
+        # args.max_steps，否则 lr 曲线与 Run1/Run2/Run3 不可比（max_epochs*max_batches > max_steps）。
+        if (getattr(args, "arch", "changevit") == "casa_tvim_str"
+                and bool(getattr(args, "exact_max_steps", 0))):
+            max_iter = args.max_steps
+        else:
+            max_iter = max_batches * args.max_epochs
         lr = args.lr * (1 - cur_iter * 1.0 / max_iter) ** 0.9
     else:
         raise ValueError('Unknown lr mode {}'.format(args.lr_mode))

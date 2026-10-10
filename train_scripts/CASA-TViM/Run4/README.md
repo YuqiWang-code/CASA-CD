@@ -1,0 +1,120 @@
+# CASA-TViM Run4 — R4-FET1（1/4 细尺度证据 1×1 可折叠旁路）
+
+设计文档：`docs/temporary/CASA-CD_Run4_小目标瓶颈结构改进与实验设计_2026-10-10.md`（§2/§3 结构、§5 改动清单、
+§6 预注册门槛、§7 T0–T11、§8 执行顺序、§10.2 前测门）。
+
+> **状态：可执行设计 + 代码已实现，尚未产生任何 Run4 正式训练结果。**
+> 本 README 不预填任何 Run4 TEST 成绩，也不声称已验证成功。
+
+## 1. 唯一结构变量
+
+| 变体 | `fine_tap` | 其它结构 | 用途 |
+|---|---:|---|---|
+| `M1_R4CTRL` | 0 | CAACP rank/current=1、TAR/DCR full、D=96、FRH=0、FS-TAR=0 | 同期唯一变量对照（排除 exact-80K 实施校正差异） |
+| `E6_FET1` | 1 | 与 CTRL 完全相同，**仅新增** 1/4 尺度 1×1 FET | 唯一正式主实验 |
+
+FET 定义（`models/model/str_fine_tap.py`，`P=f1a`、`Q=f1b` 取自共享编码器 `norm0`，1/4、48C、64²）：
+
+```
+D  = |Q − P|                       # abs 是卷积之前的输入特征构造
+U  = W_pq * [P, Q] + b_pq          # 96×96×1×1 (bias)
+V  = W_diff * D                    # 96×48×1×1 (no bias)，零初始化
+T  = γ (U + V),  R' = R + T        # γ 零初始化；加在 DCR refine **之后**（不进 SiLU/RepLocalBlock）
+```
+
+* 训练图新增 **13,921** 参数；部署图折叠为单条 `Conv1x1(144→96, bias)`，新增 **13,920**；
+  部署总量 **4,894,110 ≤ 5,000,000**（CTRL 4,880,190）。
+* 融合 FP64 拼核、最后一次 cast 到 FP32；`γ=0` + `W_diff=0` ⇒ epoch-0 与关掉 FET **逐位一致**。
+* 新模块**最后构造**且 `torch.random.fork_rng` 局部初始化 ⇒ 不消耗全局 RNG，公共权重逐位不变。
+
+## 2. 精确 80,000 optimizer updates（P0 协议修正）
+
+`--exact_max_steps 1`：`train_epoch(..., remaining_steps)` 在第 N 次 `optimizer.step()` 后 break，
+`cur_iter += executed_steps`，`cur_iter >= 80000` 立即退出；poly 归一化分母固定 `args.max_steps=80000`，
+warmup200 / BCE+Dice / Adam(2e-4, 0.9/0.99, wd=1e-4) / backbone_lr_ratio 0.1 全部不变。
+日志出现 `[ACTUAL-OPT-STEPS] 80000`。`last.pth` 额外保存 `actual_steps`、`rng_state`、
+`protocol_version="run4_exact80k_v1"`；`arch.json` / `run_manifest.json` 记录 `fine_tap*`、
+`protocol_version`、`source_code_sha256`，eval 侧逐字段严格核对。
+**默认 `--exact_max_steps 0`（历史整 epoch 口径）**，只有 Run4 脚本显式打开 1 —— 历史 Run1–3 的可复现性不受影响。
+
+## 3. 目录与路径
+
+```
+train_scripts/CASA-TViM/Run4/
+  _gen_scripts.py            生成下面 8 个 train_*.sh 与 run_all.sh
+  M1_R4CTRL/train_<DS>.sh    fine_tap=0（先跑）
+  E6_FET1/train_<DS>.sh      fine_tap=1（后跑）
+  run_all.sh                 两波；每波 4 库并发（GPU0=CDD+LEVIR，GPU1=SYSU+WHU）
+  check_run.py               收尾硬门：只认最后一个完整 TEST 区块 + [ACTUAL-OPT-STEPS] 80000
+  gpu_concurrency_probe.py   每 GPU 并发 2 个 batch32 进程的显存 probe（R8）
+  SOURCE_IDENTITY.json       Run4 代码身份（与 Diag1 manifest 的逐文件差异记录）
+
+/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run4/{M1_R4CTRL,E6_FET1}/<DS>/
+/home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/{M1_R4CTRL,E6_FET1}/<DS>/train_log.txt
+```
+
+## 4. 执行顺序（照做）
+
+```bash
+source /home/yqwang/miniforge3/etc/profile.d/conda.sh && conda activate casacd
+cd /home/yqwang/projects/CASA-CD
+export LD_LIBRARY_PATH=/home/yqwang/miniforge3/envs/casacd/lib/python3.10/site-packages/torch/lib:/home/yqwang/miniforge3/envs/casacd/lib:${LD_LIBRARY_PATH:-}
+
+# ① 现有 M1 原生 smoke 保持通过（不改旧行为）
+cd models && python smoke_test.py --mode casa_tvim_str \
+  --pretrained_weight_path ../pretrained_weight/tinyvim_s_1000e.pth \
+  --tinyvim_pretrained_weight_path ../pretrained_weight/tinyvim_s_1000e.pth --gpu_id 0
+
+# ② T0–T9（退出码必须 0；需 CUDA selective-scan 内核）
+python test_run4_fine_tap.py --tinyvim-pretrained-weight-path ../pretrained_weight/tinyvim_s_1000e.pth \
+  --device cuda:0 --real-dataset-root /share_datasets/CD/SYSU-CD-256 \
+  --real-test-list /share_datasets/CD/SYSU-CD-256/list/test.txt --limit 16
+
+# ③ §10.2 互补性 preflight（10 min 上限；gate 非 PASS ⇒ 到此为止，不消耗 8×80K）
+cd /home/yqwang/projects/CASA-CD
+DIAG=/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1
+OUT=/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run4-Preflight-20261010
+python analyse/tvim_run4_tap_preflight.py --device cuda:0 --dataset SYSU-CD-256 \
+  --run Run1 --variant M1_FULL --probe-dir "$DIAG/D3_concat/M1_FULL" --out-dir "$OUT"
+python -m json.tool "$OUT/gate.json" | head -80
+
+# ④ 真实数据 3-step dry-run（T7/T8）
+CUDA_VISIBLE_DEVICES=0 python models/run4_dry_run.py --variant E6_FET1 --device cuda:0 --steps 3 \
+  --dataset-root /share_datasets/CD/SYSU-CD-256 --train-list /share_datasets/CD/SYSU-CD-256/list/train.txt \
+  --output-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_DRY/E6_FET1
+python models/test_run4_fine_tap.py --device cuda:0 \
+  --tinyvim-pretrained-weight-path pretrained_weight/tinyvim_s_1000e.pth \
+  --dry-run-json /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_DRY/E6_FET1/dry_run.json  # T8 复核
+
+# ⑤ 正式训练：两波 × 4 库（先 CTRL，后 E6）
+bash train_scripts/CASA-TViM/Run4/run_all.sh
+
+# ⑥ 每库 best 的对象指标 pass（部署图）与最终裁决
+for v in M1_R4CTRL E6_FET1; do for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
+  python analyse/run4_fet_report.py --mode object --variant $v --dataset $d --run Run4 \
+    --ckpt-root /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM \
+    --out-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/objects; done; done
+python analyse/run4_fet_report.py --mode verdict \
+  --log-root /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4 \
+  --ckpt-root /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM \
+  --object-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/objects \
+  --out /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4/verdict.json
+```
+
+## 5. 预注册门槛（不得事后放宽）
+
+* **层 A（P0）**：deploy ≤5M；train/deploy 双 batch 二值 disagreement=0；TEST 区块完整；`[ACTUAL-OPT-STEPS] 80000`。
+* **层 B（SYSU 机制，绝对 + 同期增量同时满足）**：small pooled Recall ≥0.2474 且 ≥CTRL+0.05；
+  Hit@25 ≥0.2396 且 ≥CTRL+0.05；ObjRecall ≥CTRL+0.01；ObjPrecision ≥CTRL；
+  <256px 未匹配预测 ≤CTRL；F1 ≥CTRL。
+* **层 C（守门 + 论文目标）**：CDD ≥97.18、LEVIR ≥91.07、SYSU ≥83.47、WHU ≥95.07 且不低于同期 CTRL；
+  四库同时 ≥98.00 / 92.50 / 85.00 / 95.00 才是 `PAPER-TARGET-PASS`。
+
+`gate.json` / `verdict.json` 非 PASS ⇒ 按 §6.4 决策树**停止该线**，不去试 FET 1/8、3×3、FRH+FET，
+也不以阈值/loss/seed 搜索挤分；失败时保留日志与权重做机制归因。
+
+## 6. 禁止的捷径
+
+用 Run1/M1 best 微调 E6；沿用旧伪 small F1；用 1/32 cosine 代理推断信息总量丢失；提高 3×3 参数越过 5M；
+`disagreement>0` 仍发 PASS；`strict=False` 载错 checkpoint；覆盖 Diag1/Run1–3 产物；
+改变 loss / 增广 / 0.5 严格阈值 / seed / EMA / 超参做搜索。

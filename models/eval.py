@@ -139,6 +139,8 @@ def main():
     parser.add_argument('--caacp_residual_mode', type=str, default='current', choices=['current', 'avg_anchor'])
     parser.add_argument('--frh', type=int, default=0)
     parser.add_argument('--fs_tar', type=int, default=0)
+    parser.add_argument('--fine_tap', type=int, default=0, choices=[0, 1],
+                        help='casa_tvim_str R4 FET1 FineEvidenceTap1x1 gate (must match ckpt sidecar exactly)')
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
@@ -168,6 +170,9 @@ def main():
 
     # T-R5-10：与训练侧 sidecar 架构参数核对，不一致直接拒绝（防止静默跑错结构）
     arch_path = os.path.join(args.ckpt_dir, "arch.json")
+    if args.arch == "casa_tvim_str" and args.fine_tap and not os.path.isfile(arch_path):
+        # R4 fail-closed：FET checkpoint 没有 sidecar 时无法核对 fine_tap 契约，直接拒绝
+        raise SystemExit(f"[ARCH-MISSING] --fine_tap 1 but no arch.json in {args.ckpt_dir}; refusing to eval")
     if os.path.isfile(arch_path):
         import json as _json
         with open(arch_path, encoding="utf-8") as f:
@@ -176,7 +181,7 @@ def main():
             cli = {"arch": "casa_tvim_str", "backbone": "tinyvim_s_slim",
                    "caacp": args.caacp, "caacp_score_mode": args.caacp_score_mode,
                    "caacp_residual_mode": args.caacp_residual_mode,
-                   "frh": args.frh, "fs_tar": args.fs_tar,
+                   "frh": args.frh, "fs_tar": args.fs_tar, "fine_tap": args.fine_tap,
                    "rep_mode": args.rep_mode, "str_dim": args.str_dim}
             # Run1/Run2 旧版 arch.json 无新字段 → 按当时默认补齐后比较
             arch_cmp = dict(arch)
@@ -184,22 +189,53 @@ def main():
                          ("frh", 0), ("fs_tar", 0)):
                 if k not in arch_cmp:
                     arch_cmp[k] = v
+            if "fine_tap" not in arch_cmp:
+                # Run1/Run2/Run3 sidecar 早于 R4：只有显式声明 --fine_tap 0 才允许按 0 补齐
+                if args.fine_tap:
+                    raise SystemExit(f"[ARCH-MISMATCH] ckpt has no fine_tap field but --fine_tap={args.fine_tap}; "
+                                     "refusing to eval")
+                arch_cmp["fine_tap"] = 0
+            # FET 派生字段：sidecar 有则必须一致（防手改口径）
+            for k in ("fine_tap_form", "fine_tap_source", "fine_tap_fuse"):
+                if k in arch:
+                    expected = {"fine_tap_form": "pq_abs_1x1_gamma_v1",
+                                "fine_tap_source": "norm0_1_4",
+                                "fine_tap_fuse": "post_dcr_refine"}[k] if args.fine_tap else "none"
+                    if arch[k] != expected:
+                        raise SystemExit(f"[ARCH-MISMATCH] ckpt {k}={arch[k]} vs expected {expected}; refusing to eval")
+                    arch_cmp.pop(k, None)
+            # 身份字段（Run4 起）：不参与结构比较，但 FET checkpoint 必须齐备
+            proto = arch_cmp.pop("protocol_version", None)
+            src = arch_cmp.pop("source_code_sha256", None)
+            if args.fine_tap:
+                if proto != "run4_exact80k_v1":
+                    raise SystemExit(f"[ARCH-MISMATCH] FET ckpt protocol_version={proto} "
+                                     "!= run4_exact80k_v1; refusing to eval")
+                if not src:
+                    raise SystemExit("[ARCH-MISMATCH] FET ckpt sidecar lacks source_code_sha256; refusing to eval")
+            if proto or src:
+                print(f"[ARCH] ckpt protocol_version={proto} source_code_sha256={src}")
             if arch_cmp != cli:
                 raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch_cmp} vs cli={cli}; refusing to eval")
             print(f"[ARCH] eval arch matches ckpt sidecar: {arch_cmp}")
+            arch_checked = True
         elif args.arch == "str_tass":
             cli = {"arch": "str_tass", "vit_depth": 4,
                    "str_dim": args.str_dim, "spatial_mode": args.spatial_mode}
+            arch_checked = False
         elif args.arch == "strfusion":
             cli = {"arch": "strfusion", "vit_depth": 4,
                    "str_dim": args.str_dim, "str_rep_mode": args.str_rep_mode}
+            arch_checked = False
         else:
             cli = {"vit_depth": args.vit_depth, "detail_mode": args.detail_mode,
                    "head_mode": args.head_mode, "mode": args.mode,
                    "opre_gate": args.opre_gate}
-        if arch != cli:
+            arch_checked = False
+        if not arch_checked and arch != cli:
             raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch} vs cli={cli}; refusing to eval")
-        print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
+        if not arch_checked:
+            print(f"[ARCH] eval arch matches ckpt sidecar: {arch}")
 
     if args.arch == "casa_tvim_str":
         # STR 折叠纪律测量协议（设计文档 §4.3 T2）：TF32 off + cudnn deterministic，
@@ -211,7 +247,7 @@ def main():
                                rep_mode=args.rep_mode, str_dim=args.str_dim,
                                caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
                                caacp_residual_mode=args.caacp_residual_mode,
-                               fs_tar=bool(args.fs_tar)).float()
+                               fs_tar=bool(args.fs_tar), fine_tap=bool(args.fine_tap)).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)

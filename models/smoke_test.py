@@ -1608,7 +1608,7 @@ def main():
                         choices=['all', 'baseline', 'casaa', 'saa', 'oracle', 'detail', 'detail_fused',
                                  'run4', 'run4_light', 'run4_light48', 'run4_light_bnrelu', 'run4_psd',
                                  'run5_mobile', 'run5_sgdp', 'run7_csdp', 'run8_b4_spe', 'run9_opre',
-                                 'strfusion', 'tass', 'casa_tvim_str'],
+                                 'strfusion', 'tass', 'casa_tvim_str', 'casa_tvim_run4'],
                         help='all | baseline | casaa | saa | oracle | detail | detail_fused | run4 | run4_light | run4_light48 | run4_light_bnrelu | run4_psd | run5_mobile | run5_sgdp | run7_csdp | run8_b4_spe | run9_opre | strfusion | tass | casa_str')
     args = parser.parse_args()
 
@@ -1663,6 +1663,18 @@ def main():
         t_run11_tass(args.pretrained_weight_path, device)
     if args.mode == "casa_tvim_str":   # 需 tinyvim_s_1000e.pth + GPU mamba-ssm，不并入 all（all 使用 DeiT 路径）
         t_casa_tvim_str(args.tinyvim_pretrained_weight_path or args.pretrained_weight_path, device)
+    if args.mode == "casa_tvim_run4":
+        # Run4（方案 §5 P1）：原 casa_tvim_str smoke 一字不改，Run4 走独立的 T0–T9 断言集。
+        import subprocess
+        import sys as _sys
+        pre = args.tinyvim_pretrained_weight_path or args.pretrained_weight_path
+        cmd = [_sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "test_run4_fine_tap.py"),
+               "--tinyvim-pretrained-weight-path", pre, "--device", device]
+        print(f"[SMOKE] casa_tvim_run4 -> {' '.join(cmd)}")
+        rc = subprocess.call(cmd)
+        if rc != 0:
+            raise SystemExit(f"[SMOKE] test_run4_fine_tap.py failed with exit code {rc}")
 
     print("[SMOKE] ALL OK")
 

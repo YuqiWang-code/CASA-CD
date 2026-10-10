@@ -43,6 +43,23 @@ import dataset.dataset as myDataLoader
 import dataset.Transforms as myTransforms
 
 
+# R4（方案 §5/§6.2）：训练协议版本号。写入 run_manifest.json / arch.json / last.pth，
+# resume 时严格校验，防止不同协议（例如非 exact-80K）的 checkpoint 被当作同一条曲线。
+PROTOCOL_VERSION = "run4_exact80k_v1"
+
+# R4（方案 §5）：代码身份核验范围——主要模型/训练文件，SHA256 写入两个 sidecar。
+SOURCE_IDENTITY_FILES = (
+    "models/train.py",
+    "models/eval.py",
+    "models/model/casa_tvim_str_net.py",
+    "models/model/str_fine_tap.py",
+    "models/model/str_tar.py",
+    "models/model/str_dcr.py",
+    "models/model/str_reparam.py",
+    "models/model/utils.py",
+)
+
+
 # -----------------------------------------------------------------------------
 # Params / FLOPs measurement
 # -----------------------------------------------------------------------------
@@ -133,13 +150,22 @@ def val(args, val_loader, model):
 
 
 def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_iter=0,
-                lr_factor=1., adapt_log_fn=None):
+                lr_factor=1., adapt_log_fn=None, remaining_steps=None):
+    """一个 epoch 的优化循环。
+
+    remaining_steps（R4 exact-80K 修正）：若给出，则在完成该数量的 optimizer update 后
+    **提前 break**，返回实际执行步数；poly 的分母固定为 args.max_steps（见 model/utils.py）。
+    """
     model.train()
 
     salEvalVal = ConfuseMatrixMeter(n_class=2)
     epoch_loss = []
+    executed_steps = 0
+    lr = None
 
     for iter, batched_inputs in enumerate(train_loader):
+        if remaining_steps is not None and executed_steps >= remaining_steps:
+            break
         img, target = batched_inputs
         pre_img = img[:, 0:3]
         post_img = img[:, 3:6]
@@ -173,16 +199,35 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        executed_steps += 1
 
         epoch_loss.append(loss.data.item())
 
         # computing F-measure on GPU, then accumulate the confusion matrix
         salEvalVal.update_cm(pr=pred.detach().cpu().numpy(), gt=target_var.detach().cpu().numpy())
 
-    average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
+    average_epoch_loss_train = sum(epoch_loss) / max(1, len(epoch_loss))
     scores = salEvalVal.get_scores()
 
-    return average_epoch_loss_train, scores, lr
+    return average_epoch_loss_train, scores, lr, executed_steps
+
+
+def source_code_identity():
+    """R4 §5：主要模型/训练文件的 SHA256（写入 arch.json 与 run_manifest.json，eval 侧逐字段核对）。"""
+    import hashlib as _hashlib
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = {}
+    for rel in SOURCE_IDENTITY_FILES:
+        p = os.path.join(repo_root, rel.replace("/", os.sep))
+        if not os.path.isfile(p):
+            out[rel] = "MISSING"
+            continue
+        h = _hashlib.sha256()
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        out[rel] = h.hexdigest()[:16]
+    return out
 
 
 # -----------------------------------------------------------------------------
@@ -210,6 +255,7 @@ class ChangeViTTrainer(object):
                 rep_mode=args.rep_mode, str_dim=args.str_dim,
                 caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
                 caacp_residual_mode=args.caacp_residual_mode, fs_tar=bool(args.fs_tar),
+                fine_tap=bool(args.fine_tap),
             ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
@@ -245,6 +291,14 @@ class ChangeViTTrainer(object):
             self.log(f"[CONFIG] caacp={int(self.args.caacp)} score_mode={self.args.caacp_score_mode} "
                      f"residual_mode={self.args.caacp_residual_mode} frh={int(self.args.frh)} "
                      f"fs_tar={int(self.args.fs_tar)} rep={self.args.rep_mode} str_dim={self.args.str_dim}")
+            self.log(f"[CONFIG] fine_tap={int(self.args.fine_tap)} arch={self.args.arch} "
+                     f"protocol={PROTOCOL_VERSION} exact_max_steps={int(args.exact_max_steps)} "
+                     f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed}")
+            if int(self.args.fine_tap):
+                _rep = self.model.fine_evidence_tap.param_report()
+                self.log(f"[FET] form={self.model.fine_tap_form} source={self.model.fine_tap_source} "
+                         f"fuse={self.model.fine_tap_fuse} gamma_init={self.model.fet_gamma():.1e} "
+                         f"train_new_params={_rep['train_new']} (pq={_rep['pq']} diff={_rep['diff']} gamma={_rep['gamma']})")
             ls = self.model.encoder.load_stats() or {}
             self.log(f"[PRETRAIN-LOAD] retained={ls.get('retained')}/{ls.get('pretrained_keys')} "
                      f"worst_diff={ls.get('worst_diff'):.3e} new_modules={len(ls.get('missing_new', []))} "
@@ -349,7 +403,25 @@ class ChangeViTTrainer(object):
         self.start_epoch = checkpoint.get("epoch", 0)
         self.best_f1 = checkpoint.get("best_f1", -1.0)
         self.best_epoch = checkpoint.get("best_epoch", -1)
-        self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
+        if "actual_steps" in checkpoint:
+            # R4 §6.2：exact-80K 下 epoch 数可能被截断，实际步数才是唯一进度真值
+            self.cur_iter = int(checkpoint["actual_steps"])
+            iters = checkpoint.get("iters_per_epoch", 0)
+            self.log(f"[RESUME] actual_steps={self.cur_iter} (epoch={self.start_epoch}, iters/epoch={iters})")
+        else:
+            self.cur_iter = self.start_epoch * checkpoint.get("iters_per_epoch", 0)
+        if checkpoint.get("protocol_version") not in (None, PROTOCOL_VERSION):
+            raise SystemExit(
+                f"[PROTOCOL-MISMATCH] ckpt protocol_version={checkpoint.get('protocol_version')} "
+                f"!= {PROTOCOL_VERSION}; aborting")
+        rng = checkpoint.get("rng_state")
+        if rng is not None:
+            torch.set_rng_state(rng["torch"])
+            np.random.set_state(rng["numpy"])
+            random.setstate(rng["python"])
+            if rng.get("cuda") is not None and torch.cuda.is_available():
+                torch.cuda.set_rng_state_all(rng["cuda"])
+            self.log("[RESUME] rng_state restored (torch/numpy/python/cuda)")
 
     def _write_casa_tvim_manifest(self, resume_path):
         """casa_tvim_str run_manifest.json：fresh 写入 / resume 逐字段严格校验。"""
@@ -373,6 +445,10 @@ class ChangeViTTrainer(object):
             "caacp_residual_mode": self.args.caacp_residual_mode,
             "frh": int(self.args.frh),
             "fs_tar": int(self.args.fs_tar),
+            "fine_tap": int(self.args.fine_tap),
+            "fine_tap_form": ("pq_abs_1x1_gamma_v1" if int(self.args.fine_tap) else "none"),
+            "fine_tap_source": ("norm0_1_4" if int(self.args.fine_tap) else "none"),
+            "fine_tap_fuse": ("post_dcr_refine" if int(self.args.fine_tap) else "none"),
             "rep_mode": self.args.rep_mode,
             "str_dim": self.args.str_dim,
             "backbone_lr_ratio": self.args.backbone_lr_ratio,
@@ -381,6 +457,9 @@ class ChangeViTTrainer(object):
             "max_steps": self.args.max_steps,
             "batch_size": self.args.batch_size,
             "dataset": self.args.dataset,
+            "protocol_version": PROTOCOL_VERSION,
+            "exact_max_steps": int(getattr(self.args, "exact_max_steps", 0)),
+            "source_code_sha256": source_code_identity(),
             "resume_source": resume_path,
         }
         if os.path.isfile(path):
@@ -388,10 +467,17 @@ class ChangeViTTrainer(object):
                 old = _json.load(f)
             for k in ("arch", "backbone", "backbone_weight_sha256", "caacp",
                       "caacp_score_mode", "caacp_residual_mode", "frh", "fs_tar",
+                      "fine_tap", "fine_tap_form", "fine_tap_source", "fine_tap_fuse",
                       "rep_mode", "str_dim", "backbone_lr_ratio",
-                      "data_contract", "seed", "max_steps", "batch_size", "dataset"):
+                      "data_contract", "seed", "max_steps", "batch_size", "dataset",
+                      "protocol_version", "exact_max_steps"):
                 if old.get(k) != manifest[k]:
                     raise SystemExit(f"[MANIFEST-MISMATCH] field {k}: old={old.get(k)} new={manifest[k]}; aborting")
+            # 代码身份：resume 时允许训练脚本本身被格式化（不阻断），但必须留痕
+            if old.get("source_code_sha256") != manifest["source_code_sha256"]:
+                diff = [k for k in manifest["source_code_sha256"]
+                        if old.get("source_code_sha256", {}).get(k) != manifest["source_code_sha256"][k]]
+                self.log(f"[MANIFEST] WARNING source_code_sha256 differs on resume: {diff}")
             self.log(f"[MANIFEST] validated existing run_manifest.json (resume_source={resume_path})")
         else:
             with open(path, "w", encoding="utf-8") as f:
@@ -512,8 +598,14 @@ class ChangeViTTrainer(object):
                 "caacp_residual_mode": self.args.caacp_residual_mode,
                 "frh": int(self.args.frh),
                 "fs_tar": int(self.args.fs_tar),
+                "fine_tap": int(self.args.fine_tap),
+                "fine_tap_form": ("pq_abs_1x1_gamma_v1" if int(self.args.fine_tap) else "none"),
+                "fine_tap_source": ("norm0_1_4" if int(self.args.fine_tap) else "none"),
+                "fine_tap_fuse": ("post_dcr_refine" if int(self.args.fine_tap) else "none"),
                 "rep_mode": self.args.rep_mode,
                 "str_dim": self.args.str_dim,
+                "protocol_version": PROTOCOL_VERSION,
+                "source_code_sha256": source_code_identity(),
             }
         elif arch_name == "str_tass":
             arch = {
@@ -547,6 +639,16 @@ class ChangeViTTrainer(object):
             "iters_per_epoch": iters_per_epoch,
             "arch": arch,
         }
+        if arch_name == "casa_tvim_str" and bool(getattr(self.args, "exact_max_steps", 0)):
+            # R4 §6.2：exact-80K 契约下的进度与 RNG 状态，resume 必须逐位一致
+            ckpt["actual_steps"] = int(self.cur_iter)
+            ckpt["protocol_version"] = PROTOCOL_VERSION
+            ckpt["rng_state"] = {
+                "torch": torch.get_rng_state(),
+                "numpy": np.random.get_state(),
+                "python": random.getstate(),
+                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            }
         torch.save(ckpt, os.path.join(self.args.ckpt_dir, "last.pth"))
         # 独立 eval 用 sidecar（best_F1=*.pth 是裸 state_dict，不能混入非权重 key）
         arch_path = os.path.join(self.args.ckpt_dir, "arch.json")
@@ -586,19 +688,34 @@ class ChangeViTTrainer(object):
         self.log("EPOCH | Loss | Recall | Precision | OA | F1 | IoU | Kappa | t(s)")
 
         cur_iter = self.cur_iter
+        exact = bool(getattr(self.args, "exact_max_steps", 0))
+        if exact:
+            self.log(f"[EXACT-STEPS] protocol={PROTOCOL_VERSION} enabled: "
+                     f"stop exactly at optimizer step {self.args.max_steps} (cur_iter={cur_iter})")
         for epoch in range(self.start_epoch, self.args.max_epochs):
             t0 = time.time()
-            loss_tr, score_tr, lr = train_epoch(
+            remaining = (self.args.max_steps - cur_iter) if exact else None
+            if remaining is not None and remaining <= 0:
+                self.log(f"[EXACT-STEPS] budget already reached ({cur_iter} >= {self.args.max_steps}), stopping")
+                break
+            loss_tr, score_tr, lr, executed = train_epoch(
                 self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter,
                 adapt_log_fn=(self._backbone_adapt_log
-                              if getattr(self.args, "arch", "changevit") == "casa_tvim_str" else None))
-            cur_iter += max_batches
+                              if getattr(self.args, "arch", "changevit") == "casa_tvim_str" else None),
+                remaining_steps=remaining)
+            cur_iter += (executed if exact else max_batches)
+            self.cur_iter = cur_iter
+            if exact:
+                self.log(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={executed} "
+                         f"cumulative={cur_iter}/{self.args.max_steps}")
 
             torch.cuda.empty_cache()
 
             # official protocol: skip evaluation after the first epoch
             if epoch == 0:
                 self._save_last(epoch, max_batches)
+                if exact and cur_iter >= self.args.max_steps:
+                    break
                 continue
 
             loss_val, score_val = val(self.args, test_loader, self.model)
@@ -623,6 +740,9 @@ class ChangeViTTrainer(object):
                            os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth"))
 
             self._save_last(epoch, max_batches)
+            if exact and cur_iter >= self.args.max_steps:
+                self.log(f"[EXACT-STEPS] reached {cur_iter}/{self.args.max_steps} optimizer steps, stopping")
+                break
 
         self.log(f"[BEST] F1={self.best_f1:.4f} at epoch {self.best_epoch}")
 
@@ -685,6 +805,9 @@ class ChangeViTTrainer(object):
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
+        if is_casa:
+            self.log(f"[ACTUAL-OPT-STEPS] {int(self.cur_iter)}")
+            self.log(f"[PROTOCOL-VERSION] {PROTOCOL_VERSION}")
         self.log("=== END TEST RESULTS ===")
 
     def test_best_strfusion(self, best_path):
@@ -715,6 +838,13 @@ class ChangeViTTrainer(object):
         with torch.no_grad():
             y_train = self.model(pre_fix, post_fix)
             y_train_real = self.model(pre_r.float(), post_r.float())
+        # R4：FET 折叠前状态（gamma / 等效卷积核），必须在 switch_to_deploy 之前读取
+        fet_gamma_final = None
+        fet_l1_final = None
+        if getattr(self.args, "arch", "changevit") == "casa_tvim_str" and int(self.args.fine_tap):
+            fet_gamma_final = self.model.fet_gamma()
+            w_fused, b_fused = self.model.fine_evidence_tap.get_equivalent_kernel_bias()
+            fet_l1_final = (float(w_fused.abs().mean().item()), float(b_fused.abs().mean().item()))
         self.model.switch_to_deploy()
         self.model.eval()
         with torch.no_grad():
@@ -749,6 +879,7 @@ class ChangeViTTrainer(object):
             self.log(f"[CAACP-RESIDUAL-MODE] {self.args.caacp_residual_mode}")
             self.log(f"[FRH] {int(self.args.frh)}")
             self.log(f"[FS-TAR] {int(self.args.fs_tar)}")
+            self.log(f"[FINE-TAP] {int(self.args.fine_tap)}")
             self.log(f"[REP-MODE] {self.args.rep_mode}")
             self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
             self.log(f"[DATA-CONTRACT] legacy_6ch_reverse_v1")
@@ -779,6 +910,18 @@ class ChangeViTTrainer(object):
                     self.log("[CAACP-BUDGET] dense=16x16 context=8x8 (2x2 cell change-aware pooling, no TopK)")
             if self.args.frh:
                 self.log("[FRH-DEPLOY] head folded to single Conv2d(96->1,k3) (+768 params); base/dw/pw/gamma branches deleted")
+            if int(self.args.fine_tap):
+                self.log(f"[FET-FORM] {self.model.fine_tap_form} (source={self.model.fine_tap_source} fuse={self.model.fine_tap_fuse})")
+                if fet_gamma_final is not None:
+                    self.log(f"[FET-GAMMA] {fet_gamma_final:.6e} (zero-init residual gate; train-graph value before folding)")
+                    self.log(f"[FET-FUSED-WEIGHT-ABS-MEAN] {fet_l1_final[0]:.6e} "
+                             f"[FET-FUSED-BIAS-ABS-MEAN] {fet_l1_final[1]:.6e}")
+                self.log("[FET-DEPLOY] tap folded to single Conv2d(144->96,k1,no bias) added after DCR refine; "
+                         "pq/diff/gamma branches deleted")
+                if self.model.fet_deploy_conv_shape() is not None:
+                    self.log(f"[FET-FOLD] conv1x1 {self.model.fet_deploy_conv_shape()} "
+                             f"params={self.model.fine_evidence_tap.param_report()['fused']} "
+                             f"fold_count={self.model.fine_evidence_tap.fold_count}")
             self.log(f"[BACKBONE-ADAPT-FINAL] rel_L2_from_pretrain={self._backbone_adapt_final(self.model):.4e}")
         elif is_tass:
             self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
@@ -944,6 +1087,13 @@ def main():
                         help='casa_tvim_str FRH fine head: 1 = STRFineHead (128^2 reparam head, +768 deploy params); 0 = plain 1x1 head')
     parser.add_argument('--fs_tar', type=int, default=0,
                         help='casa_tvim_str FS-TAR (Run3 E5): 1 = stage1 TemporalRepFine3x3 (spatial-temporal signed-diff 3x3 at 1/4, +73,728 deploy params); 0 = stage1 TemporalRep1x1')
+    parser.add_argument('--fine_tap', type=int, default=0, choices=[0, 1],
+                        help='casa_tvim_str R4 FET1 (FineEvidenceTap1x1): 1 = 1/4 norm0 1x1 fine-evidence tap added after DCR refine '
+                             '(+13,920 deploy params, zero-init gamma -> epoch-0 bitwise identity); 0 = CTRL M1 (R4CTRL arm)')
+    parser.add_argument('--exact_max_steps', type=int, default=0, choices=[0, 1],
+                        help='R4 exact-80K protocol: 1 = stop at exactly args.max_steps optimizer updates and fix the poly '
+                             'denominator to args.max_steps; 0 = legacy (epoch-granular, max_epochs=ceil(max_steps/iters)). '
+                             'Run4 scripts pass 1 explicitly so the historical epoch-granular behaviour stays reproducible.')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
                         help='STRFusion rep mode: plain (C0, no aux) | full (M1, TAR+DCR aux)')
     parser.add_argument('--spatial_mode', type=str, default='token', choices=['token', 'tass'],
