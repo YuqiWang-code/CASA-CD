@@ -45,7 +45,7 @@
 | 重启一致性抽查 | 同上（重启前波次已判 INVALID，仅作对照） | 四库同 epoch ΔF1 ≤ |0.003|、正负号混合 ⇒ 重启无系统性偏差 |
 | 运行状态快照 | `$LOG/STATUS.md`（`analyse/run4_progress_eta.py --write-status` 生成） | 逐 run 步数/速率/ETA 与收口命令，可随时刷新 |
 | 训练日志健康 | `$LOG/M1_R4CTRL/*/train_log.txt` 计数 | 四库 **0 error / 0 NaN**，仅各 8 条启动期 xFormers `not available` 告警；`run4_run_all.log` 无 ABORT/FAIL 标记 |
-| 自动收口守候 | `train_scripts/CASA-TViM/Run4/auto_post_train.sh`；日志 `$LOG/auto_post_train.log`；完成标记 `$LOG/AUTO_POST_TRAIN_DONE` | 等 8 个 run 全部产出完整 TEST 区块后**自动**执行 `post_train.sh`（只读、自带 fail-closed 守卫）⇒ 即使监控会话中断，第 ⑧ 步结果也一定被产出 |
+| 自动收口守候 | `train_scripts/CASA-TViM/Run4/auto_post_train.sh`；日志 `$LOG/auto_post_train.log`；完成标记 `$LOG/AUTO_POST_TRAIN_DONE` | 触发条件为**8 个 run 全部产出完整 TEST 区块 且 无任何 `train.py` 在运行**（后者避免与收尾中的 run 争抢 GPU、也避免读到正在写入的 checkpoint），满足后**自动**执行 `post_train.sh`（只读、自带 fail-closed 守卫）⇒ 即使监控会话中断，第 ⑧ 步结果也一定被产出 |
 
 ## 四、失效产物隔离
 

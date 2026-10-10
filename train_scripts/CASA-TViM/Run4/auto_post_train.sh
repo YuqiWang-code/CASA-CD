@@ -30,8 +30,13 @@ while :; do
       fi
     done
   done
+  # 额外条件：没有任何 train.py 在跑。否则最后一个 run 还在收尾（写 last.pth / 跑最终 TEST）时
+  # 就开始对象指标 pass 会与其争抢 GPU，且理论上可能读到正在写入的 checkpoint。
+  if [ "$(pgrep -c -f '[t]rain.py --dataset' || echo 0)" -ne 0 ]; then
+    ready=0
+  fi
   if [ "${ready}" -eq 1 ]; then
-    echo "[$(date +%H:%M:%S)] all 8 runs have a complete TEST block -> running post_train.sh"
+    echo "[$(date +%H:%M:%S)] all 8 runs have a complete TEST block and no trainer is running -> post_train.sh"
     source /home/yqwang/miniforge3/etc/profile.d/conda.sh
     conda activate casacd
     cd "${PROJ}"
