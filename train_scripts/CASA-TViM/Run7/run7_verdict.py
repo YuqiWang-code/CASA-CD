@@ -58,7 +58,43 @@ def scan_log(log_path):
     return out
 
 
-def decide(rows, obj, logs, th):
+def fold_ok_knife(knife_dir, variant, dataset, dis_real, log_maxabs=None):
+    """真实 batch 折叠门：`disagreement == 0`，**或**有吻合的刀锋定位证据（pre-reg §7.6）。
+
+    本函数是独立实现（不 import check_run / independent_audit），以保持三条代码路径相互独立。
+    缺证据 / 数值不吻合 / verdict 不是 KNIFE_EDGE_ARTIFACT ⇒ 一律 False（fail-closed）。
+    """
+    if dis_real == 0.0:
+        return True, None, "disagreement == 0"
+    if not knife_dir:
+        return False, None, "nonzero disagreement and no --knife-dir"
+    p = os.path.join(knife_dir, f"KNIFE_EDGE_{dataset}_{variant}.json")
+    if not os.path.isfile(p):
+        return False, p, "no knife-edge evidence file"
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return False, p, f"unreadable: {e}"
+    if d.get("variant") != variant or d.get("dataset") != dataset:
+        return False, p, "variant/dataset mismatch"
+    if d.get("verdict") != "KNIFE_EDGE_ARTIFACT":
+        return False, p, f"verdict={d.get('verdict')}"
+    if not (d.get("n_flipped") or 0) > 0:
+        return False, p, f"n_flipped={d.get('n_flipped')}"
+
+    def rel(a, b):
+        try:
+            return abs(float(a) - float(b)) / max(abs(float(b)), 1e-30)
+        except (TypeError, ValueError):
+            return float("inf")
+    if rel(d.get("disagree"), dis_real) >= 1e-3:
+        return False, p, f"disagree {d.get('disagree')} vs log {dis_real}"
+    if log_maxabs is not None and rel(d.get("max_abs_diff"), log_maxabs) >= 1e-3:
+        return False, p, f"max_abs_diff {d.get('max_abs_diff')} vs log {log_maxabs}"
+    return True, p, "knife-edge artifact, numbers match"
+
+
+def decide(rows, obj, logs, th, knife_dir=None):
     """纯决策：返回 verdict dict。`rows`/`obj`/`logs` 为普通 dict，便于 selftest 造夹具。"""
     by = {(r["variant"], r["dataset"]): r for r in rows}
     reasons, detail = [], {}
@@ -99,10 +135,13 @@ def decide(rows, obj, logs, th):
             r = by[(v, d)]
             lg = logs.get((v, d), {})
             aux = lg.get("aux_losses") or []
+            _fold_ok, _fold_ev, _fold_why = fold_ok_knife(
+                knife_dir, v, d, r.get("fold_real_disagree"),
+                r.get("fold_real_max_abs_error"))
             checks_d = {
                 "hfae_form_ok": r.get("hfae_form") == ("aux_only" if v == "E9_HFAE_A"
                                                        else "aux_inject"),
-                "fold_disagree_zero": r.get("fold_real_disagree") == 0.0,
+                "fold_real_ok": _fold_ok,
                 "deploy_within_limit": (r.get("hfae_deploy_params") is not None
                                         and r["hfae_deploy_params"] <= th["deploy_param_limit"]),
                 "grad_reaches_hf_branch": (lg.get("hfae_grad_norm") or 0.0) > th["grad_norm_min"],
@@ -117,6 +156,9 @@ def decide(rows, obj, logs, th):
                 "hfae_deploy_params": r.get("hfae_deploy_params"),
                 "deploy_param_limit": th["deploy_param_limit"],
                 "fold_real_disagree": r.get("fold_real_disagree"),
+                "fold_real_max_abs_error": r.get("fold_real_max_abs_error"),
+                "fold_knife_evidence": _fold_ev,
+                "fold_note": _fold_why,
                 "hf_tap_grad_norm": lg.get("hfae_grad_norm"),
                 "hfae_grad_lines": lg.get("hfae_grad_lines"),
                 "n_aux_loss_epochs": len(aux),
@@ -535,12 +577,12 @@ def selftest():
     vm = decide(_mk_rows(f), _mk_obj(), _mk_logs(aux=(0.34, 0.30)), th)
     m9 = (vm["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
     raw = m9.get("raw") or {}
-    chk_bool = all(m9[k] for k in ("hfae_form_ok", "fold_disagree_zero",
+    chk_bool = all(m9[k] for k in ("hfae_form_ok", "fold_real_ok",
                                    "deploy_within_limit", "grad_reaches_hf_branch",
                                    "aux_loss_present_and_decreasing"))
     cases.append(("all_ok depends only on boolean checks (raw cannot poison it)",
                   m9["all_ok"] is True and chk_bool and m9["all_ok"] == chk_bool,
-                  f"all_ok={m9['all_ok']} bools={chk_bool} fold={m9['fold_disagree_zero']}"))
+                  f"all_ok={m9['all_ok']} bools={chk_bool} fold={m9['fold_real_ok']}"))
     cases.append(("mechanism raw readings present (aux first→last, grad, fold)",
                   raw.get("n_aux_loss_epochs") == 2
                   and raw.get("aux_loss_first") == 0.34 and raw.get("aux_loss_last") == 0.30
@@ -557,6 +599,47 @@ def selftest():
                   and mx["raw"]["aux_loss_first"] == 0.30 and mx["raw"]["aux_loss_last"] == 0.40,
                   f"all_ok={mx['all_ok']} {mx['raw']['aux_loss_first']}→"
                   f"{mx['raw']['aux_loss_last']}"))
+
+    # 16) 折叠门（pre-reg §7.6）：真实 batch disagreement>0 时
+    #     (a) 无证据 => 机制自检必须 FAIL（fail-closed，不允许口头豁免）；
+    #     (b) 有吻合的 KNIFE_EDGE_ARTIFACT 证据 => 通过。
+    import tempfile as _tf
+    kd = _tf.mkdtemp(prefix="r7_knife_")
+    f_fold = dict(f)
+    rows_fold = _mk_rows(f_fold)
+    for r in rows_fold:                       # 把 E9 全库的真实折叠 disagreement 设成非零
+        if r["variant"] == "E9_HFAE_A":
+            r["fold_real_disagree"] = 9.5367431640625e-07
+            r["fold_real_max_abs_error"] = 6.198883056640625e-06
+    v_no = decide(rows_fold, _mk_obj(), _mk_logs(), th, knife_dir=kd)
+    m_no = (v_no["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
+    cases.append(("nonzero real-batch fold WITHOUT evidence => mech FAILs",
+                  m_no["all_ok"] is False and m_no["fold_real_ok"] is False,
+                  f"fold_real_ok={m_no['fold_real_ok']} note={m_no['raw'].get('fold_note')}"))
+
+    with open(os.path.join(kd, "KNIFE_EDGE_SYSU-CD-256_E9_HFAE_A.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"variant": "E9_HFAE_A", "dataset": "SYSU-CD-256",
+                   "verdict": "KNIFE_EDGE_ARTIFACT", "n_flipped": 1,
+                   "disagree": 9.5367431640625e-07,
+                   "max_abs_diff": 6.198883056640625e-06}, fh)
+    v_yes = decide(rows_fold, _mk_obj(), _mk_logs(), th, knife_dir=kd)
+    m_yes = (v_yes["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
+    cases.append(("nonzero real-batch fold WITH matching knife-edge evidence => mech passes",
+                  m_yes["fold_real_ok"] is True and m_yes["all_ok"] is True,
+                  f"fold_real_ok={m_yes['fold_real_ok']} ev={os.path.basename(str(m_yes['raw'].get('fold_knife_evidence')))}"))
+
+    # 17) 证据存在但数值与日志不吻合 => 仍须 FAIL（防止"拿别的 run 的证据蒙过"）
+    with open(os.path.join(kd, "KNIFE_EDGE_SYSU-CD-256_E9_HFAE_A.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"variant": "E9_HFAE_A", "dataset": "SYSU-CD-256",
+                   "verdict": "KNIFE_EDGE_ARTIFACT", "n_flipped": 1,
+                   "disagree": 1.0, "max_abs_diff": 1.0}, fh)
+    v_bad = decide(rows_fold, _mk_obj(), _mk_logs(), th, knife_dir=kd)
+    m_bad = (v_bad["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
+    cases.append(("knife-edge evidence with MISMATCHED numbers => mech FAILs",
+                  m_bad["fold_real_ok"] is False,
+                  f"note={m_bad['raw'].get('fold_note')}"))
 
     print("=== verdict engine selftest (pure decide(), synthetic fixtures) ===")
     print("thresholds:", json.dumps(th, ensure_ascii=False))
@@ -578,6 +661,9 @@ def main():
     ap.add_argument("--object-dir",
                     default="/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/_OBJECT_METRICS")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--knife-dir",
+                    default="/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/_KNIFE_EDGE",
+                    help="刀锋定位证据目录；真实 batch disagreement>0 时必须有吻合的证据，否则该 run 机制自检不过")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
@@ -585,7 +671,7 @@ def main():
 
     th, lock = load_thresholds()
     rows, obj, logs = gather(a.log_root, a.object_dir)
-    verdict = decide(rows, obj, logs, th)
+    verdict = decide(rows, obj, logs, th, knife_dir=a.knife_dir)
     verdict["policy"] = lock.get("policy_note")
     verdict["thresholds_source"] = "SELECTION_LOCK.json:acceptance_criteria_frozen_numeric"
     print(render_markdown(rows, verdict))

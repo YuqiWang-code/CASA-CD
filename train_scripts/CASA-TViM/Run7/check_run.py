@@ -86,7 +86,45 @@ def _get(pattern, text, cast=float, default=None):
     return cast(m.group(1)) if m else default
 
 
-def check(log_path, variant, dataset, ckpt_dir):
+def knife_edge_ok(knife_dir, variant, dataset, log_disagree, log_maxabs):
+    """真实 batch 折叠 disagreement > 0 时的**唯一**合法豁免（见 pre-reg §7.6 / Run4 §10 先例）。
+
+    判据（与 analyse/run7_fold_knife_edge.py 的 verdict 同定义）：
+      翻转像素的 |p_train − 0.5| 全部小于该次折叠的最大绝对误差 ⇒ 该像素在阈值上没有 margin，
+      二值化本就不适定，属数值现象而非折叠实现错误。
+    但**必须**有定位证据文件，且其 variant/dataset 与本次一致、verdict 为 KNIFE_EDGE_ARTIFACT、
+    n_flipped>0、且 max_abs_diff / disagree 与日志数值吻合（日志只印 4 位有效数字，用 1e-3 相对容差）。
+    缺证据、或任一不吻合 ⇒ 仍然 FAIL（fail-closed，不允许"口头豁免"）。
+    """
+    if not knife_dir:
+        return False, None, "no --knife-dir given; a non-zero real-batch disagreement cannot be excused"
+    p = os.path.join(knife_dir, f"KNIFE_EDGE_{dataset}_{variant}.json")
+    if not os.path.isfile(p):
+        return False, p, "no knife-edge evidence file"
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return False, p, f"unreadable: {e}"
+    if d.get("variant") != variant or d.get("dataset") != dataset:
+        return False, p, f"variant/dataset mismatch: {d.get('variant')}/{d.get('dataset')}"
+    if d.get("verdict") != "KNIFE_EDGE_ARTIFACT":
+        return False, p, f"verdict={d.get('verdict')}"
+    if not (d.get("n_flipped") or 0) > 0:
+        return False, p, f"n_flipped={d.get('n_flipped')}"
+
+    def rel(a, b):
+        try:
+            return abs(float(a) - float(b)) / max(abs(float(b)), 1e-30)
+        except (TypeError, ValueError):
+            return float("inf")
+    if log_maxabs is not None and rel(d.get("max_abs_diff"), log_maxabs) >= 1e-3:
+        return False, p, f"max_abs_diff {d.get('max_abs_diff')} vs log {log_maxabs}"
+    if log_disagree is not None and rel(d.get("disagree"), log_disagree) >= 1e-3:
+        return False, p, f"disagree {d.get('disagree')} vs log {log_disagree}"
+    return True, p, "knife-edge artifact, numbers match the log"
+
+
+def check(log_path, variant, dataset, ckpt_dir, knife_dir=None):
     checks = []
     exp = VARIANTS.get(variant)
     if exp is None:
@@ -118,8 +156,17 @@ def check(log_path, variant, dataset, ckpt_dir):
                        depl is not None and depl <= BUDGET / 1e6, f"got {depl} M"))
 
         dis_real = _get(r"\[REPARAM-REAL-ARGMAX-DISAGREE\]\s*([0-9.eE+-]+)", block)
-        checks.append(("fold binary disagreement == 0 (real-data batch; OPERATIONAL gate)",
-                       dis_real == 0.0, f"got {dis_real}"))
+        maxabs_real = _get(r"\[REPARAM-REAL-MAX-ABS-ERROR\]\s*([0-9.eE+-]+)", block)
+        if dis_real == 0.0:
+            checks.append(("fold binary disagreement == 0 (real-data batch; OPERATIONAL gate)",
+                           True, "got 0.0"))
+        else:
+            # 非零：只接受"刀锋像素"豁免，且必须有定位证据（见 pre-reg §7.6）
+            ok, evp, why = knife_edge_ok(knife_dir, variant, dataset, dis_real, maxabs_real)
+            checks.append(("fold binary disagreement == 0 OR knife-edge evidence "
+                           "(real-data batch; OPERATIONAL gate)",
+                           ok,
+                           f"disagree={dis_real} maxabs={maxabs_real} evidence={evp} -> {why}"))
 
     for tag in ("[MANIFEST-MISMATCH]", "[PROTOCOL-MISMATCH]"):
         checks.append((f"log has no {tag}", tag not in log_text, ""))
@@ -261,11 +308,14 @@ def main():
     ap.add_argument("--variant", required=True)
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--ckpt-dir", required=True)
+    ap.add_argument("--knife-dir", default=None,
+                    help="刀锋定位证据目录（KNIFE_EDGE_<dataset>_<variant>.json）；"
+                         "真实 batch disagreement>0 时**必须**提供且吻合，否则该项 FAIL")
     ap.add_argument("--json-out", default=None)
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
 
-    checks, _ = check(a.log, a.variant, a.dataset, a.ckpt_dir)
+    checks, _ = check(a.log, a.variant, a.dataset, a.ckpt_dir, knife_dir=a.knife_dir)
     bad = [c[0] for c in checks if not c[1]]
     if not a.quiet:
         print(f"\n=== RUN7 CHECK_RUN {a.variant} / {a.dataset} ===")

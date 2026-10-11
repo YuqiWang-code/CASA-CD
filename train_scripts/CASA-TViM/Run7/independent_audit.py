@@ -100,7 +100,7 @@ def f1_from_iou(iou):
 
 
 def audit(log_root, ckpt_root, verdict_path=None, variants=None, datasets=None,
-          protocol=None):
+          protocol=None, knife_dir=None):
     variants = variants or VARIANTS
     datasets = datasets or DATASETS
     protocol = protocol or PROTOCOL
@@ -170,14 +170,45 @@ def audit(log_root, ckpt_root, verdict_path=None, variants=None, datasets=None,
     detail["deploy_violations"] = dep_bad
     detail["deploy_unchecked_variants"] = sorted(set(dep_skipped))
 
-    # A6 真实折叠 disagreement 必须为 0（若区块内有该行）
-    fold_bad = []
+    # A6 真实折叠 disagreement 必须为 0，**或**有吻合的刀锋定位证据（pre-reg §7.6）。
+    # 本处为**独立第三实现**（不 import check_run / run7_verdict），故意用不同的写法交叉验证。
+    def _a6_knife_ok(v, d, dis, mx):
+        if not knife_dir:
+            return False, "nonzero disagreement and no --knife-dir"
+        p = os.path.join(knife_dir, f"KNIFE_EDGE_{d}_{v}.json")
+        if not os.path.isfile(p):
+            return False, "no evidence file"
+        try:
+            j = json.load(open(p, encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            return False, f"unreadable: {e}"
+        checks_ = {
+            "identity": j.get("variant") == v and j.get("dataset") == d,
+            "verdict": j.get("verdict") == "KNIFE_EDGE_ARTIFACT",
+            "flipped>0": (j.get("n_flipped") or 0) > 0,
+            "disagree~log": (dis is not None and j.get("disagree") is not None
+                             and abs(float(j["disagree"]) - float(dis))
+                             / max(abs(float(dis)), 1e-30) < 1e-3),
+            "maxabs~log": (mx is None or j.get("max_abs_diff") is None
+                           or abs(float(j["max_abs_diff"]) - float(mx))
+                           / max(abs(float(mx)), 1e-30) < 1e-3),
+        }
+        bad = [k for k, okv in checks_.items() if not okv]
+        return (not bad), ("evidence ok" if not bad else f"evidence fails: {bad}")
+
+    fold_bad, knife_used = [], []
     for k, r in rows.items():
         f = r.get("fold_real_disagree")
-        if f is not None and f != 0.0:
-            fold_bad.append(f"{k[0]}/{k[1]}: fold_disagree={f}")
-    checks["A6_real_fold_disagreement_zero"] = (len(fold_bad) == 0)
+        if f is None or f == 0.0:
+            continue
+        ok6, why6 = _a6_knife_ok(k[0], k[1], f, r.get("fold_real_max_abs_error"))
+        if ok6:
+            knife_used.append(f"{k[0]}/{k[1]}: disagree={f} ({why6})")
+        else:
+            fold_bad.append(f"{k[0]}/{k[1]}: fold_disagree={f} ({why6})")
+    checks["A6_real_fold_disagreement_zero_or_knife_edge"] = (len(fold_bad) == 0)
     detail["fold_violations"] = fold_bad
+    detail["fold_knife_edge_accepted"] = knife_used
 
     # A7 sidecar 身份：变体契约 + 全部 run 必须同源代码身份
     arch_bad, shas = [], {}
@@ -385,6 +416,8 @@ def main():
                     help="逗号分隔；默认 M1_R7CTRL,E9_HFAE_A,E10_HFAE_B")
     ap.add_argument("--datasets", default=None, help="逗号分隔；默认四数据集")
     ap.add_argument("--protocol", default=None, help="默认 run7_hf_edge_exact80k_v1")
+    ap.add_argument("--knife-dir", default=None,
+                    help="刀锋定位证据目录；真实 batch disagreement>0 时必须有吻合证据")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
@@ -396,7 +429,8 @@ def main():
         return 2
     res = audit(a.log_root, a.ckpt_root, a.verdict or os.path.join(
         a.log_root, "_RESULTS", "verdict.json"),
-        variants=variants, datasets=datasets, protocol=a.protocol)
+        variants=variants, datasets=datasets, protocol=a.protocol,
+        knife_dir=a.knife_dir)
     print(f"=== Run7 independent audit ({res['protocol']}): "
           f"{res['n_checks']} checks, {res['n_failed']} FAILED ===")
     for k in sorted(res["checks"]):

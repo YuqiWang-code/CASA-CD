@@ -65,6 +65,9 @@ def collect_one(log_root, variant, dataset):
         "hfae_deploy_params": _re_first(r"\[HFAE-DEPLOY\].*deploy_params=(\d+)", block, int),
         "fold_real_disagree": _re_first(r"\[REPARAM-REAL-ARGMAX-DISAGREE\]\s+([0-9.eE+-]+)",
                                        block, float),
+        # 折叠门配套读数：真实 batch 的 max|Δp|，供刀锋豁免与证据文件对拍（见 pre-reg §7.6）
+        "fold_real_max_abs_error": _re_first(r"\[REPARAM-REAL-MAX-ABS-ERROR\]\s+([0-9.eE+-]+)",
+                                            block, float),
     })
     ok = (steps == 80000 and proto == PROTOCOL)
     rec["status"] = "VALID" if ok else "INVALID"

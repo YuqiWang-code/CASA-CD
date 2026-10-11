@@ -63,13 +63,46 @@ if [ "$gate_rc" -ne 0 ]; then
   exit 2
 fi
 
+echo "############ [1b/6] 折叠门：仅对 disagreement>0 的 run 生成「刀锋定位证据」 ############"
+# 预注册 §7.6：真实 batch disagreement 必须为 0；若恰因某个像素落在阈值数值误差带内而翻转
+# （|p−0.5| < 该次折叠最大绝对误差），则属数值不适定，**但必须**附定位证据才放行。
+# 证据缺失或不吻合 => check_run / verdict / audit 三处都会 FAIL（fail-closed）。
+KNIFE=$LOG_ROOT/_KNIFE_EDGE
+mkdir -p "$KNIFE"
+knife_n=0
+for v in $VARIANTS; do
+  for d in $DATASETS; do
+    lg="$LOG_ROOT/$v/$d/train_log.txt"
+    [ -f "$lg" ] || continue
+    dis=$(grep -oE '\[REPARAM-REAL-ARGMAX-DISAGREE\][[:space:]]+[0-9.eE+-]+' "$lg" | tail -1 | awk '{print $2}')
+    mxa=$(grep -oE '\[REPARAM-REAL-MAX-ABS-ERROR\][[:space:]]+[0-9.eE+-]+' "$lg" | tail -1 | awk '{print $2}')
+    need=$(python3 -c "d='${dis:-}'
+try:
+    print(1 if float(d) > 0 else 0)
+except Exception:
+    print(0)")
+    if [ "$need" = "1" ]; then
+      echo "  [KNIFE] $v/$d disagreement=$dis maxabs=$mxa -> 生成定位证据"
+      python analyse/run7_fold_knife_edge.py --variant "$v" --dataset "$d" \
+        --ckpt-root "$CKPT_PARENT" --run Run7 \
+        --log-fold-err-real "$mxa" --log-disagree-real "$dis" \
+        --out "$KNIFE/KNIFE_EDGE_${d}_${v}.json" > "/tmp/r7_knife_${v}_${d}.log" 2>&1
+      krc=$?
+      echo "    rc=$krc -> $KNIFE/KNIFE_EDGE_${d}_${v}.json"
+      [ "$krc" -eq 0 ] || echo "    [WARN] 证据生成失败；该 run 的折叠门将判 FAIL（fail-closed）"
+      knife_n=$((knife_n + 1))
+    fi
+  done
+done
+echo "[FINISH] 需要刀锋证据的 run 数 = $knife_n"
+
 echo "############ [2/6] 逐 run 硬门 check_run.py（变体契约 + 机制证据 + sidecar） ############"
 cr_fail=0
 for v in $VARIANTS; do
   for d in $DATASETS; do
     python train_scripts/CASA-TViM/Run7/check_run.py \
       --log "$LOG_ROOT/$v/$d/train_log.txt" --variant "$v" --dataset "$d" \
-      --ckpt-dir "$CKPT_ROOT/$v/$d" \
+      --ckpt-dir "$CKPT_ROOT/$v/$d" --knife-dir "$KNIFE" \
       --json-out "$RES/check_run_${v}_${d}.json" --quiet
     rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -77,7 +110,7 @@ for v in $VARIANTS; do
       echo "  [FAIL] $v/$d (rc=$rc) —— 详情："
       python train_scripts/CASA-TViM/Run7/check_run.py \
         --log "$LOG_ROOT/$v/$d/train_log.txt" --variant "$v" --dataset "$d" \
-        --ckpt-dir "$CKPT_ROOT/$v/$d" 2>&1 | grep -E "^FAIL" | sed 's/^/      /'
+        --ckpt-dir "$CKPT_ROOT/$v/$d" --knife-dir "$KNIFE" 2>&1 | grep -E "^FAIL" | sed 's/^/      /'
     else
       echo "  [PASS] $v/$d"
     fi
@@ -100,12 +133,12 @@ echo "[FINISH] object metrics rc=$obj_rc"
 
 echo "############ [4/6] 裁决 + 机制归因 ############"
 python train_scripts/CASA-TViM/Run7/run7_verdict.py --log-root "$LOG_ROOT" \
-  --object-dir "$OBJ" --out "$RES/verdict.json"
+  --object-dir "$OBJ" --knife-dir "$KNIFE" --out "$RES/verdict.json"
 verdict_rc=$?
 
 echo "############ [5/6] 独立最小复算审计（不同代码路径；A9 与 verdict 对拍） ############"
 python train_scripts/CASA-TViM/Run7/independent_audit.py \
-  --log-root "$LOG_ROOT" --ckpt-root "$CKPT_ROOT" \
+  --log-root "$LOG_ROOT" --ckpt-root "$CKPT_ROOT" --knife-dir "$KNIFE" \
   --verdict "$RES/verdict.json" --out "$RES/INDEPENDENT_AUDIT.json"
 audit_rc=$?
 echo "[FINISH] independent audit rc=$audit_rc"

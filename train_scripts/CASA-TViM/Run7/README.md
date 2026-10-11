@@ -495,6 +495,111 @@ best 文件每次替换）⇒ 无日志膨胀、无 ckpt 堆积风险；磁盘 2
 
 ---
 
+### 7.13 三形态 deploy 门的最后一块：`eval.py` 在**部署图**上的实测（E10 此前未验）
+
+**缺口**：目标第(4)条要"deploy 参数门"。此前只验过 CTRL（Run1 权重：4.880 M / 2.6747 G /
+unsupported_ops=19）与 E9（fail-closed 正例），**E10（`aux_inject`）从未验过** ——
+而它恰是三个形态里**唯一让部署图真正变大**的那个（4,890,366，+10,176），
+也正是最可能被 eval 误报成**训练图**参数（5.09 M，看起来像超预算）的那个。
+
+**做法**：用三形态的**真实**权重跑 `eval.py`（走 `--batch_size`，本项目没有 `--test_batch_size`），
+在**部署图**上读它自己打印的 `[DEPLOY-PARAMS]` / `[DEPLOY-FLOPS]`：
+
+| 变体 | eval 报的 deploy total | FLOPs | `unsupported_ops` | 冻结值 | ≤5 M |
+|---|---|---|---|---|---|
+| `M1_R7CTRL` | **4.880 M** | 2.6747 G | 19 | 4,880,190 ✓ | ✓ |
+| `E9_HFAE_A`（`aux_only`） | **4.880 M** | **2.6747 G** | 19 | 4,880,190 ✓ | ✓ |
+| `E10_HFAE_B`（`aux_inject`） | **4.890 M** | **2.7170 G** | 20 | 4,890,366 ✓ | ✓ |
+| 三者 | 均打印 `protocol_version=run7_hf_edge_exact80k_v1`，`source_code_sha256` **9 文件完全一致**，且 `[ARCH] eval arch matches ckpt sidecar` | | | | |
+
+**由此得到两条可写进论文的结论**（此前只有参数、没有 FLOPs）：
+
+1. **`aux_only` 的推理代价确实是零**：deploy 参数 **与 FLOPs 与 CTRL 逐位同值**
+   （4.880 M / 2.6747 G / unsupported_ops=19）⇒ 「训练期深监督、推理零开销」不只是数参数得来的，
+   而是**经 eval.py 在部署图上实测**的。
+2. **`aux_inject` 的代价是新测出来的**：4.890 M（+10,176）且 **2.7170 G（+0.0423 G，+1.58%）**，
+   `unsupported_ops` 19 → 20。论文部署表可直接引用这四个数。
+
+另：三者 `source_code_sha256` 完全一致，是 `independent_audit` 的 A8「12 run 同源代码身份」
+**从另一条代码路径**（eval.py 而非审计脚本）得到的独立佐证。
+（表中 F1 来自 **750 步**探针权重，**不是结果**；仅证明部署管道与参数门。）
+
+### 7.14 注入点核验：E10 到底注到哪（目标第(2)条「TAR/DCR 注入」+ 预注册 §4「DCR 1/4 输入」）
+
+**为什么查**：目标第(2)条写「`casa_tvim_str_net.py`/**TAR-DCR 注入**」，预注册 §4 写
+「零初始化注入 **DCR 1/4 输入**」。这两句是否与代码一致，直接决定论文里"注入到哪"的说法能不能写。
+而 `feats = self.tar(...)` 之后才注入，容易让人误以为注到的是 **DCR 的输出**。
+
+**读码结果（逐行）**：
+
+```
+str_tar.py:221   MultiScaleTAR.forward -> t1..t4 = TARStage(每个尺度) ; return [t1, t2, t3, t4]
+casa_tvim_str_net.py:265   feats = self.tar([f1a..f4a], [f1b..f4b])
+casa_tvim_str_net.py:268   # 零初始化注入 ⇒ epoch-0 逐位恒等；注入到 DCR 的最小尺度输入（1/4）
+casa_tvim_str_net.py:271   feats[0] = feats[0] + self.hf_edge_head.inject(self._hf_edge_feat)
+casa_tvim_str_net.py:272   x = self.decoder(feats)        # self.decoder = DCRDecoder(...)  (:106)
+casa_tvim_str_net.py:276   logits = self.head(x)
+```
+
+⇒ `feats[0]` 是 TAR 在 **1/4** 尺度上的输出，而它在 **:272 才被 `DCRDecoder` 消费**
+（`:106` 明确 `self.decoder = DCRDecoder(dim=str_dim, use_aux=(rep_mode=="full"), ...)`）。
+所以注入点**确实是 DCR 的 1/4 输入**，预注册 §4 的措辞与代码**逐字相符**，
+目标第(2)条的「TAR/DCR 注入」成立 ✅
+
+**顺带得到一个可用于"新机制而非重试"论证的对比**：被两次判 `MECHANISM-FAIL` 的 Run4 FET1 是
+**refine 之后**相加（`:273-275` 注释原文："refine **之后**相加（不进入 SiLU/RepLocalBlock，
+保持 DCR 训练路径不变）"）。即：
+
+| 机制 | 注入点 | 是否改变 DCR 算出来的东西 |
+|---|---|---|
+| Run4 FET1（已否证） | `decoder(feats)` **之后** | ✗ 末端旁路 |
+| Run7 E10 HFAE | `decoder(feats)` **之前**、1/4 尺度 | ✓ 进入 DCR 的输入 |
+
+这与预注册 §1「本机制作用在编码器最细两级…不在末端读出」「改变主干算出来的东西」**一致** ✅
+
+`switch_to_deploy` 侧一致：`:292` 在 `aux_only` 下把 `hf_edge_head = None`（整个头删除），
+与 `check_run.py` 断言的 `dropped=entire_head` / deploy 参数回到 4,880,190 相互印证。
+
+
+### 7.15 真实 batch 折叠门：刀锋像素澄清（⚠️ 见结果之后作出，已在预注册文档 §7.6 披露）
+
+**触发**：波一对照臂 `M1_R7CTRL/CDD-CD-256` 的真实 batch 折叠检查给出
+`[REPARAM-REAL-ARGMAX-DISAGREE] 9.537e-07`（**1 / 1,048,576 像素**），而预注册 §4③ 写的是
+「真实 batch disagreement = 0」⇒ 严格读法下该 run FAIL，收口链会 `exit 4` **不产出裁决**。
+
+**定位证据**（`analyse/run7_fold_knife_edge.py`，用真实 best ckpt 复现 train.py 收尾的同一 batch）：
+
+| 项 | 值 |
+|---|---|
+| 翻转像素 `\|p_train − 0.5\|` | **3.099e-06** |
+| 该次折叠最大绝对误差 | **6.199e-06** |
+| 全批处于误差带内的像素 | **2 / 1,048,576** |
+| 同源性自检（与日志相对差） | `max_abs` 1.9e-05、`disagree` 2.7e-05 ⇒ 同一 batch ✅ |
+| 判定（与 Run4 §10 同定义） | **KNIFE_EDGE_ARTIFACT** |
+
+**澄清**：真实 batch 折叠门 = 逐像素二值化一致，**唯一例外**是 `|p_train − 0.5|` 小于该次折叠
+**自身最大绝对误差**的像素（落在阈值数值误差带内、二值化本就不适定）。该例外**必须**附
+`_KNIFE_EDGE/KNIFE_EDGE_<dataset>_<variant>.json` 定位证据（`verdict=KNIFE_EDGE_ARTIFACT`、
+`n_flipped>0`、且 `disagree`/`max_abs_diff` 与日志吻合）；**缺失或不吻合一律 FAIL**。
+
+**三处独立实现**（互不 import，各自 fail-closed）：
+
+| 实现 | 位置 | 已验证 |
+|---|---|---|
+| 逐 run 硬门 | `check_run.py`（新增 `--knife-dir`） | 无证据→`rc=1`；有真实证据→`ALL PASS rc=0` ✅ |
+| 裁决机制自检 | `run7_verdict.py::fold_ok_knife` | selftest 3 条新分支；**21/21 PASS** ✅ |
+| 独立复算审计 | `independent_audit.py` A6 | 有证据→`A6=True(accepted)`；移走→`A6=False(violation)` ✅ |
+
+**收口链已自动生成证据**：`finish_run7.sh` 新增 `[1b/6]` 步——只对
+`[REPARAM-REAL-ARGMAX-DISAGREE] > 0` 的 run 跑定位诊断并落证据；disagreement 为 0 的 run 不做任何事。
+证据目录 `…/Run7/_KNIFE_EDGE/`。
+
+⚠️ **论文必须披露**：本条是在**看到波一结果之后**作出的（由真实运行触发，事先无从预知）；
+它**不依赖任何性能指标**、**对称适用于全部 12 个 run**（含 E9/E10）、不偏袒任何变体；
+判据/阈值/λ/seed **一概未动**，`SELECTION_LOCK.json` 的接受标准与守门阈值**完全不变**。
+
+
+
 ## §8 收口 runbook（波三跑完后照着做）
 
 ### 8.1 一条命令
@@ -767,83 +872,3 @@ grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
 
 本地侧同样应有：`models/test_run7_hf_edge.py` = 12 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
 服务器上为 0 SKIP）；`analyse/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
-
-
-
-### 7.13 三形态 deploy 门的最后一块：`eval.py` 在**部署图**上的实测（E10 此前未验）
-
-**缺口**：目标第(4)条要"deploy 参数门"。此前只验过 CTRL（Run1 权重：4.880 M / 2.6747 G /
-unsupported_ops=19）与 E9（fail-closed 正例），**E10（`aux_inject`）从未验过** ——
-而它恰是三个形态里**唯一让部署图真正变大**的那个（4,890,366，+10,176），
-也正是最可能被 eval 误报成**训练图**参数（5.09 M，看起来像超预算）的那个。
-
-**做法**：用三形态的**真实**权重跑 `eval.py`（走 `--batch_size`，本项目没有 `--test_batch_size`），
-在**部署图**上读它自己打印的 `[DEPLOY-PARAMS]` / `[DEPLOY-FLOPS]`：
-
-| 变体 | eval 报的 deploy total | FLOPs | `unsupported_ops` | 冻结值 | ≤5 M |
-|---|---|---|---|---|---|
-| `M1_R7CTRL` | **4.880 M** | 2.6747 G | 19 | 4,880,190 ✓ | ✓ |
-| `E9_HFAE_A`（`aux_only`） | **4.880 M** | **2.6747 G** | 19 | 4,880,190 ✓ | ✓ |
-| `E10_HFAE_B`（`aux_inject`） | **4.890 M** | **2.7170 G** | 20 | 4,890,366 ✓ | ✓ |
-| 三者 | 均打印 `protocol_version=run7_hf_edge_exact80k_v1`，`source_code_sha256` **9 文件完全一致**，且 `[ARCH] eval arch matches ckpt sidecar` | | | | |
-
-**由此得到两条可写进论文的结论**（此前只有参数、没有 FLOPs）：
-
-1. **`aux_only` 的推理代价确实是零**：deploy 参数 **与 FLOPs 与 CTRL 逐位同值**
-   （4.880 M / 2.6747 G / unsupported_ops=19）⇒ 「训练期深监督、推理零开销」不只是数参数得来的，
-   而是**经 eval.py 在部署图上实测**的。
-2. **`aux_inject` 的代价是新测出来的**：4.890 M（+10,176）且 **2.7170 G（+0.0423 G，+1.58%）**，
-   `unsupported_ops` 19 → 20。论文部署表可直接引用这四个数。
-
-另：三者 `source_code_sha256` 完全一致，是 `independent_audit` 的 A8「12 run 同源代码身份」
-**从另一条代码路径**（eval.py 而非审计脚本）得到的独立佐证。
-（表中 F1 来自 **750 步**探针权重，**不是结果**；仅证明部署管道与参数门。）
-
-### 7.14 注入点核验：E10 到底注到哪（目标第(2)条「TAR/DCR 注入」+ 预注册 §4「DCR 1/4 输入」）
-
-**为什么查**：目标第(2)条写「`casa_tvim_str_net.py`/**TAR-DCR 注入**」，预注册 §4 写
-「零初始化注入 **DCR 1/4 输入**」。这两句是否与代码一致，直接决定论文里"注入到哪"的说法能不能写。
-而 `feats = self.tar(...)` 之后才注入，容易让人误以为注到的是 **DCR 的输出**。
-
-**读码结果（逐行）**：
-
-```
-str_tar.py:221   MultiScaleTAR.forward -> t1..t4 = TARStage(每个尺度) ; return [t1, t2, t3, t4]
-casa_tvim_str_net.py:265   feats = self.tar([f1a..f4a], [f1b..f4b])
-casa_tvim_str_net.py:268   # 零初始化注入 ⇒ epoch-0 逐位恒等；注入到 DCR 的最小尺度输入（1/4）
-casa_tvim_str_net.py:271   feats[0] = feats[0] + self.hf_edge_head.inject(self._hf_edge_feat)
-casa_tvim_str_net.py:272   x = self.decoder(feats)        # self.decoder = DCRDecoder(...)  (:106)
-casa_tvim_str_net.py:276   logits = self.head(x)
-```
-
-⇒ `feats[0]` 是 TAR 在 **1/4** 尺度上的输出，而它在 **:272 才被 `DCRDecoder` 消费**
-（`:106` 明确 `self.decoder = DCRDecoder(dim=str_dim, use_aux=(rep_mode=="full"), ...)`）。
-所以注入点**确实是 DCR 的 1/4 输入**，预注册 §4 的措辞与代码**逐字相符**，
-目标第(2)条的「TAR/DCR 注入」成立 ✅
-
-**顺带得到一个可用于"新机制而非重试"论证的对比**：被两次判 `MECHANISM-FAIL` 的 Run4 FET1 是
-**refine 之后**相加（`:273-275` 注释原文："refine **之后**相加（不进入 SiLU/RepLocalBlock，
-保持 DCR 训练路径不变）"）。即：
-
-| 机制 | 注入点 | 是否改变 DCR 算出来的东西 |
-|---|---|---|
-| Run4 FET1（已否证） | `decoder(feats)` **之后** | ✗ 末端旁路 |
-| Run7 E10 HFAE | `decoder(feats)` **之前**、1/4 尺度 | ✓ 进入 DCR 的输入 |
-
-这与预注册 §1「本机制作用在编码器最细两级…不在末端读出」「改变主干算出来的东西」**一致** ✅
-
-`switch_to_deploy` 侧一致：`:292` 在 `aux_only` 下把 `hf_edge_head = None`（整个头删除），
-与 `check_run.py` 断言的 `dropped=entire_head` / deploy 参数回到 4,880,190 相互印证。
-
-
-
-
-
-
-
-
-
-
-
-
-
