@@ -221,4 +221,53 @@ clone 都会把 `.py/.json/.md` 检成 CRLF，**身份链只能在本机工作�
 验证工具：`.claude/_r7_verify_clone.py`（对任意工作副本逐条核验清单）、
 `.claude/_identity_health.py`（体检本地各 Run 清单 + CRLF 污染）。
 
+### 7.5 补上收口缺的两步：逐 run 硬门 `check_run.py` + 把独立审计接进收口链
+
+**发现的缺口**：目标要求的收口链是「审计 + check_run + 对象级只读复算」，但 `finish_run7.sh`
+原来只有「12-run 门 → 对象级复算 → 裁决 → 对照表」——**既没有 check_run，也没跑独立审计**。
+即：`collect_results.py` 只查步数/协议串，不查「消融是不是真的成立」；而 `independent_audit.py`
+虽然写好了却没人调用。两处都会在 20:40 收口时才发现，属于"收口那一刻才发现工具没接上"。
+
+**新增 `check_run.py`**（Run4 `check_run.py` 的 Run7 版本），它比 12-run 门多管两件
+**消融可解释性**的关键事：
+
+| 检查 | 为什么必须有 |
+|---|---|
+| `M1_R7CTRL` 日志里除 `[HFAE-CONFIG] hf_edge=0 form=none` 外**不得出现任何** `[HFAE-*]` 机制行 | 保证对照组没有偷偷带上被消融的机制（"唯一变量"） |
+| 实验组 `[HFAE-GRAD]` 必须 `hf_tap_grad_norm > 0` 且 `nonzero_tap_grad_tensors > 0` | 证明边缘辅助损失的梯度**真的回流进了高频分支**，而不是只挂了旁路头（正是 Run5「只读 HF 通道」被否证的失败模式） |
+| `[HFAE-FORM]` 的 `lambda == 0.2`、`taps == 1_4_1_8`（λ 预注册固定禁止搜索） | 防止事后换权重的"调参型提升" |
+| `[HFAE-DEPLOY]` 的 `dropped=entire_head/edge_out_only` 与 `deploy_params=4880190/4890366` | 证明两种部署形态各自按预注册方式折叠，且 ≤5M |
+| sidecar（`arch.json`/`run_manifest.json`）的 `hf_edge/form/taps/lambda/tag` + `source_code_sha256` | 日志与权重身份一致，且身份非空 |
+
+**为验证它而用真实 train.py 产出契约完整日志**：40 步冒烟没有跑完一个 epoch ⇒ 既无 TEST 区块、
+也没有 `[HFAE-FORM]`/`[HFAE-DEPLOY]`（它们写在收尾阶段，需要 `best_F1=*.pth` 存在）。
+故用 **WHU（最小数据集，batch 8 → 744 iters/epoch）+ `max_steps=750`** 在两张卡上并行各跑
+E9/E10 一次，得到**契约完整**的真实日志（GPU 占用回到基线，未干扰波一）。
+
+**验证结果：`CHECK_RUN VALIDATION = PASS`**（9 个用例，"该过的过、该拦的拦"）：
+
+| 用例 | 期望 | 实测 |
+|---|---|---|
+| 真实 E9 / E10 契约完整日志 | 仅 `steps(750) != 80000` 失败 | 35/36、36/36 检查通过，恰好 1 项 FAIL ✅ |
+| 把 E9 日志当 CTRL 收 | 抓「对照组不干净」+ 配置行不符 | 2 项 FAIL，正是这两条 ✅ |
+| `hf_tap_grad_norm` 归零 / `nonzero_tap_grad_tensors` 归零 | 抓「机制没接上」 | 各 1 项 FAIL ✅ |
+| 日志 `lambda` 改 0.5 | 抓 λ 被改 | 1 项 FAIL ✅ |
+| `deploy_params` 改 5100000 | 抓 deploy 被改 | 1 项 FAIL ✅ |
+| **sidecar** `hf_edge_lambda` 改 0.5 | 抓权重身份被改 | 2 项 FAIL（两份 sidecar）✅ |
+| 真实 CTRL（未跑完） | 只 FAIL 在「无完整 TEST 区块」；**对照组干净必须 PASS** | 2 项 FAIL，干净检查 **PASS (clean)** ✅ |
+
+**过程中被真实数据纠正的两处我自己的错误**（若不先在真实产出上验，收口时会把好 run 判死）：
+1. 我原以为 `source_code_sha256` 是 64 位十六进制；实测 train.py 写的是 **16 位**（如
+   `5bc6515389ad3c09`）⇒ 该检查在**所有** run 上都会误报失败。已改为接受 16 或 64 位。
+2. 我原以为 CTRL 的 sidecar 也记 `taps=1_4_1_8 / lambda=0.2`；实测 CTRL 记的是**生效值**
+   `taps='none' / lambda=0.0 / tag=None`（而日志里的 `[HFAE-CONFIG]` 回显的是 CLI 参数
+   `taps=1_4_1_8 lambda=0.2`）。两者口径不同是设计如此 ⇒ 检查必须**按变体分别对齐**。
+
+**`finish_run7.sh` 改为 6 步**：`[1/6]` 12-run 门 → `[2/6]` **逐 run check_run（fail-closed：
+有 FAIL 则 exit 4，不产出裁决，可用 `RUN7_ALLOW_CHECKRUN_FAIL=1` 显式越过并需在 README 记录原因）**
+→ `[3/6]` 对象级复算 → `[4/6]` 裁决 → `[5/6]` **独立审计（A9 与 verdict 对拍，故必须排在裁决之后）**
+→ `[6/6]` 对照表；审计未全过则 exit 5 并显式警告结论须按 INVALID 处理。
+实测未跑完时 `bash -n` 通过、实跑 **`FINISH_RC=2`** 且**未启动**对象级复算（不浪费 GPU）。
+
+
 
