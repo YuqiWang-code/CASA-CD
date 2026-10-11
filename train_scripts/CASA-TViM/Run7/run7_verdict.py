@@ -125,6 +125,12 @@ def decide(rows, obj, logs, th):
     detail["mechanism"] = mech
 
     # ---- 3) 守门：中大对象 recall 与 CDD/WHU F1
+    # 完整性守卫：守门依赖 `run7_object_metrics.py` 的对象级输出。若缺失（例如忘了跑那一步），
+    # **不得**当作"守门通过"——否则会在从未评估对象级指标的情况下判出 MECHANISM-PASS。
+    REQUIRED_HEADLINE = ("medium_pooled_recall", "large_pooled_recall", "ObjRecall_loose",
+                         "small_pooled_recall", "small_hit25", "unmatched_small_pred",
+                         "ObjPrecision_loose", "F1")
+
     def guardrail_ok(v):
         fails = []
         for d in DATASETS:
@@ -146,11 +152,27 @@ def decide(rows, obj, logs, th):
                     fails.append(f"{d}.F1: {f1[(v, d)]:.4f} < ctrl "
                                  f"{f1[('M1_R7CTRL', d)]:.4f} - {th['guardrail_f1_drop_max']}")
         return fails
+
+    def guardrail_evaluable(v):
+        """胜出变体与 CTRL 的**全部**数据集都需有对象级输出，否则守门无法评估。"""
+        miss = [d for d in DATASETS if (v, d) not in obj or ("M1_R7CTRL", d) not in obj]
+        bad = [d for d in DATASETS
+               if (v, d) in obj and any(k not in (obj[(v, d)] or {}) for k in REQUIRED_HEADLINE)]
+        return miss, bad
+
     detail["guardrail_fails"] = {v: guardrail_ok(v) for v in EXPERIMENTS}
+    detail["guardrail_unevaluable"] = {v: guardrail_evaluable(v) for v in EXPERIMENTS}
 
     # ---- 4) 裁决
     if winners:
         v = winners[0]
+        miss, bad = detail["guardrail_unevaluable"][v]
+        if miss or bad:
+            return {"verdict": "INCOMPLETE", "winner": v,
+                    "reasons": [f"守门无法评估：{v} 缺对象级指标（datasets={miss}，"
+                                f"缺字段={bad}）；请先跑 "
+                                f"`analyse/run7_object_metrics.py --all-variants`。"],
+                    "detail": detail, "attribution": None}
         gf = detail["guardrail_fails"][v]
         if gf:
             return {"verdict": "GUARDRAIL-FAIL", "winner": v, "reasons": gf,
@@ -235,10 +257,25 @@ def _mk_logs(grad=5e-2, aux=(0.34, 0.33)):
 
 
 def _mk_obj(ctrl=0.5, exp=0.5):
-    return {(v, d): {"medium_pooled_recall": ctrl if v == "M1_R7CTRL" else exp,
-                     "large_pooled_recall": ctrl if v == "M1_R7CTRL" else exp,
-                     "ObjRecall_loose": 0.7674}
-            for v in VARIANTS for d in DATASETS}
+    """夹具必须与 `analyse/run7_object_metrics.py` 的真实 headline 字段**逐键一致**
+    （已用 Run1 M1_FULL 的真实输出核对过 schema），否则守卫会把夹具判成"字段缺失"。"""
+    out = {}
+    for v in VARIANTS:
+        for d in DATASETS:
+            c = v == "M1_R7CTRL"
+            out[(v, d)] = {
+                "small_pooled_recall": 0.1974 if c else 0.2100,
+                "small_object_macro_recall": 0.1654 if c else 0.1750,
+                "small_hit1": 0.2280, "small_hit25": 0.1896 if c else 0.2000,
+                "small_hit50": 0.1648, "n_gt_small_objects": 364,
+                "medium_pooled_recall": ctrl if c else exp,
+                "large_pooled_recall": ctrl if c else exp,
+                "unmatched_small_pred": 2430 if c else 2200,
+                "ObjPrecision_loose": 0.5320 if c else 0.5450,
+                "ObjRecall_loose": 0.7674 if c else 0.7674,
+                "F1": 0.8347 if c else 0.8400,
+            }
+    return out
 
 
 def selftest():
@@ -315,6 +352,19 @@ def selftest():
     # 9) aux loss 未下降 → 机制自检不过
     v = decide(_mk_rows(f), _mk_obj(), _mk_logs(aux=(0.30, 0.40)), th)
     cases.append(("MECHANISM-FAIL (aux not decreasing)", v["verdict"] == "MECHANISM-FAIL",
+                  v["verdict"]))
+
+    # 10) 守门无法评估（忘了跑对象级复算）→ 不得判 PASS，必须 INCOMPLETE
+    v = decide(_mk_rows(f), {}, _mk_logs(), th)
+    cases.append(("INCOMPLETE (guardrail unevaluable)", v["verdict"] == "INCOMPLETE",
+                  v["verdict"]))
+
+    # 11) 部分数据集缺对象级指标 → 同样 INCOMPLETE
+    obj_partial = _mk_obj()
+    for d in DATASETS:
+        obj_partial.pop(("E9_HFAE_A", d), None)
+    v = decide(_mk_rows(f), obj_partial, _mk_logs(), th)
+    cases.append(("INCOMPLETE (partial object metrics)", v["verdict"] == "INCOMPLETE",
                   v["verdict"]))
 
     print("=== verdict engine selftest (pure decide(), synthetic fixtures) ===")
