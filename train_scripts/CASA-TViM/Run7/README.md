@@ -50,7 +50,7 @@
 | S3 | **波一 `M1_R7CTRL` × 4 库** 80K | 波内有 run 失败 ⇒ 不启动下一波 |
 | S4 | **波二 `E9_HFAE_A` × 4 库** 80K | 同上 |
 | S5 | **波三 `E10_HFAE_B` × 4 库** 80K | 同上 |
-| S6 | 收口：8 库测试块门 + 对象级只读复算 + 与 CTRL 对比 | — |
+| S6 | 收口：**一条命令** `bash train_scripts/CASA-TViM/Run7/finish_run7.sh`（12-run 门 → 对象级只读复算 → 裁决+归因 → 对照表；退出码 0=已裁决 / 2=尚有 run 未完成） | — |
 
 GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32。
 每个 run 自带 `last.pth` 崩溃恢复（仅限**本 run**，上限 3 次），**绝不复用 Run1–Run6 目录**。
