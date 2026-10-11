@@ -586,11 +586,16 @@ for v in M1_R7CTRL E9_HFAE_A E10_HFAE_B; do
     --log-root /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7 \
     --variants $v --datasets CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256 \
     --out /tmp/rs_$v.json >/dev/null 2>&1
-  grep -o '"n_valid":[^,]*' /tmp/rs_$v.json
+  printf '  %-11s ' "$v"
+  grep -oE '"n_(valid|total)": *[0-9]*' /tmp/rs_$v.json | tr '\n' ' '; echo
 done
 grep -l -E "3 attempts exhausted" \
   /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/*/*/train_log.txt
 ```
+
+> 该循环**只写 `/tmp/rs_<v>.json`**，**不会**碰到督导正在用的 `/tmp/r7_sup_gate.json`。
+> 同时打印 `n_valid` 与 `n_total`：只看 `n_valid` 在波次进行中会显示 `0`、无法区分
+> 「0/4」与「0/12」。（本节的每条命令都已**照抄实测**可执行、输出可判读。）
 
 **③ 波内崩溃一般会自愈**：`run_all.sh` 对每个 run 有 **3 次重试**，每次都从**自己的**
 `last.pth` 自动续训（`train.py` 恢复 `actual_steps` 与 RNG）。只有日志出现
