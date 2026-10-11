@@ -89,6 +89,9 @@ def decide(rows, obj, logs, th):
     f1 = {(v, d): by[(v, d)]["metrics"]["F1"] for v in VARIANTS for d in DATASETS}
 
     # ---- 1) 机制自检（每个实验组 × 每库都必须过）
+    # 注意：`all_ok` **只能**由下面 checks_d 里的布尔项决定。诊断用的原始读数必须放在
+    # `per[d]["raw"]` 子字典里——若混进同一层，`all()` 会把 0.0 / None 当成 False，
+    # 从而把本来通过的机制自检判死（这类"把报告值混进判定"的错误正是本轮要防的）。
     mech = {}
     for v in EXPERIMENTS:
         per = {}
@@ -96,7 +99,7 @@ def decide(rows, obj, logs, th):
             r = by[(v, d)]
             lg = logs.get((v, d), {})
             aux = lg.get("aux_losses") or []
-            per[d] = {
+            checks_d = {
                 "hfae_form_ok": r.get("hfae_form") == ("aux_only" if v == "E9_HFAE_A"
                                                        else "aux_inject"),
                 "fold_disagree_zero": r.get("fold_real_disagree") == 0.0,
@@ -106,7 +109,20 @@ def decide(rows, obj, logs, th):
                 "aux_loss_present_and_decreasing": (
                     len(aux) >= 2 and aux[-1] <= aux[0]),
             }
-            per[d]["all_ok"] = all(v2 for k, v2 in per[d].items() if k != "all_ok")
+            per[d] = dict(checks_d)
+            per[d]["all_ok"] = all(checks_d.values())
+            # 原始读数：**只作诊断与论文引用**，不参与判定
+            per[d]["raw"] = {
+                "hfae_form": r.get("hfae_form"),
+                "hfae_deploy_params": r.get("hfae_deploy_params"),
+                "deploy_param_limit": th["deploy_param_limit"],
+                "fold_real_disagree": r.get("fold_real_disagree"),
+                "hf_tap_grad_norm": lg.get("hfae_grad_norm"),
+                "hfae_grad_lines": lg.get("hfae_grad_lines"),
+                "n_aux_loss_epochs": len(aux),
+                "aux_loss_first": aux[0] if aux else None,
+                "aux_loss_last": aux[-1] if aux else None,
+            }
         mech[v] = per
 
     # ---- 2) 主判据：F1 delta
@@ -326,6 +342,28 @@ def render_markdown(rows, verdict):
                     f"{c['unmatched_small_pred']}→{e['unmatched_small_pred']} | "
                     f"{'n/a' if rt is None else f'{rt:.2f}'} | "
                     f"{d4(dd['medium_pooled_recall'])}/{d4(dd['large_pooled_recall'])} |")
+
+    # 机制自检的**原始读数**（判定仍是上面的 reasons / all_ok；这里只给可引用的数字）
+    mech = ((verdict.get("detail") or {}).get("mechanism") or {})
+    if mech:
+        def g6(x):
+            return "n/a" if x is None else f"{x:.6g}"
+        lines += ["", "**机制自检原始读数（只作诊断/引用，不参与判定）**", "",
+                  "| variant | dataset | form | deploy params | fold disagree | "
+                  "HF tap grad norm | [HFAE-LOSS] epochs | aux first→last | grad lines | all_ok |",
+                  "|---|---|---|---:|---:|---:|---:|---|---:|---|"]
+        for v in EXPERIMENTS:
+            for d in DATASETS:
+                m = (mech.get(v) or {}).get(d)
+                if not m:
+                    continue
+                rw = m.get("raw") or {}
+                lines.append(
+                    f"| {v} | {d} | {rw.get('hfae_form')} | {rw.get('hfae_deploy_params')} | "
+                    f"{g6(rw.get('fold_real_disagree'))} | {g6(rw.get('hf_tap_grad_norm'))} | "
+                    f"{rw.get('n_aux_loss_epochs')} | {g6(rw.get('aux_loss_first'))}→"
+                    f"{g6(rw.get('aux_loss_last'))} | {rw.get('hfae_grad_lines')} | "
+                    f"{'OK' if m.get('all_ok') else 'FAIL'} |")
     return "\n".join(lines)
 
 
@@ -490,6 +528,35 @@ def selftest():
                   "n_gt_small_objects")) and isinstance(rep.get("delta"), dict)
     cases.append(("SYSU small-object readings surfaced (report + attribution)",
                   att_ok and rep_ok, f"attribution={att_ok} report={rep_ok}"))
+
+    # 14) 不变量：`all_ok` 只能由布尔检查项决定，**不能**被 raw 诊断值污染。
+    #     夹具里 fold_real_disagree=0.0（falsy）、aux_loss_last=0.3（truthy）——
+    #     若把 raw 混进同一层做 all()，这条会挂。
+    vm = decide(_mk_rows(f), _mk_obj(), _mk_logs(aux=(0.34, 0.30)), th)
+    m9 = (vm["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
+    raw = m9.get("raw") or {}
+    chk_bool = all(m9[k] for k in ("hfae_form_ok", "fold_disagree_zero",
+                                   "deploy_within_limit", "grad_reaches_hf_branch",
+                                   "aux_loss_present_and_decreasing"))
+    cases.append(("all_ok depends only on boolean checks (raw cannot poison it)",
+                  m9["all_ok"] is True and chk_bool and m9["all_ok"] == chk_bool,
+                  f"all_ok={m9['all_ok']} bools={chk_bool} fold={m9['fold_disagree_zero']}"))
+    cases.append(("mechanism raw readings present (aux first→last, grad, fold)",
+                  raw.get("n_aux_loss_epochs") == 2
+                  and raw.get("aux_loss_first") == 0.34 and raw.get("aux_loss_last") == 0.30
+                  and raw.get("fold_real_disagree") == 0.0
+                  and raw.get("hf_tap_grad_norm") is not None,
+                  f"n={raw.get('n_aux_loss_epochs')} {raw.get('aux_loss_first')}→"
+                  f"{raw.get('aux_loss_last')} grad={raw.get('hf_tap_grad_norm')}"))
+
+    # 15) 负向：aux loss 反向（末 > 首）时机制自检必须 FAIL（预注册 ⑤）
+    vaux = decide(_mk_rows(f), _mk_obj(), _mk_logs(aux=(0.30, 0.40)), th)
+    mx = (vaux["detail"]["mechanism"]["E9_HFAE_A"])["SYSU-CD-256"]
+    cases.append(("aux not decreasing => all_ok False with raw evidence",
+                  mx["all_ok"] is False
+                  and mx["raw"]["aux_loss_first"] == 0.30 and mx["raw"]["aux_loss_last"] == 0.40,
+                  f"all_ok={mx['all_ok']} {mx['raw']['aux_loss_first']}→"
+                  f"{mx['raw']['aux_loss_last']}"))
 
     print("=== verdict engine selftest (pure decide(), synthetic fixtures) ===")
     print("thresholds:", json.dumps(th, ensure_ascii=False))

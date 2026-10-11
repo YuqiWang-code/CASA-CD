@@ -435,6 +435,38 @@ audit 与 verdict 的先后依赖）只有串起来才会暴露。
 （TEST 区块只在 80,000 步收尾写出，实测到 10:00 波一仍是 `NO_COMPLETE_TEST_BLOCK`）
 ⇒ 冻结时**无从观察到任何结果**，"判据在任何 E9/E10 结果之前固定"成立且可复核。
 
+### 7.11 机制自检的**原始读数**入报告 + 修掉一处「报告值会污染判定」的隐患
+
+**动机**：目标第(5)条要"机制归因"，而 `detail["mechanism"][v][d]` 原先**只有布尔值**，
+论文无法直接引用"高频梯度到底多大、aux loss 从多少降到多少"。同时发现一个**真实隐患**：
+
+`all_ok` 原先写作 `all(v2 for k, v2 in per[d].items() if k != "all_ok")` —— **遍历全部条目**。
+这意味着**任何**后来加进去的非布尔诊断值都会被当成判定条件：例如 `fold_real_disagree = 0.0`
+是 falsy、`aux_loss_last = 0.3` 是 truthy，一旦混进同一层，就会把本来通过的机制自检判死
+（或反之）。这与本轮想加的功能正好相撞。
+
+**改法**（只加报告，不改判定语义）：
+- 把布尔检查项收进 `checks_d`，`all_ok = all(checks_d.values())` —— **只由布尔项决定**；
+- 诊断读数放进**独立子字典** `per[d]["raw"]`：`hfae_form` / `hfae_deploy_params` /
+  `deploy_param_limit` / `fold_real_disagree` / `hf_tap_grad_norm` / `hfae_grad_lines` /
+  `n_aux_loss_epochs` / `aux_loss_first` / `aux_loss_last`；
+- `verdict.md` 增出**机制自检原始读数表**（可整表引用进论文）。
+
+**验证**：
+
+| 检查 | 结果 |
+|---|---|
+| selftest | **15 → 18 条全 PASS**；其中一条夹具专门造陷阱（`fold=0.0` falsy + `aux_last=0.3` truthy）断言 `all_ok is True` |
+| 反向用例 | `aux=(0.30, 0.40)`（末 > 首）⇒ `all_ok False`，且 raw 里留下 `0.30→0.40` 作为归因证据 |
+| **真实形状数据上判定不变** | 用排练产物重跑裁决：`before = GUARDRAIL-FAIL winner=E9_HFAE_A`，`after = 同一标签同一 winner`，**reasons 均为 12 条** |
+| `all_ok == all(布尔项)` | 对全部 **8** 个 (变体, 库) 逐一成立 |
+| 新表真实渲染 | `HF tap grad norm 0.0490047`、`aux first→last 0.337611→0.301204`、`fold disagree 0`、`deploy 4880190`、`all_ok OK` |
+
+**顺带核实资源增长（推到 80K 是否有风险）**：波一四个日志在 ~16.5k 步时 16–27 KB，
+**线性外推到 80,000 步约 0.1 MB**；ckpt 目录稳定在 **635 MB**（`last.pth` 覆盖写、
+best 文件每次替换）⇒ 无日志膨胀、无 ckpt 堆积风险；磁盘 2.6 T 空闲。
+
+
 
 
 
