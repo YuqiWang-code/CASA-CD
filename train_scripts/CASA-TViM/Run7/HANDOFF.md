@@ -20,6 +20,13 @@
 
 ## 2. 收口只需一条命令（已 12-run 全量排练，`FINISH_RC=0`，耗时 207 s）
 
+> ⚠️ **别依赖那个 bounded watcher**：`.claude/_r7_watch.ps1` 是 **11 小时**上限
+> （2026-10-11 09:28:37 启动 ⇒ 约 **20:28–20:31 自行退出**），而三波全部结束约 **20:40** ——
+> **watcher 会在完成前约 10 分钟到期**。最后一段请直接轮询
+> `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log`（每 120 s 一行）
+> 或跑 `_r7_survey.sh`，不要等 watcher 的通知。
+
+
 ```bash
 cd /home/yqwang/projects/CASA-CD
 bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
