@@ -137,3 +137,69 @@ TinyViM 频率解耦在 `SS2D.forward_core`：
 Run1–Run6 产物、`models/` 既有算子（`ss2d.py`/`caacp_ss2d.py`/`str_dcr.py`/`str_reparam.py`）
 一律不动；新代码只新增 `models/model/str_hf_edge.py` 并在
 `casa_tvim_str_net.py` / `train.py` / `eval.py` / `run7_dry_run.py` / `test_run7_hf_edge.py` 中接线。
+
+---
+
+## §7 实施澄清与逐条对拍（**追加于见结果之前**，2026-10-11 10:20）
+
+> **性质声明**：本节是**追加**的，§1–§6 一字未改（§6 要求冻结项不得事后修改）。
+> 本节**不新增判据、不放宽任何阈值**，只把 §3/§4 的散文式表述与**机器可执行的裁决代码**
+> 对齐，并如实披露一处"代码比散文**更严**"的地方。所有阈值仍以
+> `train_scripts/CASA-TViM/Run7/SELECTION_LOCK.json` 的
+> `acceptance_criteria_frozen_numeric` 为准（唯一规范形式）。
+
+### 7.1 冻结时序（可核验）
+
+- `SELECTION_LOCK.json` 的 `_frozen_at = 2026-10-11T09:35:00+08:00`。
+- 09:27 启动的是**同期对照** `M1_R7CTRL`（波一）；**没有任何 E9/E10 run 存在**。
+- 冻结时**全部 12 个 run 都还没有任何完整 TEST 区块**（TEST 区块只在 80,000 步收尾时写出；
+  实测到 10:00 波一仍是 `NO_COMPLETE_TEST_BLOCK`）⇒ 冻结时**无从观察到任何结果**。
+- 因此"判据在任何 E9/E10 结果之前固定"这一条**成立且可复核**。
+
+### 7.2 规范阈值（逐字取自 SELECTION_LOCK.json）
+
+| 键 | 值 | 对应 §4 的哪一句 |
+|---|---|---|
+| `min_datasets_ge_ctrl` | 3 | 「≥3/4 库 F1 ≥ CTRL」 |
+| `f1_tie_tolerance` | 0.0 | 「F1 ≥ CTRL」为**严格** ≥（无容差） |
+| `deploy_param_limit` | 5,000,000 | §4 机制自检 ④ |
+| `grad_norm_min` | 0.0 | §4 机制自检 ①（要求 `> 0`） |
+| `guardrail_recall_drop_max` | 0.02 | 「中/大对象 pooled Recall 不显著回退」（沿用 Run6 §7.3 已冻结先例） |
+| `guardrail_objrecall_drop_max` | 0.02 | ⚠️ **见 7.3**：散文只写了 pooled Recall，代码另压了目标级 ObjRecall |
+| `guardrail_f1_datasets` | `[CDD-CD-256, WHU-CD-256]` | 「CDD/WHU 不得明显恶化」 |
+| `guardrail_f1_drop_max` | 0.002 | 同上（0.20pp 相对底线） |
+| `verdict_labels` | MECHANISM-PASS / MECHANISM-FAIL / GUARDRAIL-FAIL / INVALID / INCOMPLETE | 裁决取值域 |
+
+### 7.3 唯一一处「代码比散文更严」的披露
+
+§4 散文的守门只写了「中/大对象 pooled Recall 不显著回退；CDD/WHU 不得明显恶化」，
+而代码另加了 **`ObjRecall_loose` 回退 > 0.02 即触发守门**（目标级，loose 口径）。
+**这是额外从严、不是放宽**，且与其余阈值同时冻结（09:35，见结果之前），
+故不违反预注册精神；此处如实披露以免评审时被当作"事后加码"。
+若课题负责人认为应当严格按散文执行，正确做法是**另开一次编号实验**，而不是改本节或改锁。
+
+### 7.4 §4 判据 → 执行位置的逐条映射（已实测）
+
+| §4 判据 | 落在哪里 | 状态 |
+|---|---|---|
+| 主：四库 F1 vs 同期 CTRL | `run7_verdict.py::decide` `primary_ok`（`n_ge ≥ 3` **且** SYSU **严格**提升 **且** 机制自检全过） | ✅ 与散文逐字一致（已读码核对） |
+| 次：SYSU small pooled Recall / Hit@25 / 未匹配小预测 / ObjP / ObjR | `run7_verdict.py::decide` 的 `detail["small_object_report"]` + 三类结局的 `attribution` + `verdict.md` 小目标表 | ✅ 2026-10-11 补齐（此前只被要求"存在"、从未输出；见 Run7 README §7.7） |
+| 守门：中/大 pooled Recall、CDD/WHU F1 | `guardrail_ok()`；缺失对象级指标时判 `INCOMPLETE`（**不假 PASS**） | ✅ |
+| 机制自检 ① `[HFAE-GRAD]` 首步 `hf_tap_grad_norm > 0` | `mech[...]["grad_reaches_hf_branch"]` + `check_run.py` 的 `[HFAE-GRAD]` 断言 | ✅ |
+| 机制自检 ② epoch-0 `torch.equal(CTRL, EXP)` | **T2**（`test_run7_hf_edge.py`，1298 共有键 0 处不一致）+ **dry-run 门**（三形态均 true）；由 `fork_rng` + 注入零初始化在**构造期**保证 | ✅ 属结构性性质，**不从日志逐 run 复推**（如实说明） |
+| 机制自检 ③ 真实 batch 折叠 disagreement = 0 | 训练收尾 `[REPARAM-REAL-ARGMAX-DISAGREE]`，由 `run7_verdict`（`fold_disagree_zero`）、`check_run.py`、`independent_audit.py` 三处独立检查 | ✅ |
+| 机制自检 ④ deploy ≤ 5M | `deploy_within_limit` + `check_run.py` + 锁的 `deploy_param_limit` | ✅ |
+| 机制自检 ⑤ `[HFAE-LOSS]` 逐 epoch 下降 | `aux_loss_present_and_decreasing`（`len(aux) ≥ 2` 且 `aux[-1] ≤ aux[0]`） | ✅ |
+| 接受标准 | `winners = [v for v in EXPERIMENTS if primary_ok]`；取第一个；无 winner ⇒ `MECHANISM-FAIL` + 归因 | ✅ |
+| 收口链 | `finish_run7.sh`（6 步）→ 12 run 已 DRY 排练 `FINISH_RC=0`（Run7 README §7.9） | ✅ |
+
+### 7.5 §6 不改动既有算子的核验（实测）
+
+`git log` 显示本节写作时（见结果之前）Run7 期间的模型侧改动**恰好**是 §6 承诺的范围：
+
+- **新增**：`models/model/str_hf_edge.py`、`models/run7_dry_run.py`、`models/test_run7_hf_edge.py`；
+- **接线修改**：`models/train.py`、`models/eval.py`、`models/model/casa_tvim_str_net.py`；
+- **未改动**（最近一次提交均在 Run7 之前）：`layers/ss2d.py`(2026-10-03)、
+  `layers/caacp_ss2d.py`(2026-10-05)、`str_dcr.py`/`str_reparam.py`(2026-10-02)、
+  `tinyvim_s_slim.py`(2026-10-05)、`str_fine_tap.py`(2026-10-10)。
+

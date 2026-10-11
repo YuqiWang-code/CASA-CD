@@ -403,6 +403,39 @@ audit 与 verdict 的先后依赖）只有串起来才会暴露。
 它只证明「守门确实会在"F1 涨但中大对象 recall 崩"时触发」这条逻辑是活的。
 **正式结论一律等 12 个 80K run 跑完后由 `finish_run7.sh` 产出。**
 
+### 7.10 预注册文档 ↔ 裁决代码的逐条对拍（见结果之前完成）
+
+**为什么必须做**：预注册只有在"文档写的判据 == 代码执行的判据"时才成立。此前我核对过
+`SELECTION_LOCK.json` ↔ `run7_verdict.py`，但**没有核对散文式设计文档 ↔ 代码**。
+若两者不一致，评审时会被当作"事后改规则"。
+
+**做法**：逐条读码对拍，把结果作为 **§7 追加**进预注册文档
+（`docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md`）。
+**追加而非修改**：`git diff --numstat` 实测 **added=66 / deleted=0**，
+原 §1–§6 一字未动（§6 明文要求冻结项不得事后修改），且抽查关键句仍逐字存在。
+
+**对拍结果**：
+
+| 项 | 结论 |
+|---|---|
+| 接受标准 | ✅ **逐字一致**：`primary_ok = (n_ge ≥ 3) and SYSU 严格提升 and 机制自检全过`，`winners` 取第一个，无 winner ⇒ `MECHANISM-FAIL` + 归因 |
+| tap 规格 | ✅ 文档 `network[0][2]`/`network[2][2]` 的 `local_conv`（36ch@1/4 + 32ch@1/8）与 `HF_EDGE_TAPS` 及真实日志 `[HFAE-TAPS] [[0,2,36,64],[2,2,32,32]]` 一致 |
+| λ / head 参数量 / deploy 参数 | ✅ 0.2、7,041 / 10,209、4,880,190 / 4,880,190 / 4,890,366（+10,176）全部与真实日志一致 |
+| 机制自检 ①③④⑤ | ✅ 分别落在 `grad_reaches_hf_branch` / `fold_disagree_zero`（另由 check_run 与 audit 独立再查）/ `deploy_within_limit` / `aux_loss_present_and_decreasing` |
+| 机制自检 ②（epoch-0 逐位相同） | ⚠️ **如实说明**：由 **T2 + dry-run 门**在**构造期**保证（`fork_rng` + 注入零初始化），**不从日志逐 run 复推**；已写进文档以免被误读为"逐 run 有日志证据" |
+| §6「既有算子一律不动」 | ✅ 实测 Run7 期间模型侧改动**恰好**是承诺范围：新增 `str_hf_edge.py`/`run7_dry_run.py`/`test_run7_hf_edge.py`，接线修改 `train.py`/`eval.py`/`casa_tvim_str_net.py`；`ss2d.py`(10-03)、`layers/caacp_ss2d.py`(10-05)、`str_dcr.py`/`str_reparam.py`(10-02)、`tinyvim_s_slim.py`(10-05)、`str_fine_tap.py`(10-10) **最近提交均在 Run7 之前** |
+
+**披露一处「代码比散文更严」**：§4 散文的守门只写了中/大对象 pooled Recall，
+而代码另加了 `ObjRecall_loose` 回退 > 0.02 触发守门（`guardrail_objrecall_drop_max`）。
+这是**额外从严、不是放宽**，且与其余阈值**同时**在 09:35 冻结 ⇒ 不违反预注册精神；
+已在文档 §7.3 如实披露，避免被当作事后加码。
+
+**冻结时序可核验**：锁 `_frozen_at = 2026-10-11T09:35:00+08:00`；09:27 启动的是同期对照
+`M1_R7CTRL`，**没有任何 E9/E10 run 存在**；且冻结时**全部 12 个 run 都还没有任何完整 TEST 区块**
+（TEST 区块只在 80,000 步收尾写出，实测到 10:00 波一仍是 `NO_COMPLETE_TEST_BLOCK`）
+⇒ 冻结时**无从观察到任何结果**，"判据在任何 E9/E10 结果之前固定"成立且可复核。
+
+
 
 
 
