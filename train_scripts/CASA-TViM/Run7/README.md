@@ -524,6 +524,15 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 3. `_RESULTS/INDEPENDENT_AUDIT.json` → `n_checks=10, n_failed=0`
 4. `_RESULTS/verdict.json` → `verdict` / `winner` / `reasons` / `attribution`
 
+> **收口前卫生（2026-10-11 10:30 已做）**：`_RESULTS/` 里原先留着我早前 DRY 测试的
+> `summary.json`(0/12)、`summary_partial.json`、`verdict_partial.json/.md`(INCOMPLETE)。
+> 它们**不会被任何工具读取**（审计走显式路径；`_OBJECT_METRICS` 当时为空），
+> 但会与正式产物并排出现、有被误引为结果的风险。已按纪律**改名**为
+> `_SUPERSEDED_20261011_1030_*`（**未删除**）。
+> ⇒ 核验时若看到 `_SUPERSEDED_*`，那是历史测试产物，**不要引用**；
+> 正式产物只认 `summary.json` / `verdict.json` / `INDEPENDENT_AUDIT.json` / `check_run_*.json`。
+
+
 ### 8.4 五种 verdict 怎么写（**硬目标未达也照实写**）
 
 | verdict | 写法 |
