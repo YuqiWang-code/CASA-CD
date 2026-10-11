@@ -189,3 +189,36 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 `independent_audit.py` 原先还**漏登记**在 `SOURCE_FILES.txt` 里，已补入（现 24 条）；
 `SOURCE_SHA256.txt` **24/24 与服务器逐字节一致**（`_r7_stage.py --check` 退出 0）。
 
+### 7.4 身份链能否**从 git 复现**——发现并修好一个此前无人察觉的基础设施缺陷
+
+身份登记只有在"别人 clone 下来也能复核"时才有意义。实测**全新 clone** 再核验
+`Run7/SOURCE_SHA256.txt`：
+
+| 阶段 | clone 侧核验结果 |
+|---|---|
+| 修复前 | **FAIL**，`.py` 逐条 MISMATCH（`train.py`、`str_hf_edge.py`、`ss2d.py`、`str_tar/dcr/reparam.py`、`check_mapping.py`… 前 400 字节内就有 5~10 个 CRLF） |
+| 只加 `* text=auto eol=lf` | 23/24，仅剩 `models/model/utils.py` |
+| 再钉 `utils.py text eol=crlf` | **24/24 PASS** ✅ |
+
+根因：`.gitattributes` 原先只钉了 `*.sh`，而 `core.autocrlf=true` 来自**系统级** gitconfig
+（`C:/Program Files/Git/etc/gitconfig`，即 Windows 装完 Git 的默认值）⇒ 任何人在 Windows 上
+clone 都会把 `.py/.json/.md` 检成 CRLF，**身份链只能在本机工作副本上闭合**。
+（服务器工作副本是 SFTP 逐文件同步、不是 clone，故**已跑完/正在跑的训练不受影响**。）
+
+`models/model/utils.py` 为什么单独钉 CRLF 而不是规范成 LF：它在 `models/train.py` 的
+`SOURCE_IDENTITY_FILES` 里，sha256 会写进**每个 run** 的 `arch.json`/`last.pth`；而波一正在训，
+此时改它的字节会让波一与波二/波三身份不同源 → A8「全部 run 同源代码身份」FAIL →
+**错误地否定一个本来干净的实验**，且属于训练中途改代码。故改为把**检出内容**钉成 CRLF，
+与运行时被哈希的字节逐字节一致；本地工作副本未被改写（`git status` 只有 `.gitattributes`）。
+留 TODO：下个 Run 统一改 LF 并同时重建清单。
+
+**附带核查（研究诚信）**：体检发现 Run5 有 2 条、Run6 有 3 条清单条目与当前工作副本不一致。
+逐条查证：这 5 个文件都由 `1160eed`（Research policy revision + archive design docs）最后修改，
+`git diff` 显示改动**仅为**设计文档路径改为 `docs/temporary/过去的想法/…` 并加一行
+"内容与 SHA256 未变"说明；**没有任何阈值、判据、结论、数字被改动**，两份设计文档 sha256 复算未变。
+⇒ Run5/Run6 预注册完整性不受影响；其清单记录的是"运行时身份"，其后有一次已记录在案的归档改名。
+
+验证工具：`.claude/_r7_verify_clone.py`（对任意工作副本逐条核验清单）、
+`.claude/_identity_health.py`（体检本地各 Run 清单 + CRLF 污染）。
+
+
