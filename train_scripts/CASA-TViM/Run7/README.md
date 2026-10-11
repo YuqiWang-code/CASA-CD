@@ -638,6 +638,36 @@ nohup bash train_scripts/CASA-TViM/Run7/supervise_waves.sh \
 
 **⑥ 无论如何**：产物只 `_INVALID_*` / `_SUPERSEDED_*` **改名**，**绝不删除**。
 
+### 7.13 三形态 deploy 门的最后一块：`eval.py` 在**部署图**上的实测（E10 此前未验）
+
+**缺口**：目标第(4)条要"deploy 参数门"。此前只验过 CTRL（Run1 权重：4.880 M / 2.6747 G /
+unsupported_ops=19）与 E9（fail-closed 正例），**E10（`aux_inject`）从未验过** ——
+而它恰是三个形态里**唯一让部署图真正变大**的那个（4,890,366，+10,176），
+也正是最可能被 eval 误报成**训练图**参数（5.09 M，看起来像超预算）的那个。
+
+**做法**：用三形态的**真实**权重跑 `eval.py`（走 `--batch_size`，本项目没有 `--test_batch_size`），
+在**部署图**上读它自己打印的 `[DEPLOY-PARAMS]` / `[DEPLOY-FLOPS]`：
+
+| 变体 | eval 报的 deploy total | FLOPs | `unsupported_ops` | 冻结值 | ≤5 M |
+|---|---|---|---|---|---|
+| `M1_R7CTRL` | **4.880 M** | 2.6747 G | 19 | 4,880,190 ✓ | ✓ |
+| `E9_HFAE_A`（`aux_only`） | **4.880 M** | **2.6747 G** | 19 | 4,880,190 ✓ | ✓ |
+| `E10_HFAE_B`（`aux_inject`） | **4.890 M** | **2.7170 G** | 20 | 4,890,366 ✓ | ✓ |
+| 三者 | 均打印 `protocol_version=run7_hf_edge_exact80k_v1`，`source_code_sha256` **9 文件完全一致**，且 `[ARCH] eval arch matches ckpt sidecar` | | | | |
+
+**由此得到两条可写进论文的结论**（此前只有参数、没有 FLOPs）：
+
+1. **`aux_only` 的推理代价确实是零**：deploy 参数 **与 FLOPs 与 CTRL 逐位同值**
+   （4.880 M / 2.6747 G / unsupported_ops=19）⇒ 「训练期深监督、推理零开销」不只是数参数得来的，
+   而是**经 eval.py 在部署图上实测**的。
+2. **`aux_inject` 的代价是新测出来的**：4.890 M（+10,176）且 **2.7170 G（+0.0423 G，+1.58%）**，
+   `unsupported_ops` 19 → 20。论文部署表可直接引用这四个数。
+
+另：三者 `source_code_sha256` 完全一致，是 `independent_audit` 的 A8「12 run 同源代码身份」
+**从另一条代码路径**（eval.py 而非审计脚本）得到的独立佐证。
+（表中 F1 来自 **750 步**探针权重，**不是结果**；仅证明部署管道与参数门。）
+
+
 
 
 
