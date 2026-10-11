@@ -717,6 +717,46 @@ nohup bash train_scripts/CASA-TViM/Run7/supervise_waves.sh \
 > 关于 `SHA256SUMS.txt` 的多行：它是 append-only 的运行台账，重复行**不是**缺陷；
 > 但引用哈希时请取**最后一次**写入的那一行（`tail -1`）。
 
+---
+
+## §9 交付状态一条命令核对（任何时刻都可重跑）
+
+不确定"当前这套东西是否仍然自洽"时，跑这个。**全部应当通过**：
+
+```bash
+cd /home/yqwang/projects/CASA-CD
+
+# 1) 身份清单逐字节对拍（期望 26 条全 OK、无输出其它行）
+sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -c ': OK'   # -> 26
+sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -v ': OK'    # -> 空
+
+# 2) 关键工具自检（期望 PASS / PASS / PASS(18 branches) / PASS）
+python train_scripts/CASA-TViM/Run7/check_mapping.py  | tail -1
+python train_scripts/CASA-TViM/Run7/check_imports.py  | tail -1
+python train_scripts/CASA-TViM/Run7/run7_verdict.py --selftest    | grep '^SELFTEST'
+python train_scripts/CASA-TViM/Run7/independent_audit.py --selftest | grep '^SELFTEST'
+
+# 3) 督导 + 进度 + 异常（期望 ALIVE / 无 errors / 恰 4 个 train.py）
+kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo ALIVE
+tail -1 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
+  /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/*/*/train_log.txt || echo "no errors"
+```
+
+**2026-10-11 10:55 实测基线**（此后数值会随时间变化，但"是否 PASS"应保持不变）：
+
+| 检查 | 实测 |
+|---|---|
+| 身份清单 | **26/26 OK**，无非 OK 行 |
+| check_mapping / check_imports | PASS / PASS |
+| verdict selftest | **PASS (18 branches)** |
+| audit selftest | PASS |
+| 训练 | supervisor ALIVE；无 errors；4 个 `train.py`；ckpt 634 M；磁盘 2.6 T 空闲 |
+
+本地侧同样应有：`models/test_run7_hf_edge.py` = 12 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
+服务器上为 0 SKIP）；`analyse/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
+
+
 
 ### 7.13 三形态 deploy 门的最后一块：`eval.py` 在**部署图**上的实测（E10 此前未验）
 
