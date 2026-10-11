@@ -36,7 +36,8 @@ if _MODELS_ROOT not in sys.path:
 from model.trainer import Trainer
 from model.str_fusion import STRFusionNet
 from model.str_tass_fusion import STRTASSNet
-from model.str_hf_edge import hf_edge_loss, HF_EDGE_LAMBDA_DEFAULT, HF_EDGE_TAPS
+from model.str_hf_edge import (HF_EDGE_FORM, HF_EDGE_LAMBDA_DEFAULT, HF_EDGE_TAPS,
+                               hf_edge_loss)
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
