@@ -8,3 +8,13 @@
 # 身份链断裂（曾实测：git ls-files --eol 显示这些文件 attr/ 为空）。因此显式钉死 LF。
 # 二进制文件由 text=auto 自动识别、不做转换。
 * text=auto eol=lf
+
+# 唯一例外：models/model/utils.py 在**本次 Run7 消融的训练期**就是 CRLF（89 行）。
+# 它的 sha256 被写进了 models/train.py 的 SOURCE_IDENTITY_FILES -> 12 个 run 的
+# arch.json/last.pth 的 source_code_sha256，以及 Run7/SOURCE_SHA256.txt。
+# 若现在把它规范成 LF：(a) 会改变已落盘 run 的身份记录，使 A8「12 个 run 同源代码身份」
+# 这条检查失败、从而错误地否定一个本来干净的实验；(b) 属于**训练中途改代码**。
+# 因此这里把它的检出内容钉成 CRLF，让 clone 出来的字节与运行时被哈希的字节完全一致。
+# TODO(下一个 Run，无历史产物依赖之后)：统一改成 LF，并同时重建 SOURCE_SHA256.txt。
+models/model/utils.py text eol=crlf
+
