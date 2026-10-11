@@ -152,3 +152,40 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 `small pooledR=0.2213`、**`unmatched_small=5,358`**、`ObjP=0.3822`、`F1=0.8238`
 —— 对比 Run1 终值 `2430 / 0.5320 / 0.8347`：**训练早期模型过度开火**（FP 数量翻倍、ObjP 明显低），
 故对象级指标确实随训练变化，且**只有终态 ckpt 才可与冻结参考对比**（收口只取 best ckpt）。
+
+### 7.3 独立审计的参数化与**真实数据阳性对照**（2026-10-11 09:48）
+
+收口第 3 步 `independent_audit.py` 原本把 `PROTOCOL/VARIANTS/DATASETS` 写死，只能审计 Run7
+自己，**无法在训练结束前证明它的解析与自洽性检查在真实日志上真的成立**。已改为可传
+`--variants/--datasets/--protocol`，并新增 `_fixture()` 端到端自测（`--selftest` 9 → **14/14 OK**）：
+
+| 自测 | 断言 |
+|---|---|
+| e2e 合规夹具 | `n_failed == 0`（10 项全过） |
+| e2e A9 重推导 | `picked == ["E9_HFAE_A"]`，与 `verdict.json` 的 winner 一致 |
+| e2e A8 行数 | `n_code_identity_rows == len(variants) × len(datasets)`（证明 `--variants` 真被使用） |
+| e2e 故意破坏一处 F1 | 被 **A2** 抓到，且 `f1_iou_worst_key` 精确指向该 run |
+| e2e 故意写错一处协议串 | 被 **A4** 抓到 |
+
+**真实数据阳性对照**：把审计指向**已完成**的 Run4（`--variants M1_R4CTRL --protocol run4_exact80k_v1`，
+协议串是从真实日志里 `grep` 出来的、不是我猜的）：
+
+| 检查 | 结果 | 说明 |
+|---|---|---|
+| A1/A2/A3/A4/A5/A6/A8/A10 | **8 项 OK** | 解析、`F1 == 2IoU/(1+IoU)`、量程、80k 步数、协议串、deploy 4.880 M、代码身份全部在真实日志上成立 |
+| `f1_iou_max_delta` | **6.95e-05**（Run4/CDD） | 真实日志的六指标自洽性残差；阈值 1e-3 既有余量又能抓住真错误 |
+| A7 sidecar 契约 | FAIL（**预期**） | Run4 `arch.json` 无 `hf_edge` 字段（`hf_edge=None ≠ 0`）——证明该检查确实按 Run7 契约判定 |
+| A9 接受规则对拍 | FAIL（**预期**） | Run4 无 Run7 的 `verdict.json` |
+
+对照 2：指向**正在训练中**的 Run7 树 → A1 正确报 `not_ready`（未完成路径不崩、也不假 PASS）。
+
+**纪律副作用（已更正并留痕）**：对照跑初版会把审计结果哈希**追加**到 `--log-root` 的
+`SHA256SUMS.txt`，于是那次跑在 `Run4/` 里**新建**了一个只含我自己那行的
+`SHA256SUMS.txt`（未覆盖任何历史内容：`wc -l = 1` 且该行就是我写的）。
+已按纪律**不删除、改名标记**为 `Run4/_INVALID_control_side_effect_20261011.SHA256SUMS.txt`，
+并把代码改为：**只有规范跑（无覆盖参数）才写回 SHA256SUMS**，对照跑明确打印"不改动目标 Run"。
+（目标 Run 的 `SOURCE_IDENTITY.json`/`EVIDENCE_INDEX.md` 均不引用该文件，故未破坏任何已登记身份。）
+
+`independent_audit.py` 原先还**漏登记**在 `SOURCE_FILES.txt` 里，已补入（现 24 条）；
+`SOURCE_SHA256.txt` **24/24 与服务器逐字节一致**（`_r7_stage.py --check` 退出 0）。
+
