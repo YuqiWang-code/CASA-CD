@@ -1,11 +1,41 @@
 {
   "run": "Run6",
-  "stage": "structural readout gate — preflight pending",
+  "stage": "structural readout gate — preflight COMPLETED, NO_80K",
   "generated": "2026-10-11T01:20:00+08:00",
-  "decision": "PREFLIGHT_PENDING",
+  "updated": "2026-10-11T08:30:00+08:00",
+  "decision": "NO_80K",
+  "decision_basis": "gate.json status=FAIL: K4b (winner - baseline_full >= 0.05) failed with delta=+0.00801; K2/K3/K4/K5/K6/K7 all PASS",
   "training_runs_executed": 0,
   "training_runs_allowed": 0,
   "models_directory_modified": false,
+  "models_unmodified_evidence": "S1.2 compared core12 + Run5 frozen module SHA256 against the local frozen revision: 13/13 DIFF=0",
+  "preflight_result": {
+    "out_dir": "/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run6-DISCRIMINABILITY-20261011",
+    "status": "FAIL",
+    "elapsed_s": 69.6,
+    "timed_out": false,
+    "n_fit_images": 10788,
+    "n_eval_images": 4000,
+    "n_pos_eval": 327,
+    "n_neg_eval": 2430,
+    "selected": "C2",
+    "gate_impl": "c2_interior_consistency",
+    "gate_stat": "consistency",
+    "winner_test_auc": 0.9723757566605001,
+    "winner_test_auc_ci95_low": 0.9554198566608376,
+    "winner_test_ap": 0.9215558345197438,
+    "winner_test_ap_ci95_low": 0.8868432298626665,
+    "baseline_full_auc": 0.9643686840085073,
+    "baseline_amp_auc": 0.7593184077723664,
+    "baseline_head_auc": 0.956459143479191,
+    "baseline_hand_auc": 0.5399787317048615,
+    "K4_delta_vs_frozen_constant": 0.3731757566605002,
+    "K4b_delta": 0.008007072651992853,
+    "K5_delta": 0.21305734888813377,
+    "independent_audit": "44/44 checks OK",
+    "invalidated_first_round": "TViM-Run6-DISCRIMINABILITY-20261011_INVALID_20261011_0826 (4 feature columns were never assigned; renamed, not deleted)"
+  },
+  "mechanism_conclusion": "Separable information EXISTS in the frozen M1 features (C2 probe test AUC 0.9724 / AP 0.9216, far above handcrafted 0.5992), but its increment over the FULL baseline is only +0.0080 (<+0.05), and baseline_head alone already reaches AUC 0.9565: the discriminative information is already carried by the model's own head confidence. This matches the pre-registered risk R2 (design doc section 9) and, combined with R3 (Run4: frozen-probe AUC high yet joint training unchanged), means readout-layer structural gains are exhausted under the frozen protocol.",
   "plan": {
     "path": "docs/temporary/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md",
     "sha256": "d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b",
@@ -43,17 +73,22 @@
     "test_used_for_selection": false,
     "note": "gate_impl 与 gate_stat 由前测唯一决定，四库必须同一值"
   },
-  "not_yet_written": [
-    "analyse/tvim_run6_discriminability.py",
+  "written": [
+    "analyse/tvim_run6_discriminability.py (run6_discriminability_v1)",
+    "analyse/tests/test_tvim_run6_discriminability.py (75 tests)",
+    "train_scripts/CASA-TViM/Run6/make_source_identity.py",
+    "train_scripts/CASA-TViM/Run6/README.md"
+  ],
+  "not_written_and_will_not_be_written": [
+    "models/ 的任何修改（前测未 PASS）",
     "models/test_run6_gate.py",
-    "train_scripts/CASA-TViM/Run6/{_gen_scripts.py,run_all.sh,post_train.sh,check_run.py,audit_protocol.py,auto_post_train.sh}",
-    "models/ 的任何修改"
+    "train_scripts/CASA-TViM/Run6/{_gen_scripts.py,run_all.sh,post_train.sh,check_run.py,audit_protocol.py,auto_post_train.sh}"
   ],
   "stop_rules": [
-    "§4.2 K2/K3/K4 任一 FAIL -> NO_80K，训练次数 = 0，按 §7.6 收口",
-    "K5 FAIL -> gate_stat 强制 amplitude，且论文不得声称跨尺度一致性贡献",
-    "前测未 PASS 之前不修改 models/、不写训练脚本",
-    "禁止 rm -rf：失败产物一律 _INVALID_YYYYMMDD_HHMM 隔离保留"
+    "§4.2 K2/K3/K4/K4b 任一 FAIL -> NO_80K，训练次数 = 0，按 §7.6 收口【本轮 K4b FAIL，已触发】",
+    "K5 FAIL -> gate_stat 强制 amplitude，且论文不得声称跨尺度一致性贡献【本轮 K5 PASS，gate_stat=consistency】",
+    "前测未 PASS 之前不修改 models/、不写训练脚本【已遵守】",
+    "禁止 rm -rf：失败产物一律 _INVALID_YYYYMMDD_HHMM 隔离保留【首轮产物已按此隔离】"
   ],
   "paper_targets_not_claimed": {
     "cdd": 98.0, "levir": 92.5, "sysu": 85.0, "whu": 95.0,

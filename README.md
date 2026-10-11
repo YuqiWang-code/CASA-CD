@@ -490,6 +490,73 @@ Diag1/Run4 冻结值（`n_small=364`、pooled `0.19742166`、`Hit@25=0.18956044`
 `b65a0d1d37ef37cbff9ea680ea4b9f8c4f13c31ce4b712aaff593ccf96f560fd`）；`gate.json`
 `status=COMPLETED` 仅表示执行完成且 `not_a_gate=true`，不得用于事后放宽 Run5 §5.4 的 G0–G8。
 
+---
+
+# Run6 结果（已完成，`STATUS = NO_80K`；正式训练次数 = 0）
+
+**Run6 的唯一问题**：冻结的 Run1 `M1_FULL` **既有特征**里，能否把「FP-like 未匹配小预测」与
+「真实 small 变化」分开？（即：SYSU 小目标的瓶颈是不是"信息根本不在表征里"）
+
+**只读前测**（`analyse/tvim_run6_discriminability.py`，`run6_discriminability_v1`）：
+拟合 = `train.txt` 的 D3 SHA1-hash 90%（10788 图 / 4362 对象）；评估 = `test.txt` 全量 4000 图
+（**327 正 + 2430 负**，与 Diag1/Run5 冻结值**逐数一致**）；probe = 标准化线性 logistic
+（L2 由按图 5 折 CV 在拟合集选）；test AUC/AP 用**图像级** bootstrap 1000、seed 16。
+用时 **69.6 s**（预算 900 s）；独立最小复算审计 **44/44 checks OK**；`models/` **未修改**
+（core12 + Run5 冻结模块 13 文件 SHA256 DIFF=0）。
+
+**K 门读数（test 全量；阈值在见结果之前冻结）**
+
+| 门 | 阈值 | 实测 | 判定 |
+|---|---|---|---|
+| K1 | `n_pos≥300` 且 `n_neg≥2000` | **327 / 2430** | PASS |
+| K2 | test `AUC≥0.80` 且 CI 下界 `>0.75` | AUC **0.97238**，CI95[0.95542, 0.98746] | PASS |
+| K3 | test `AP≥0.35` 且 CI 下界 `>0.25` | AP **0.92156**，CI95[0.88684, 0.95124] | PASS |
+| K4 | winner − **0.5992** ≥ 0.15 | **+0.37318**（手工证据通道上限远被超过） | PASS |
+| **K4b** | winner − `baseline_full` ≥ 0.05 | **+0.00801** | **FAIL** |
+| K5 | winner − `baseline_amp` ≥ 0.10 | **+0.21306** | PASS（`gate_stat=consistency`） |
+| K7 | train-CV AUC 降序选一 | **C2**（`c2_interior_consistency`）：C1 0.96217 / C2 0.96819 | PASS |
+
+**各 probe 组（同对象集合、同框架）**
+
+| probe 组 | test AUC | test AP |
+|---|---:|---:|
+| `baseline_hand`（F14 手工证据通道） | 0.53998 | 0.12953 |
+| `baseline_amp`（纯幅度基线） | 0.75932 | 0.26083 |
+| `baseline_head`（**模型自身置信度**：logit/prob 统计） | **0.95646** | 0.85759 |
+| `baseline_full`（amp+hand+head，K4b 分母） | **0.96437** | 0.89726 |
+| `C1_features`（跨尺度一致性） | 0.94218 | 0.85420 |
+| `C2_features`（对象内部/边界一致性） | 0.95986 | 0.88216 |
+| `candidate_C1` = full+C1 | 0.97141 | 0.91821 |
+| **`candidate_C2` = full+C2（胜出）** | **0.97238** | **0.92156** |
+
+**机制结论（数据驱动，非推测）**
+
+1. **可分辨信息确实存在**：C2 probe 达 AUC 0.9724 / AP 0.9216，远超手工证据通道 0.5400 与
+   纯幅度基线 0.7593 ⇒ 小目标瓶颈**不是"信息不在表征里"**（H6a 成立）。
+2. **但增量几乎全部来自模型自己的 head 置信度**：`baseline_head` 单独就有 AUC 0.9565，
+   完整基线 0.9644；C2 在其上只加 **+0.0080**（预注册要求 ≥+0.05）⇒ **K4b FAIL ⇒ `NO_80K`**。
+3. 这与设计文档 §1.3 / §9 预注册的 **R2**（"一致性信息其实已在 head 里，门控无新增"，
+   依据 F05 `DOUT` AP 0.9053 ≈ head 0.9049）**方向一致**；叠加 **R3**（Run4 前测 PASS 而 80K 无变化）
+   ⇒ 在 4,880,190 参数不变、不改损失/增强/阈值/种子的冻结协议下，**读出层结构增益已被穷尽**。
+4. **Run6 训练次数 = 0**，`models/` 未被修改，未写训练脚本，未开 80K。
+   按设计文档 **§7.6 收口**：写成"负结果 + 机制归因"一节（含可复现的门槛与前测方法论），
+   保留两个已成立贡献（CAACP-SS2D、TAR/DCR 重参数化多尺度融合），
+   下一步只能走**骨干级/预训练级重立项**（需导师签字，且不再保证 ImageNet epoch0 对应）。
+5. **论文硬目标（98.00/92.50/85.00/95.00）不作为本轮的判据或结论**；Run1 主线仍为
+   97.18 / 91.07 / 83.47 / 95.07。
+
+**过程记录（诚实披露）**：首轮全量前测（68.9 s）的产物因实现缺陷被判无效——我在重构 C2 时
+把 head 组三列改名，漏掉 `logit_mean` / `logit_std` / `logit_ring` 与 `refine_mag` 共
+**4 列从未赋值**，整列 NaN 被中位数填补静默成常数 0（远程 `n_missing_imputed_*` 显示
+amp 4362 / head 13086 / full 17448 = 列数×4362，逐项吻合）。修正为显式赋值 +
+**fail-closed P0 门**（任何特征列整列缺失即 `[P0_INVALID]`）+ 4 项回归单测，
+并给独立审计加了 H10 硬检查；首轮产物以 `_INVALID_20261011_0826` **改名保留（未删除）**，
+上表与结论全部取自修正后第二轮。K4b 在修正前后分别为 +0.00943 / +0.00801，**结论方向不变**。
+
+产物：`…/diagnostics/TViM-Run6-DISCRIMINABILITY-20261011/`（`gate.json` sha256
+`7ef7ef7d98c780950ff1a0ac4637b534e246b0c0efcb14a67ffbf52cd089877c`，
+`status=FAIL`、`decision=NO_80K`）。详见 `train_scripts/CASA-TViM/Run6/README.md`。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
