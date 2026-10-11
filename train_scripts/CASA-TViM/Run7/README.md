@@ -128,3 +128,27 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 
 ⇒ 波次门与 eval 门在**接受/拒绝两种方向**上都已被真实数据证明可用（另注：`eval.py` 没有
 `--test_batch_size`，用 `--batch_size`；这是本项目既有 CLI 约定）。
+
+### 7.2 收口工具自身的缺陷（训练期间发现并修复）
+
+`analyse/run7_object_metrics.py` 原先复用 `tvim_diag_common.build_model()`，但该函数的
+`VARIANT_CFG` **没有 Run7 变体**（`M1_R7CTRL`/`E9_HFAE_A`/`E10_HFAE_B`），且它**不传
+`hf_edge*`** —— 即使把变体名补进去，E9/E10 的 train 图 state_dict（含 `hf_edge_head.*`）
+也会 strict 失败。**这会在最终裁决那一步才炸、导致 12 个 run 的对象级指标全部算不出来。**
+
+已改为显式构造：新增 `build_run7_model()`（变体 → `(hf_edge, form)` 映射后直接构造
+`CASATViMSTRNet` 并严格加载），并验证：
+
+| 验证 | 结果 |
+|---|---|
+| 三变体 CPU 严格加载（自建 state_dict 回灌） | `missing=0 unexpected=0`，参数量 5,084,017 / 5,091,058 / 5,094,226 ✅ |
+| 未知变体名 | 明确 `KeyError`（不带默认值蒙混）✅ |
+| **真实 Run7 ckpt 端到端**（波一 CTRL/SYSU 中途权重） | `built Run7 variant: hf_edge=0 form=none (missing=0 unexpected=0)`，正常输出对象级指标 ✅ |
+
+同轮核实：每个 ckpt 目录**恰好 1 个** `best_F1=*.pth`（`train.py:792` 会先删旧 best），
+故 `pick_best_ckpt` 的"唯一 best"假设对 Run7 成立 ✅。
+
+**早期 sanity 读数**（波一中途 CTRL，约 3,000/80,000 步）：`n_small=364`（GT 固定不变）、
+`small pooledR=0.2213`、**`unmatched_small=5,358`**、`ObjP=0.3822`、`F1=0.8238`
+—— 对比 Run1 终值 `2430 / 0.5320 / 0.8347`：**训练早期模型过度开火**（FP 数量翻倍、ObjP 明显低），
+故对象级指标确实随训练变化，且**只有终态 ckpt 才可与冻结参考对比**（收口只取 best ckpt）。

@@ -46,6 +46,37 @@ FROZEN_RUN1_SYSU = {
 }
 SMALL_GROUPS = list(GROUP_ALIAS["small"])
 
+# Run7 三个变体 → (hf_edge, hf_edge_form)。**必须显式构造模型**：
+# `tvim_diag_common.build_model()` 依赖 `VARIANT_CFG`，其中没有 Run7 变体；
+# 即便补进去也不会传 `hf_edge*`，E9/E10 的 state_dict（含 hf_edge_head.*）会 strict 失败。
+# 该缺陷在收口前用真实 ckpt 实测时发现（否则会在最终裁决那一步才炸）。
+RUN7_VARIANTS = {"M1_R7CTRL": (0, "none"), "E9_HFAE_A": (1, "aux_only"),
+                 "E10_HFAE_B": (1, "aux_inject")}
+
+
+def build_run7_model(variant, device, ckpt_path, pretrain, strict=True):
+    """按 Run7 变体显式构造 CASATViMSTRNet 并严格加载 train 图 state_dict。"""
+    import torch
+    from model.casa_tvim_str_net import CASATViMSTRNet
+    if variant not in RUN7_VARIANTS:
+        raise KeyError(f"unknown Run7 variant {variant}; expect {sorted(RUN7_VARIANTS)}")
+    hf_edge, form = RUN7_VARIANTS[variant]
+    m = CASATViMSTRNet(pretrain, caacp=True, rep_mode="full", str_dim=96,
+                       caacp_score_mode="rank", frh=False,
+                       caacp_residual_mode="current", fs_tar=False, fine_tap=False,
+                       hf_edge=bool(hf_edge), hf_edge_form=form).float().to(device)
+    sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    missing, unexpected = m.load_state_dict(sd, strict=False)
+    info = {"variant": variant, "hf_edge": hf_edge, "hf_edge_form": form,
+            "missing_keys": list(missing), "unexpected_keys": list(unexpected)}
+    if strict and (len(missing) or len(unexpected)):
+        raise RuntimeError(f"[R7-OBJ] state_dict mismatch: missing={list(missing)[:5]} "
+                           f"unexpected={list(unexpected)[:5]}")
+    m.eval()
+    for p in m.parameters():
+        p.requires_grad_(False)
+    return m, info
+
 
 def _small_unmatched(d):
     h = d.get("unmatched_pred_cc_count_by_area") or {}
@@ -61,9 +92,17 @@ def run_one(args):
     print(f"[R7-OBJ] {args.variant}/{args.dataset} ckpt={os.path.basename(ck)} sha={sha[:16]}",
           flush=True)
     variant_cfg = args.variant
-    model, info = build_model(variant_cfg, device=device, ckpt_path=ck, strict=True)
-    assert not info["missing_keys"] and not info["unexpected_keys"], \
-        f"state_dict mismatch: {info}"
+    if variant_cfg in RUN7_VARIANTS:
+        from tvim_diag_common import PRETRAIN_TINYVIM
+        model, info = build_run7_model(variant_cfg, device, ck, PRETRAIN_TINYVIM,
+                                       strict=True)
+        print(f"[R7-OBJ] built Run7 variant: hf_edge={info['hf_edge']} "
+              f"form={info['hf_edge_form']} (missing={len(info['missing_keys'])} "
+              f"unexpected={len(info['unexpected_keys'])})", flush=True)
+    else:
+        model, info = build_model(variant_cfg, device=device, ckpt_path=ck, strict=True)
+        assert not info["missing_keys"] and not info["unexpected_keys"], \
+            f"state_dict mismatch: {info}"
     model.eval()
     model.switch_to_deploy()          # 正式结果口径 = deploy 图（与 eval.py 一致）
 
