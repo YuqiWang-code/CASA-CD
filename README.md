@@ -612,6 +612,41 @@ amp 4362 / head 13086 / full 17448 = 列数×4362，逐项吻合）。修正为�
 `7ef7ef7d98c780950ff1a0ac4637b534e246b0c0efcb14a67ffbf52cd089877c`，
 `status=FAIL`、`decision=NO_80K`）。详见 `train_scripts/CASA-TViM/Run6/README.md`。
 
+## Run7（CASA-TViM HFAE · 编码器前两层频率分解高频 → 边缘检测辅助监督，**执行中**）
+
+> **状态：消融正在服务器执行（12 run × 严格 80,000 `optimizer.step`，2×RTX 5090 三波串行）。**
+> 本节是**执行索引**；**结果节**将在 12 个 run 全部跑完后由
+> `bash train_scripts/CASA-TViM/Run7/finish_run7.sh` 产出，并按
+> `train_scripts/CASA-TViM/Run7/README.md` §8.5b 的骨架补到本文件。
+
+**要回答的问题**：把编码器 stage0（1/4，HF 占 75%）与 stage1（1/8）频率分解的**高频分支**
+（`local_conv(x_high)`）接出来做「变化边缘检测」**辅助监督**，让边缘梯度**回流进高频分支**，
+能否在受控消融下带来四库一致的 F1 提升——而不是又一次"判别信息已经在 head 里"（Run6 的教训）。
+
+**为什么这是新机制**：Run5 的**无监督** HF tap 已被否证、F14 手工边缘通道已被否证、
+Run2/Run4 的**末端**旁路两次 `MECHANISM-FAIL`、Run6 的**读出层**门控 K4b FAIL。
+HFAE 的承重部件是**监督**（去掉即退化为已否证的无监督注入），且注入点在
+**DCR 的 1/4 输入**（`decoder(feats)` 之前），不是末端。
+
+**受控消融（唯一变量）**：`M1_R7CTRL`（同期同代码对照）/ `E9_HFAE_A`（+边缘监督，train-only，
+**deploy 与 CTRL 逐位同值** 4,880,190 + 2.6747 G）/ `E10_HFAE_B`（+边缘监督 + 零初始化注入，
+deploy 4,890,366 + 2.7170 G）。`λ=0.2` 预注册固定、**禁止搜索**。
+
+**已完成的验证**（详见 `train_scripts/CASA-TViM/Run7/README.md` §7）：
+T0–T11 全 PASS；train↔deploy 折叠等价 disagreement = 0；三形态 deploy 参数门经 `eval.py` 实测；
+注入点读码核验；收口链 6 步 **12-run 全量排练 `FINISH_RC=0`**；波次衔接与
+`rc=0/2/4/5` 四条退出路径全部端到端实测；预注册文档 ↔ 裁决代码逐条对拍一致。
+
+**关键文件**：预注册
+`docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md`（含 §7 实施澄清）·
+执行索引与 runbook `train_scripts/CASA-TViM/Run7/README.md` §8 ·
+会话交接 `train_scripts/CASA-TViM/Run7/HANDOFF.md` ·
+判据唯一规范形式 `train_scripts/CASA-TViM/Run7/SELECTION_LOCK.json`。
+
+> **硬目标（98.00/92.50/85.00/95.00）是努力方向而非必达门**（见 §1）；
+> 接受标准只看**相对同期 CTRL**（≥3/4 库 F1 ≥ CTRL 且 SYSU F1 > CTRL，且机制自检全过）。
+> 未达硬目标**不等于**失败，但**绝不可**因此回调 λ/阈值/seed。
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
