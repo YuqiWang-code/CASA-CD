@@ -47,6 +47,22 @@
     "accept": "at least one of E9/E10 has F1 >= CTRL on >=3/4 datasets AND SYSU F1 > CTRL, with all mechanism self-checks passing",
     "if_negative": "record as negative result with mechanism attribution (same as Run6 practice); no threshold retuning"
   },
+  "acceptance_criteria_frozen_numeric": {
+    "_frozen_at": "2026-10-11T09:35:00+08:00",
+    "_frozen_before_any_experiment_result": true,
+    "_why": "把上面 accept/guardrail 的散文式表述在**任何 E9/E10 训练之前**转成机器可执行的数值，避免事后按结果解释规则。仅做解释，不放宽。",
+    "min_datasets_ge_ctrl": 3,
+    "f1_tie_tolerance": 0.0,
+    "deploy_param_limit": 5000000,
+    "grad_norm_min": 0.0,
+    "guardrail_recall_drop_max": 0.02,
+    "_guardrail_recall_precedent": "直接沿用 Run6 §7.3 层 B 已冻结的『中大对象 pooled Recall ≥ CTRL − 0.02』，不新造阈值",
+    "guardrail_objrecall_drop_max": 0.02,
+    "guardrail_f1_datasets": ["CDD-CD-256", "WHU-CD-256"],
+    "guardrail_f1_drop_max": 0.002,
+    "_guardrail_f1_note": "0.20pp：Run7 无 Run6 那样的绝对层 C 门（新政策下硬目标是方向而非门），故只对 CDD/WHU 设『不得明显恶化』的相对底线；该数值同样在见结果之前冻结",
+    "verdict_labels": ["MECHANISM-PASS", "MECHANISM-FAIL", "GUARDRAIL-FAIL", "INVALID", "INCOMPLETE"]
+  },
   "risks": {
     "R1_info_already_in_head": "Run6 showed the FP-discrimination info is in head (AUC 0.9565); HFAE targets the RECALL/localization side (F04: SYSU small pooled recall 0.1974) and reshapes representations rather than re-reading features — verified by T5",
     "R2_novelty_occupied": "R8 EdgeRefNet (TGRS 2026) occupies edge-guided refinement + edge supervision; must be positioned as an internal STR ablation, not a third contribution; re-verify R8 details before writing",
