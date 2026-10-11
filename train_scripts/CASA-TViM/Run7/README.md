@@ -466,6 +466,96 @@ audit 与 verdict 的先后依赖）只有串起来才会暴露。
 **线性外推到 80,000 步约 0.1 MB**；ckpt 目录稳定在 **635 MB**（`last.pth` 覆盖写、
 best 文件每次替换）⇒ 无日志膨胀、无 ckpt 堆积风险；磁盘 2.6 T 空闲。
 
+### 7.12 督导「过门即开下一波」的触发逻辑实测（防静默不开波）
+
+**风险**：`wait_wave` 只在 `n_valid == n_total` 时 `return 0`。若 `wave_state` 的解析有 bug
+导致 `nv != nt`，督导会**一直循环到 20 小时上限**，**波二/波三永远不启动**，而且**是静默的**
+（日志只显示 `valid=3/4` 之类，看起来像"还没跑完"）。
+
+**做法**：从**正在运行的** `supervise_waves.sh` 里用正则**逐字提取** `wave_state` 的内联解析代码，
+在排练树（12 份完整日志，并补上督导正则要求的 `cumulative=` 行）上跑同一份逻辑。
+
+> ⚠️ **安全措施**：真正的 `wave_state` 读写 `/tmp/r7_sup_gate.json`，而督导**此刻正在用那个文件**。
+> 若测试覆盖它，督导可能读到我的数据并在波一未完成时**误判过门 ⇒ 提前开波二**。
+> 因此提取后**只把那个临时文件路径**换成 `/tmp/r7_wavestate/gate.json`，解析逻辑逐字未动
+> （提取脚本会打印出所有 `/tmp/` 引用以证明只此一处）。
+> 事后核实：`/tmp/r7_sup_gate.json` 仍是督导自己的实时状态（`n_valid=0 / n_total=4`，
+> mtime 跟随督导 120 s 周期）——**未被污染** ✅
+
+**结果（`WAVE_GATE CHECK = PASS`）**：
+
+| 变体 | 督导原始逻辑输出 `(n_valid n_total steps_sum)` | 判定 |
+|---|---|---|
+| `M1_R7CTRL` | `4 4 320000` | GATE PASS ⇒ 会启动波二 ✅ |
+| `E9_HFAE_A` | `4 4 320000` | GATE PASS ⇒ 会启动波三 ✅ |
+| `E10_HFAE_B` | `4 4 320000` | GATE PASS ⇒ 收口 ✅ |
+| 负向：只有 3/4 库完整 | `n_valid=3 n_total=4` | **不可过门**（正确）✅ |
+
+⇒ 「波一完成 → 自动开波二 → 自动开波三」这条唯一的自动衔接点已被证明可用。
+
+---
+
+## §8 收口 runbook（波三跑完后照着做）
+
+### 8.1 一条命令
+
+```bash
+cd /home/yqwang/projects/CASA-CD
+bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
+```
+
+预计 **~3.5 分钟**（已 12-run 全量排练实测 207 s）。它会打印醒目 `[REHEARSAL]` 横幅**仅当**
+用了 `RUN7_*` 覆盖变量——正式跑**不应**出现该横幅。
+
+### 8.2 退出码 → 动作
+
+| rc | 含义 | 动作 |
+|---|---|---|
+| **0** | 裁决已产出（MECHANISM-PASS / MECHANISM-FAIL / GUARDRAIL-FAIL） | 进入 8.4 写作 |
+| **2** | 尚有 run 未产出完整 TEST 区块 | **等**；看 `Run7_supervisor.log`；不要手动乱启 |
+| **3** | 环境/脚本缺失 | 查 conda 环境与文件是否齐 |
+| **4** | 逐 run 硬门有 FAIL | 看 `_RESULTS/check_run_*.json` 的 `failed` 列表；**不得**用 `RUN7_ALLOW_CHECKRUN_FAIL=1` 蒙过，必须先查明（该变量只用于确认无碍后留痕放行） |
+| **5** | 独立审计未全过 | 结论**按 INVALID 处理**；查 `INDEPENDENT_AUDIT.json` 里 FAIL 的那几项 |
+
+### 8.3 拿到 rc=0 后先核这几项
+
+1. `_RESULTS/summary.json` → `n_valid == 12`
+2. `_RESULTS/check_run_*.json` × 12 → 每个 `n_failed == 0`
+3. `_RESULTS/INDEPENDENT_AUDIT.json` → `n_checks=10, n_failed=0`
+4. `_RESULTS/verdict.json` → `verdict` / `winner` / `reasons` / `attribution`
+
+### 8.4 五种 verdict 怎么写（**硬目标未达也照实写**）
+
+| verdict | 写法 |
+|---|---|
+| `MECHANISM-PASS` | 机制有效：四库 F1 表 + 小目标表 + 机制原始读数表 |
+| `GUARDRAIL-FAIL` | "F1 达标但以中大对象/目标级 recall 为代价" ⇒ **记负结果 + 归因**（这本身是有价值的负面发现，不得省略） |
+| `MECHANISM-FAIL` | 按 `reasons` 分清是"F1 不够/SYSU 未提升"还是"机制自检哪一条没过"，逐条写 |
+| `INVALID` | 先查因，**不得引用 F1** |
+| `INCOMPLETE` | run 未齐，**不得当结论** |
+
+> 新政策提醒：硬目标（98.00/92.50/85.00/95.00）是**努力方向而非必达门**；
+> 未达不等于失败，**但不得为此回调任何预注册参数**。
+
+### 8.5 必写的三张表（`verdict.md` 里已经直接产出，可整表引用）
+
+1. 四库 F1 表（CTRL / E9 / E10 + Δ）
+2. 对象级小目标表（small pooledR、Hit@25、未匹配小预测、×CTRL、中大 pooledR Δ）
+3. 机制自检原始读数表（form / deploy params / fold disagree / HF tap grad norm / aux first→last）
+
+### 8.6 收尾清单
+
+- [ ] Run7 README 增「结果」节；根 `README.md` 增 Run7 结果节（**含负结果**）
+- [ ] 提交并 push；产物只 `_INVALID_*`/`_SUPERSEDED_*` **改名，绝不删除**
+- [ ] 任何文献表述前**重新核验** R8（EdgeRefNet, TGRS 2026）的真实出版信息
+
+### 8.7 绝不要做
+
+- ❌ 因未达硬目标而调 λ / 阈值 / seed（预注册已冻结，改了就作废）
+- ❌ 删除任何 run 日志或 ckpt
+- ❌ 重跑个别 run 以追求"更好看"的数字
+
+
 
 
 
