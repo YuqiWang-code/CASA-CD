@@ -85,6 +85,11 @@ def _small_unmatched(d):
 
 def run_one(args):
     import torch
+    # TinyViM 的 selective_scan kernel 只有 CUDA 实现；用 CPU 跑会在 forward 深处抛
+    # 「Expected u.is_cuda() to be true」这种难以定位的错。这里提前给出明确指引。
+    if not str(args.device).startswith("cuda"):
+        raise SystemExit("[R7-OBJ] 本工具需要 CUDA（TinyViM 的 selective_scan kernel 仅有 CUDA 实现）；"
+                         "请传 --device cuda:0")
     set_eval_numerics()
     device = args.device
     ck, meta = pick_best_ckpt(args.run, args.variant, args.dataset, ckpt_root=args.ckpt_root)
