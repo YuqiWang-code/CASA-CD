@@ -143,3 +143,20 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 | 对象级工具 | `analyse/run7_object_metrics.py` |
 | 预注册文档 | `docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md` |
 | 督导 | `train_scripts/CASA-TViM/Run7/supervise_waves.sh` + `…/Run7_supervisor.log` |
+
+## 7. 关于 `Run7/` 目录里的 `_r7_*.sh`（一次性诊断探针，**不是流水线的一部分**）
+
+服务器上 `train_scripts/CASA-TViM/Run7/` 除了被跟踪的正式文件外，还有约 **34 个** `_r7_*.sh`
+（我本会话做验证/监测时上传的一次性探针，如 `_r7_survey.sh`、`_r7_eta.sh`、`_r7_rerun.sh`、
+`_r7_rc4.sh` …）。它们**不影响任何流程**，已验证：
+
+| 断言 | 实测 |
+|---|---|
+| 收口链是否依赖目录列表 | `finish_run7.sh` 里 `glob`/`listdir` 出现 **0** 次 ⇒ 全部显式路径，探针无法影响 |
+| `check_mapping.py` 是否被探针干扰 | 在 34 个探针在场时实跑 = **PASS（14/14）** |
+| `check_imports.py` | 实跑 = **PASS** |
+| 审计的 `glob` | 只用于 `object_metrics_*.json` 与 `SOURCE_FILES.txt` 清单，与探针无关 |
+
+⇒ 看到这些文件**不必清理**（清理反而有改错路径的风险）；正式流水线只认
+`SOURCE_FILES.txt` 里登记的 25 个文件（+ `HANDOFF.md`）。
+
