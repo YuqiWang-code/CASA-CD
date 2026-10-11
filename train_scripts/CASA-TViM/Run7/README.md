@@ -509,13 +509,21 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 
 ### 8.2 退出码 → 动作
 
-| rc | 含义 | 动作 |
-|---|---|---|
-| **0** | 裁决已产出（MECHANISM-PASS / MECHANISM-FAIL / GUARDRAIL-FAIL） | 进入 8.4 写作 |
-| **2** | 尚有 run 未产出完整 TEST 区块 | **等**；看 `Run7_supervisor.log`；不要手动乱启 |
-| **3** | 环境/脚本缺失 | 查 conda 环境与文件是否齐 |
-| **4** | 逐 run 硬门有 FAIL | 看 `_RESULTS/check_run_*.json` 的 `failed` 列表；**不得**用 `RUN7_ALLOW_CHECKRUN_FAIL=1` 蒙过，必须先查明（该变量只用于确认无碍后留痕放行） |
-| **5** | 独立审计未全过 | 结论**按 INVALID 处理**；查 `INDEPENDENT_AUDIT.json` 里 FAIL 的那几项 |
+**下列每个退出码都已端到端实测**（不是只写在代码里）：
+
+| rc | 含义 | 动作 | 实测证据 |
+|---|---|---|---|
+| **0** | 裁决已产出（MECHANISM-PASS / MECHANISM-FAIL / GUARDRAIL-FAIL） | 进入 8.4 写作 | 12-run 全量排练 `FINISH_RC=0`（207 s）；重入再跑亦 0（§8.9） |
+| **2** | 尚有 run 未产出完整 TEST 区块 | **等**；看 `Run7_supervisor.log`；不要手动乱启 | 真实未跑完状态实测 |
+| **3** | 环境/脚本缺失 | 查 conda 环境与文件是否齐 | （仅环境守卫，未构造） |
+| **4** | 逐 run 硬门有 FAIL | 看 `_RESULTS/check_run_*.json` 的 `failed` 列表；**不得**用 `RUN7_ALLOW_CHECKRUN_FAIL=1` 蒙过，必须先查明 | 篡改 E9 `deploy_params` 后实测：`FINISH_RC=4` **且 `verdict.json` mtime 未变**（第 4 步没跑 ⇒ **没有铸造裁决**） |
+| **5** | 独立审计未全过 | 结论**按 INVALID 处理**；查 `INDEPENDENT_AUDIT.json` 里 FAIL 的那几项 | ① 1 库排练（缺 run）实测；② **越过开关后**审计仍抓到同样的篡改：`10 checks, 1 FAILED` |
+
+**关于 `RUN7_ALLOW_CHECKRUN_FAIL=1`（已实测）**：它**确实能**让链条越过第 2 步
+（实测第 4 步照跑、`verdict.json` 被改写），**但第 5 步的独立审计会独立再抓一次**
+⇒ 最终仍是 `FINISH_RC=5` 并打印「结论必须按 INVALID 处理」。
+这正是"两道不同代码路径的门"的意义：**绕过一道，另一道仍拦得住**。
+
 
 ### 8.3 拿到 rc=0 后先核这几项
 
