@@ -16,7 +16,7 @@
 
 | 项 | 值 |
 |---|---|
-| 设计文档 | `docs/temporary/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md` |
+| 设计文档 | `docs/temporary/过去的想法/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md`（2026-10-11 归档；内容与 SHA 未变） |
 | 设计文档 SHA256 | `d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b`（461 行 / 45282 bytes；本地现算一致） |
 | 冻结仓库版本 | `YuqiWang-code/CASA-CD@b1f5e54`（Run6 S1：审阅修正 + 75 单测 + P0 特征列补全 + 本 README） |
 | 前测脚本 | `analyse/tvim_run6_discriminability.py`（`run6_discriminability_v1`） |

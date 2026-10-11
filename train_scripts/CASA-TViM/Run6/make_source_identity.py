@@ -30,7 +30,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
-RUN6_PLAN_REL = ("docs/temporary/"
+RUN6_PLAN_REL = ("docs/temporary/过去的想法/"
                  "CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md")
 RUN6_PLAN_SHA = "d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b"
 RUN6_FROZEN_GIT_HEAD = "b03606f"

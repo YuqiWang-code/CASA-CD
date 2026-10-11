@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |---|---|
-| 设计文档 | `docs/temporary/CASA-CD_Run5_原生高频证据复用与结构改进实验设计_2026-10-10.md` |
+| 设计文档 | `docs/temporary/过去的想法/CASA-CD_Run5_原生高频证据复用与结构改进实验设计_2026-10-10.md`（2026-10-11 归档；内容与 SHA 未变） |
 | 设计文档 SHA256 | `8d721d77cf3a362c24687db54f20ecd1fad7bab05fd5b46f910f1501351239bc` |
 | 冻结仓库版本 | `YuqiWang-code/CASA-CD@a6d49bc151674a93a8274aca52e2ca707f8d070a` |
 | 前测脚本 | `analyse/tvim_run5_hf_pair_preflight.py`（`run5_hf_pair_preflight_v1`） |
