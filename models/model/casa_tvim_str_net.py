@@ -134,6 +134,15 @@ class CASATViMSTRNet(nn.Module):
         存在的理由：`copy.deepcopy(model)` 会复制 nn.Module 树，但**不会**复制挂在原模块上的
         forward hook —— 而项目的 D0/eval 审计路径正是 `deepcopy` + `switch_to_deploy`。
         因此每次 forward 前做一次轻量检查：当前模块上若没有我们的 hook 就补挂。
+
+        R7 hotfix（2026-10-11，详见预注册 §7.7）：标记必须打在 **hook 函数**上——
+        `nn.Module._forward_hooks` 的 value 是 hook 函数本身，而 `register_forward_hook()`
+        返回的 `RemovableHandle` 是**另一个对象**、并不存放于该 dict。此前误把标记打在 handle 上，
+        于是这里的 `attached` 恒为 False，**每次 forward 都重复注册 1 个 hook/模块**：hook 数随
+        forward 数无界增长（含每 epoch 的全测试集验证 ⇒ 80K 步约 20 万个），单步耗时按
+        O(累计 forward) 线性上升（实测每 hook ≈ 2.2 μs/forward），波二四库因此劣化约 4×。
+        该缺陷只影响 `hf_edge=1` 的 run（`hf_edge=0` 在下方立即 return ⇒ CTRL 不受影响）。
+
         每个 handle 与目标模块成对保存，`switch_to_deploy()` 只移除属于**本模型**的 hook，
         避免 deepcopy 的副本误删原模型上的 hook。
         """
@@ -141,14 +150,21 @@ class CASATViMSTRNet(nn.Module):
             return
         keys = HF_EDGE_TAP_KEYS[self.hf_edge_taps]
         for key, mod in zip(keys, self._hf_hook_targets()):
-            attached = any(getattr(h, "_hfae_key", None) == key
-                           for h in getattr(mod, "_forward_hooks", {}).values())
-            if attached:
+            mine = [fn for fn in getattr(mod, "_forward_hooks", {}).values()
+                    if getattr(fn, "_hfae_key", None) == key]
+            # fail-closed 不变式：同一 tap 模块上属于本 key 的 hook 至多 1 个。
+            # 若幂等检查再被写坏，这里在第 2 次 forward 就抛错，而不是静默把训练拖慢 N 倍
+            # （该缺陷曾静默运行 7 小时 / 21 万步，见预注册 §7.7）。
+            # 该判据对 deepcopy 路径安全：副本的模块上不带任何我们的 hook。
+            if len(mine) > 1:
+                raise RuntimeError(
+                    f"[HFAE] hook 幂等性被破坏：tap {key} 上挂了 {len(mine)} 个 hook"
+                    "（应恰好 1 个；见预注册 §7.7）")
+            if mine:
                 continue
-            h = mod.register_forward_hook(
-                (lambda k: (lambda m, i, o: self._hf_taps.__setitem__(k, o)))(key))
-            h._hfae_key = key
-            self._hf_handles.append((h, mod))
+            fn = (lambda k: (lambda m, i, o: self._hf_taps.__setitem__(k, o)))(key)
+            fn._hfae_key = key
+            self._hf_handles.append((mod.register_forward_hook(fn), mod))
 
     def _remove_hf_hooks(self):
         """只移除仍然挂在本模型模块上的 hook（deepcopy 副本不会误删原模型的）。"""
@@ -164,6 +180,19 @@ class CASATViMSTRNet(nn.Module):
         """构造期注册（后续由 `_ensure_hf_hooks()` 保证幂等）。"""
         self._hf_handles = []
         self._ensure_hf_hooks()
+
+    def hf_edge_hook_counts(self):
+        """诊断（T12 回归测试用）：每个 tap 模块上属于本模型的 hook 数，应恒为 1。
+
+        R7 hotfix §7.7：该值曾随 forward 次数无界增长（每次 forward +1/模块），
+        是波二 4× 减速的直接原因；本访问器让"幂等性"成为可断言、可回归的量。
+        """
+        if not self.hf_edge:
+            return {}
+        keys = HF_EDGE_TAP_KEYS[self.hf_edge_taps]
+        return {key: sum(1 for fn in getattr(mod, "_forward_hooks", {}).values()
+                         if getattr(fn, "_hfae_key", None) == key)
+                for key, mod in zip(keys, self._hf_hook_targets())}
 
     def _run_hf_edge(self):
         """从 hook 缓存取高频 tap → 边缘头。

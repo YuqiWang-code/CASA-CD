@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run7 HFAE（高频边缘辅助监督）T0–T11 验收测试。
+"""Run7 HFAE（高频边缘辅助监督）T0–T12 验收测试。
 
 本地（无 GPU / 无 selective_scan kernel）会**跳过**需要前向的检查并明确打印 SKIP；
 服务器（casacd 环境）应全 PASS。
@@ -22,8 +22,8 @@ if _MODELS not in sys.path:
     sys.path.insert(0, _MODELS)
 
 from model.casa_tvim_str_net import CASATViMSTRNet                       # noqa: E402
-from model.str_hf_edge import (HFEdgeHead, HF_EDGE_TAPS, hf_edge_loss,   # noqa: E402
-                               edge_target_from_label)
+from model.str_hf_edge import (HFEdgeHead, HF_EDGE_TAPS, HF_EDGE_TAP_KEYS,  # noqa: E402
+                               hf_edge_loss, edge_target_from_label)
 from model.utils import BCEDiceLoss                                      # noqa: E402
 
 BASE_DEPLOY = 4_880_190
@@ -318,16 +318,90 @@ def t11_resume(dev, has_kernel):
         "train.py [PROTOCOL-MISMATCH] strict resume gate (runs on server)")
 
 
+def t12_hook_idempotency(dev, has_kernel):
+    """T12（R7 hotfix §7.7 回归）：tap hook 注册必须幂等，且重复注册在数值上中性。
+
+    背景：波二（E9_HFAE_A）实测单步耗时随累计 forward 数线性上升 ⇒ 4× 劣化。根因是
+    `_ensure_hf_hooks()` 把幂等标记打在 `RemovableHandle` 上、却到 `mod._forward_hooks`
+    的 **hook 函数**里查该标记（两者不是同一对象），于是每次 forward 重复注册 1 个 hook/模块。
+    本测试从三个方向锁死该类缺陷：
+      (a) 连续 forward 后 hook 数恒为 1/模块、handle 数恒定（旧代码会线性增长）；
+      (b) 手工制造重复注册 ⇒ 新增的 fail-closed 判据必须抛 RuntimeError（而非静默变慢）；
+      (c) 重复注册在**数值上是中性的**——同一权重、同一输入下输出与 aux logits 逐位相同
+          （这同时证明：修复前已产出的波一/波二部分结果与修复版语义同一，差异只在速度）。
+    """
+    if not has_kernel:
+        rec("T12", "hook idempotency (regression §7.7)", False,
+            "no selective_scan kernel; run on server", skipped=True)
+        return
+    handles = []
+    for form in ("aux_only", "aux_inject"):
+        m = build(hf_edge=True, hf_edge_form=form).to(dev).eval()
+        pre = torch.randn(2, 3, 256, 256, device=dev)
+        post = torch.randn(2, 3, 256, 256, device=dev)
+        counts = []
+        with torch.no_grad():
+            for _ in range(25):
+                m(pre, post)
+                counts.append(tuple(sorted(m.hf_edge_hook_counts().items())))
+        handles.append((form, counts, len(m._hf_handles)))
+
+    # (a) hook 数/ handle 数在 25 次 forward 后必须恒定
+    n_taps = len(HF_EDGE_TAP_KEYS["1_4_1_8"])
+    ok_a = all(all(c == tuple((k, 1) for k in sorted(HF_EDGE_TAP_KEYS["1_4_1_8"]))
+                   for c in counts) and nh == n_taps
+               for _f, counts, nh in handles)
+
+    # (b) 重复注册必须被 fail-closed 判据拒绝
+    m = build(hf_edge=True, hf_edge_form="aux_only").to(dev).eval()
+    with torch.no_grad():
+        m(torch.randn(2, 3, 256, 256, device=dev), torch.randn(2, 3, 256, 256, device=dev))
+    key0, key1 = HF_EDGE_TAP_KEYS["1_4_1_8"]
+    dup = (lambda k: (lambda mo, i, o: m._hf_taps.__setitem__(k, o)))(key0)
+    dup._hfae_key = key0                      # 冒充"我们自己的"重复 hook
+    m._hf_hook_targets()[0].register_forward_hook(dup)
+    try:
+        m._ensure_hf_hooks()
+        ok_b, det_b = False, "duplicate accepted(!)"
+    except RuntimeError:
+        ok_b, det_b = True, "RuntimeError raised"
+
+    # (c) 重复注册的数值中性：模拟旧缺陷（未打标记的重复 hook）后输出必须逐位相同
+    m = build(hf_edge=True, hf_edge_form="aux_only").to(dev).eval()
+    pre = torch.randn(2, 3, 256, 256, device=dev)
+    post = torch.randn(2, 3, 256, 256, device=dev)
+    with torch.no_grad():
+        out0 = m(pre, post).clone()
+        log0 = m.aux_edge_logits().clone()
+    for key, mod in zip((key0, key1), m._hf_hook_targets()):
+        for _ in range(20):
+            mod.register_forward_hook(
+                (lambda k: (lambda mo, i, o: m._hf_taps.__setitem__(k, o)))(key))
+    with torch.no_grad():
+        out1 = m(pre, post)
+        log1 = m.aux_edge_logits()
+    d_out = (out0 - out1).abs().max().item()
+    d_log = (log0 - log1).abs().max().item()
+    ok_c = torch.equal(out0, out1) and torch.equal(log0, log1)
+
+    ok = ok_a and ok_b and ok_c
+    rec("T12", "hook idempotency (regression §7.7)", ok,
+        f"(a)counts_const={ok_a} (b){det_b} (c)bitwise_neutral={ok_c} "
+        f"max|d_out|={d_out:.2e} max|d_logits|={d_log:.2e}; "
+        f"forms={[f'{f}:{len(set(c))}distinct' for f, c, _n in handles]}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
     dev = a.device
     has_kernel = kernel_ok()
-    print(f"=== Run7 HFAE T0-T11 | device={dev} | selective_scan={has_kernel} ===")
+    print(f"=== Run7 HFAE T0-T12 | device={dev} | selective_scan={has_kernel} ===")
     for fn in (t0_legacy_regression, t1_tensor_contract, t2_rng_pretrain, t3_epoch0_forward,
                t4_grad_chain, t5_mechanism_selfcheck, t6_numeric_gate, t7_fold_gate,
-               t8_params_flops, t9_dry_run, t10_sidecar_negative, t11_resume):
+               t8_params_flops, t9_dry_run, t10_sidecar_negative, t11_resume,
+               t12_hook_idempotency):
         try:
             fn(dev, has_kernel)
         except Exception as e:  # noqa: BLE001

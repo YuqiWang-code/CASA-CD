@@ -247,3 +247,78 @@ Run1–Run6 产物、`models/` 既有算子（`ss2d.py`/`caacp_ss2d.py`/`str_dcr
 `check_run.py`（逐 run 硬门）· `run7_verdict.py`（`fold_ok_knife`，裁决机制自检）·
 `independent_audit.py`（A6，独立复算）。三处均在"无证据/不吻合"时判 FAIL。
 
+### 7.7 性能缺陷（hook 注册非幂等）与其处置：整轮重跑（⚠️ 须在论文中显式披露）
+
+**触发事实**：波二（`E9_HFAE_A`，`hf_edge=1`）自 13:35 起跑，20:31 复核时四个库的单 epoch 耗时
+均**随训练推进单调上升**（CDD 65 s→282 s、SYSU 85 s→350 s、LEVIR 45 s→200 s、WHU 35 s→126 s），
+而波一 CTRL 全程平坦（CDD 40~240 epoch 恒在 56~63 s）。到封存时刻波二仅完成 65.7K/66.7K/63.4K
+步，预计剩余时间被拖长 4~5 倍。
+
+**根因（已定位到行，非服务器/GPU 问题）**：`models/model/casa_tvim_str_net.py::_ensure_hf_hooks()`
+的幂等判据查错了对象——
+
+```python
+attached = any(getattr(h, "_hfae_key", None) == key
+               for h in getattr(mod, "_forward_hooks", {}).values())   # ← dict 的 value 是 hook 函数
+h = mod.register_forward_hook(...); h._hfae_key = key                 # ← 标记却打在 RemovableHandle 上
+```
+
+`nn.Module._forward_hooks` 是 `{handle_id: hook_fn}`，而 `register_forward_hook()` 返回的
+`RemovableHandle` 是**另一个对象**、不在该 dict 里（服务端实测：`_forward_hooks` 的 value 类型为
+`function`，其上无 `_hfae_key`）。于是 `attached` **恒为 False**，每次 `forward()` 都重复注册
+1 个 hook/模块（实测 +2/次，永不停止）。
+
+**它为什么会线性拖慢**：单个 hook 的成本 ≈ **2.0 μs/forward**（用真实模型人为挂 10k→30k 个
+hook 实测：2.02 / 1.97 μs）。每个 epoch 的 forward 数 `F = 训练步数 + 全测试集验证 forward 数`
+（`val` 每 epoch 都跑），因此 epoch 耗时对 epoch 数的斜率 = `2cF²`。用**独立测得的 c** 预测四个库，
+无自由参数：
+
+| 数据集 | train/test | F（forward/epoch） | 预测斜率 `2cF²` | **实测斜率** | 比 |
+|---|---|---|---|---|---|
+| CDD | 10000/3000 | 313+188 = 501 | 1.00 s/epoch | **1.10** | 1.10 |
+| LEVIR | 7120/2048 | 223+128 = 351 | 0.49 | **0.55** | 1.12 |
+| SYSU | 12000/4000 | 375+250 = 625 | 1.56 | **1.72** | 1.10 |
+| WHU | 5947/744 | 186+47 = 233 | 0.22 | **0.25** | 1.15 |
+
+并预测 CDD epoch 171 的耗时 = **247 s**，实测 **245 s**。四库一致（隐含 c ≈ 2.2 μs）⇒ 该缺陷
+**独自**解释了全部劣化，不存在第二个未知成因。
+
+**纯性能缺陷的证据（关键）**：重复注册的 hook 全部执行 `self._hf_taps[key] = o`，写入的是
+**同一个 key、同一个 tensor 对象**，字典赋值幂等 ⇒ 下游 tap 取值逐位不变。新增回归测试
+**T12(c)** 直接证明：同一权重、同一输入下，人为加入 40 个重复 hook 后的输出与 aux logits
+与加之前**逐位相同**（`max|d_out| = max|d_logits| = 0.00e+00`）。
+`hf_edge=0` 的 CTRL 更是在该函数**首行即 return**，属不可达代码 ⇒ **波一 CTRL 与修复版逐位同一**。
+
+**修复内容（最小改动，仅 1 个身份文件 + 1 个测试文件）**：
+
+1. 标记改打在 **hook 函数**上（`fn._hfae_key = key`），幂等判据与 `_forward_hooks` 的 value 同类型；
+2. 新增 **fail-closed 不变式**：同一 tap 上属于本 key 的 hook > 1 立即 `RuntimeError`
+   （该缺陷曾**静默**运行 7 小时，新判据使其在第 2 次 forward 就炸）；判据对 `deepcopy` 路径安全；
+3. 新增诊断访问器 `hf_edge_hook_counts()`（使"幂等性"成为可断言、可回归的量）；
+4. 新增 **T12** 三向回归：连续 25 次 forward 后 hook 数恒为 1/模块、handles 恒定；人为重复注册
+   必被拒；（c）数值中性如上。
+
+**处置（用户裁定）**：波一/波二全部产物**原样封存不删除**，修复后**整轮 12 个 run 从零重跑**，
+以保持 `independent_audit.py` A8「12 run 代码身份唯一」。封存目录后缀
+`_SUPERSEDED_20261011_2324_prehookfix`（含 `_SUPERSEDED_README_*.txt` 记述封存时各 run 步数与实测曲线）。
+新身份：`models/model/casa_tvim_str_net.py = e125e7ac622bff0b…`（`SOURCE_SHA256.txt` 27/27 与服务器
+逐字节一致）；`T0–T12 = 13 checks / 0 FAIL`；`PROTOCOL_VERSION`、`SELECTION_LOCK.json`、
+λ、seed、batch、80K 步数**一字未改**。重跑起点：**2026-10-11 23:27**（波一启动）。
+
+**诚实披露（必须写进论文）**
+
+1. 本节是在**看到波一 CTRL 完整结果、以及波二 E9 的部分中途曲线之后**才作出的——缺陷由慢速
+   **触发**，事先无从预知；
+2. 但重启的**唯一**依据是**与任何精度指标无关的墙钟缺陷**：一条用独立实测常数 `c`、
+   无自由参数地预测四库斜率（误差 10~15%）的定量定律；且 §4 的接受标准与守门阈值
+   （`SELECTION_LOCK.json`）**完全未动** ⇒ 重启**在逻辑上不可能**改变接受与否的判定规则；
+3. 被丢弃的中途数字（含"E9 在同阶段四库均 ≥ CTRL"的观察）**不进入**任何结论、表格或裁决；
+   新 campaign 从零产生自己的全部数字；
+4. 代价与影响面诚实列出：波一 4 个已完整跑完的 CTRL run（各 80K 步）被作废重跑；
+   波二 E9 丢弃 65,730 / 66,677 / 63,375 / 80,000 步四个 run（全部封存可追溯）；
+5. 该缺陷同样是无界**内存泄漏**（80K 步会累积约 20 万个 hook 与约 40 万个 handle 元组），
+   修复本身就是必要的工程正确性修正，而非为提速而做的取舍。
+
+**唯一被改动的身份文件**：`models/model/casa_tvim_str_net.py`（缺陷所在文件本身）。
+其余 8 个 `SOURCE_IDENTITY_FILES` 与全部判据/阈值文件字节未变。
+

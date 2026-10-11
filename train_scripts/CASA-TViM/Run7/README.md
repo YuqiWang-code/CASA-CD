@@ -598,6 +598,64 @@ casa_tvim_str_net.py:276   logits = self.head(x)
 它**不依赖任何性能指标**、**对称适用于全部 12 个 run**（含 E9/E10）、不偏袒任何变体；
 判据/阈值/λ/seed **一概未动**，`SELECTION_LOCK.json` 的接受标准与守门阈值**完全不变**。
 
+### 7.16 波二 4× 减速的根因：hook 注册非幂等（⚠️ 已导致整轮 12 runs 重跑，须在论文中披露）
+
+**发现**：波二（`E9_HFAE_A`，`hf_edge=1`）自 13:35 起跑后，四个库的单 epoch 耗时**随训练推进
+单调线性上升**（CDD 65→282 s、SYSU 85→350 s、LEVIR 45→200 s、WHU 35→126 s），而波一 CTRL
+全程平坦（CDD 恒 56~63 s）。20:31 复核时波二才 65.7K/66.7K/63.4K 步，按当时速率还需 7~8 h。
+
+**先排除的外因**（全部实测）：GPU 无节流（P1、`SW Power Cap`/`HW Thermal` 均 Not Active、
+SM 2520/3090 MHz）；整机 CPU 空闲 84%、`vmstat wa=0`（无 I/O 等待）；4 进程各 34 线程、
+GPU 显存正常；`/share_datasets` 本地 NVMe、26% 占用；全机 CPU 占用前 12 名**全是我们自己的
+进程**；无 Xid/ECC 报错；无其它用户的活跃作业。
+
+**根因**：`models/model/casa_tvim_str_net.py::_ensure_hf_hooks()` 的幂等判据查错了对象。
+`nn.Module._forward_hooks` 是 `{handle_id: hook_fn}`，**value 是 hook 函数**；而
+`register_forward_hook()` 返回的 `RemovableHandle` 是另一个对象、不在该 dict 里
+（服务端实测 `type(next(iter(mod._forward_hooks.values()))).__name__ == 'function'`，
+且该函数上无 `_hfae_key`）。旧代码把 `_hfae_key` 打在 handle 上却到函数里查 ⇒ `attached` 恒为
+False ⇒ **每次 forward 重复注册 1 个 hook/模块**。新进程实测 1200 步后 hook 数 = **1201/模块**
+（+2/次，永不停止）。
+
+**为什么表现为线性拖慢而 GPU/CPU 都不忙**：纯 host 侧开销。单 hook ≈ **2.0 μs/forward**
+（真实模型人为挂 10k→30k hook 实测 2.02 / 1.97 μs）。每 epoch 的 forward 数
+`F = 训练步数 + 全测试集验证 forward 数`（`val` 每 epoch 都跑）⇒ epoch 耗时对 epoch 数的
+斜率 = `2cF²`。用独立实测的 `c`、**无自由参数**预测四库：
+
+| 数据集 | train/test | F | 预测 `2cF²` | 实测斜率 | 比 |
+|---|---|---|---|---|---|
+| CDD | 10000/3000 | 501 | 1.00 s/epoch | **1.10** | 1.10 |
+| LEVIR | 7120/2048 | 351 | 0.49 | **0.55** | 1.12 |
+| SYSU | 12000/4000 | 625 | 1.56 | **1.72** | 1.10 |
+| WHU | 5947/744 | 233 | 0.22 | **0.25** | 1.15 |
+
+外加一个点预测：CDD epoch 171 耗时 = **247 s**，实测 **245 s**。四库一致（隐含 c ≈ 2.2 μs）
+⇒ 该缺陷**独自**解释全部劣化。
+
+**为什么是纯性能缺陷（不影响任何数字）**：重复 hook 全都执行 `self._hf_taps[key] = o`，
+同一 key、同一 tensor 对象，字典赋值幂等 ⇒ 下游 tap 逐位不变。新增 **T12(c)** 直接证明：
+同权重同输入下加 40 个重复 hook 前后输出与 aux logits **逐位相同**
+（`max|d_out| = max|d_logits| = 0.00e+00`）。CTRL 更是在该函数**首行即 return** ⇒ 不可达代码。
+
+**修复（最小改动）**：① 标记改打在 hook **函数**上；② 新增 fail-closed 不变式——同一 tap 上
+属于本 key 的 hook > 1 立即 `RuntimeError`（该缺陷曾静默跑 7 h；新判据在第 2 次 forward 就炸，
+且对 `deepcopy` 路径安全）；③ 新增 `hf_edge_hook_counts()` 诊断访问器；④ 新增 **T12** 回归测试。
+
+**处置（用户裁定 = 方案 D）**：波一/波二产物**原样封存不删**（后缀
+`_SUPERSEDED_20261011_2324_prehookfix`，附 `_SUPERSEDED_README_*.txt` 记述封存时各 run 步数与
+实测曲线），修复后**整轮 12 runs 从零重跑**，以保持 `independent_audit.py` A8「12 run 代码身份
+唯一」（A8 = `len(unique_code_identity)==1`，跨版本会被它正确地判 FAIL）。
+重跑起点 **2026-10-11 23:27**（波一启动）。
+
+**修复后的验证基线**：`SOURCE_SHA256.txt` **27/27 OK**；`check_mapping`/`check_imports` PASS；
+**T0–T12 = 13 checks / 0 FAIL / 0 SKIP**（T0 deploy=4,880,190、T7 折叠 dis=0、T8 A_delta=+0
+B_delta=+10,176 all unchanged ⇒ 修复未触碰模型）；被作废的步数：CTRL 4×80000、E9
+65,730 / 66,677 / 63,375 / 80,000。
+
+⚠️ **论文必须披露**：本条在**看到波一完整结果与波二部分曲线之后**作出；但重启的**唯一**依据是
+与精度无关的墙钟缺陷（上述无自由参数定量定律），判据/阈值/λ/seed/80K/协议版本**一概未动**
+⇒ 重启**在逻辑上不可能**改变接受与否的规则；被丢弃的中途数字**不进入**任何结论与表格。
+
 
 
 ## §8 收口 runbook（波三跑完后照着做）
@@ -844,11 +902,18 @@ cd /home/yqwang/projects/CASA-CD
 sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -c ': OK'   # -> 27
 sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -v ': OK'    # -> 空
 
-# 2) 关键工具自检（期望 PASS / PASS / PASS(18 branches) / PASS）
+# 2) 关键工具自检（期望 PASS / PASS / PASS(21 branches) / PASS）
 python train_scripts/CASA-TViM/Run7/check_mapping.py  | tail -1
 python train_scripts/CASA-TViM/Run7/check_imports.py  | tail -1
 python train_scripts/CASA-TViM/Run7/run7_verdict.py --selftest    | grep '^SELFTEST'
 python train_scripts/CASA-TViM/Run7/independent_audit.py --selftest | grep '^SELFTEST'
+
+# 2b) 模型/机制验收测试（期望 "13 checks, 0 FAIL, 0 SKIP"；T12 = §7.7 hook 幂等回归）
+cd /home/yqwang/projects/CASA-CD/models && CUDA_VISIBLE_DEVICES=0 python test_run7_hf_edge.py | tail -2
+
+# 2c) 封存产物必须不在 outputs 通配根内（§7.7 重跑；期望 0，且封存目录另有其处）
+find /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7 -maxdepth 1 -name '*SUPERSEDED*' | wc -l   # -> 0
+ls -d /home/yqwang/outputs/CASA-CD/CASA-TViM/_SUPERSEDED_Run7_* 2>/dev/null                  # 封存位置
 
 # 3) 督导 + 进度 + 异常（期望 ALIVE / 无 errors / 恰 4 个 GPU 进程）
 #    注意：督导日志在波二/波三期间**静默是正常的**（同步阻塞在 run_all.sh --wave N 里），
@@ -864,11 +929,21 @@ grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
 
 | 检查 | 实测 |
 |---|---|
-| 身份清单 | **27/27 OK**，无非 OK 行（2026-10-11 14:43 含新增 analyse/run7_fold_knife_edge.py） |
+| 身份清单 | **27/27 OK**，无非 OK 行（2026-10-11 23:25 修复 §7.7 后重算含 `casa_tvim_str_net.py` / `test_run7_hf_edge.py` 两行） |
 | check_mapping / check_imports | PASS / PASS |
-| verdict selftest | **PASS (18 branches)** |
+| verdict selftest | **PASS (21 branches)** |
 | audit selftest | PASS |
+| T0–T12 验收测试 | **13 checks / 0 FAIL / 0 SKIP**（2026-10-11 23:25，`cuda:0`，selective_scan=True） |
 | 训练 | supervisor ALIVE；无 errors；4 个 `train.py`；ckpt 634 M；磁盘 2.6 T 空闲 |
 
-本地侧同样应有：`models/test_run7_hf_edge.py` = 12 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
+**§7.7 重跑 campaign 基线（2026-10-11 23:27 起）**：
+
+| 检查 | 实测 |
+|---|---|
+| 波一增速（新 campaign） | CDD 56 s / LEVIR 40 s / SYSU 70 s / WHU 31 s（与旧 campaign CTRL 58/40/69/32 s 一致 ⇒ 基线未漂） |
+| 封存产物 | `…/CASA-TViM/_SUPERSEDED_Run7_20261011_2324_prehookfix/`（含 `_SUPERSEDED_README_*.txt`） |
+| `Run7/` 通配根 | 仅含活跃 campaign（`*SUPERSEDED*` 匹配数 = 0） |
+| 作废步数（可追溯） | CTRL 4×80000；E9 65,730 / 66,677 / 63,375 / 80,000 |
+
+本地侧同样应有：`models/test_run7_hf_edge.py` = 13 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
 服务器上为 0 SKIP）；`analyse/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
