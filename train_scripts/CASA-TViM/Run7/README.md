@@ -269,5 +269,26 @@ E9/E10 一次，得到**契约完整**的真实日志（GPU 占用回到基线�
 → `[6/6]` 对照表；审计未全过则 exit 5 并显式警告结论须按 INVALID 处理。
 实测未跑完时 `bash -n` 通过、实跑 **`FINISH_RC=2`** 且**未启动**对象级复算（不浪费 GPU）。
 
+### 7.6 对象级复算在**真实 E9/E10 权重**上的严格加载验证（收口最后一块未验证的环节）
+
+`analyse/run7_object_metrics.py` 是收口第 3 步，也是**唯一会碰 E9/E10 train 图权重**的环节
+（`hf_edge_head.*` 键）。此前只用"自建 state_dict 回灌"验过，**有循环论证嫌疑**：构造与加载
+走同一套代码，键名不一致照样能过。用 §7.5 那次真实 750 步训练产出的权重第一次做了独立验证：
+
+| 变体 | 真实权重 | 严格加载 | 对象级读数（WHU，750 步模型，**数值本身无意义**） |
+|---|---|---|---|
+| `M1_R7CTRL` | `best_F1=0.9387.pth`（波一实时权重只读拷贝） | `hf_edge=0 form=none (missing=0 unexpected=0)` ✅ | `pooledR=0.5227 Hit@25=0.3165 n_small=79 unmatched=321… ObjP=0.7299 ObjR=0.7807 F1=0.9387` |
+| `E9_HFAE_A` | `best_F1=0.7970.pth` | `hf_edge=1 form=aux_only (missing=0 unexpected=0)` ✅ | `pooledR=0.3186 n_small=79 unmatched=318 ObjP=0.4660 F1=0.7968` |
+| `E10_HFAE_B` | `best_F1=0.8243.pth` | `hf_edge=1 form=aux_inject (missing=0 unexpected=0)` ✅ | `pooledR=0.2609 n_small=79 unmatched=320 ObjP=0.4549 F1=0.8243` |
+
+⇒ 三变体在**真实权重**上都能严格加载并跑通端到端复算（这正是原先会导致"12 个 run 全算不出来"的那条路）。
+
+**顺带修掉一个会误用的 CLI 缺陷**：`--variants/--datasets` 只在 `--all-variants` 下生效，
+但原先**静默忽略**——只给 `--variants` 时 `args.variant` 保持 `None`，在下游抛一个
+`TypeError: join() ... not 'NoneType'`（实测踩到）。现已改为 argparse 开门见山报错；
+`--variant/--dataset` 单 run 旧调用方式**回归验证仍可用**（本地实跑确认不再抛 usage error）。
+`finish_run7.sh` 传的是 `--all-variants`，不受影响。
+
+
 
 

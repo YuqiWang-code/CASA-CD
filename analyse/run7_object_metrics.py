@@ -52,6 +52,9 @@ SMALL_GROUPS = list(GROUP_ALIAS["small"])
 # 该缺陷在收口前用真实 ckpt 实测时发现（否则会在最终裁决那一步才炸）。
 RUN7_VARIANTS = {"M1_R7CTRL": (0, "none"), "E9_HFAE_A": (1, "aux_only"),
                  "E10_HFAE_B": (1, "aux_inject")}
+# argparse 默认值常量（也给"是否显式传了列表"的 fail-closed 判断用）
+DEFAULT_VARIANTS = "M1_R7CTRL,E9_HFAE_A,E10_HFAE_B"
+DEFAULT_DATASETS = "CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256"
 
 
 def build_run7_model(variant, device, ckpt_path, pretrain, strict=True):
@@ -224,9 +227,9 @@ def main():
     ap.add_argument("--variant", default=None,
                     help="Run7 变体；留空则配合 --all-variants 逐个算")
     ap.add_argument("--all-variants", action="store_true")
-    ap.add_argument("--variants", default="M1_R7CTRL,E9_HFAE_A,E10_HFAE_B")
+    ap.add_argument("--variants", default=DEFAULT_VARIANTS)
     ap.add_argument("--dataset", default="SYSU-CD-256")
-    ap.add_argument("--datasets", default="CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256")
+    ap.add_argument("--datasets", default=DEFAULT_DATASETS)
     ap.add_argument("--ckpt-root",
                     default="/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM")
     ap.add_argument("--device", default="cuda:0")
@@ -237,6 +240,16 @@ def main():
     args = ap.parse_args()
     if args.compare:
         return compare(args)
+    # fail-closed：没有 --all-variants 时 --variants/--datasets 会被**静默忽略**，
+    # 于是 args.variant 保持 None 并在下游抛一个看不懂的 TypeError（实测踩过）。
+    # 这里改成开门见山地报错，避免"以为选了三个变体、其实只跑了一个 None"。
+    if not args.all_variants and args.variant is None:
+        ap.error("需要 --variant <V> 或 --all-variants；"
+                 "只给 --variants/--datasets 不会生效（列表只在 --all-variants 下遍历）")
+    if not args.all_variants and (args.variants != DEFAULT_VARIANTS
+                                  or args.datasets != DEFAULT_DATASETS):
+        ap.error("--variants/--datasets 只在 --all-variants 下生效；"
+                 "请补上 --all-variants，或改用 --variant/--dataset")
     rc = 0
     variants = ([v.strip() for v in args.variants.split(",")] if args.all_variants
                 else [args.variant])
