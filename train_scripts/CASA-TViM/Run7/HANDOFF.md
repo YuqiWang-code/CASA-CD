@@ -7,23 +7,31 @@
 > 请**以命令实测为准**，不要把下面任何进度数字当作当前值：
 >
 > ```bash
-> # 当前进度（四库累计 optimizer.step / 80000）
-> for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
->   printf '%-14s %s\n' "$d" "$(grep -E '^.ACTUAL-OPT-STEPS' \
->     /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/M1_R7CTRL/$d/train_log.txt | tail -1)"
-> done
-> # 督导是否还活着（日志每 120 s 一行）
-> tail -3 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+> # 当前进度（三个变体 × 四库的累计 optimizer.step / 80000）
+> for v in M1_R7CTRL E9_HFAE_A E10_HFAE_B; do for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
+>   f=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/$v/$d/train_log.txt
+>   [ -f "$f" ] && printf '%-11s %-14s %s\n' "$v" "$d" \
+>     "$(grep -E '^.ACTUAL-OPT-STEPS' "$f" | tail -1)"
+> done; done
+> # 督导是否还活着：**只能**用 kill -0（日志在波二/波三期间静默，别拿它判死活）
+> kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo ALIVE || echo DEAD
+> ps -o pid,stat,etime,cmd --ppid "$(cat /tmp/run7_supervisor.pid)" | head -3
 > ```
-> `…/Run7/E9_HFAE_A/` 与 `…/E10_HFAE_B/` **出现** = 对应波次已启动（波二/波三就绪的信号）。
+> 变体目录 `…/Run7/E9_HFAE_A/`、`…/E10_HFAE_B/` **出现** = 对应波次已启动。
 
 ## 0. 新接手的 agent：按这个顺序做（约 5 分钟就能接手）
 
 1. **读本文件 §1 / §1.1 / §1.2 / §1.3** —— 现状、ETA、健康读数、解读锚。
 2. **跑一遍交付状态核对**：`train_scripts/CASA-TViM/Run7/README.md` **§9**（三条命令）。
    全 PASS 才继续；有 FAIL 先查那一条。
-3. **看训练到哪了**：`tail -3 …/Run7_supervisor.log`；
-   `…/Run7/E9_HFAE_A/` 是否出现 = 波二是否已开始。
+3. **看训练到哪了**：**读训练日志**，不要读督导日志（波二/波三期间督导日志静默）：
+   ```bash
+   for v in M1_R7CTRL E9_HFAE_A E10_HFAE_B; do for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
+     f=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/$v/$d/train_log.txt
+     [ -f "$f" ] && printf '%-11s %-14s %s\n' "$v" "$d" "$(grep -E '^.ACTUAL-OPT-STEPS' "$f" | tail -1)"
+   done; done
+   ```
+   变体目录**出现** = 该波次已启动；`nvidia-smi --query-compute-apps` 应恰 **4** 个。
 4. **若 12 个 run 都齐了**（每变体 4/4 VALID）：
    ```bash
    cd /home/yqwang/projects/CASA-CD
@@ -52,27 +60,25 @@
 | GPU 分配 | GPU0 = CDD + LEVIR；GPU1 = SYSU + WHU（每卡 2 个 run） |
 | 并发 | 4 个 run 同时跑（每卡 2 个）；batch 32；`--exact_max_steps 1`；~5.8 step/s/run |
 | 进度 | **随时实测**（见文首命令）。快照：10:29 波一 19.1–21.2k；10:52 约 26.3–29.4k / 80k（0 个 TEST 区块属正常：只在 80k 收尾写出） |
-| ETA（**实测修正**，10:38） | 波一 ≈ **13:43**；三波全部 ≈ **22:15**（详见 §1.1） |
+| ETA（**实测**，14:08） | 波一已 **13:35 完成**（4h08m）；波二 ≈ **18:41**；三波全部 ≈ **23:15**；含收口归档 ≈ **23:30**（详见 §1.1） |
 | 资源 | ckpt 目录稳定 **635 MB**；日志 ≈0.1 MB @80K；磁盘 2.6 T 空闲 |
 
-### 1.1 ETA 的实测修正（此前用"总量速率"估算，偏乐观约 1.5 h）
+### 1.1 ETA 的实测修正
 
-波次门要求**四个 run 全部 VALID**，所以波一完成时间 = **最慢**那个 run 的完成时间，
-不能用总量速率估算。10:38 逐 run 采样（相隔 120 s）：
+波次门要求**四个 run 全部 VALID**，所以波次完成时间 = **最慢**那个 run 的完成时间。
 
-| dataset | 速率 (步/s) | 剩余步 | 剩余时长 |
-|---|---|---|---|
-| CDD | **5.217** ← 最慢，决定波一 | 57,777 | **3.08 h** |
-| LEVIR | 5.575 | 57,477 | 2.86 h |
-| SYSU | 6.250 | 57,500 | 2.56 h |
-| WHU | 6.200 | 55,634 | 2.49 h |
+| 波 | 实测 | 结果 |
+|---|---|---|
+| **波一** `M1_R7CTRL` | 09:27 起 → **13:35:17 GATE PASS (4/4 VALID)**，用时 **4h08m**；聚合 **21.59 步/秒**（每 run 5.40） | ✅ 已完成 |
+| **波二** `E9_HFAE_A` | 13:35:17 起；14:08 实测每 run 平均 **4.35–5.07 步/秒**（比波一慢约 15%，应是 aux 损失/边缘头的开销） | ETA ≈ **18:41** |
+| **波三** `E10_HFAE_B` | 按同速推算 | ETA ≈ **23:15** |
 
-⇒ 波一 ETA **13:43**；波一时长 ≈ **4.27 h**（09:27 启动）⇒ 三波全部（12 run ÷ 4 并发 = 3 批）
-≈ **22:15**（此前写 20:40，是用总量速率算的，偏乐观约 1.5 h）。
+⇒ 三波全部结束 ≈ **23:15**；加上收口（`finish_run7.sh` ~3.5 min）+ 归档（下载/xlsx/快照/README）≈ **23:30**。
+（早前写的 22:15 是按波一速率推的，波二实测更慢，故后移。）
 
-**安全性**：督导 20 小时上限自 09:31 起算 ⇒ 到 **次日 05:31**，22:15 远在门内 ✅
-**波二/波三速率**：边缘头仅 7–10k 参数、aux 损失在 64² 上，额外算力可忽略（预计 <1% 差异），
-故沿用 4.27 h/波；若明显更慢，以 `_r7_eta.sh` 复测为准。
+**安全性**：督导 20 小时上限自 09:31 起算 ⇒ 到 **次日 05:31**，23:30 仍在门内 ✅
+**复测命令**：`_r7_aggeta.sh`（从督导日志算聚合速率；**波二/波三期间无记录，属正常**）或
+逐 run 采样（见 §7 说明：波次内督导日志静默）。
 
 
 ### 1.2 波一中期健康读数（2026-10-11 10:32，**仅供健康核对，不是结果**）
@@ -119,9 +125,15 @@
 > ⚠️ **别依赖那个 bounded watcher**：`.claude/_r7_watch.ps1` 是 **11 小时**上限
 > （2026-10-11 09:28:37 启动 ⇒ 约 **20:28–20:31 自行退出**），而按 §1.1 的实测修正
 > 三波全部结束约 **22:15** ⇒ **watcher 会在完成前约 1 小时 45 分钟就到期**。
-> 也就是说**最后约 1.75 小时完全没有 watcher 覆盖**。请直接轮询
-> `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log`（每 120 s 一行），
-> 不要等 watcher 的通知。
+> 也就是说**最后约 1.75 小时完全没有 watcher 覆盖**。
+>
+> ⚠️ **更要紧**：**督导日志在波二/波三期间是静默的**（督导同步阻塞在 `run_all.sh --wave N`
+> 里，整波约 4–5 小时一行都不写）。所以"日志没更新"**不能**用来判断督导死活 ——
+> 那会让人误以为督导挂了而去执行恢复流程。
+> - **判断死活**：`kill -0 "$(cat /tmp/run7_supervisor.pid)"`
+>   且 `ps --ppid $(cat /tmp/run7_supervisor.pid)` 能看到 `run_all.sh --wave N` ⇒ 正常运行。
+> - **看进度**：读 `Run7/<variant>/<dataset>/train_log.txt`
+>   （或 `nvidia-smi --query-compute-apps`，应恰 4 个）。
 
 
 ```bash

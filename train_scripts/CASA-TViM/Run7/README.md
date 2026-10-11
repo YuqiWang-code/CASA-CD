@@ -514,7 +514,7 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 | rc | 含义 | 动作 | 实测证据 |
 |---|---|---|---|
 | **0** | 裁决已产出（MECHANISM-PASS / MECHANISM-FAIL / GUARDRAIL-FAIL） | 进入 8.4 写作 | 12-run 全量排练 `FINISH_RC=0`（207 s）；重入再跑亦 0（§8.9） |
-| **2** | 尚有 run 未产出完整 TEST 区块 | **等**；看 `Run7_supervisor.log`；不要手动乱启 | 真实未跑完状态实测 |
+| **2** | 尚有 run 未产出完整 TEST 区块 | **等**；看**训练日志**（`Run7/<variant>/<dataset>/train_log.txt`）与 `nvidia-smi --query-compute-apps`（应恰 4 个）；**不要**用督导日志判断（波次内它静默），不要手动乱启 | 真实未跑完状态实测 |
 | **3** | 环境/脚本缺失 | 查 conda 环境与文件是否齐 | （仅环境守卫，未构造） |
 | **4** | 逐 run 硬门有 FAIL | 看 `_RESULTS/check_run_*.json` 的 `failed` 列表；**不得**用 `RUN7_ALLOW_CHECKRUN_FAIL=1` 蒙过，必须先查明 | 篡改 E9 `deploy_params` 后实测：`FINISH_RC=4` **且 `verdict.json` mtime 未变**（第 4 步没跑 ⇒ **没有铸造裁决**） |
 | **5** | 独立审计未全过 | 结论**按 INVALID 处理**；查 `INDEPENDENT_AUDIT.json` 里 FAIL 的那几项 | ① 1 库排练（缺 run）实测；② **越过开关后**审计仍抓到同样的篡改：`10 checks, 1 FAILED` |
@@ -611,12 +611,21 @@ Run1–Run6 各结果节用的都是同一个骨架。Run7 请照抄该骨架
 ```bash
 cat /tmp/run7_supervisor.pid                      # 记下 pid
 kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo ALIVE || echo DEAD
-tail -3 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
-stat -c '%y' /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+# 看它是否正阻塞在某一波的 run_all.sh 上（这才是"活着"的正常形态）
+ps -o pid,ppid,stat,etime,cmd --ppid "$(cat /tmp/run7_supervisor.pid)"
+nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader   # 应恰 4 个
 ```
 
-日志 **>5 分钟没有新行**（正常是 120 s 一行）且 `kill -0` 失败 ⇒ 督导已死。
-**注意**：督导死了**不等于**训练死了 —— 4 个 `train.py` 是独立进程，通常还在跑。
+> ⚠️ **不要用"督导日志是否在更新"判断死活 —— 波二/波三期间它本来就静默。**
+> 原因：督导的代码是 `bash run_all.sh --wave N >> SUPLOG` **同步阻塞**，只有该波**跑完**
+> 才会回来写 `wait_wave` 的 `steps_sum=` 行。所以一波之内（约 4–5 小时）督导日志**一行都不写**
+> —— 实测：13:35:18 之后 33 分钟无新行，而督导完全健康。
+>
+> **正确判据**：`kill -0` 成功 **且** 能看到它有一个 `run_all.sh --wave N` 子进程 ⇒ 一切正常。
+> `kill -0` 失败 ⇒ 督导确实死了（此时 4 个 `train.py` 很可能还在跑，督导死了 ≠ 训练死了）。
+>
+> **波二/波三期间看进度要读训练日志**（`Run7/<variant>/<dataset>/train_log.txt`）或
+> `nvidia-smi --query-compute-apps`，**不要**读督导日志。
 
 **② 判断哪些 run 未完成**
 
@@ -736,9 +745,12 @@ python train_scripts/CASA-TViM/Run7/check_imports.py  | tail -1
 python train_scripts/CASA-TViM/Run7/run7_verdict.py --selftest    | grep '^SELFTEST'
 python train_scripts/CASA-TViM/Run7/independent_audit.py --selftest | grep '^SELFTEST'
 
-# 3) 督导 + 进度 + 异常（期望 ALIVE / 无 errors / 恰 4 个 train.py）
-kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo ALIVE
-tail -1 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+# 3) 督导 + 进度 + 异常（期望 ALIVE / 无 errors / 恰 4 个 GPU 进程）
+#    注意：督导日志在波二/波三期间**静默是正常的**（同步阻塞在 run_all.sh --wave N 里），
+#          所以**不要**用它判死活；用 kill -0 + 子进程 + GPU 进程数。
+kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo "supervisor ALIVE"
+ps -o pid,stat,etime,cmd --ppid "$(cat /tmp/run7_supervisor.pid)" | head -3
+nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader   # 应恰 4 行
 grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
   /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/*/*/train_log.txt || echo "no errors"
 ```
