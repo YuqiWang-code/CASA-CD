@@ -667,6 +667,43 @@ unsupported_ops=19）与 E9（fail-closed 正例），**E10（`aux_inject`）从
 **从另一条代码路径**（eval.py 而非审计脚本）得到的独立佐证。
 （表中 F1 来自 **750 步**探针权重，**不是结果**；仅证明部署管道与参数门。）
 
+### 7.14 注入点核验：E10 到底注到哪（目标第(2)条「TAR/DCR 注入」+ 预注册 §4「DCR 1/4 输入」）
+
+**为什么查**：目标第(2)条写「`casa_tvim_str_net.py`/**TAR-DCR 注入**」，预注册 §4 写
+「零初始化注入 **DCR 1/4 输入**」。这两句是否与代码一致，直接决定论文里"注入到哪"的说法能不能写。
+而 `feats = self.tar(...)` 之后才注入，容易让人误以为注到的是 **DCR 的输出**。
+
+**读码结果（逐行）**：
+
+```
+str_tar.py:221   MultiScaleTAR.forward -> t1..t4 = TARStage(每个尺度) ; return [t1, t2, t3, t4]
+casa_tvim_str_net.py:265   feats = self.tar([f1a..f4a], [f1b..f4b])
+casa_tvim_str_net.py:268   # 零初始化注入 ⇒ epoch-0 逐位恒等；注入到 DCR 的最小尺度输入（1/4）
+casa_tvim_str_net.py:271   feats[0] = feats[0] + self.hf_edge_head.inject(self._hf_edge_feat)
+casa_tvim_str_net.py:272   x = self.decoder(feats)        # self.decoder = DCRDecoder(...)  (:106)
+casa_tvim_str_net.py:276   logits = self.head(x)
+```
+
+⇒ `feats[0]` 是 TAR 在 **1/4** 尺度上的输出，而它在 **:272 才被 `DCRDecoder` 消费**
+（`:106` 明确 `self.decoder = DCRDecoder(dim=str_dim, use_aux=(rep_mode=="full"), ...)`）。
+所以注入点**确实是 DCR 的 1/4 输入**，预注册 §4 的措辞与代码**逐字相符**，
+目标第(2)条的「TAR/DCR 注入」成立 ✅
+
+**顺带得到一个可用于"新机制而非重试"论证的对比**：被两次判 `MECHANISM-FAIL` 的 Run4 FET1 是
+**refine 之后**相加（`:273-275` 注释原文："refine **之后**相加（不进入 SiLU/RepLocalBlock，
+保持 DCR 训练路径不变）"）。即：
+
+| 机制 | 注入点 | 是否改变 DCR 算出来的东西 |
+|---|---|---|
+| Run4 FET1（已否证） | `decoder(feats)` **之后** | ✗ 末端旁路 |
+| Run7 E10 HFAE | `decoder(feats)` **之前**、1/4 尺度 | ✓ 进入 DCR 的输入 |
+
+这与预注册 §1「本机制作用在编码器最细两级…不在末端读出」「改变主干算出来的东西」**一致** ✅
+
+`switch_to_deploy` 侧一致：`:292` 在 `aux_only` 下把 `hf_edge_head = None`（整个头删除），
+与 `check_run.py` 断言的 `dropped=entire_head` / deploy 参数回到 4,880,190 相互印证。
+
+
 
 
 
