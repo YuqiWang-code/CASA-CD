@@ -141,6 +141,15 @@ def main():
     parser.add_argument('--fs_tar', type=int, default=0)
     parser.add_argument('--fine_tap', type=int, default=0, choices=[0, 1],
                         help='casa_tvim_str R4 FET1 FineEvidenceTap1x1 gate (must match ckpt sidecar exactly)')
+    parser.add_argument('--hf_edge', type=int, default=0, choices=[0, 1],
+                        help='casa_tvim_str R7 HFAE gate (must match ckpt sidecar exactly; fail-closed)')
+    parser.add_argument('--hf_edge_form', type=str, default='none',
+                        choices=['none', 'aux_only', 'aux_inject'],
+                        help='R7 HFAE deploy form (must match ckpt sidecar exactly)')
+    parser.add_argument('--hf_edge_taps', type=str, default='1_4_1_8',
+                        help='R7 HFAE tap scales (must match ckpt sidecar exactly)')
+    parser.add_argument('--hf_edge_lambda', type=float, default=0.2,
+                        help='R7 HFAE aux loss weight (must match ckpt sidecar exactly)')
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
@@ -173,6 +182,9 @@ def main():
     if args.arch == "casa_tvim_str" and args.fine_tap and not os.path.isfile(arch_path):
         # R4 fail-closed：FET checkpoint 没有 sidecar 时无法核对 fine_tap 契约，直接拒绝
         raise SystemExit(f"[ARCH-MISSING] --fine_tap 1 but no arch.json in {args.ckpt_dir}; refusing to eval")
+    if args.arch == "casa_tvim_str" and args.hf_edge and not os.path.isfile(arch_path):
+        # R7 fail-closed：HFAE checkpoint 没有 sidecar 时无法核对 form/taps/lambda 契约，直接拒绝
+        raise SystemExit(f"[ARCH-MISSING] --hf_edge 1 but no arch.json in {args.ckpt_dir}; refusing to eval")
     if os.path.isfile(arch_path):
         import json as _json
         with open(arch_path, encoding="utf-8") as f:
@@ -195,6 +207,32 @@ def main():
                     raise SystemExit(f"[ARCH-MISMATCH] ckpt has no fine_tap field but --fine_tap={args.fine_tap}; "
                                      "refusing to eval")
                 arch_cmp["fine_tap"] = 0
+            # ---- R7 HFAE（fail-closed）：sidecar 必须齐备且与 CLI 完全一致
+            if "hf_edge" not in arch_cmp:
+                if args.hf_edge:
+                    raise SystemExit(f"[ARCH-MISMATCH] ckpt has no hf_edge field but --hf_edge={args.hf_edge}; "
+                                     "refusing to eval")
+                arch_cmp["hf_edge"] = 0
+            else:
+                if int(arch_cmp["hf_edge"]) != int(args.hf_edge):
+                    raise SystemExit(f"[ARCH-MISMATCH] ckpt hf_edge={arch_cmp['hf_edge']} vs "
+                                     f"cli={args.hf_edge}; refusing to eval")
+                exp_form = args.hf_edge_form if args.hf_edge else "none"
+                exp_taps = args.hf_edge_taps if args.hf_edge else "none"
+                exp_lam = float(args.hf_edge_lambda) if args.hf_edge else 0.0
+                for k, exp in (("hf_edge_form", exp_form), ("hf_edge_taps", exp_taps),
+                               ("hf_edge_lambda", exp_lam)):
+                    got = arch_cmp.get(k)
+                    if k == "hf_edge_lambda":
+                        ok = (got is not None) and abs(float(got) - exp) < 1e-12
+                    else:
+                        ok = (got == exp)
+                    if not ok:
+                        raise SystemExit(f"[ARCH-MISMATCH] ckpt {k}={got} vs expected {exp}; "
+                                         "refusing to eval")
+            for k in ("hf_edge", "hf_edge_form", "hf_edge_taps", "hf_edge_lambda",
+                      "hf_edge_tag", "hf_edge_tap_specs"):
+                arch_cmp.pop(k, None)
             # FET 派生字段：sidecar 有则必须一致（防手改口径）
             for k in ("fine_tap_form", "fine_tap_source", "fine_tap_fuse"):
                 if k in arch:
@@ -213,6 +251,13 @@ def main():
                                      "!= run4_exact80k_v1; refusing to eval")
                 if not src:
                     raise SystemExit("[ARCH-MISMATCH] FET ckpt sidecar lacks source_code_sha256; refusing to eval")
+            if args.hf_edge:
+                if proto != "run7_hf_edge_exact80k_v1":
+                    raise SystemExit(f"[ARCH-MISMATCH] HFAE ckpt protocol_version={proto} "
+                                     "!= run7_hf_edge_exact80k_v1; refusing to eval")
+                if not src:
+                    raise SystemExit("[ARCH-MISMATCH] HFAE ckpt sidecar lacks source_code_sha256; "
+                                     "refusing to eval")
             if proto or src:
                 print(f"[ARCH] ckpt protocol_version={proto} source_code_sha256={src}")
             if arch_cmp != cli:
@@ -247,7 +292,10 @@ def main():
                                rep_mode=args.rep_mode, str_dim=args.str_dim,
                                caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
                                caacp_residual_mode=args.caacp_residual_mode,
-                               fs_tar=bool(args.fs_tar), fine_tap=bool(args.fine_tap)).float()
+                               fs_tar=bool(args.fs_tar), fine_tap=bool(args.fine_tap),
+                               hf_edge=bool(args.hf_edge), hf_edge_form=args.hf_edge_form,
+                               hf_edge_taps=args.hf_edge_taps,
+                               hf_edge_lambda=args.hf_edge_lambda).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)

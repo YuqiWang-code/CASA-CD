@@ -36,6 +36,7 @@ if _MODELS_ROOT not in sys.path:
 from model.trainer import Trainer
 from model.str_fusion import STRFusionNet
 from model.str_tass_fusion import STRTASSNet
+from model.str_hf_edge import hf_edge_loss, HF_EDGE_LAMBDA_DEFAULT, HF_EDGE_TAPS
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
@@ -45,7 +46,8 @@ import dataset.Transforms as myTransforms
 
 # R4（方案 §5/§6.2）：训练协议版本号。写入 run_manifest.json / arch.json / last.pth，
 # resume 时严格校验，防止不同协议（例如非 exact-80K）的 checkpoint 被当作同一条曲线。
-PROTOCOL_VERSION = "run4_exact80k_v1"
+# R7：HFAE（高频边缘辅助监督）引入新协议版本。
+PROTOCOL_VERSION = "run7_hf_edge_exact80k_v1"
 
 # R4（方案 §5）：代码身份核验范围——主要模型/训练文件，SHA256 写入两个 sidecar。
 SOURCE_IDENTITY_FILES = (
@@ -53,6 +55,7 @@ SOURCE_IDENTITY_FILES = (
     "models/eval.py",
     "models/model/casa_tvim_str_net.py",
     "models/model/str_fine_tap.py",
+    "models/model/str_hf_edge.py",
     "models/model/str_tar.py",
     "models/model/str_dcr.py",
     "models/model/str_reparam.py",
@@ -160,6 +163,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
 
     salEvalVal = ConfuseMatrixMeter(n_class=2)
     epoch_loss = []
+    epoch_aux_loss = []          # R7 HFAE：边缘辅助损失（仅用于日志，不进主指标）
     executed_steps = 0
     lr = None
 
@@ -194,6 +198,17 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         output = model(pre_img_var, post_img_var, target_var)
         loss = BCEDiceLoss(output, target_var)
 
+        # R7 HFAE：边缘检测辅助损失（λ 预注册固定，禁止搜索）。梯度经只读 tap 回流到
+        # 编码器 stage0/stage1 的频率分解高频分支——这是「表征重塑」而非「再读一路证据」。
+        aux_val = None
+        if int(getattr(args, "hf_edge", 0)):
+            aux_logits = model.aux_edge_logits() if hasattr(model, "aux_edge_logits") else None
+            aux_loss = hf_edge_loss(aux_logits, target_var, args.hf_edge_lambda)
+            if aux_loss is None:
+                raise RuntimeError("[HFAE] hf_edge=1 but no aux edge logits were produced")
+            loss = loss + aux_loss
+            aux_val = float(aux_loss.detach().item())
+
         pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
 
         optimizer.zero_grad()
@@ -202,6 +217,16 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         executed_steps += 1
 
         epoch_loss.append(loss.data.item())
+        if aux_val is not None:
+            epoch_aux_loss.append(aux_val)
+
+        # HFAE 机制自检：首步必须确认「梯度真的进了高频分支」（否则只是挂了个旁路头）
+        if (int(getattr(args, "hf_edge", 0)) and executed_steps == 1
+                and (iter + cur_iter) == 0):
+            print(f"[HFAE-GRAD] step=1 aux_loss={aux_val:.6f} "
+                  f"hf_tap_grad_norm={model.hf_edge_tap_grad_norm():.6e} "
+                  f"nonzero_tap_grad_tensors={model.hf_edge_tap_grad_nonzero()} "
+                  f"head_grad_norm={model.hf_edge_head_grad_norm():.6e}", flush=True)
 
         # computing F-measure on GPU, then accumulate the confusion matrix
         salEvalVal.update_cm(pr=pred.detach().cpu().numpy(), gt=target_var.detach().cpu().numpy())
@@ -209,7 +234,8 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
     average_epoch_loss_train = sum(epoch_loss) / max(1, len(epoch_loss))
     scores = salEvalVal.get_scores()
 
-    return average_epoch_loss_train, scores, lr, executed_steps
+    return average_epoch_loss_train, scores, lr, executed_steps, (
+        (sum(epoch_aux_loss) / len(epoch_aux_loss)) if epoch_aux_loss else None)
 
 
 def source_code_identity():
@@ -256,6 +282,8 @@ class ChangeViTTrainer(object):
                 caacp_score_mode=args.caacp_score_mode, frh=bool(args.frh),
                 caacp_residual_mode=args.caacp_residual_mode, fs_tar=bool(args.fs_tar),
                 fine_tap=bool(args.fine_tap),
+                hf_edge=bool(args.hf_edge), hf_edge_form=args.hf_edge_form,
+                hf_edge_taps=args.hf_edge_taps, hf_edge_lambda=args.hf_edge_lambda,
             ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
@@ -294,6 +322,14 @@ class ChangeViTTrainer(object):
             self.log(f"[CONFIG] fine_tap={int(self.args.fine_tap)} arch={self.args.arch} "
                      f"protocol={PROTOCOL_VERSION} exact_max_steps={int(args.exact_max_steps)} "
                      f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed}")
+            self.log(f"[HFAE-CONFIG] hf_edge={int(self.args.hf_edge)} form={self.args.hf_edge_form} "
+                     f"taps={self.args.hf_edge_taps} lambda={self.args.hf_edge_lambda}")
+            if int(self.args.hf_edge):
+                _hr = self.model.hf_edge_report()
+                self.log(f"[HFAE] tag={_hr['tag']} form={_hr['form']} taps={_hr['taps']} "
+                         f"lambda={_hr['lambda']} head_params={_hr['total_params']} "
+                         f"supervision_only={_hr['supervision_only_params']} "
+                         f"inject={_hr['inject_params']} zero_init={_hr['inject_zero_init']}")
             if int(self.args.fine_tap):
                 _rep = self.model.fine_evidence_tap.param_report()
                 self.log(f"[FET] form={self.model.fine_tap_form} source={self.model.fine_tap_source} "
@@ -449,6 +485,14 @@ class ChangeViTTrainer(object):
             "fine_tap_form": ("pq_abs_1x1_gamma_v1" if int(self.args.fine_tap) else "none"),
             "fine_tap_source": ("norm0_1_4" if int(self.args.fine_tap) else "none"),
             "fine_tap_fuse": ("post_dcr_refine" if int(self.args.fine_tap) else "none"),
+            # ---- R7 HFAE（fail-closed：resume 时逐字段比对，缺任一键即 PROTOCOL-MISMATCH）
+            "hf_edge": int(self.args.hf_edge),
+            "hf_edge_form": (self.args.hf_edge_form if int(self.args.hf_edge) else "none"),
+            "hf_edge_taps": (self.args.hf_edge_taps if int(self.args.hf_edge) else "none"),
+            "hf_edge_lambda": (float(self.args.hf_edge_lambda) if int(self.args.hf_edge) else 0.0),
+            "hf_edge_tag": (HF_EDGE_FORM if int(self.args.hf_edge) else None),
+            "hf_edge_tap_specs": ([list(s) for s in HF_EDGE_TAPS[self.args.hf_edge_taps]]
+                                  if int(self.args.hf_edge) else None),
             "rep_mode": self.args.rep_mode,
             "str_dim": self.args.str_dim,
             "backbone_lr_ratio": self.args.backbone_lr_ratio,
@@ -468,6 +512,8 @@ class ChangeViTTrainer(object):
             for k in ("arch", "backbone", "backbone_weight_sha256", "caacp",
                       "caacp_score_mode", "caacp_residual_mode", "frh", "fs_tar",
                       "fine_tap", "fine_tap_form", "fine_tap_source", "fine_tap_fuse",
+                      "hf_edge", "hf_edge_form", "hf_edge_taps", "hf_edge_lambda",
+                      "hf_edge_tag",
                       "rep_mode", "str_dim", "backbone_lr_ratio",
                       "data_contract", "seed", "max_steps", "batch_size", "dataset",
                       "protocol_version", "exact_max_steps"):
@@ -602,6 +648,14 @@ class ChangeViTTrainer(object):
                 "fine_tap_form": ("pq_abs_1x1_gamma_v1" if int(self.args.fine_tap) else "none"),
                 "fine_tap_source": ("norm0_1_4" if int(self.args.fine_tap) else "none"),
                 "fine_tap_fuse": ("post_dcr_refine" if int(self.args.fine_tap) else "none"),
+                "hf_edge": int(self.args.hf_edge),
+                "hf_edge_form": (self.args.hf_edge_form if int(self.args.hf_edge) else "none"),
+                "hf_edge_taps": (self.args.hf_edge_taps if int(self.args.hf_edge) else "none"),
+                "hf_edge_lambda": (float(self.args.hf_edge_lambda)
+                                   if int(self.args.hf_edge) else 0.0),
+                "hf_edge_tag": (HF_EDGE_FORM if int(self.args.hf_edge) else None),
+                "hf_edge_tap_specs": ([list(s) for s in HF_EDGE_TAPS[self.args.hf_edge_taps]]
+                                      if int(self.args.hf_edge) else None),
                 "rep_mode": self.args.rep_mode,
                 "str_dim": self.args.str_dim,
                 "protocol_version": PROTOCOL_VERSION,
@@ -698,7 +752,7 @@ class ChangeViTTrainer(object):
             if remaining is not None and remaining <= 0:
                 self.log(f"[EXACT-STEPS] budget already reached ({cur_iter} >= {self.args.max_steps}), stopping")
                 break
-            loss_tr, score_tr, lr, executed = train_epoch(
+            loss_tr, score_tr, lr, executed, aux_tr = train_epoch(
                 self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter,
                 adapt_log_fn=(self._backbone_adapt_log
                               if getattr(self.args, "arch", "changevit") == "casa_tvim_str" else None),
@@ -708,6 +762,9 @@ class ChangeViTTrainer(object):
             if exact:
                 self.log(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={executed} "
                          f"cumulative={cur_iter}/{self.args.max_steps}")
+            if aux_tr is not None:
+                self.log(f"[HFAE-LOSS] epoch={epoch} aux_loss={aux_tr:.6f} "
+                         f"lambda={self.args.hf_edge_lambda}")
 
             torch.cuda.empty_cache()
 
@@ -919,6 +976,16 @@ class ChangeViTTrainer(object):
                     self.log(f"[FET-FOLD] conv1x1 {self.model.fet_deploy_conv_shape()} "
                              f"params={self.model.fine_evidence_tap.param_report()['fused']} "
                              f"fold_count={self.model.fine_evidence_tap.fold_count}")
+            if int(self.args.hf_edge):
+                self.log(f"[HFAE-FORM] {self.args.hf_edge_form} taps={self.args.hf_edge_taps} "
+                         f"lambda={self.args.hf_edge_lambda} tag={HF_EDGE_FORM}")
+                self.log(f"[HFAE-TAPS] {[list(s) for s in HF_EDGE_TAPS[self.args.hf_edge_taps]]} "
+                         f"(stage0 1/4 36ch HF + stage1 1/8 32ch HF)")
+                self.log(f"[HFAE-DEPLOY] form={self.args.hf_edge_form} "
+                         f"dropped={'entire_head' if self.args.hf_edge_form == 'aux_only' else 'edge_out_only'} "
+                         f"deploy_params={measure_params(self.model)}")
+                self.log("[HFAE-NOTE] 边缘监督只作用于训练目标；主输出路径未被修改 ⇒ "
+                         "train↔deploy 主输出应逐位一致（见下方 fold 行）")
             self.log(f"[BACKBONE-ADAPT-FINAL] rel_L2_from_pretrain={self._backbone_adapt_final(self.model):.4e}")
         elif is_tass:
             self.log(f"[MODEL] {('STRTASS (frozen ViT4 + TASS + TAR/DCR)' if is_tass else 'STRFusion (frozen ViT4 depth-as-scale + TAR/DCR)')}")
@@ -1092,6 +1159,18 @@ def main():
     parser.add_argument('--fine_tap', type=int, default=0, choices=[0, 1],
                         help='casa_tvim_str R4 FET1 (FineEvidenceTap1x1): 1 = 1/4 norm0 1x1 fine-evidence tap added after DCR refine '
                              '(+13,920 deploy params, zero-init gamma -> epoch-0 bitwise identity); 0 = CTRL M1 (R4CTRL arm)')
+    # ---- R7 HFAE（高频边缘辅助监督）。四者 fail-closed 写入 arch.json / run_manifest.json / last.pth。
+    parser.add_argument('--hf_edge', type=int, default=0, choices=[0, 1],
+                        help='casa_tvim_str R7 HFAE: 1 = enable high-frequency edge auxiliary supervision '
+                             '(reads stage0/stage1 frequency-decoupling HF branch via read-only hooks); 0 = CTRL')
+    parser.add_argument('--hf_edge_form', type=str, default='none',
+                        choices=['none', 'aux_only', 'aux_inject'],
+                        help='HFAE deploy form: aux_only = train-only deep supervision (deploy params UNCHANGED); '
+                             'aux_inject = also zero-init inject edge features into DCR 1/4 input (+~10.2k deploy)')
+    parser.add_argument('--hf_edge_taps', type=str, default='1_4_1_8', choices=sorted(HF_EDGE_TAPS),
+                        help='HFAE tap scales: 1_4_1_8 = stage0(1/4,36ch HF) + stage1(1/8,32ch HF); 1_4 = stage0 only')
+    parser.add_argument('--hf_edge_lambda', type=float, default=HF_EDGE_LAMBDA_DEFAULT,
+                        help='HFAE aux loss weight (PRE-REGISTERED and fixed at 0.2; searching it is forbidden)')
     parser.add_argument('--exact_max_steps', type=int, default=0, choices=[0, 1],
                         help='R4 exact-80K protocol: 1 = stop at exactly args.max_steps optimizer updates and fix the poly '
                              'denominator to args.max_steps; 0 = legacy (epoch-granular, max_epochs=ceil(max_steps/iters)). '

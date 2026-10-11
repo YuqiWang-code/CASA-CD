@@ -35,6 +35,8 @@ from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.str_fine_head import STRFineHead
 from model.str_fine_tap import FineEvidenceTap1x1, FET_FORM, FET_FUSE, FET_SOURCE
+from model.str_hf_edge import (HF_EDGE_FORM, HF_EDGE_FORMS, HF_EDGE_LAMBDA_DEFAULT,
+                               HF_EDGE_TAP_KEYS, HF_EDGE_TAPS, build_hf_edge_head)
 
 ENCODER_DIMS = (48, 64, 168, 224)
 STR_DIM = 96
@@ -43,7 +45,9 @@ STR_DIM = 96
 class CASATViMSTRNet(nn.Module):
     def __init__(self, tinyvim_pretrained_path, caacp=True, rep_mode="full",
                  str_dim=STR_DIM, caacp_score_mode="rank", frh=False,
-                 caacp_residual_mode="current", fs_tar=False, fine_tap=False):
+                 caacp_residual_mode="current", fs_tar=False, fine_tap=False,
+                 hf_edge=False, hf_edge_form="none", hf_edge_taps="1_4_1_8",
+                 hf_edge_lambda=HF_EDGE_LAMBDA_DEFAULT):
         super().__init__()
         assert rep_mode in ("plain", "full")
         assert caacp_score_mode in ("rank", "cp")
@@ -56,6 +60,26 @@ class CASATViMSTRNet(nn.Module):
         self.frh = frh
         self.fs_tar = fs_tar
         self.fine_tap = bool(fine_tap)
+
+        # ---- Run7 HFAE（fail-closed：开关与形态必须自洽）
+        self.hf_edge = bool(hf_edge)
+        if self.hf_edge:
+            assert hf_edge_form in ("aux_only", "aux_inject"), \
+                f"[ARCH-MISMATCH] hf_edge=1 requires hf_edge_form in aux_only|aux_inject, got {hf_edge_form}"
+            assert not self.fine_tap, "[ARCH-MISMATCH] hf_edge and fine_tap are mutually exclusive"
+            assert hf_edge_taps in HF_EDGE_TAPS, f"unknown hf_edge_taps {hf_edge_taps}"
+        else:
+            assert hf_edge_form in ("none", None), \
+                f"[ARCH-MISMATCH] hf_edge=0 requires hf_edge_form=none, got {hf_edge_form}"
+        self.hf_edge_form = hf_edge_form if self.hf_edge else "none"
+        self.hf_edge_taps = hf_edge_taps if self.hf_edge else "none"
+        self.hf_edge_lambda = float(hf_edge_lambda)
+        self.hf_edge_form_tag = HF_EDGE_FORM if self.hf_edge else None
+        self._hf_taps = {}
+        self._hf_handles = []
+        self._hf_edge_logits = None
+        self._hf_edge_feat = None
+
         # R4 sidecar 标识（fine_tap=0 时为 None，保持旧行为逐位不变）
         self.fine_tap_form = FET_FORM if self.fine_tap else None
         self.fine_tap_source = FET_SOURCE if self.fine_tap else None
@@ -89,9 +113,136 @@ class CASATViMSTRNet(nn.Module):
         else:
             self.fine_evidence_tap = None
 
+        # R7-HFAE：同样**最后构造**；HFEdgeHead 内部用 fork_rng + 固定局部种子，
+        # 不推进全局随机流 ⇒ 开关 hf_edge 时既有模块初始化逐位相同（T2 验证）。
+        if self.hf_edge:
+            assert str_dim == 96, "HFAE 假设 D=96（注入维度）"
+            self.hf_edge_head = build_hf_edge_head(
+                taps=self.hf_edge_taps, form=self.hf_edge_form, inject_dim=str_dim)
+            self._register_hf_hooks()
+        else:
+            self.hf_edge_head = None
+
+    # ------------------------------------------------------------------ R7 HFAE
+    def _hf_hook_targets(self):
+        return [self.encoder.network[n][b].op.local_conv
+                for (n, b, _c, _r) in HF_EDGE_TAPS[self.hf_edge_taps]]
+
+    def _ensure_hf_hooks(self):
+        """幂等地确保 tap hook 挂在**当前**模块上。
+
+        存在的理由：`copy.deepcopy(model)` 会复制 nn.Module 树，但**不会**复制挂在原模块上的
+        forward hook —— 而项目的 D0/eval 审计路径正是 `deepcopy` + `switch_to_deploy`。
+        因此每次 forward 前做一次轻量检查：当前模块上若没有我们的 hook 就补挂。
+        每个 handle 与目标模块成对保存，`switch_to_deploy()` 只移除属于**本模型**的 hook，
+        避免 deepcopy 的副本误删原模型上的 hook。
+        """
+        if not self.hf_edge or self.hf_edge_head is None:
+            return
+        keys = HF_EDGE_TAP_KEYS[self.hf_edge_taps]
+        for key, mod in zip(keys, self._hf_hook_targets()):
+            attached = any(getattr(h, "_hfae_key", None) == key
+                           for h in getattr(mod, "_forward_hooks", {}).values())
+            if attached:
+                continue
+            h = mod.register_forward_hook(
+                (lambda k: (lambda m, i, o: self._hf_taps.__setitem__(k, o)))(key))
+            h._hfae_key = key
+            self._hf_handles.append((h, mod))
+
+    def _remove_hf_hooks(self):
+        """只移除仍然挂在本模型模块上的 hook（deepcopy 副本不会误删原模型的）。"""
+        for h, mod in self._hf_handles:
+            try:
+                if getattr(h, "id", None) in getattr(mod, "_forward_hooks", {}):
+                    h.remove()
+            except Exception:  # noqa: BLE001
+                pass
+        self._hf_handles = []
+
+    def _register_hf_hooks(self):
+        """构造期注册（后续由 `_ensure_hf_hooks()` 保证幂等）。"""
+        self._hf_handles = []
+        self._ensure_hf_hooks()
+
+    def _run_hf_edge(self):
+        """从 hook 缓存取高频 tap → 边缘头。
+
+        返回 `(edge_logits (B,1,h,w), edge_feat (B,mid,h,w))`——双时相在头内**配对**，
+        因此是 B 尺寸（每对样品一张变化边缘图）。
+        """
+        keys = HF_EDGE_TAP_KEYS[self.hf_edge_taps]
+        taps = []
+        for k in keys:
+            t = self._hf_taps.get(k)
+            if t is None:
+                raise RuntimeError(f"[HFAE] tap {k} missing: forward hooks did not fire")
+            taps.append(t)
+        logits, feat = self.hf_edge_head(taps)
+        self._hf_taps.clear()                       # 释放对 autograd 图的引用
+        return logits, feat
+
+    def aux_edge_logits(self):
+        """训练期边缘 logits（`train.py` 用它算辅助损失；步间不保留旧值）。"""
+        return self._hf_edge_logits
+
+    # ---- R7 HFAE 机制自检：辅助损失是否真的回流到「高频分支」
+    def _hf_tap_modules(self):
+        if not self.hf_edge:
+            return []
+        return [self.encoder.network[n][b].op.local_conv
+                for (n, b, _c, _r) in HF_EDGE_TAPS[self.hf_edge_taps]]
+
+    def hf_edge_tap_grad_norm(self):
+        """被 tap 的高频分支（`local_conv`）上辅助损失的梯度 L2 范数。
+
+        > 0 才说明边缘监督在**重塑表征**；若恒为 0，则本机制退化为"旁路头"，
+        与已被否证的无监督注入等价 ⇒ T5 的判定依据。
+        """
+        tot = 0.0
+        for mod in self._hf_tap_modules():
+            for p in mod.parameters():
+                if p.grad is not None:
+                    tot += float(p.grad.detach().pow(2).sum())
+        return tot ** 0.5
+
+    def hf_edge_tap_grad_nonzero(self):
+        n = 0
+        for mod in self._hf_tap_modules():
+            for p in mod.parameters():
+                if p.grad is not None and float(p.grad.detach().abs().sum()) > 0.0:
+                    n += 1
+        return n
+
+    def hf_edge_head_grad_norm(self):
+        if self.hf_edge_head is None:
+            return 0.0
+        tot = sum(float(p.grad.detach().pow(2).sum())
+                  for p in self.hf_edge_head.parameters() if p.grad is not None)
+        return tot ** 0.5
+
+    def hf_edge_report(self):
+        if not self.hf_edge or self.hf_edge_head is None:
+            return None
+        rep = self.hf_edge_head.param_report()
+        rep.update({"form": self.hf_edge_form, "taps": self.hf_edge_taps,
+                    "lambda": self.hf_edge_lambda, "tag": self.hf_edge_form_tag,
+                    "deploy_dropped": bool(self.hf_edge_form == "aux_only"
+                                           and not self._hf_handles
+                                           and self.hf_edge_head is None)})
+        return rep
+
     def forward(self, pre, post, label=None):
+        if self.hf_edge and self.hf_edge_head is not None:
+            self._ensure_hf_hooks()                             # deepcopy 后自动补挂
+            self._hf_taps.clear()                               # 步间不持有旧图
+            self._hf_edge_logits = None
+            self._hf_edge_feat = None
         x2b = torch.cat([pre, post], dim=0)                     # (2B,3,256,256)
-        f1, f2, x = self.encoder.forward_stem_s2_prefix(x2b)
+        f1, f2, x = self.encoder.forward_stem_s2_prefix(x2b)    # ← tap 在此处被 hook 捕获
+
+        if self.hf_edge and self.hf_edge_head is not None:
+            self._hf_edge_logits, self._hf_edge_feat = self._run_hf_edge()
 
         if self.caacp and self.encoder.caacp_op is not None:
             xa, xb = x.chunk(2, dim=0)
@@ -112,6 +263,12 @@ class CASATViMSTRNet(nn.Module):
         f4a, f4b = f4.chunk(2, dim=0)
 
         feats = self.tar([f1a, f2a, f3a, f4a], [f1b, f2b, f3b, f4b])
+        if (self.hf_edge and self.hf_edge_form == "aux_inject"
+                and self._hf_edge_feat is not None):
+            # 零初始化注入 ⇒ epoch-0 逐位恒等；注入到 DCR 的最小尺度输入（1/4）
+            assert self.hf_edge_head.inject is not None, "[HFAE] aux_inject requires inject proj"
+            feats = list(feats)
+            feats[0] = feats[0] + self.hf_edge_head.inject(self._hf_edge_feat)
         x = self.decoder(feats)                     # 原始 DCR.refine 输出 [B,96,64,64]
         if self.fine_tap:
             # R4-FET1：refine **之后**相加（不进入 SiLU/RepLocalBlock，保持 DCR 训练路径不变）
@@ -128,6 +285,16 @@ class CASATViMSTRNet(nn.Module):
             self.head.switch_to_deploy()
         if self.fine_tap:
             self.fine_evidence_tap.switch_to_deploy()
+        if self.hf_edge and self.hf_edge_head is not None:
+            self._remove_hf_hooks()
+            if self.hf_edge_form == "aux_only":
+                # 训练期深监督 ⇒ 推理图不含边缘头，deploy 参数与基线**完全相同**
+                self.hf_edge_head = None
+            else:
+                self.hf_edge_head.drop_supervision_head()   # 只丢监督专用 edge_out
+            self._hf_taps.clear()
+            self._hf_edge_logits = None
+            self._hf_edge_feat = None
         return self
 
     # ------------------------------------------------------------------ R4 diag
