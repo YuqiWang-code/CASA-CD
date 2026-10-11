@@ -1,7 +1,21 @@
 # Run7 HANDOFF — HFAE 消融正在服务器执行（12 run / 3 波）
 
-> 生成时间：2026-10-11 10:29（会话仍在进行）。本文件是**状态与恢复索引**，不是结果报告。
+> 生成时间：2026-10-11 10:29（首版）；**最后更新 10:52**。本文件是**状态与恢复索引**，不是结果报告。
 > 结果只能由 `finish_run7.sh` 在 12 个 run 全部跑完后产出。
+>
+> ⚠️ **本文件里的"进度/剩余时长"都是带时间戳的快照，必然随时间过期。**
+> 请**以命令实测为准**，不要把下面任何进度数字当作当前值：
+>
+> ```bash
+> # 当前进度（四库累计 optimizer.step / 80000）
+> for d in CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256; do
+>   printf '%-14s %s\n' "$d" "$(grep -E '^.ACTUAL-OPT-STEPS' \
+>     /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/M1_R7CTRL/$d/train_log.txt | tail -1)"
+> done
+> # 督导是否还活着（日志每 120 s 一行）
+> tail -3 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+> ```
+> `…/Run7/E9_HFAE_A/` 与 `…/E10_HFAE_B/` **出现** = 对应波次已启动（波二/波三就绪的信号）。
 
 ## 1. 一句话现状
 
@@ -14,11 +28,11 @@
 | 波次 → 变体 | 1 → `M1_R7CTRL`，2 → `E9_HFAE_A`，3 → `E10_HFAE_B` |
 | GPU 分配 | GPU0 = CDD + LEVIR；GPU1 = SYSU + WHU（每卡 2 个 run） |
 | 并发 | 4 个 run 同时跑（每卡 2 个）；batch 32；`--exact_max_steps 1`；~5.8 step/s/run |
-| 进度（10:29） | 波一 4 库 **19.1k–21.2k / 80k**（0 个 TEST 区块，属正常：只在 80k 收尾写出） |
-| ETA（**实测修正**，10:38） | 波一 ≈ **13:43**；三波全部 ≈ **22:15**（详见 §1.2） |
+| 进度 | **随时实测**（见文首命令）。快照：10:29 波一 19.1–21.2k；10:52 约 26.3–29.4k / 80k（0 个 TEST 区块属正常：只在 80k 收尾写出） |
+| ETA（**实测修正**，10:38） | 波一 ≈ **13:43**；三波全部 ≈ **22:15**（详见 §1.1） |
 | 资源 | ckpt 目录稳定 **635 MB**；日志 ≈0.1 MB @80K；磁盘 2.6 T 空闲 |
 
-### 1.2 ETA 的实测修正（此前用"总量速率"估算，偏乐观约 1.5 h）
+### 1.1 ETA 的实测修正（此前用"总量速率"估算，偏乐观约 1.5 h）
 
 波次门要求**四个 run 全部 VALID**，所以波一完成时间 = **最慢**那个 run 的完成时间，
 不能用总量速率估算。10:38 逐 run 采样（相隔 120 s）：
@@ -38,7 +52,7 @@
 故沿用 4.27 h/波；若明显更慢，以 `_r7_eta.sh` 复测为准。
 
 
-### 1.1 波一中期健康读数（2026-10-11 10:32，**仅供健康核对，不是结果**）
+### 1.2 波一中期健康读数（2026-10-11 10:32，**仅供健康核对，不是结果**）
 
 | dataset | best F1 @~26% | 当前 epoch | 该库总 epoch | epoch×iters/epoch | ≈80,000? |
 |---|---|---|---|---|---|
@@ -80,10 +94,11 @@
 ## 2. 收口只需一条命令（已 12-run 全量排练，`FINISH_RC=0`，耗时 207 s）
 
 > ⚠️ **别依赖那个 bounded watcher**：`.claude/_r7_watch.ps1` 是 **11 小时**上限
-> （2026-10-11 09:28:37 启动 ⇒ 约 **20:28–20:31 自行退出**），而三波全部结束约 **20:40** ——
-> **watcher 会在完成前约 10 分钟到期**。最后一段请直接轮询
-> `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log`（每 120 s 一行）
-> 或跑 `_r7_survey.sh`，不要等 watcher 的通知。
+> （2026-10-11 09:28:37 启动 ⇒ 约 **20:28–20:31 自行退出**），而按 §1.1 的实测修正
+> 三波全部结束约 **22:15** ⇒ **watcher 会在完成前约 1 小时 45 分钟就到期**。
+> 也就是说**最后约 1.75 小时完全没有 watcher 覆盖**。请直接轮询
+> `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log`（每 120 s 一行），
+> 不要等 watcher 的通知。
 
 
 ```bash
@@ -142,6 +157,7 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 | 收口工具 | `train_scripts/CASA-TViM/Run7/{finish_run7.sh,check_run.py,collect_results.py,run7_verdict.py,independent_audit.py}` |
 | 对象级工具 | `analyse/run7_object_metrics.py` |
 | 预注册文档 | `docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md` |
+| **收口 runbook** | `train_scripts/CASA-TViM/Run7/README.md` §8（rc→动作、五种 verdict 写法、三张表、禁做清单） |
 | 督导 | `train_scripts/CASA-TViM/Run7/supervise_waves.sh` + `…/Run7_supervisor.log` |
 
 ## 7. 关于 `Run7/` 目录里的 `_r7_*.sh`（一次性诊断探针，**不是流水线的一部分**）
@@ -158,5 +174,5 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 | 审计的 `glob` | 只用于 `object_metrics_*.json` 与 `SOURCE_FILES.txt` 清单，与探针无关 |
 
 ⇒ 看到这些文件**不必清理**（清理反而有改错路径的风险）；正式流水线只认
-`SOURCE_FILES.txt` 里登记的 25 个文件（+ `HANDOFF.md`）。
+`SOURCE_FILES.txt` 里登记的 **26 个条目**（其中包含 `HANDOFF.md` 自身）。
 
