@@ -27,7 +27,12 @@ python rc=0 不代表 run 合规）。
   * 日志无 `[MANIFEST-MISMATCH]` / `[PROTOCOL-MISMATCH]` / `budget already reached`；
   * 变体契约（见上 1/2，以及 λ=0.2 固定、taps=1_4_1_8、`[HFAE-DEPLOY]` 的 dropped/deploy_params）；
   * `arch.json` / `run_manifest.json` 与日志一致（hf_edge/hf_edge_form/hf_edge_taps/
-    hf_edge_lambda/protocol_version），且 `source_code_sha256` 非空（Run7 协议要求）。
+    hf_edge_lambda/protocol_version），且 `source_code_sha256` 非空（Run7 协议要求）；
+  * **冻结协议字段**（`run_manifest.json`）：batch_size=32、seed=16、max_steps=80000、
+    exact_max_steps=1、data_contract=legacy_6ch_reverse_v1、backbone_lr_ratio=0.1、
+    str_dim=96、feature_taps=冻结四tap、dataset 相符；
+  * **崩溃恢复溯源**：`resume_source` 必须为 None，或指向**本 run 自己**的 `last.pth`
+    （指向别的变体/库等于拿别人的权重续训，会静默污染受控消融）。
 """
 import argparse
 import json
@@ -40,6 +45,13 @@ PROTOCOL = "run7_hf_edge_exact80k_v1"
 BUDGET = 5_000_000
 EXPECT_LAMBDA = 0.2
 EXPECT_TAPS = "1_4_1_8"
+# 冻结协议字段（从**真实** run_manifest.json 实测得到，2026-10-11 波一四库核对）
+EXPECT_BATCH = 32
+EXPECT_SEED = 16
+EXPECT_DATA_CONTRACT = "legacy_6ch_reverse_v1"
+EXPECT_FEATURE_TAPS = ["stage1_1_4_48", "stage2_1_8_64", "stage3_1_16_168", "stage4_1_32_224"]
+EXPECT_BACKBONE_LR_RATIO = 0.1
+EXPECT_STR_DIM = 96
 
 # 变体契约表（**按实测的 sidecar/log 真实取值**，2026-10-11 用真实 train.py 产出核对）：
 #   hf_edge, form, [DEPLOY-PARAMS] total(M), [HFAE-DEPLOY] deploy_params, dropped,
@@ -208,6 +220,38 @@ def check(log_path, variant, dataset, ckpt_dir):
         good = all(re.fullmatch(r"[0-9a-fA-F]{16}|[0-9a-fA-F]{64}", str(v)) for v in src.values())
         checks.append((f"{name}: source_code_sha256 present & well-formed",
                        bool(src) and good, f"{len(src)} files"))
+
+    # ---- 冻结协议字段：把"脚本里参数写对了"升级为"**每个 run 的落盘清单**也对"
+    # 这些断言直接对着目标第(4)条（各严格 80,000 step / batch 32 / 从同一预训练权重从头训）。
+    # 只在 run_manifest.json 里有这些字段（arch.json 没有 batch/seed）。
+    mp = os.path.join(ckpt_dir, "run_manifest.json")
+    man = None
+    if os.path.isfile(mp):
+        try:
+            man = json.load(open(mp, encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            checks.append(("run_manifest.json parses for protocol check", False, repr(e)))
+    else:
+        checks.append(("run_manifest.json present for protocol check", False, mp))
+    if man is not None:
+        for k, want in (("batch_size", EXPECT_BATCH), ("seed", EXPECT_SEED),
+                        ("max_steps", EXPECT_STEPS), ("exact_max_steps", 1),
+                        ("data_contract", EXPECT_DATA_CONTRACT),
+                        ("backbone_lr_ratio", EXPECT_BACKBONE_LR_RATIO),
+                        ("str_dim", EXPECT_STR_DIM), ("dataset", dataset)):
+            got = man.get(k)
+            checks.append((f"manifest {k} == {want!r}", got == want, f"got {got!r}"))
+        got_taps = man.get("feature_taps")
+        checks.append(("manifest feature_taps == frozen 4 taps",
+                       got_taps == EXPECT_FEATURE_TAPS, f"got {got_taps}"))
+        # 崩溃恢复：resume_source 必须为 None，或指向**本 run 自己**的 last.pth。
+        # 若指向别的变体/库，等于拿别人的权重续训 ⇒ 会静默污染受控消融。
+        rs = man.get("resume_source")
+        own_suffix = f"{variant}/{dataset}/last.pth"
+        rs_norm = str(rs).replace("\\", "/") if rs is not None else None
+        checks.append(("manifest resume_source is None or this run's own last.pth",
+                       rs is None or rs_norm.endswith(own_suffix),
+                       f"got {rs!r} (expect None or .../{own_suffix})"))
     return checks, {"n_fail": sum(1 for c in checks if not c[1])}
 
 

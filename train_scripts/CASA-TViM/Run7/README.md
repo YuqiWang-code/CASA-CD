@@ -329,6 +329,43 @@ selftest 由 13 → **15 条全 PASS**：
 （§7.6/§7.7 里用于接口与归因验证的 headline 数值来自 **750 步**的模型，只证明管道与判定逻辑，
 **不是实验结果**；正式结论一律等 12 个 80K run 跑完后由 `finish_run7.sh` 产出。）
 
+### 7.8 逐 run 冻结协议核验：把「脚本里参数写对了」升级为「每个 run 的落盘清单也对」
+
+**发现的缺口**：目标第(4)条要求「各严格 80,000 `optimizer.step`、batch 32、从同一预训练权重从头训」。
+此前这些只在**脚本参数**层面被 `check_mapping.py` 验过（`runner_batch_frozen` / `runner_steps_frozen` …），
+但**没有任何检查去看每个 run 实际落盘的 `run_manifest.json`**。若某一波被用错参数启动
+（例如 batch 或 max_steps 不对），12 个 run 仍会各自产出"完整 TEST 区块"，`collect_results.py`
+的 12-run 门也照样放行 ⇒ **静默的协议违规**。
+
+**已补进 `check_run.py`**（字段与期望值均从**真实** manifest 实测得到，非猜测）：
+
+| 断言 | 冻结值 |
+|---|---|
+| `batch_size` / `seed` | 32 / 16 |
+| `max_steps` / `exact_max_steps` | 80000 / 1 |
+| `data_contract` | `legacy_6ch_reverse_v1` |
+| `feature_taps` | `stage1_1_4_48, stage2_1_8_64, stage3_1_16_168, stage4_1_32_224` |
+| `backbone_lr_ratio` / `str_dim` | 0.1 / 96 |
+| `dataset` | 与该 run 的目录/调用一致（防止 ckpt 与库错配） |
+| **`resume_source`** | 必须为 `None`，或指向**本 run 自己**的 `last.pth` |
+
+`resume_source` 这条是**研究诚信**守卫：`run_all.sh` 的崩溃重试会原样重跑同一条命令，
+由 `train.py` 自动从**自己的** `last.pth` 续训（`train.py:426` 自动 resume、`:445` 恢复
+`actual_steps`、`:461` 恢复 RNG、`:508/:631` 把 `resume_source` 写进清单）。若 `resume_source`
+指向**别的变体/库**，等于拿别人的权重续训，会**静默污染受控消融** —— 现在会被硬门拦下。
+
+**真实数据验证结果**（`CHECK_RUN VALIDATION = PASS`，9 用例）：
+
+| 用例 | 实测 |
+|---|---|
+| 波一 CTRL 四库**真实** `run_manifest.json` | **9 条协议断言全部 PASS**（`n_checks=28 n_failed=2`，仅"未跑完"两条失败）⇒ 波一确实按冻结协议在跑 ✅ |
+| 750 步冒烟清单（batch=8/max_steps=750） | 被协议门**正确判 FAIL**（`manifest batch_size == 32`、`manifest max_steps == 80000`）⇒ 门不是恒真 ✅ |
+| 把某库的 ckpt 配错 dataset | 被 `manifest dataset == …` 抓到 ✅ |
+
+（过程中我**自己的测试脚本**有一处 bug：`run()` 硬编码 `--dataset WHU-CD-256`，而 CTRL 的 ckpt 是 CDD，
+于是被新检查判出 `manifest dataset` 不符。工具是对的、测试调用是错的 —— 已修好并重跑通过。）
+
+
 
 
 
