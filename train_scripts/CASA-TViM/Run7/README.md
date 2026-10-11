@@ -289,6 +289,47 @@ E9/E10 一次，得到**契约完整**的真实日志（GPU 占用回到基线�
 `--variant/--dataset` 单 run 旧调用方式**回归验证仍可用**（本地实跑确认不再抛 usage error）。
 `finish_run7.sh` 传的是 `--all-variants`，不受影响。
 
+### 7.7 裁决引擎：接口契约实测 + 补上目标第(5)条要求的「小目标机制归因」
+
+**接口契约（`run7_object_metrics.py` → `run7_verdict.py`）在真实文件上验证通过。**
+两个工具是分开写的，接口从没在真实产物上对过；本轮用 §7.6 产出的**真实**
+`object_metrics_*.json` 驱动 `decide()` 实测：
+
+| 检查 | 结果 |
+|---|---|
+| 真实 `headline` 键 vs 裁决的 `REQUIRED_HEADLINE`（8 个） | 真实 headline 有 12 键，**8 个必需键全部命中** ⇒ `guardrail_unevaluable[*].bad == []` ✅ |
+| 只给 1/4 库的对象级指标 | 判 `INCOMPLETE`（**不假 PASS**），reason 指向"缺对象级指标" ✅ |
+| 四库齐备 | 判 `GUARDRAIL-FAIL`，且 reasons 给出**真实数值**：`large_pooled_recall 0.8430 < ctrl 0.9283 (-0.0853 > 0.02)`、`ObjRecall_loose 0.7029 < 0.7807` ✅ |
+| SYSU F1 不提升 | 判 `MECHANISM-FAIL` ✅ |
+
+**发现的缺口（目标第(5)条只实现了一半）**：`small_pooled_recall` / `unmatched_small_pred` /
+`small_hit25` 此前只在 `guardrail_evaluable()` 里被要求"**必须存在**"，却**从未出现在任何输出里**
+——实测在 verdict 输出里搜这三个名字全是 `False`，而 `GUARDRAIL-FAIL` 的 `attribution` 是 `None`。
+即"按四库 F1 **与 SYSU small recall/未匹配小预测数**给出 PASS/FAIL **与机制归因**"里的后半句没落地。
+
+**已补上（**只作报告，不改规则**）**：`decide()` 新增 `detail["small_object_report"]`
+（每变体×每库给出 small pooledR / Hit@25 / Hit@50 / 未匹配小预测 / n_gt_small / 中大 pooledR /
+ObjRecall 的 CTRL→EXP 与 Δ，以及未匹配小预测相对 CTRL 的**倍数**），三类结局的 `attribution`
+都带上 SYSU 小目标读数，`render_markdown` 增出小目标表与归因段。真实文件实测输出：
+
+```
+E9_HFAE_A: SYSU-CD-256 small pooledR 0.5227→0.3186 (Δ-0.2041), Hit@25 0.3165→0.2025,
+           未匹配小预测 121→318 (×2.63), 中大 pooledR Δ-0.0082/-0.0853
+```
+
+**关键不变量（已写进 selftest 守死）**：接受标准与守门阈值是在任何 E9/E10 结果之前冻结的，
+这次增补是"报告"而不是"改规则"⇒ 新增断言「把小目标读数改到极端，**裁决标签必须不变**」。
+selftest 由 13 → **15 条全 PASS**：
+
+| 新增断言 | 结果 |
+|---|---|
+| `small-object readings do NOT change verdict` | `MECHANISM-PASS == MECHANISM-PASS` ✅ |
+| `SYSU small-object readings surfaced (report + attribution)` | `attribution=True report=True` ✅ |
+
+（§7.6/§7.7 里用于接口与归因验证的 headline 数值来自 **750 步**的模型，只证明管道与判定逻辑，
+**不是实验结果**；正式结论一律等 12 个 80K run 跑完后由 `finish_run7.sh` 产出。）
+
+
 
 
 

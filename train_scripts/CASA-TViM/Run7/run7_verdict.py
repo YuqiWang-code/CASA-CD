@@ -163,6 +163,60 @@ def decide(rows, obj, logs, th):
     detail["guardrail_fails"] = {v: guardrail_ok(v) for v in EXPERIMENTS}
     detail["guardrail_unevaluable"] = {v: guardrail_evaluable(v) for v in EXPERIMENTS}
 
+    # ---- 3b) 小目标机制读数：**只做归因报告，不参与接受/守门判定**
+    # 目标第(5)条要求"按四库 F1 与 SYSU small recall/未匹配小预测数给出 PASS/FAIL **与机制归因**"。
+    # 这些量此前只在 guardrail_evaluable() 里被要求"必须存在"，却**从未出现在任何输出里**
+    # （实测：verdict 输出里搜不到 small_pooled_recall / unmatched_small_pred / small_hit25）。
+    # 不变量：本区块只报告数字；接受标准与守门阈值是在任何 E9/E10 结果之前冻结的，
+    # 不得因这次增补而改变 —— selftest 有一条断言专门守这个不变量（裁决标签必须不变）。
+    SMALL_KEYS = ("small_pooled_recall", "small_hit25", "small_hit50",
+                  "unmatched_small_pred", "n_gt_small_objects", "medium_pooled_recall",
+                  "large_pooled_recall", "ObjRecall_loose", "F1")
+
+    def _num(v, d, k):
+        x = (obj.get((v, d)) or {}).get(k)
+        return x if isinstance(x, (int, float)) else None
+
+    small_report = {}
+    for v in EXPERIMENTS:
+        per = {}
+        for d in DATASETS:
+            e = {k: _num(v, d, k) for k in SMALL_KEYS}
+            c = {k: _num("M1_R7CTRL", d, k) for k in SMALL_KEYS}
+            per[d] = {
+                "exp": e, "ctrl": c,
+                "delta": {k: (None if e[k] is None or c[k] is None else e[k] - c[k])
+                          for k in SMALL_KEYS},
+                # 未匹配小预测的"倍数"比绝对差更直观（同一库上 CTRL 的基数不同）
+                "unmatched_small_ratio_vs_ctrl": (
+                    None if not c["unmatched_small_pred"] or e["unmatched_small_pred"] is None
+                    else e["unmatched_small_pred"] / c["unmatched_small_pred"]),
+            }
+        small_report[v] = per
+    detail["small_object_report"] = small_report
+
+    def sy_line(v, d="SYSU-CD-256"):
+        """一行归因：该变体在该库上的小目标读数 vs 同期 CTRL。"""
+        s = small_report.get(v, {}).get(d)
+        if not s:
+            return f"{v}: {d} 无对象级小目标读数"
+        e, c, dd = s["exp"], s["ctrl"], s["delta"]
+
+        def f4(x):
+            return "n/a" if x is None else f"{x:.4f}"
+
+        def i0(x):
+            return "n/a" if x is None else f"{x}"
+
+        r = s["unmatched_small_ratio_vs_ctrl"]
+        return (f"{v}: {d} small pooledR {f4(c['small_pooled_recall'])}→"
+                f"{f4(e['small_pooled_recall'])} (Δ{'n/a' if dd['small_pooled_recall'] is None else format(dd['small_pooled_recall'], '+.4f')}), "
+                f"Hit@25 {f4(c['small_hit25'])}→{f4(e['small_hit25'])}, "
+                f"未匹配小预测 {i0(c['unmatched_small_pred'])}→{i0(e['unmatched_small_pred'])}"
+                f"{'' if r is None else f' (×{r:.2f})'}, "
+                f"中大 pooledR Δ{'n/a' if dd['medium_pooled_recall'] is None else format(dd['medium_pooled_recall'], '+.4f')}"
+                f"/{'n/a' if dd['large_pooled_recall'] is None else format(dd['large_pooled_recall'], '+.4f')}")
+
     # ---- 4) 裁决
     if winners:
         v = winners[0]
@@ -172,14 +226,22 @@ def decide(rows, obj, logs, th):
                     "reasons": [f"守门无法评估：{v} 缺对象级指标（datasets={miss}，"
                                 f"缺字段={bad}）；请先跑 "
                                 f"`analyse/run7_object_metrics.py --all-variants`。"],
-                    "detail": detail, "attribution": None}
+                    "detail": detail,
+                    "attribution": f"（对象级指标未齐，尚不能归因）{sy_line(v)}"}
         gf = detail["guardrail_fails"][v]
         if gf:
             return {"verdict": "GUARDRAIL-FAIL", "winner": v, "reasons": gf,
-                    "detail": detail, "attribution": None}
+                    "detail": detail,
+                    "attribution": (f"{v} 在 F1 上达标（≥{th['min_datasets_ge_ctrl']}/4 库且 "
+                                    f"SYSU 提升），但守门被触发：提升伴随中大对象/目标级 recall "
+                                    f"的实质损失 ⇒ 判定为「以小目标为代价」的不可接受增益。"
+                                    f"归因读数：{sy_line(v)}")}
         return {"verdict": "MECHANISM-PASS", "winner": v, "reasons": [], "detail": detail,
                 "attribution": (f"{v} 在 ≥{th['min_datasets_ge_ctrl']}/4 库 F1 ≥ 同期 CTRL 且 "
-                                f"SYSU F1 提升，机制自检全过，守门未触发")}
+                                f"SYSU F1 提升，机制自检全过，守门未触发。"
+                                f"归因读数：{sy_line(v)}"
+                                + "；".join(f" {sy_line(v, d)}" for d in DATASETS
+                                            if d != "SYSU-CD-256"))}
     # 未达接受标准 → 负结果 + 归因
     why = []
     for v in EXPERIMENTS:
@@ -193,7 +255,8 @@ def decide(rows, obj, logs, th):
             why.append(f"{v}: SYSU F1 未提升 (Δ={delta[(v, 'SYSU-CD-256')]:+.4f})")
     return {"verdict": "MECHANISM-FAIL", "winner": None, "reasons": why, "detail": detail,
             "attribution": ("边缘监督未能在受控消融下带来四库一致的 F1 提升；"
-                            "按预注册记负结果，不回调 λ/阈值，不新增证据通道。")}
+                            "按预注册记负结果，不回调 λ/阈值，不新增证据通道。"
+                            "归因读数：" + "；".join(sy_line(v) for v in EXPERIMENTS))}
 
 
 # --------------------------------------------------------------------------- IO
@@ -228,8 +291,42 @@ def render_markdown(rows, verdict):
                      f"{'n/a' if a is None or cf is None else f'{a - cf:+.4f}'} | "
                      f"{b if b is None else f'{b:.4f}'} | "
                      f"{'n/a' if b is None or cf is None else f'{b - cf:+.4f}'} |")
-    return "\n".join(lines) + f"\n\n**VERDICT = {verdict['verdict']}**" + (
-        f" (winner={verdict.get('winner')})" if verdict.get("winner") else "")
+    lines.append("")
+    lines.append(f"**VERDICT = {verdict['verdict']}**"
+                 + (f" (winner={verdict.get('winner')})" if verdict.get("winner") else ""))
+    for r in (verdict.get("reasons") or []):
+        lines.append(f"- {r}")
+    if verdict.get("attribution"):
+        lines.append("")
+        lines.append(f"**机制归因**：{verdict['attribution']}")
+
+    # 小目标 / 中大对象读数表（**只作归因**，不参与接受或守门判定）
+    sr = ((verdict.get("detail") or {}).get("small_object_report") or {})
+    if sr:
+        def f4(x):
+            return "n/a" if x is None else f"{x:.4f}"
+
+        def d4(x):
+            return "n/a" if x is None else f"{x:+.4f}"
+        lines += ["", "**小目标 / 中大对象机制读数（只作归因，不参与判定）**", "",
+                  "| variant | dataset | small pooledR (CTRL→EXP) | Δ | Hit@25 Δ | "
+                  "未匹配小预测 (CTRL→EXP) | ×CTRL | 中大 pooledR Δ (med/large) |",
+                  "|---|---|---|---:|---:|---|---:|---|"]
+        for v in EXPERIMENTS:
+            for d in DATASETS:
+                s = (sr.get(v) or {}).get(d)
+                if not s:
+                    continue
+                e, c, dd = s["exp"], s["ctrl"], s["delta"]
+                rt = s.get("unmatched_small_ratio_vs_ctrl")
+                lines.append(
+                    f"| {v} | {d} | {f4(c['small_pooled_recall'])}→"
+                    f"{f4(e['small_pooled_recall'])} | {d4(dd['small_pooled_recall'])} | "
+                    f"{d4(dd['small_hit25'])} | "
+                    f"{c['unmatched_small_pred']}→{e['unmatched_small_pred']} | "
+                    f"{'n/a' if rt is None else f'{rt:.2f}'} | "
+                    f"{d4(dd['medium_pooled_recall'])}/{d4(dd['large_pooled_recall'])} |")
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- selftest
@@ -366,6 +463,33 @@ def selftest():
     v = decide(_mk_rows(f), obj_partial, _mk_logs(), th)
     cases.append(("INCOMPLETE (partial object metrics)", v["verdict"] == "INCOMPLETE",
                   v["verdict"]))
+
+    # 12) 不变量：小目标读数**只作归因**，把它改到极端也不得改变裁决标签
+    #     （接受标准与守门阈值在任何结果之前冻结；这次增补是"报告"，不是"改规则"）
+    obj_wild = _mk_obj()
+    for k in list(obj_wild):
+        for fld in ("small_pooled_recall", "small_hit25", "small_hit50",
+                    "small_object_macro_recall"):
+            if fld in obj_wild[k]:
+                obj_wild[k][fld] = 0.0
+        if "unmatched_small_pred" in obj_wild[k]:
+            obj_wild[k]["unmatched_small_pred"] = 10 ** 6
+    va = decide(_mk_rows(f), _mk_obj(), _mk_logs(), th)
+    vb = decide(_mk_rows(f), obj_wild, _mk_logs(), th)
+    cases.append(("small-object readings do NOT change verdict",
+                  va["verdict"] == vb["verdict"],
+                  f"{va['verdict']} == {vb['verdict']}"))
+
+    # 13) 目标第(5)条：SYSU small recall / 未匹配小预测数必须真的**出现在输出里**
+    att = va.get("attribution") or ""
+    att_ok = all(t in att for t in ("SYSU-CD-256", "small pooledR", "未匹配小预测"))
+    rep = ((va.get("detail") or {}).get("small_object_report") or {}).get(
+        "E9_HFAE_A", {}).get("SYSU-CD-256") or {}
+    rep_ok = all(k in (rep.get("exp") or {}) for k in
+                 ("small_pooled_recall", "small_hit25", "unmatched_small_pred",
+                  "n_gt_small_objects")) and isinstance(rep.get("delta"), dict)
+    cases.append(("SYSU small-object readings surfaced (report + attribution)",
+                  att_ok and rep_ok, f"attribution={att_ok} report={rep_ok}"))
 
     print("=== verdict engine selftest (pure decide(), synthetic fixtures) ===")
     print("thresholds:", json.dumps(th, ensure_ascii=False))
