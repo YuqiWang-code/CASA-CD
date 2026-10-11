@@ -20,16 +20,33 @@ export PROJ=/home/yqwang/projects/CASA-CD
 export LD_LIBRARY_PATH=/home/yqwang/miniforge3/envs/casacd/lib/python3.10/site-packages/torch/lib:/home/yqwang/miniforge3/envs/casacd/lib:${LD_LIBRARY_PATH:-}
 cd "$PROJ" || exit 3
 
-LOG_ROOT=/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7
-CKPT_ROOT=/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run7
+# 路径与变体/库列表可由环境变量覆盖 —— 唯一目的是能在 /tmp 里**排练整条收口链**，
+# 而不触碰正式产物（项目纪律：正式跑之前先 DRY 排练）。默认值与正式收口完全一致。
+LOG_ROOT="${RUN7_LOG_ROOT:-/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7}"
+CKPT_ROOT="${RUN7_CKPT_ROOT:-/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run7}"
+CKPT_PARENT="$(dirname "$CKPT_ROOT")"   # run7_object_metrics 的 --ckpt-root = <parent>/<run>
 OBJ=$LOG_ROOT/_OBJECT_METRICS
 RES=$LOG_ROOT/_RESULTS
 mkdir -p "$OBJ" "$RES"
-VARIANTS="M1_R7CTRL E9_HFAE_A E10_HFAE_B"
-DATASETS="CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256"
+VARIANTS="${RUN7_VARIANTS:-M1_R7CTRL E9_HFAE_A E10_HFAE_B}"
+DATASETS="${RUN7_DATASETS:-CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256}"
+V_CSV="$(echo $VARIANTS | tr ' ' ',')"
+D_CSV="$(echo $DATASETS | tr ' ' ',')"
+# 排练时高声告警：绝不能让排练结果被误当成正式收口结论
+if [ "$LOG_ROOT" != "/home/yqwang/outputs/CASA-CD/CASA-TViM/Run7" ] \
+   || [ "$CKPT_ROOT" != "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run7" ]; then
+  echo "################################################################"
+  echo "###  [REHEARSAL] 非正式路径 —— 结果不得当作 Run7 正式结论   ###"
+  echo "###  LOG_ROOT=$LOG_ROOT"
+  echo "###  CKPT_ROOT=$CKPT_ROOT"
+  echo "################################################################"
+fi
 
-echo "############ [1/6] 12-run 收口门（最后一个完整 TEST 区块 + 80000 步 + 协议串） ############"
+echo "############ [1/6] 收口门（最后一个完整 TEST 区块 + 80000 步 + 协议串） ############"
+# 用与后面各步**同一套** $VARIANTS/$DATASETS 过滤：正式收口时等价于"全部 12 个"，
+# 但排练时才能只针对部分 run（否则门永远要求 12/12，排练无法走通）。
 python train_scripts/CASA-TViM/Run7/collect_results.py --log-root "$LOG_ROOT" \
+  --variants "$V_CSV" --datasets "$D_CSV" \
   --out "$RES/summary.json"
 gate_rc=$?
 python - "$RES/summary.json" <<'PY'
@@ -75,9 +92,9 @@ fi
 
 echo "############ [3/6] 对象级只读复算（3 变体 × 4 库，用各自 best ckpt） ############"
 python analyse/run7_object_metrics.py --run Run7 --all-variants \
-  --variants M1_R7CTRL,E9_HFAE_A,E10_HFAE_B \
-  --datasets CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256 \
-  --out "$OBJ" --device cuda:0 --batch-size 16 --num-workers 4
+  --variants "$V_CSV" --datasets "$D_CSV" --ckpt-root "$CKPT_PARENT" \
+  --out "$OBJ" --device "${RUN7_DEVICE:-cuda:0}" \
+  --batch-size "${RUN7_OBJ_BATCH:-16}" --num-workers "${RUN7_OBJ_WORKERS:-4}"
 obj_rc=$?
 echo "[FINISH] object metrics rc=$obj_rc"
 
