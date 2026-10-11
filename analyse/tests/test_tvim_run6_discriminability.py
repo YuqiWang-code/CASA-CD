@@ -347,6 +347,68 @@ class TestHandPixelSpace(unittest.TestCase):
         self.assertEqual(R.check_finite(np.array([1.0, 2.0])), (1.0, 2.0))
 
 
+class TestFeatureColumnCompleteness(unittest.TestCase):
+    """回归项：`compute_row` 必须为 `ALL_FEATURES` 每一列都赋值。
+
+    2026-10-11 远程首轮真实缺陷：`refine_mag` / `logit_mean` / `logit_std` / `logit_ring`
+    从未被赋值 ⇒ 整列 NaN ⇒ 被 `_impute` 静默填成中位数 0 ⇒ baseline_amp/head/full
+    少特征（远程 `n_missing_imputed_*` 显示 amp 4362、head 13086、full 17448 = 列数×4362 行）。
+    这些测试在本地即可拦住该类缺陷。
+    """
+
+    @staticmethod
+    def _ctx(tiny_obj=False):
+        torch = __import__("torch")
+        rng = np.random.default_rng(0)
+        cap = {}
+        for s, L in zip(range(1, 5), (64, 32, 16, 8)):
+            cap[f"Y_s{s}"] = torch.from_numpy(
+                rng.normal(size=(1, 96, L, L)).astype(np.float32))
+            cap[f"T_s{s}"] = torch.from_numpy(
+                rng.normal(size=(1, 96, L, L)).astype(np.float32))
+        cap["refine"] = torch.from_numpy(rng.normal(size=(1, 96, 64, 64)).astype(np.float32))
+        cap["head"] = torch.from_numpy(rng.normal(size=(1, 1, 64, 64)).astype(np.float32))
+        ab = rng.normal(size=(1, 6, 256, 256)).astype(np.float32)
+        prob = (rng.random((256, 256)) > 0.999).astype(np.float32)
+        obj = np.zeros((256, 256), bool)
+        if tiny_obj:
+            obj[128, 128] = True
+        else:
+            obj[100:104, 100:104] = True
+        return R.image_context(cap, 0, ab, prob), obj
+
+    def test_every_feature_column_is_assigned(self):
+        ctx, obj = self._ctx()
+        row = R.compute_row(ctx, obj)
+        absent = [c for c in R.ALL_FEATURES if c not in row]
+        self.assertEqual(absent, [], f"compute_row 从未赋值这些列: {absent}")
+
+    def test_no_feature_column_is_none_for_a_normal_object(self):
+        ctx, obj = self._ctx()
+        row = R.compute_row(ctx, obj)
+        none_cols = [c for c in R.ALL_FEATURES if row[c] is None]
+        self.assertEqual(none_cols, [], f"这些列在正常对象上为 None: {none_cols}")
+
+    def test_missing_report_detects_all_nan_column(self):
+        rows = [{"a": 1.0, "b": None}, {"a": 2.0, "b": None}, {"a": 3.0, "b": None}]
+        rep = R.feature_column_missing_report(rows, ["a", "b"])
+        self.assertEqual(rep["b"], 3)
+        self.assertEqual(rep["a"], 0)
+
+    def test_no_all_missing_column_across_multiple_objects(self):
+        """多个对象（含 1 像素小对象）拼起来后，任何列都不得整列缺失。"""
+        ctx, _ = self._ctx()
+        rows = []
+        for (y, x, h, w) in ((100, 100, 4, 4), (128, 128, 1, 1), (60, 200, 3, 9),
+                             (10, 10, 12, 20), (200, 40, 2, 2)):
+            obj = np.zeros((256, 256), bool)
+            obj[y:y + h, x:x + w] = True
+            rows.append(R.compute_row(ctx, obj))
+        rep = R.feature_column_missing_report(rows, R.ALL_FEATURES)
+        all_missing = [c for c, n in rep.items() if n >= len(rows)]
+        self.assertEqual(all_missing, [], f"整列缺失: {all_missing}")
+
+
 class TestProbeReportRowConservation(unittest.TestCase):
     def _rows(self, n_img, n_per_img, with_missing=False, seed=0):
         rng = np.random.default_rng(seed)

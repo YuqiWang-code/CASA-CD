@@ -470,9 +470,23 @@ def compute_row(ctx, obj):
     row["refine_ring_mag"], row["refine_ring_std"] = r_mu, r_sd
     row["refine_contrast"] = None if (i_mu is None or r_mu is None) else i_mu - r_mu
     row["logit_interior_mean"], row["logit_interior_std"] = l_mu, l_sd
-    # 列名不得与 head 组的 `logit_ring` / `logit_std` 撞名（否则 CSV 列重复、probe 静默混用）
     row["logit_bnd_mean"], row["logit_bnd_std"] = l_ring, l_ring_sd
     row["logit_contrast"] = None if (l_mu is None or l_ring is None) else l_mu - l_ring
+
+    # ---- head 组的对象级 logit 统计量（**必须显式赋值**）
+    # 2026-10-11 P0 修正：这三列 + `refine_mag` 曾被漏赋 ⇒ 整列为 NaN ⇒ 被 `_impute`
+    # 当中位数 0 填充 ⇒ baseline_head/full/amp 静默少特征（远程首轮由
+    # `n_missing_imputed_*` 暴露：amp 4362、head 13086、full 17448 = 列数×4362）。
+    # `logit_ring` 与 C2 的 `logit_bnd_mean` 同值，这是预注册特征组的固有重叠，
+    # 会让 K4b（C2 相对基线增量）**更难**通过，属保守方向，刻意保留。
+    l_obj_mu, l_obj_sd = _weighted_mean_std(
+        ctx["maps"]["logit"], _obj_frac(ctx, obj, ctx["shape"]["logit"]))
+    row["logit_mean"], row["logit_std"] = l_obj_mu, l_obj_sd
+    row["logit_ring"] = l_ring
+
+    # ---- 幅度基线里的 DCR refine 对象级均值
+    row["refine_mag"] = _weighted_mean_std(
+        ctx["maps"]["refine"], _obj_frac(ctx, obj, ctx["shape"]["refine"]))[0]
 
     # ---- confound / hand：模型置信度 + 手工证据通道（原始像素口径）
     w = _obj_frac(ctx, obj, ctx["prob"].shape[-1])
@@ -589,6 +603,17 @@ def run_pass(model, loader, device, args, tag, t_start, positive_rule, deadline_
 def _matrix(rows, cols):
     return np.array([[np.nan if r.get(c) is None else r.get(c) for c in cols]
                      for r in rows], dtype=np.float64)
+
+
+def feature_column_missing_report(rows, cols):
+    """每列缺失（None / NaN）计数。整列缺失 = 该列从未被赋值 ⇒ P0 缺陷。
+
+    2026-10-11：`refine_mag` / `logit_mean` / `logit_std` / `logit_ring` 曾漏赋，
+    整列被 `_impute` 静默填成中位数 0，使 baseline_amp/head/full 少特征。
+    该函数同时写进 `inputs.json`，并由独立审计复核。
+    """
+    X = _matrix(rows, cols)
+    return {c: int((~np.isfinite(X[:, j])).sum()) for j, c in enumerate(cols)}
 
 
 def single_feature_aucs(rows, cols):
@@ -731,6 +756,15 @@ def main_run(args):
                         and r["pixel_recall"] is not None and r["pixel_recall"] >= 0.25)
     print(f"[R6-DISC] fit objects={len(tr_rows)} eval objects={len(te_rows)} "
           f"(pos={n_pos} neg={n_neg}) elapsed={elapsed:.0f}s", flush=True)
+
+    # ---- P0 fail-closed：任何特征列都不得整列为 NaN/缺失
+    # （若某列从未被赋值，`_impute` 会用中位数 0 静默补上，probe 就在"少特征"的
+    #  情况下出数——2026-10-11 首轮远程执行正是这样漏掉了 4 列。这里直接拦住。）
+    missing_cols = feature_column_missing_report(te_rows, ALL_FEATURES)
+    all_nan_cols = [c for c, n in missing_cols.items() if n >= len(te_rows)]
+    print(f"[R6-DISC] feature columns all-missing: {all_nan_cols}", flush=True)
+    if all_nan_cols:
+        raise SystemExit(f"[P0_INVALID] feature columns entirely missing: {all_nan_cols}")
 
     results = {}
     for name, cols in PROBE_SETS.items():
@@ -886,6 +920,14 @@ def main_run(args):
                                                 "seed": args.seed},
         "feature_groups": FEATURE_GROUPS, "probe_sets": {k: v for k, v in PROBE_SETS.items()},
         "gates_frozen": GATES, "frozen_reference": FROZEN_REF,
+        "feature_columns_all_missing": {"eval": all_nan_cols,
+                                        "fit": [c for c, n in
+                                                feature_column_missing_report(tr_rows,
+                                                                              ALL_FEATURES).items()
+                                                if n >= len(tr_rows)]},
+        "feature_column_missing_counts_eval": missing_cols,
+        "feature_column_missing_counts_fit": feature_column_missing_report(tr_rows,
+                                                                          ALL_FEATURES),
         "budget": {"total_sec": args.budget_sec, "fit_sec": fit_budget,
                    "eval_sec": eval_budget},
         "caveat": "拟合图像是模型训练过的，分布偏乐观；门只认 test 侧数值",
