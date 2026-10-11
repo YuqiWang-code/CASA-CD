@@ -111,3 +111,20 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 | `Run2` 各变体（pre-R4） | 区块内无这两行 ⇒ 门能正确区分 R4 前后两代协议机制 |
 
 ⇒ Run7 的 `run_all.sh` 内联门与 `collect_results.py` 的 INVALID 判定不会因"读不到行"而误杀全部 run。
+
+### 7.1 波次门本身与 `eval.py` fail-closed 门的实测（用真实日志/权重）
+
+上面两张表是**解析层**的验证；下面两处是**执行层**的（这两段代码平时只在 4.4 h 训练跑完后才被执行，
+若带 bug 会白烧数小时）：
+
+| 被测代码 | 用例 | 结果 |
+|---|---|---|
+| `run_all.sh::check_test_block`（**从文件中逐字抽出**后运行，避免复制漂移） | 真实 Run4 日志 + 其自身协议 `run4_exact80k_v1` | `rc=0`，`[GATE] opt_steps=80000 protocol=run4_exact80k_v1 F1=0.8326 -> PASS` ✅ |
+| 同上 | Run4 日志 + 换成 Run7 协议（模拟串错） | `rc=1` FAIL ✅ |
+| 同上 | pre-R4 的 Run2 日志（区块内无标记行） | `rc=1` FAIL ✅ |
+| `eval.py` arch 门 | Run1 `M1_FULL/WHU` 权重 + 匹配实参 | `rc=0`；`[ARCH] eval arch matches ckpt sidecar`；`[DEPLOY-PARAMS] total=4.880 M`、`[DEPLOY-FLOPS] 2.6747 G (unsupported_ops=19)` —— 与项目记录逐项吻合 ✅ |
+| 同上 | 同一个 Run1 权重 + `--hf_edge 1` | `rc=1`，`[ARCH-MISMATCH] ckpt has no hf_edge field but --hf_edge=1; refusing to eval` ✅ |
+| 同上 | `--hf_edge 0` 但 `--hf_edge_form aux_only` | `rc=1`，`AssertionError: [ARCH-MISMATCH] hf_edge=0 requires hf_edge_form=none` ✅ |
+
+⇒ 波次门与 eval 门在**接受/拒绝两种方向**上都已被真实数据证明可用（另注：`eval.py` 没有
+`--test_batch_size`，用 `--batch_size`；这是本项目既有 CLI 约定）。
