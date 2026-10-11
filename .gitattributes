@@ -1,2 +1,10 @@
 # .sh 脚本必须 LF（服务器 bash 执行）
 *.sh text eol=lf
+
+# 全部文本文件一律 LF。
+# 本项目的研究纪律建立在**逐字节身份**上（train_scripts/CASA-TViM/Run*/SOURCE_SHA256.txt
+# 用 sha256 对拍本地与服务器副本）。若仓库在另一台机器上被 clone，而该机 core.autocrlf=true
+# 且这里没有 eol 规则，git 会把 .py/.json/.md 检出成 CRLF，导致 SOURCE_SHA256.txt 全部对不上、
+# 身份链断裂（曾实测：git ls-files --eol 显示这些文件 attr/ 为空）。因此显式钉死 LF。
+# 二进制文件由 text=auto 自动识别、不做转换。
+* text=auto eol=lf
