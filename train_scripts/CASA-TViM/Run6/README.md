@@ -10,14 +10,22 @@
 | 项 | 值 |
 |---|---|
 | 设计文档 | `docs/temporary/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md` |
-| 设计文档 SHA256 | `d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b`（461 行 / 45282 bytes） |
-| 冻结仓库版本 | `YuqiWang-code/CASA-CD@408099dbf65bfb351d23fa5d295f822645120ce1` |
+| 设计文档 SHA256 | `d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b`（461 行 / 45282 bytes；本地现算一致） |
+| 冻结仓库版本 | `YuqiWang-code/CASA-CD@b03606f`（Run6 S1：审阅修正 + 单测 + 本 README） |
 | 前测脚本 | `analyse/tvim_run6_discriminability.py`（`run6_discriminability_v1`） |
 | 本地单测 | `analyse/tests/test_tvim_run6_discriminability.py`（71 项） |
+| 身份生成器 | `train_scripts/CASA-TViM/Run6/make_source_identity.py`（`--require-all --expect-plan`） |
+| 独立审计 | `.claude/_r6_audit.py`（独立最小实现，与主脚本不共享代码路径） |
+| 上传/对拍 | `.claude/_r6_stage.py` + `SOURCE_FILES.txt` → `SOURCE_SHA256.txt` → 远端 `sha256sum -c` |
 | 锁定 checkpoint | SYSU `Run1/M1_FULL/best_F1=0.8347.pth`，sha256 `45d688a01af22fe22521f4dfb4579e80827ddcaa886e07bafc778fc288731457` |
-| 锁定 test list | sha256**\_text\_lines**（非 raw bytes）`5f4122c9d32cb6db475f4f361618b2ac8bb10938df93d9550e0bb9a422a45797` |
+| 锁定 test list | sha256**\_text\_lines**（非 raw bytes）`5f4122c9d32cb6db475f4f361618b2ac8bb10938df93d9550e0bb9a422a45797`（4000 行；raw `b24e5b0750cbf3d5…`） |
 | 前测输出根 | `/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run6-DISCRIMINABILITY-20261011` |
 | 决策锁 | `train_scripts/CASA-TViM/Run6/SELECTION_LOCK.json`（`decision=PREFLIGHT_PENDING`） |
+
+**服务器实测（S0 侦察）**：python 3.10.21 / torch 2.14.0+cu132 / CUDA 13.2 / 2×RTX 5090（空闲）/
+`selective_scan_cuda_oflex` import PASS。上传后 `sha256sum -c` **11/11 OK**。
+`models/`（core12）+ Run5 冻结模块共 13 个文件与本地 **逐字节相同（DIFF=0）** ⇒ 这是"Run6 前测阶段
+未改动 `models/`"的直接证据，已固化进 `_r6_preflight.sh` 的 S1.2 P0 门。
 
 ## 1. S1 前测：唯一问题与唯一入口
 
@@ -156,6 +164,28 @@ Run5 F15 回归项）、预算切分、以及手工通道像素空间（§2.1 �
 本地端到端冒烟（`.claude/_r6_smoke.py`，gitignored）：合成 8 图 + 桩模型跑通完整链路，
 31 项检查全 PASS，含「CSV 表头 == 元数据 + `ALL_FEATURES`」「`--limit` ⇒ `DRY_ONLY` 且 rc=2」
 「`gate.json` 无 Run5 残留」「`test_used_for_fit=false`」。
+
+### 3.1 独立审计自身的验证（先验证审计，再用审计验证前测）
+
+审计脚本若本身有错，"独立复算通过"就没有意义。因此先用 200 图合成夹具
+（`.claude/_r6_smoke.py --images 200 --limit 0 --keep`，train/test 列表**不相交**、
+含 4 个未标注干扰变化以产生 FP-like 负样本；实测 832 训练行 / 632 评估行、两类齐全）
+跑通主脚本，再用审计脚本对拍其产物。结果：
+
+| 项 | 结果 |
+|---|---|
+| 逐特征 test AUC 独立复算（`scipy` Mann-Whitney U vs 主脚本平均秩） | **42/42 逐位重现，worst delta = 0.0** |
+| gate 算术重新推导（K1–K5 pass、status） | 全部一致 |
+| K7 选一规则重新推导 | 一致（含 ≤0.005 平局取 C1） |
+| 拟合/评估图像不重叠（H3） | PASS |
+| 行数守恒 / bootstrap 有效性 / probe 组完整性 | PASS |
+| 软检查：IRLS（Newton-Raphson）独立重拟合 winner probe | test AUC 差 **8.0e−5**（GD 结果可被另一优化器重现） |
+| 唯一 FAIL 项 | `H1_n_pos_is_327` / `H1_n_neg_is_2430` / `H6_edge_both_matches_F14` —— 均为**合成夹具必然不符**的真实数据口径，非审计缺陷 |
+
+**审计脚本自身修正（记录在案）**：首版有两处缺陷——① `gate.selected` 是 `"C1"` 而
+`probe_results` 的键是 `"candidate_C1"`，导致 winner 取空 dict（H7/H8/软检查全部失准）；
+② 逐特征 AUC 对拍时把"双方都无定义（None）"的列算作未通过，使 `n_ok` 永远达不到列数。
+两处已修正并复测（见上表），修正后才用于服务器前测。
 
 ## 4. 执行顺序（S0→S9，任何一步 FAIL 即停止）
 
