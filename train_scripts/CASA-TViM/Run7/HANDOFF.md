@@ -17,6 +17,29 @@
 > ```
 > `…/Run7/E9_HFAE_A/` 与 `…/E10_HFAE_B/` **出现** = 对应波次已启动（波二/波三就绪的信号）。
 
+## 0. 新接手的 agent：按这个顺序做（约 5 分钟就能接手）
+
+1. **读本文件 §1 / §1.1 / §1.2 / §1.3** —— 现状、ETA、健康读数、解读锚。
+2. **跑一遍交付状态核对**：`train_scripts/CASA-TViM/Run7/README.md` **§9**（三条命令）。
+   全 PASS 才继续；有 FAIL 先查那一条。
+3. **看训练到哪了**：`tail -3 …/Run7_supervisor.log`；
+   `…/Run7/E9_HFAE_A/` 是否出现 = 波二是否已开始。
+4. **若 12 个 run 都齐了**（每变体 4/4 VALID）：
+   ```bash
+   cd /home/yqwang/projects/CASA-CD
+   bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
+   ```
+   `rc` 含义见 `README.md` §8.2（四个码都已端到端实测）。**不要**为了"更快"去改任何参数。
+5. **写结论**：按 `README.md` **§8.4**（五种 verdict 写法）+ **§8.5b**（根 README 结果节骨架）
+   + **§8.5**（三张表，`verdict.md` 里已直接产出）。**负结果照写**；硬目标未达≠失败，
+   但**绝不可**回调 λ/阈值/seed。
+6. **若中途出事**：督导死了 ≠ 训练死了。按 `README.md` **§8.8** 恢复
+   （注意 `RESUME_SAME_RUN` 陷阱）；产物只改名不删除。
+
+> **不要重验** §3 表里已验过的东西——重验只会花时间并引入 churn（每次改收口工具都要重跑
+> 12-run 全量排练）。
+
+
 ## 1. 一句话现状
 
 `M1_R7CTRL` / `E9_HFAE_A` / `E10_HFAE_B` × 四库（CDD/LEVIR/SYSU/WHU）各**严格 80,000** `optimizer.step`，
