@@ -840,8 +840,8 @@ nohup bash train_scripts/CASA-TViM/Run7/supervise_waves.sh \
 ```bash
 cd /home/yqwang/projects/CASA-CD
 
-# 1) 身份清单逐字节对拍（期望 26 条全 OK、无输出其它行）
-sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -c ': OK'   # -> 26
+# 1) 身份清单逐字节对拍（期望 27 条全 OK、无输出其它行）
+sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -c ': OK'   # -> 27
 sha256sum -c train_scripts/CASA-TViM/Run7/SOURCE_SHA256.txt | grep -v ': OK'    # -> 空
 
 # 2) 关键工具自检（期望 PASS / PASS / PASS(18 branches) / PASS）
@@ -864,7 +864,7 @@ grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
 
 | 检查 | 实测 |
 |---|---|
-| 身份清单 | **26/26 OK**，无非 OK 行 |
+| 身份清单 | **27/27 OK**，无非 OK 行（2026-10-11 14:43 含新增 analyse/run7_fold_knife_edge.py） |
 | check_mapping / check_imports | PASS / PASS |
 | verdict selftest | **PASS (18 branches)** |
 | audit selftest | PASS |
