@@ -555,6 +555,90 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 - ❌ 删除任何 run 日志或 ckpt
 - ❌ 重跑个别 run 以追求"更好看"的数字
 
+### 8.8 中途失败 / 督导死亡时的恢复流程（**含一个反直觉陷阱**）
+
+**① 先判断督导是否还活着**
+
+```bash
+cat /tmp/run7_supervisor.pid                      # 记下 pid
+kill -0 "$(cat /tmp/run7_supervisor.pid)" && echo ALIVE || echo DEAD
+tail -3 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+stat -c '%y' /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log
+```
+
+日志 **>5 分钟没有新行**（正常是 120 s 一行）且 `kill -0` 失败 ⇒ 督导已死。
+**注意**：督导死了**不等于**训练死了 —— 4 个 `train.py` 是独立进程，通常还在跑。
+
+**② 判断哪些 run 未完成**
+
+```bash
+for v in M1_R7CTRL E9_HFAE_A E10_HFAE_B; do
+  python train_scripts/CASA-TViM/Run7/collect_results.py \
+    --log-root /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7 \
+    --variants $v --datasets CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256 \
+    --out /tmp/rs_$v.json >/dev/null 2>&1
+  grep -o '"n_valid":[^,]*' /tmp/rs_$v.json
+done
+grep -l -E "3 attempts exhausted" \
+  /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/*/*/train_log.txt
+```
+
+**③ 波内崩溃一般会自愈**：`run_all.sh` 对每个 run 有 **3 次重试**，每次都从**自己的**
+`last.pth` 自动续训（`train.py` 恢复 `actual_steps` 与 RNG）。只有日志出现
+**`3 attempts exhausted`** 才是该 run 的终态失败。
+
+**④ ⚠️ 反直觉陷阱：督导**没有**设置 `RESUME_SAME_RUN`**
+
+`run_all.sh` 对"非空 ckpt 目录"是**拒绝启动**的（防止把新实验写进旧目录）：
+
+```
+[ABORT] <ckpt>/last.pth exists; set RESUME_SAME_RUN=1 only for certified same-run resume
+[ABORT] <ckpt> not empty; refusing to start a new experiment here
+```
+
+而督导调 `run_all.sh --wave N` 时**不带**这个变量。因此：
+
+- **波一未完成、督导死了** ⇒ 直接重启督导即可（它只是 `wait_wave M1_R7CTRL 1`，
+  **不会**重跑 `run_all.sh --wave 1`）——**安全**。
+- **波二/波三之后督导死了**（或需要重启某一波）⇒ 直接重启督导会**在波二处 ABORT**，
+  因为波二的 ckpt 目录已经不空了。**必须先导出**：
+
+```bash
+cd /home/yqwang/projects/CASA-CD
+export RESUME_SAME_RUN=1          # 只用于"认证的同一次 run 续训"
+# 要么单波手动接续：
+bash train_scripts/CASA-TViM/Run7/run_all.sh --wave 2   # 会从各自 last.pth 续训
+bash train_scripts/CASA-TViM/Run7/run_all.sh --wave 3
+# 要么重启督导（RESUME_SAME_RUN 会被 run_all.sh 继承）：
+nohup bash train_scripts/CASA-TViM/Run7/supervise_waves.sh \
+  >> /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7_supervisor.log 2>&1 &
+```
+
+> 陈旧的 pidfile 不会挡住重启：单实例守卫用 `kill -0` 判活，pid 已消失就会直接覆盖。
+> 督导重启后 20 小时上限**重新计时**。
+
+**④-验证**：上面这条陷阱**不是推断**，是实测的 —— 从 `run_all.sh` **逐字提取** `run_one()` 的
+前置校验片段（9 行），在受控 ckpt 目录上单独执行（真跑 `--wave 2` 会启动训练，故不能那么测）：
+
+| 情形 | 结果 |
+|---|---|
+| 全新空目录 | `NO_ABORT(would launch)` ⇒ 波二/波三正常启动 ✅ |
+| 非空 ckpt 目录、**不带** `RESUME_SAME_RUN` | `ABORT(refusing to start a new experiment here)` ⇒ **陷阱确认存在** ✅ |
+| 非空 ckpt 目录、**带** `RESUME_SAME_RUN=1` | `NO_ABORT(would launch)` ⇒ 恢复流程有效 ✅ |
+
+`PRECHECK CHECK = PASS（与 §8.8 文档一致）`
+
+
+**⑤ 恢复后必须逐条核对**（缺一不可）：
+
+- 每个变体 `collect_results` 都到 **4/4 VALID**；
+- `check_run.py` 对 12 个 run **无 FAIL**；
+- 日志里**不出现** `budget already reached`（出现说明续训时预算已耗尽，该 run 需按 INVALID 处理）；
+- 若某 run 的 `run_manifest.json` 的 `resume_source` **指向别的变体/库** ⇒ 视为受控消融被污染，按 INVALID 处理。
+
+**⑥ 无论如何**：产物只 `_INVALID_*` / `_SUPERSEDED_*` **改名**，**绝不删除**。
+
+
 
 
 
