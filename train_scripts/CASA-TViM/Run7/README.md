@@ -552,6 +552,38 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 2. 对象级小目标表（small pooledR、Hit@25、未匹配小预测、×CTRL、中大 pooledR Δ）
 3. 机制自检原始读数表（form / deploy params / fold disagree / HF tap grad norm / aux first→last）
 
+### 8.5b 根 `README.md` 的 Run7 结果节结构（**对齐 Run1–Run6 既有格式**，不要另创）
+
+Run1–Run6 各结果节用的都是同一个骨架。Run7 请照抄该骨架
+（参考 `README.md` 的 `# Run6 结果` 一节，L550 起）：
+
+```
+# Run7 结果（已完成，`STATUS = <verdict>`；正式训练次数 = 12）
+
+**Run7 的唯一问题**：<一句话说清这次要回答什么>
+   例：把编码器 stage0/stage1 频率分解的**高频分支**接出来做边缘辅助监督，
+       能否在受控消融下带来四库一致的 F1 提升（而不是又一次"信息已在 head"）。
+
+**受控消融说明**（`finish_run7.sh`；3 变体 × 4 库；各严格 80,000 optimizer.step）：
+   协议、波次、2×RTX 5090 并发、收口链耗时、独立审计结果、`models/` 改动范围。
+
+**接受标准与守门（预注册冻结）**：指向 SELECTION_LOCK.json（含冻结时间与"见结果之前"证据）。
+
+**四库 F1 表** + **机制自检原始读数表** + **对象级小目标表**   ← 三张表，§8.5
+
+**判定与机制归因**：verdict + winner + reasons + attribution（**负结果同样写全**）。
+
+**产物索引**：summary / verdict / INDEPENDENT_AUDIT / check_run_* / object_metrics_*。
+```
+
+⚠️ 必须做到的三件事：
+1. `STATUS` 用 `verdict.json` 的**原值**（`MECHANISM-PASS` / `MECHANISM-FAIL` /
+   `GUARDRAIL-FAIL`），**不要**改写成"成功/失败"这类主观词；
+2. 若为 `GUARDRAIL-FAIL`：明确写出"F1 达标但以中大对象/目标级 recall 为代价"，
+   并保留完整 reasons —— 这本身是**有价值的负面发现**，不得省略；
+3. 同时更新根 README 的**目录/索引表**（若有）指向该节，并保留 `HANDOFF.md` 的链接。
+
+
 ### 8.6 收尾清单
 
 - [ ] Run7 README 增「结果」节；根 `README.md` 增 Run7 结果节（**含负结果**）
