@@ -306,13 +306,13 @@ small(1–255px) pooled **0.1974**、Hit@25 **0.1896** ⇒ **size gap 65.0pp**�
 **注意**：3×3 Conv(144→96) 折叠 ≈ +124.5K 参数会把 deploy 推到 ~5.005M **超 5M**，须改 1×1
 折叠（+13.9K）或降通道。候选 B（减少 1/16→1/32 的 small-margin 坍塌）属骨干改动，须导师批准。
 
-## Run4（CASA-TViM R4-FET1 · 1/4 细尺度证据 1×1 可折叠旁路，进行中）
+## Run4 设计（CASA-TViM R4-FET1 · 1/4 细尺度证据 1×1 可折叠旁路，**已完成**）
 
 > 设计文档：`docs/temporary/过去的想法/CASA-CD_Run4_小目标瓶颈结构改进与实验设计_2026-10-10.md`（2026-10-11 归档）；
 > 脚本：`train_scripts/CASA-TViM/Run4/`（`README.md` 含完整执行顺序与预注册门槛）；
 > 代码身份：`train_scripts/CASA-TViM/Run4/SOURCE_IDENTITY.json`（与 Diag1 manifest 的逐文件差异）。
-> **状态：代码已实现并部署到 RSML-3；全部训练前门已 PASS；两波 8×80,000 步正在训练。
-> 本节不预填任何 Run4 TEST 成绩，也不声称已达成论文目标。**
+> **状态（2026-10-11 更新）：已完成** —— 8×80,000 步全部跑完，结论 **`STATUS = MECHANISM-FAIL`**，
+> 详见下方「# Run4 结果」一节。本节保留为当时的**预注册设计**（不预填成绩）。
 
 **唯一结构变量 `fine_tap`（其余全部相同）**
 
@@ -684,6 +684,10 @@ train_scripts/
   CASA-TViM/Run1/              #   4 变体 × 4 数据集（A0/M1/A1/A2，已完成）
   CASA-TViM/Run2/              #   CP-CAACP / FRH / 组合 × 4（E1/E2/E3，已完成）
   CASA-TViM/Run3/              #   RA-CAACP / FS-TAR × 4（E4/E5，已完成）
+  CASA-TViM/Run4/              #   R4-FET1 1×1 可折叠旁路 × 8 run（已完成，MECHANISM-FAIL）
+  CASA-TViM/Run5/              #   原生高频证据复用前测（已完成，NO_80K；正式训练 0 次）
+  CASA-TViM/Run6/              #   变化判别瓶颈可分辨性前测（已完成，NO_80K；正式训练 0 次）
+  CASA-TViM/Run7/              #   HFAE 高频→边缘辅助监督消融（3 变体 × 4 库，执行中；含收口 runbook §8/§9）
   CASA-TViM/Diag1/             #   小目标瓶颈分阶段诊断流水线（run_diag.sh，只读；已完成）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
@@ -697,10 +701,11 @@ analyse/                       # 分析工具
   tvim_probe_stratified.py     #   D3c：按 GT 面积分层的 probe AP / per-object margin
   tvim_caacp_counterfactual.py #   D4：CAACP β ON/OFF 受控反事实
   tvim_diag_report.py          #   汇总报告 + 预注册判据自动评估 + RUN_MANIFEST.json
-  tests/test_tvim_*.py         #   P0 单测（对象指标 10 项 + 日志解析器逐字对拍）
+  tests/test_tvim_*.py         #   P0 单测（对象指标 + 日志解析器逐字对拍 + Run5/Run6 前测；合计 142 项）
   run2_zero_cost_diag.py       #   ⚠️ 历史诊断（component_pr 的 FP 恒为 0，口径已被 tvim_object_metrics 取代）
   run2_report.py               #   Run2 自动对比报告
   run3_report.py               #   Run3 自动对比报告（含 §13 预注册裁决）
+  run7_object_metrics.py       #   ★Run7 三变体对象级只读复算（--all-variants/--compare；CPU 上拒绝运行）
 others/                        # 参考实现（非本仓库模型代码）
   TinyViM-main/                #   TinyViM(ICCV2025) 官方核心（tinyvim.py + tvimblock.py）
 outputs/                       # 训练日志（训练结束后下载到这里）
@@ -727,6 +732,10 @@ docs/                          # 项目文档（temporary / 参考文献 / 服�
 | LEVIR-CD-256 | 7,120 / 1,024 / 2,048 | **≥92.5** | 建筑小目标、极不平衡 |
 | SYSU-CD-256 | 12,000 / 4,000 / 4,000 | **≥85** | 通用地表变化 |
 | WHU-CD-256 | 5,947 / 743 / 744 | **≥95** | 建筑小目标、极不平衡 |
+
+> **硬目标（≥98 / ≥92.5 / ≥85 / ≥95）是努力方向，不是必达门**（见上文「研究目标与实验纪律」§1）：
+> 未达**不等于**失败；每个 Run 的有效性以其**预注册判据**为准（Run7 尤其只看**相对同期 CTRL**）。
+> **绝不可**为了凑硬目标回调已冻结的 λ / 阈值 / seed。
 
 ## 训练 / 测试
 
@@ -756,6 +765,10 @@ python analyse/models_to_txt.py --tag CASA-TViM --run Run3   # models 快照 + �
 python analyse/run3_report.py           # 自动对比报告 + 预注册裁决
 python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --datasets SYSU-CD-256
                                          # D1/D2 机制诊断（服务器上跑）
+# Run7（HFAE）：收口一条命令 + 交付状态自检 + 会话交接
+bash train_scripts/CASA-TViM/Run7/finish_run7.sh          # 6 步收口；rc 含义见 Run7/README.md §8.2
+#   交付状态一条命令核对（身份 26/26 / 四个工具自检 / 督导与进度）见 Run7/README.md §9
+#   新接手者请从 train_scripts/CASA-TViM/Run7/HANDOFF.md §0 开始
 ```
 
 ### 小目标瓶颈分阶段诊断（Diag1，只读；已完成）
