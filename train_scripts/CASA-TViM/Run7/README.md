@@ -83,7 +83,6 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
    `local == server` 的 SHA256 证明运行实例未受影响。要改脚本：要么等它退出，要么写成新文件。）
 
 ### 5.1 开波护栏的执行方式（因上述限制而固定为手动）
-
 `check_mapping.py`（变体/波次映射 + 协议常量）与 `check_imports.py`（常量 import 完整性）
 本应"每波前自动跑"，但把它们加进 `run_all.sh` 必须改**正在运行**的脚本（见 §5 第 7 条），
 故改为**在每波收口门核验时手动执行并留痕**。这一取舍是可接受的，因为：
@@ -92,7 +91,6 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 - 代码一次性上传后由 `SOURCE_SHA256.txt` 锁定，波间不会漂移。
 
 ## 6. 产物索引
-
 ```text
 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run7/<variant>/<dataset>/best_F1=*.pth
 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run7/<variant>/<dataset>/train_log.txt
@@ -100,3 +98,16 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 ```
 
 （运行完成后在此登记 sha256；当前为空。）
+
+## 7. 收口链在真实已完成日志上的**事前**校验（2026-10-11，训练进行中）
+
+为免"跑了 13 h 才发现收口读不出来"，在波一训练期间用**真实已完成 run** 验证了
+`collect_results.py` 的解析与门结构：
+
+| 验证对象 | 结果 |
+|---|---|
+| `Run1/M1_FULL` 四库（**pre-R4** 日志） | 六指标解析与 README 记录**逐位吻合**：CDD `0.9718` / LEVIR `0.9107` / SYSU `0.8347` / WHU `0.9507`；`params=4.88`、`flops=2.6747`；因缺 `[ACTUAL-OPT-STEPS]`/`[PROTOCOL-VERSION]` 被门正确判 `INVALID` |
+| `Run4/M1_R4CTRL/SYSU-CD-256`（**post-R4** 日志） | 最后一个完整 TEST 区块内**确含** `[ACTUAL-OPT-STEPS] 80000` 与 `[PROTOCOL-VERSION] run4_exact80k_v1` ⇒ Run7 门所需的**结构假设在真实数据上成立**，仅协议串不同（run7 vs run4） |
+| `Run2` 各变体（pre-R4） | 区块内无这两行 ⇒ 门能正确区分 R4 前后两代协议机制 |
+
+⇒ Run7 的 `run_all.sh` 内联门与 `collect_results.py` 的 INVALID 判定不会因"读不到行"而误杀全部 run。
