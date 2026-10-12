@@ -1,10 +1,26 @@
-# Run7 HANDOFF — HFAE 消融正在服务器执行（12 run / 3 波）
+# Run7 HANDOFF — HFAE 消融**已完成**（12 run / 3 波；`STATUS = MECHANISM-PASS`）
 
-> 生成时间：2026-10-11 10:29（首版）；**最后更新 2026-10-11 23:35（⚠️ 整轮重跑，见文首红框）**。
-> 本文件是**状态与恢复索引**，不是结果报告。
-> 结果只能由 `finish_run7.sh` 在 12 个 run 全部跑完后产出。
+> 生成时间：2026-10-11 10:29（首版）；**最后更新 2026-10-12 12:40（已完成）**。
+> 本文件是**状态与恢复索引**，不是结果报告；**结果**见根 `README.md`「# Run7 结果」与
+> `README.md`（本目录）§10。
 >
-> ## ⚠️ 2026-10-11 23:27 起：campaign 已**整轮重跑**（前一轮全部作废封存）
+> ## ✅ 2026-10-12 12:36 完成
+>
+> | 项 | 值 |
+> |---|---|
+> | 12 run | **12/12 VALID**（各严格 80,000 `optimizer.step`，协议 `run7_hf_edge_exact80k_v1`） |
+> | 收口链 | `FINISH_RC=0`（`gate_rc=0 / check_run_fail=0 / object_rc=0 / verdict_rc=0 / audit_rc=0`） |
+> | 判定 | **`MECHANISM-PASS`**，`winner = E9_HFAE_A`，`reasons = []` |
+> | 独立审计 | **10 checks / 0 FAILED**（A8 单一代码身份 `dc6d9f6e55a1fabd`，12 行） |
+> | 四库 F1 | CTRL 0.9717/0.9115/0.8268/0.9484 · E9 0.9705/**0.9134**/**0.8331**/**0.9507** · E10 0.9702/0.9123/0.8319/0.9518 |
+> | ΔE9 vs CTRL | −0.0012 / +0.0019 / **+0.0063** / +0.0023（3/4 库 ≥ CTRL 且 SYSU 提升） |
+> | 归档 | xlsx 78→90 行（0 丢失）· 快照 `docs/temporary/models_and_metrics_CASA-TViM_Run7.txt` |
+>
+> **接手者无需再等或再跑训练**：若只是要复核，直接按本目录 `README.md` §9 跑一遍交付状态核对，
+> 再看根 `README.md`「# Run7 结果」。督导进程已正常退出（波三因 LEVIR 的 OOM 判失败而
+> `[WAVE-ABORT]`，尾巴由人工恢复接管并已跑满 80K）。
+>
+> ## ⚠️ 2026-10-11 23:27：campaign 曾**整轮重跑**（前一轮全部作废封存）
 >
 > **原因**：`_ensure_hf_hooks()` 的 hook 幂等标记打错对象（打在 `RemovableHandle` 上、却到
 > `mod._forward_hooks` 的 hook 函数里查），导致 `hf_edge=1` 的 run **每次 forward 重复注册

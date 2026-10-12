@@ -612,12 +612,14 @@ amp 4362 / head 13086 / full 17448 = 列数×4362，逐项吻合）。修正为�
 `7ef7ef7d98c780950ff1a0ac4637b534e246b0c0efcb14a67ffbf52cd089877c`，
 `status=FAIL`、`decision=NO_80K`）。详见 `train_scripts/CASA-TViM/Run6/README.md`。
 
-## Run7（CASA-TViM HFAE · 编码器前两层频率分解高频 → 边缘检测辅助监督，**执行中**）
+## Run7（CASA-TViM HFAE · 编码器前两层频率分解高频 → 边缘检测辅助监督，**已完成**）
 
-> **状态：消融正在服务器执行（12 run × 严格 80,000 `optimizer.step`，2×RTX 5090 三波串行）。**
-> 本节是**执行索引**；**结果节**将在 12 个 run 全部跑完后由
-> `bash train_scripts/CASA-TViM/Run7/finish_run7.sh` 产出，并按
-> `train_scripts/CASA-TViM/Run7/README.md` §8.5b 的骨架补到本文件。
+> **状态（2026-10-12 12:36 更新）：已完成** —— 12 run × **严格 80,000** `optimizer.step` 全部跑完，
+> 收口链 `FINISH_RC=0`（`gate_rc=0 / check_run_fail=0 / object_rc=0 / verdict_rc=0 / audit_rc=0`），
+> 判定 **`STATUS = MECHANISM-PASS`**（`winner = E9_HFAE_A`）。**结果节见下方「# Run7 结果」。**
+> 执行索引与 runbook：`train_scripts/CASA-TViM/Run7/README.md` §8；
+> 会话交接 `train_scripts/CASA-TViM/Run7/HANDOFF.md`；
+> 判据唯一规范形式 `train_scripts/CASA-TViM/Run7/SELECTION_LOCK.json`。
 
 **要回答的问题**：把编码器 stage0（1/4，HF 占 75%）与 stage1（1/8）频率分解的**高频分支**
 （`local_conv(x_high)`）接出来做「变化边缘检测」**辅助监督**，让边缘梯度**回流进高频分支**，
@@ -628,20 +630,128 @@ Run2/Run4 的**末端**旁路两次 `MECHANISM-FAIL`、Run6 的**读出层**门�
 HFAE 的承重部件是**监督**（去掉即退化为已否证的无监督注入），且注入点在
 **DCR 的 1/4 输入**（`decoder(feats)` 之前），不是末端。
 
-**受控消融（唯一变量）**：`M1_R7CTRL`（同期同代码对照）/ `E9_HFAE_A`（+边缘监督，train-only，
-**deploy 与 CTRL 逐位同值** 4,880,190 + 2.6747 G）/ `E10_HFAE_B`（+边缘监督 + 零初始化注入，
-deploy 4,890,366 + 2.7170 G）。`λ=0.2` 预注册固定、**禁止搜索**。
-
-**已完成的验证**（详见 `train_scripts/CASA-TViM/Run7/README.md` §7）：
-T0–T11 全 PASS；train↔deploy 折叠等价 disagreement = 0；三形态 deploy 参数门经 `eval.py` 实测；
-注入点读码核验；收口链 6 步 **12-run 全量排练 `FINISH_RC=0`**；波次衔接与
-`rc=0/2/4/5` 四条退出路径全部端到端实测；预注册文档 ↔ 裁决代码逐条对拍一致。
-
 **关键文件**：预注册
-`docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md`（含 §7 实施澄清）·
-执行索引与 runbook `train_scripts/CASA-TViM/Run7/README.md` §8 ·
-会话交接 `train_scripts/CASA-TViM/Run7/HANDOFF.md` ·
-判据唯一规范形式 `train_scripts/CASA-TViM/Run7/SELECTION_LOCK.json`。
+`docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md`（含 §7 实施澄清与 §7.7 缺陷披露）。
+
+---
+
+# Run7 结果（已完成，`STATUS = MECHANISM-PASS`；正式训练次数 = 12）
+
+**Run7 的唯一问题**：把编码器 stage0（1/4，HF 占 75%）与 stage1（1/8）频率分解的**高频分支**
+（`local_conv(x_high)`）接出来做「变化边缘检测」**辅助监督**，让边缘梯度**回流进高频分支**，
+能否在受控消融下带来四库一致的 F1 提升——而不是又一次"判别信息已经在 head 里"（Run6 的教训）。
+
+**受控消融说明**（`finish_run7.sh`；3 变体 × 4 库；各**严格 80,000** `optimizer.step`；
+协议 `run7_hf_edge_exact80k_v1`；唯一变量 `--hf_edge/--hf_edge_form`）
+
+| 变体 | `hf_edge`/`form` | 说明 | deploy 参数 | FLOPs |
+|---|---|---|---|---|
+| `M1_R7CTRL` | 0 / none | 同期同代码对照，先跑 | 4,880,190 | 2.6747 G |
+| `E9_HFAE_A` | 1 / aux_only | +边缘辅助监督（train-only） | **4,880,190** | 2.6747 G |
+| `E10_HFAE_B` | 1 / aux_inject | +边缘辅助监督 **+零初始化注入 DCR 1/4 输入** | 4,890,366 | 2.7170 G |
+
+`λ=0.2` 预注册固定、**禁止搜索**。波次：波一 CTRL → 波二 E9 → 波三 E10，2×RTX 5090 每卡 2 run、
+三波串行（督导自动接续）。**收口链本次实测**：`gate_rc=0 / check_run_fail=0 / object_rc=0 /
+verdict_rc=0 / audit_rc=0`；**独立审计 10 checks / 0 FAILED**（A1–A10，含 A5 deploy 参数冻结门、
+**A8 12-run 单一代码身份** `dc6d9f6e55a1fabd`、A9 接受规则独立复算）；逐 run 硬门 12/12 全过
+（CTRL 32 项 / E9 45 项 / E10 46 项，`n_failed=0`）。`models/` 改动仅**新增** `str_hf_edge.py`
+与三处接线（`casa_tvim_str_net.py`/`train.py`/`eval.py`），既有算子未改。
+
+**接受标准与守门（预注册冻结）**：`SELECTION_LOCK.json::acceptance_criteria_frozen_numeric`
+（冻结于 2026-10-11T09:35:00+08:00，**见结果之前**）——≥3/4 库 F1 ≥ 同期 CTRL 且 SYSU F1 严格 > CTRL，
+且机制自检全过；守门 recall / ObjRecall 降幅 ≤0.02、F1 降幅 ≤0.002（CDD/WHU）。
+
+**① 四库 F1 表**（各 run 最后一个完整 TEST 区块；`_RESULTS/summary.json`）
+
+| dataset | CTRL F1 | E9_HFAE_A | ΔE9 | E10_HFAE_B | ΔE10 |
+|---|---:|---:|---:|---:|---:|
+| CDD-CD-256 | 0.9717 | 0.9705 | −0.0012 | 0.9702 | −0.0015 |
+| LEVIR-CD-256 | 0.9115 | **0.9134** | +0.0019 | 0.9123 | +0.0008 |
+| SYSU-CD-256 | 0.8268 | **0.8331** | **+0.0063** | 0.8319 | +0.0051 |
+| WHU-CD-256 | 0.9484 | **0.9507** | +0.0023 | **0.9518** | +0.0034 |
+| **≥ CTRL 库数 / SYSU 是否提升** | — | — | **3/4 · 是** | — | **3/4 · 是** |
+
+> 两个实验臂**都**满足预注册的 `primary_ok`；`winner` 按 `EXPERIMENTS` 顺序取首个 ⇒ **`E9_HFAE_A`**。
+
+**② 对象级小目标表**（`_OBJECT_METRICS/object_metrics_*.json`；**只作归因，不参与判定**）
+
+| variant | dataset | small pooledR (CTRL→EXP) | Δ | Hit@25 Δ | 未匹配小预测 (CTRL→EXP) | ×CTRL | 中大 pooledR Δ (med/large) |
+|---|---|---|---:|---:|---|---:|---|
+| E9_HFAE_A | CDD-CD-256 | 0.7344→0.7167 | −0.0176 | −0.0120 | 1576→1591 | 1.01 | −0.0036 / +0.0000 |
+| E9_HFAE_A | LEVIR-CD-256 | 0.6878→0.6717 | −0.0161 | −0.0083 | 552→478 | 0.87 | +0.0032 / +0.0076 |
+| E9_HFAE_A | SYSU-CD-256 | 0.2267→**0.2411** | **+0.0144** | +0.0055 | 2038→1861 | 0.91 | −0.0126 / +0.0071 |
+| E9_HFAE_A | WHU-CD-256 | 0.5771→**0.6617** | **+0.0846** | +0.0380 | 67→67 | 1.00 | +0.0370 / +0.0022 |
+| E10_HFAE_B | CDD-CD-256 | 0.7344→0.7259 | −0.0085 | −0.0040 | 1576→1590 | 1.01 | −0.0016 / −0.0000 |
+| E10_HFAE_B | LEVIR-CD-256 | 0.6878→0.7107 | +0.0229 | +0.0204 | 552→653 | 1.18 | +0.0070 / +0.0016 |
+| E10_HFAE_B | SYSU-CD-256 | 0.2267→0.1916 | −0.0351 | −0.0192 | 2038→2813 | 1.38 | −0.0140 / +0.0151 |
+| E10_HFAE_B | WHU-CD-256 | 0.5771→**0.6814** | **+0.1043** | +0.0633 | 67→65 | 0.97 | +0.0374 / +0.0044 |
+
+**③ 机制自检原始读数表**（**只作诊断/引用，不参与判定**）
+
+| variant | dataset | form | deploy params | fold disagree | HF tap grad norm | `[HFAE-LOSS]` epochs | aux first→last | all_ok |
+|---|---|---|---:|---:|---:|---:|---|---|
+| E9_HFAE_A | CDD | aux_only | 4,880,190 | 0 | 0.0891 | 256 | 0.3089→0.1231 | ✅ |
+| E9_HFAE_A | LEVIR | aux_only | 4,880,190 | 0 | 0.0736 | 359 | 0.3209→0.0564 | ✅ |
+| E9_HFAE_A | SYSU | aux_only | 4,880,190 | 0 | 0.0681 | 214 | 0.3067→0.1337 | ✅ |
+| E9_HFAE_A | WHU | aux_only | 4,880,190 | 0 | 0.0655 | 431 | 0.3311→0.0592 | ✅ |
+| E10_HFAE_B | CDD | aux_inject | 4,890,366 | 0 | 0.0895 | 256 | 0.3021→0.1229 | ✅ |
+| E10_HFAE_B | LEVIR | aux_inject | 4,890,366 | 0 | 0.0735 | 359 | 0.3138→0.0567 | ✅ |
+| E10_HFAE_B | SYSU | aux_inject | 4,890,366 | 0 | 0.0676 | 214 | 0.2999→0.1344 | ✅ |
+| E10_HFAE_B | WHU | aux_inject | 4,890,366 | 0 | 0.0656 | 431 | 0.3238→0.0593 | ✅ |
+
+> 每 run 的 `fold_real_max_abs_error` 为 1.8e-06 ~ 9.4e-06，但**二值化 disagreement 全为 0**
+> ⇒ 预注册 §7.6 的「刀锋像素」例外本次**未被触发**（`fold_knife_edge_accepted = []`）。
+
+**判定与机制归因**
+
+- `verdict = MECHANISM-PASS`；`winner = E9_HFAE_A`；`reasons = []`；两变体 `guardrail_fails` 均为空。
+- 逐变体：E9 / E10 均 `n_datasets_ge_ctrl = 3`、`sysu_improved = true`、`mech_all_ok = true`。
+- **归因（逐字摘自 `verdict.json::attribution`）**：E9_HFAE_A 在 ≥3/4 库 F1 ≥ 同期 CTRL 且 SYSU F1
+  提升，机制自检全过，守门未触发。SYSU small pooledR 0.2267→0.2411（Δ+0.0144）、Hit@25
+  0.2198→0.2253、未匹配小预测 2038→1861（×0.91）；WHU small pooledR 0.5771→0.6617（Δ+0.0846）；
+  CDD/LEVIR 的 small pooledR 分别 −0.0176 / −0.0161，但中大对象未受损（−0.0036/+0.0000、+0.0032/+0.0076）。
+- **机制方向与预注册 §5 一致**：收益落在**小目标召回/定位**（SYSU、WHU 的 small pooledR 与 Hit@25
+  同向上升、未匹配小预测下降），而**不是**靠放大已在过 firing 的信号（这正是 Run5 否证的老路）。
+
+**结论**
+
+1. 在 ≤5,000,000 参数与冻结协议下，把前两层频率分解的**高频分支**接出来做边缘辅助监督，
+   **确实**能带来**受控**增益：`E9_HFAE_A` 在 **3/4 库 ≥ 同期 CTRL**，其中 **SYSU（小目标瓶颈库）
+   F1 +0.0063**、其**小目标对象级召回 +0.0144**；机制自检全过（边缘梯度**真的**回流到高频分支、
+   aux loss 逐 epoch 单调下降、train↔deploy 折叠**逐位一致**、deploy 参数**与 CTRL 同值**）。
+   这是在 Run4 `MECHANISM-FAIL`、Run5/Run6 `NO_80K` 之后，本主线**首次 `MECHANISM-PASS`**。
+2. **但增益幅度小**（SYSU +0.63 F1 点；CDD 轻微回落 −0.12 点），四库均**未达**论文硬目标
+   （97.02 / 91.34 / 83.31 / 95.07 vs 98.00 / 92.50 / 85.00 / 95.00）——按修订后的纪律，
+   硬目标是**努力方向而非必达门**，**绝不可**据此回调 λ/阈值/seed。
+3. **E10（额外零初始化注入）不优于 E9**（3/4 库达标但 SYSU 增益更小、且 SYSU 小目标对象级召回
+   反而下降 0.0351、未匹配小预测 ×1.38）⇒ 按预注册取 **E9 = winner**。这条对照说明：
+   承重部件是**监督**本身（把梯度压回高频分支），而往 DCR 里**再注入**一路边缘特征没有额外收益。
+
+**产物索引**：`…/Run7/_RESULTS/summary.json` · `verdict.json`（+ `verdict.md`）·
+`INDEPENDENT_AUDIT.json` · `check_run_*.json` × 12 · `…/Run7/_OBJECT_METRICS/object_metrics_*.json` × 12。
+指标已并入 `docs/experiment_metrics.xlsx`（**78 → 90 行，0 丢失**）；
+代码+结果快照 `docs/temporary/models_and_metrics_CASA-TViM_Run7.txt`（49 个代码文件 + 90 行指标）。
+
+**过程记录（诚实披露，论文须写）**
+
+1. **§7.7 hook 注册非幂等缺陷 ⇒ 整轮 12 runs 重跑。** 波二发现单 epoch 耗时随累计 forward 数
+   **线性上升**（CDD 65→282 s，CTRL 恒 56~63 s）：`_ensure_hf_hooks()` 把幂等标记打在
+   `RemovableHandle` 上、却到 `mod._forward_hooks` 的 **hook 函数**里查（两者不是同一对象），
+   于是每次 forward 重复注册 1 个 hook/模块。用独立实测的每 hook 成本（≈2.0 μs/forward）**无自由
+   参数**预测四库斜率 `2cF²`，与实测吻合到 10~15%，并预测 CDD epoch 171 = 247 s（实测 245 s）。
+   修复后**数值逐位中性**（T12(c)：加 40 个重复 hook 前后输出与 aux logits `max|Δ| = 0`），
+   `hf_edge=0` 的 CTRL 更是走不到该函数。处置：前一轮产物**全部封存不删除**
+   （`_SUPERSEDED_Run7_20261011_2324_prehookfix/`），修复后**整轮 12 runs 从零重跑**以保持
+   A8「12 run 单一代码身份」；判据/阈值/λ/seed/80K/协议版本**一字未改**。
+   详见预注册 §7.7 与 `train_scripts/CASA-TViM/Run7/README.md` §7.16。
+2. **波三显存事故与恢复。** `E10_HFAE_B/LEVIR-CD-256` 在 GPU0 上连续 `CUDA OOM` 三次被编排脚本判失败
+   （`CDD` 亦 OOM 两次、第三次成功）；从自身 `last.pth` 续训（`_load_resume` 恢复 model/optimizer/
+   **actual_steps**/**四项 RNG**，`_write_casa_tvim_manifest` **逐字段严格校验通过** ⇒ 80K 预算与
+   seed 16 轨迹连续），并因 GPU0 只剩 ~10 GiB（同用户另一项目 C3L-Z 占 11.4 GiB）把该 run 的**剩余
+   epoch 迁移到 GPU1** 执行。**披露**：CUDA 设备号不属于冻结协议字段（`run_manifest.json` 无此字段，
+   其严格校验通过即为证），该改动只影响浮点累加顺序，不涉及任何超参/阈值/seed/预算。
+3. **预注册 §7.6「刀锋像素」澄清本次未被触发**（12 run 的真实 batch 折叠 disagreement 全为 0），
+   故本轮结论不依赖该澄清；它仍需在论文中按 §7.6 披露。
 
 > **硬目标（98.00/92.50/85.00/95.00）是努力方向而非必达门**（见 §1）；
 > 接受标准只看**相对同期 CTRL**（≥3/4 库 F1 ≥ CTRL 且 SYSU F1 > CTRL，且机制自检全过）。
@@ -687,7 +797,7 @@ train_scripts/
   CASA-TViM/Run4/              #   R4-FET1 1×1 可折叠旁路 × 8 run（已完成，MECHANISM-FAIL）
   CASA-TViM/Run5/              #   原生高频证据复用前测（已完成，NO_80K；正式训练 0 次）
   CASA-TViM/Run6/              #   变化判别瓶颈可分辨性前测（已完成，NO_80K；正式训练 0 次）
-  CASA-TViM/Run7/              #   HFAE 高频→边缘辅助监督消融（3 变体 × 4 库，执行中；含收口 runbook §8/§9）
+  CASA-TViM/Run7/              #   HFAE 高频→边缘辅助监督消融（3 变体 × 4 库，已完成，MECHANISM-PASS；含收口 runbook §8/§9）
   CASA-TViM/Diag1/             #   小目标瓶颈分阶段诊断流水线（run_diag.sh，只读；已完成）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx

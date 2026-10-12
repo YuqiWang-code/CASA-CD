@@ -947,3 +947,41 @@ grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
 
 本地侧同样应有：`models/test_run7_hf_edge.py` = 13 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
 服务器上为 0 SKIP）；`analyse/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
+
+---
+
+## §10 结果（已完成，2026-10-12 12:36）
+
+**`STATUS = MECHANISM-PASS`，`winner = E9_HFAE_A`**（`_RESULTS/verdict.json`）。
+根 `README.md` 的「# Run7 结果」一节是**面向读者**的正式结果节；本节只登记**收口链的机器真值**，
+避免两处各写一份数字。
+
+| 项 | 实测 |
+|---|---|
+| `summary.json` | `n_valid = 12 / n_total = 12`，`protocol = run7_hf_edge_exact80k_v1` |
+| `verdict.json` | `verdict = MECHANISM-PASS`，`winner = E9_HFAE_A`，`reasons = []`，两变体 `guardrail_fails = []` |
+| 逐变体 primary | E9 `n_ge=3 / sysu=True / mech_all_ok=True / primary_ok=True`；E10 同（`winner` 取 EXPERIMENTS 首个） |
+| `INDEPENDENT_AUDIT.json` | **10 checks / 0 FAILED**（A1–A10）；`distinct_code_identities = ['dc6d9f6e55a1fabd']`，`n_code_identity_rows = 12` |
+| `check_run_*.json` × 12 | n_checks = 32(CTRL) / 45(E9) / 46(E10)，**`n_failed = 0` 全部** |
+| `_OBJECT_METRICS/object_metrics_*.json` | **12 个** |
+| 刀锋证据 | **不需要**（`fold_knife_edge_accepted = []`，12 run 的真实 batch disagreement 全为 0） |
+| 四库 F1 | CTRL 0.9717/0.9115/0.8268/0.9484 · E9 0.9705/**0.9134**/**0.8331**/**0.9507** · E10 0.9702/0.9123/0.8319/0.9518 |
+| ΔE9 vs CTRL | −0.0012 / +0.0019 / **+0.0063** / +0.0023 |
+| 收口链 rc | `gate_rc=0 check_run_fail=0 object_rc=0 verdict_rc=0 audit_rc=0` ⇒ `FINISH_RC=0` |
+
+**三张正式表 + 归因 + 结论**见根 `README.md`「# Run7 结果」（§8.5 的三张表由 `verdict.md` 直接产出）。
+
+**过程事故（两条，均已在预注册 §7.7 / 根 README 诚实披露）**：
+① §7.7 hook 幂等缺陷 ⇒ 整轮 12 runs 重跑（旧产物封存于
+`…/CASA-TViM/_SUPERSEDED_Run7_20261011_2324_prehookfix/`）；
+② 波三 `E10_HFAE_B/LEVIR-CD-256` 在 GPU0 上 OOM 3/3 被判失败，从自身 `last.pth` 续训并把**剩余
+epoch 迁移到 GPU1** 执行（设备号非冻结字段，`run_manifest.json` 严格校验通过为证）；
+记录见 `…/E10_HFAE_B/_MANUAL_RECOVERY_*.log` 与 `_MANUAL_RECOVERY_NOTE.md`。
+
+### 8.6 收尾清单（已逐项完成）
+
+- [x] Run7 README 增「结果」节（本节）；根 `README.md` 增 Run7 结果节（含负结果与代价）
+- [x] 指标并入 `docs/experiment_metrics.xlsx`（78 → 90 行，**0 丢失**）；快照
+      `docs/temporary/models_and_metrics_CASA-TViM_Run7.txt`
+- [x] 提交并 push；产物只 `_INVALID_*`/`_SUPERSEDED_*` **改名，绝不删除**
+- [ ] 任何文献表述前**重新核验** R8（EdgeRefNet, TGRS 2026）的真实出版信息 ← **仍待做**（写论文时）
