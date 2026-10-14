@@ -38,6 +38,7 @@ from model.str_fusion import STRFusionNet
 from model.str_tass_fusion import STRTASSNet
 from model.str_hf_edge import (HF_EDGE_FORM, HF_EDGE_LAMBDA_DEFAULT, HF_EDGE_TAPS,
                                hf_edge_loss)
+from model.hgsl_loss import (HGSL_LAMBDA_DEFAULT, HGSL_STAGES_DEFAULT, hgsl_loss)
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
@@ -48,19 +49,28 @@ import dataset.Transforms as myTransforms
 # R4（方案 §5/§6.2）：训练协议版本号。写入 run_manifest.json / arch.json / last.pth，
 # resume 时严格校验，防止不同协议（例如非 exact-80K）的 checkpoint 被当作同一条曲线。
 # R7：HFAE（高频边缘辅助监督）引入新协议版本。
-PROTOCOL_VERSION = "run7_hf_edge_exact80k_v1"
+# R8：换骨干为 VMamba-Tiny + CAACP-HQKV（双曲双分支 SAT-QKV）+ HGSL（几何监督损失）。
+PROTOCOL_VERSION = "run8_vmamba_hqkv_exact80k_v1"
 
 # R4（方案 §5）：代码身份核验范围——主要模型/训练文件，SHA256 写入两个 sidecar。
+# R8 新增：vmamba_tiny.py / vmamba_kernel.py / hyperbolic.py / caacp_hqkv.py / hgsl_loss.py
+#          / casa_vmamba_net.py（新骨干 + 新模块 + 新损失，必须进身份链）
 SOURCE_IDENTITY_FILES = (
     "models/train.py",
     "models/eval.py",
     "models/model/casa_tvim_str_net.py",
+    "models/model/casa_vmamba_net.py",
+    "models/model/vmamba_tiny.py",
+    "models/model/hgsl_loss.py",
     "models/model/str_fine_tap.py",
     "models/model/str_hf_edge.py",
     "models/model/str_tar.py",
     "models/model/str_dcr.py",
     "models/model/str_reparam.py",
     "models/model/utils.py",
+    "models/model/layers/vmamba_kernel.py",
+    "models/model/layers/hyperbolic.py",
+    "models/model/layers/caacp_hqkv.py",
 )
 
 
@@ -165,6 +175,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
     salEvalVal = ConfuseMatrixMeter(n_class=2)
     epoch_loss = []
     epoch_aux_loss = []          # R7 HFAE：边缘辅助损失（仅用于日志，不进主指标）
+    epoch_hgsl_loss = []         # R8 HGSL：几何监督损失（仅用于日志）
     executed_steps = 0
     lr = None
 
@@ -210,6 +221,24 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
             loss = loss + aux_loss
             aux_val = float(aux_loss.detach().item())
 
+        # R8 HGSL：双曲几何监督损失（λ 预注册固定 0.2，禁止搜索）。
+        # 与 HFAE 的机制差异见 `model/hgsl_loss.py` 头部：HFAE 监督"边缘在哪"，
+        # HGSL 监督"流形几何距离是否把真实变化排得更前"（CAACP 的 score 在 Run1–Run7
+        # 一直走 no_grad、从未接收过梯度）。
+        hgsl_val = None
+        if int(getattr(args, "hgsl", 0)):
+            smaps = model.hgsl_score_maps() if hasattr(model, "hgsl_score_maps") else {}
+            if not smaps:
+                if executed_steps == 0 and (iter + cur_iter) == 0:
+                    print("[HGSL-WARN] hgsl=1 但 score_maps 为空（hqkv=0 或 grad 状态不符）"
+                          " ⇒ 本步 HGSL 项为 0", flush=True)
+            else:
+                hg = hgsl_loss(smaps, target_var, args.hgsl_lambda,
+                               stages=HGSL_STAGES_DEFAULT)
+                if hg is not None:
+                    loss = loss + hg
+                    hgsl_val = float(hg.detach().item())
+
         pred = torch.where(output > 0.5, torch.ones_like(output), torch.zeros_like(output)).long()
 
         optimizer.zero_grad()
@@ -220,6 +249,8 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
         epoch_loss.append(loss.data.item())
         if aux_val is not None:
             epoch_aux_loss.append(aux_val)
+        if hgsl_val is not None:
+            epoch_hgsl_loss.append(hgsl_val)
 
         # HFAE 机制自检：首步必须确认「梯度真的进了高频分支」（否则只是挂了个旁路头）
         if (int(getattr(args, "hf_edge", 0)) and executed_steps == 1
@@ -236,7 +267,8 @@ def train_epoch(args, train_loader, model, optimizer, epoch, max_batches, cur_it
     scores = salEvalVal.get_scores()
 
     return average_epoch_loss_train, scores, lr, executed_steps, (
-        (sum(epoch_aux_loss) / len(epoch_aux_loss)) if epoch_aux_loss else None)
+        (sum(epoch_aux_loss) / len(epoch_aux_loss)) if epoch_aux_loss else None), (
+        (sum(epoch_hgsl_loss) / len(epoch_hgsl_loss)) if epoch_hgsl_loss else None)
 
 
 def source_code_identity():
@@ -340,6 +372,85 @@ class ChangeViTTrainer(object):
             self.log(f"[PRETRAIN-LOAD] retained={ls.get('retained')}/{ls.get('pretrained_keys')} "
                      f"worst_diff={ls.get('worst_diff'):.3e} new_modules={len(ls.get('missing_new', []))} "
                      f"dropped={len(ls.get('dropped_intentional', []))}")
+            return
+
+        # Run8 主线：CASA-VMamba-STRNet（VMamba-Tiny 骨干 + CAACP-HQKV + TAR/DCR + HGSL）
+        if getattr(args, "arch", "changevit") == "casa_vmamba_str":
+            assert args.resume is None, \
+                "from-scratch discipline: --resume is forbidden at launch (crash recovery uses own last.pth)"
+            assert args.seed == 16, f"from-scratch discipline: seed must be 16, got {args.seed}"
+            assert os.path.basename(args.vmamba_pretrained_weight_path) == \
+                "vssm_tiny_0230_ckpt_epoch_262.pth", \
+                f"pretrained path must be vssm_tiny_0230_ckpt_epoch_262.pth, got {args.vmamba_pretrained_weight_path}"
+            from model.casa_vmamba_net import CASAVMambaSTRNet
+            self.model = CASAVMambaSTRNet(
+                vmamba_pretrained_path=args.vmamba_pretrained_weight_path,
+                hqkv=bool(args.hqkv), str_dim=args.str_dim,
+                geometry=args.hqkv_geometry, branch=args.hqkv_branch,
+                hgsl=bool(args.hgsl), hgsl_detach_score=bool(args.hgsl_detach_score),
+                inject_mode=args.hqkv_inject_mode,
+                hqkv_rank=args.hqkv_rank, hqkv_lite_dim=args.hqkv_lite_dim,
+                hqkv_detail_window=args.hqkv_detail_window,
+                hqkv_global_window=args.hqkv_global_window,
+                hqkv_attn_stages=tuple(int(s) for s in args.hqkv_attn_stages.split(",") if s != ""),
+                rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar),
+                hqkv_r0=args.hqkv_r0, hqkv_a=args.hqkv_a,
+            ).float()
+            if args.onGPU:
+                self.model = self.model.cuda()
+            backbone_params = [p for n, p in self.model.named_parameters() if n.startswith("encoder.")]
+            new_params = [p for n, p in self.model.named_parameters() if not n.startswith("encoder.")]
+            assert len(backbone_params) + len(new_params) > 0
+            self.optimizer = torch.optim.Adam(
+                [{"params": backbone_params, "lr": args.lr * args.backbone_lr_ratio,
+                  "lr_scale": args.backbone_lr_ratio, "name": "backbone"},
+                 {"params": new_params, "lr": args.lr,
+                  "lr_scale": 1.0, "name": "new"}],
+                args.lr, (0.9, 0.99), eps=1e-08, weight_decay=1e-4)
+            st = self.model.pretrain_load_stats() or {}
+            self._backbone_ref = {k: v.detach().cpu().clone()
+                                  for k, v in self.model.encoder.state_dict().items()
+                                  if k in set(st.get("loaded_keys", []))}
+            self.start_epoch = 0
+            self.best_f1 = -1.0
+            self.best_epoch = -1
+            self.cur_iter = 0
+            resume_path = args.resume
+            if resume_path is None:
+                auto = os.path.join(args.ckpt_dir, "last.pth")
+                if os.path.isfile(auto):
+                    resume_path = auto
+            os.makedirs(args.ckpt_dir, exist_ok=True)
+            self._write_casa_vmamba_manifest(resume_path)
+            if resume_path is not None and os.path.isfile(resume_path):
+                self._load_resume(resume_path)
+            self.log(f"[LR-GROUPS] backbone={args.lr * args.backbone_lr_ratio:.2e} "
+                     f"(x{args.backbone_lr_ratio}) new={args.lr:.2e} (x1.0)")
+            self.log(f"[CONFIG] arch=casa_vmamba_str hqkv={int(self.args.hqkv)} "
+                     f"geometry={self.args.hqkv_geometry} branch={self.args.hqkv_branch} "
+                     f"inject={self.args.hqkv_inject_mode} rep={self.args.rep_mode} "
+                     f"str_dim={self.args.str_dim}")
+            self.log(f"[CONFIG] hgsl={int(self.args.hgsl)} "
+                     f"hgsl_detach_score={int(self.args.hgsl_detach_score)} "
+                     f"hgsl_lambda={self.args.hgsl_lambda} "
+                     f"protocol={PROTOCOL_VERSION} exact_max_steps={int(args.exact_max_steps)} "
+                     f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed}")
+            if self.model.hqkv_op is not None:
+                _hr = self.model.hqkv_report()
+                self.log(f"[HQKV] form={_hr['form']} rank={_hr['rank']} r0={_hr['r0']} a={_hr['a']} "
+                         f"detail_w={_hr['detail_window']} global_w={_hr['global_window']} "
+                         f"attn_stages={_hr['attn_stages']} params={_hr['total_params']} "
+                         f"gamma_zero_init={_hr['gamma_zero_init']}")
+                self.log(f"[HQKV-PER-STAGE] {_hr['per_stage']}")
+            _pb = self.model.param_breakdown()
+            self.log(f"[PARAM-BREAKDOWN] backbone={_pb['backbone']:,} hqkv={_pb['hqkv']:,} "
+                     f"tar={_pb['tar']:,} dcr={_pb['dcr']:,} head={_pb['head']:,} "
+                     f"total={_pb['total']:,} non_backbone={_pb['non_backbone']:,}")
+            self.log(f"[PRETRAIN-LOAD] retained={st.get('retained')}/{st.get('pretrained_keys')} "
+                     f"worst_diff={st.get('worst_diff')} missing_new={len(st.get('missing_new', []))} "
+                     f"dropped={len(st.get('dropped_intentional', []))}")
+            assert st.get("worst_diff") == 0.0, \
+                f"[VMAMBA-PRETRAIN] worst_diff must be exactly 0, got {st.get('worst_diff')}"
             return
 
         # STRFusion / STRTASS 加性分支（不改动 changevit 路径）。
@@ -531,6 +642,77 @@ class ChangeViTTrainer(object):
                 _json.dump(manifest, f, indent=2)
             self.log(f"[MANIFEST] run_manifest.json written (resume_source={resume_path})")
 
+    def _write_casa_vmamba_manifest(self, resume_path):
+        """Run8 casa_vmamba_str run_manifest.json：fresh 写入 / resume 逐字段严格校验。
+
+        fail-closed：把每一个"唯一变量开关"都写进侧车，resume 时逐字段比对。
+        这样"手工续训时写错参数"会在启动瞬间中止，而不是静默换掉实验臂。
+        """
+        import json as _json
+        import hashlib as _hashlib
+        path = os.path.join(self.args.ckpt_dir, "run_manifest.json")
+        pretrain_sha = ""
+        if os.path.isfile(self.args.vmamba_pretrained_weight_path):
+            h = _hashlib.sha256()
+            with open(self.args.vmamba_pretrained_weight_path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            pretrain_sha = h.hexdigest()[:16]
+        manifest = {
+            "arch": "casa_vmamba_str",
+            "backbone": "vmamba_tiny_v2",
+            "backbone_weight": os.path.basename(self.args.vmamba_pretrained_weight_path or ""),
+            "backbone_weight_sha256": pretrain_sha,
+            "feature_taps": ["stage0_1_4_96", "stage1_1_8_192", "stage2_1_16_384", "stage3_1_32_768"],
+            # ---- Run8 唯一变量开关（fail-closed）
+            "hqkv": int(self.args.hqkv),
+            "hqkv_form": ("hqkv_v1" if int(self.args.hqkv) else "none"),
+            "hqkv_geometry": (self.args.hqkv_geometry if int(self.args.hqkv) else "none"),
+            "hqkv_branch": (self.args.hqkv_branch if int(self.args.hqkv) else "none"),
+            "hqkv_inject_mode": (self.args.hqkv_inject_mode if int(self.args.hqkv) else "none"),
+            "hqkv_rank": (int(self.args.hqkv_rank) if int(self.args.hqkv) else 0),
+            "hqkv_lite_dim": (int(self.args.hqkv_lite_dim) if int(self.args.hqkv) else 0),
+            "hqkv_detail_window": (int(self.args.hqkv_detail_window) if int(self.args.hqkv) else 0),
+            "hqkv_global_window": (int(self.args.hqkv_global_window) if int(self.args.hqkv) else 0),
+            "hqkv_attn_stages": (self.args.hqkv_attn_stages if int(self.args.hqkv) else "none"),
+            "hqkv_r0": (float(self.args.hqkv_r0) if int(self.args.hqkv) else 0.0),
+            "hqkv_a": (float(self.args.hqkv_a) if int(self.args.hqkv) else 0.0),
+            "hgsl": int(self.args.hgsl),
+            "hgsl_detach_score": (int(self.args.hgsl_detach_score) if int(self.args.hgsl) else None),
+            "hgsl_lambda": (float(self.args.hgsl_lambda) if int(self.args.hgsl) else 0.0),
+            # ---- 共享协议字段
+            "rep_mode": self.args.rep_mode,
+            "fs_tar": int(self.args.fs_tar),
+            "str_dim": self.args.str_dim,
+            "backbone_lr_ratio": self.args.backbone_lr_ratio,
+            "data_contract": "legacy_6ch_reverse_v1",
+            "seed": self.args.seed,
+            "max_steps": self.args.max_steps,
+            "batch_size": self.args.batch_size,
+            "dataset": self.args.dataset,
+            "protocol_version": PROTOCOL_VERSION,
+            "exact_max_steps": int(getattr(self.args, "exact_max_steps", 0)),
+            "source_code_sha256": source_code_identity(),
+            "resume_source": resume_path,
+        }
+        compare_keys = tuple(k for k in manifest if k not in ("source_code_sha256", "resume_source"))
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                old = _json.load(f)
+            for k in compare_keys:
+                if old.get(k) != manifest[k]:
+                    raise SystemExit(f"[MANIFEST-MISMATCH] field {k}: old={old.get(k)} "
+                                     f"new={manifest[k]}; aborting")
+            if old.get("source_code_sha256") != manifest["source_code_sha256"]:
+                diff = [k for k in manifest["source_code_sha256"]
+                        if old.get("source_code_sha256", {}).get(k) != manifest["source_code_sha256"][k]]
+                self.log(f"[MANIFEST] WARNING source_code_sha256 differs on resume: {diff}")
+            self.log(f"[MANIFEST] validated existing run_manifest.json (resume_source={resume_path})")
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(manifest, f, indent=2)
+            self.log(f"[MANIFEST] run_manifest.json written (resume_source={resume_path})")
+
     def _vit_hash(self):
         """冻结 ViT 权重的确定性哈希（TEST 区块 [VIT-CHECKSUM] 对照基准）。"""
         import hashlib
@@ -553,7 +735,7 @@ class ChangeViTTrainer(object):
             named = dict(model.named_parameters())
             sd = model.encoder.state_dict()
             ref = self._backbone_ref
-            # stage 分组：patch_embed->stem；network.0/2/4->stage0/1/2；network.6->stage3(retained)
+            # stage 分组：TinyViM network.{0,2,4,6}；VMamba patch_embed / layers.{0..3}
             groups = {}
             for k in ref:
                 if k.startswith("patch_embed."):
@@ -565,6 +747,20 @@ class ChangeViTTrainer(object):
                 elif k.startswith("network.4."):
                     g = "stage2"
                 elif k.startswith("network.6."):
+                    g = "stage3-retained"
+                elif k.startswith("layers.0.blocks."):
+                    g = "stage0"
+                elif k.startswith("layers.0.downsample."):
+                    g = "downsample0"
+                elif k.startswith("layers.1.blocks."):
+                    g = "stage1"
+                elif k.startswith("layers.1.downsample."):
+                    g = "downsample1"
+                elif k.startswith("layers.2.blocks."):
+                    g = "stage2"
+                elif k.startswith("layers.2.downsample."):
+                    g = "downsample2"
+                elif k.startswith("layers.3."):
                     g = "stage3-retained"
                 else:
                     g = "other"
@@ -662,6 +858,38 @@ class ChangeViTTrainer(object):
                 "protocol_version": PROTOCOL_VERSION,
                 "source_code_sha256": source_code_identity(),
             }
+        elif arch_name == "casa_vmamba_str":
+            arch = {
+                "arch": "casa_vmamba_str",
+                "backbone": "vmamba_tiny_v2",
+                "backbone_weight": os.path.basename(
+                    self.args.vmamba_pretrained_weight_path or ""),
+                "hqkv": int(self.args.hqkv),
+                "hqkv_form": ("hqkv_v1" if int(self.args.hqkv) else "none"),
+                "hqkv_geometry": (self.args.hqkv_geometry if int(self.args.hqkv) else "none"),
+                "hqkv_branch": (self.args.hqkv_branch if int(self.args.hqkv) else "none"),
+                "hqkv_inject_mode": (self.args.hqkv_inject_mode if int(self.args.hqkv) else "none"),
+                "hqkv_rank": (int(self.args.hqkv_rank) if int(self.args.hqkv) else 0),
+                "hqkv_lite_dim": (int(self.args.hqkv_lite_dim) if int(self.args.hqkv) else 0),
+                "hqkv_detail_window": (int(self.args.hqkv_detail_window)
+                                       if int(self.args.hqkv) else 0),
+                "hqkv_global_window": (int(self.args.hqkv_global_window)
+                                       if int(self.args.hqkv) else 0),
+                "hqkv_attn_stages": (self.args.hqkv_attn_stages
+                                     if int(self.args.hqkv) else "none"),
+                "hqkv_r0": (float(self.args.hqkv_r0) if int(self.args.hqkv) else 0.0),
+                "hqkv_a": (float(self.args.hqkv_a) if int(self.args.hqkv) else 0.0),
+                "hgsl": int(self.args.hgsl),
+                "hgsl_detach_score": (int(self.args.hgsl_detach_score)
+                                      if int(self.args.hgsl) else None),
+                "hgsl_lambda": (float(self.args.hgsl_lambda) if int(self.args.hgsl) else 0.0),
+                "fs_tar": int(self.args.fs_tar),
+                "rep_mode": self.args.rep_mode,
+                "str_dim": self.args.str_dim,
+                "backbone_lr_ratio": self.args.backbone_lr_ratio,
+                "protocol_version": PROTOCOL_VERSION,
+                "source_code_sha256": source_code_identity(),
+            }
         elif arch_name == "str_tass":
             arch = {
                 "arch": "str_tass",
@@ -753,10 +981,11 @@ class ChangeViTTrainer(object):
             if remaining is not None and remaining <= 0:
                 self.log(f"[EXACT-STEPS] budget already reached ({cur_iter} >= {self.args.max_steps}), stopping")
                 break
-            loss_tr, score_tr, lr, executed, aux_tr = train_epoch(
+            loss_tr, score_tr, lr, executed, aux_tr, hgsl_tr = train_epoch(
                 self.args, train_loader, self.model, self.optimizer, epoch, max_batches, cur_iter,
                 adapt_log_fn=(self._backbone_adapt_log
-                              if getattr(self.args, "arch", "changevit") == "casa_tvim_str" else None),
+                              if getattr(self.args, "arch", "changevit") in
+                              ("casa_tvim_str", "casa_vmamba_str") else None),
                 remaining_steps=remaining)
             cur_iter += (executed if exact else max_batches)
             self.cur_iter = cur_iter
@@ -766,6 +995,10 @@ class ChangeViTTrainer(object):
             if aux_tr is not None:
                 self.log(f"[HFAE-LOSS] epoch={epoch} aux_loss={aux_tr:.6f} "
                          f"lambda={self.args.hf_edge_lambda}")
+            if hgsl_tr is not None:
+                self.log(f"[HGSL-LOSS] epoch={epoch} hgsl_loss={hgsl_tr:.6f} "
+                         f"lambda={self.args.hgsl_lambda} "
+                         f"detach_score={int(self.args.hgsl_detach_score)}")
 
             torch.cuda.empty_cache()
 
@@ -813,7 +1046,8 @@ class ChangeViTTrainer(object):
         self.model.load_state_dict(torch.load(best_path, map_location="cpu", weights_only=False))
         self.model = self.model.cuda()
 
-        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass", "casa_tvim_str"):
+        if getattr(self.args, "arch", "changevit") in ("strfusion", "str_tass",
+                                                       "casa_tvim_str", "casa_vmamba_str"):
             self.test_best_strfusion(best_path)
             return
 
@@ -925,8 +1159,57 @@ class ChangeViTTrainer(object):
 
         is_tass = getattr(self.args, "arch", "changevit") == "str_tass"
         is_casa = getattr(self.args, "arch", "changevit") == "casa_tvim_str"
+        is_vmamba = getattr(self.args, "arch", "changevit") == "casa_vmamba_str"
         self.log("=== TEST RESULTS ===")
-        if is_casa:
+        if is_vmamba:
+            self.log("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV + TAR/DCR + HGSL)")
+            self.log("[ARCH] casa_vmamba_str")
+            self.log(f"[HQKV] {int(self.args.hqkv)}")
+            self.log(f"[HQKV-GEOMETRY] {self.args.hqkv_geometry}")
+            self.log(f"[HQKV-BRANCH] {self.args.hqkv_branch}")
+            self.log(f"[HQKV-INJECT-MODE] {self.args.hqkv_inject_mode}")
+            self.log(f"[HQKV-RANK] {self.args.hqkv_rank}")
+            self.log(f"[HQKV-ATTN-STAGES] {self.args.hqkv_attn_stages}")
+            self.log(f"[HQKV-RADIUS] r0={self.args.hqkv_r0} a={self.args.hqkv_a}")
+            self.log(f"[HGSL] {int(self.args.hgsl)} detach_score={int(self.args.hgsl_detach_score)} "
+                     f"lambda={self.args.hgsl_lambda}")
+            self.log(f"[FS-TAR] {int(self.args.fs_tar)}")
+            self.log(f"[REP-MODE] {self.args.rep_mode}")
+            self.log(f"[BACKBONE-LR-RATIO] {self.args.backbone_lr_ratio}")
+            self.log("[DATA-CONTRACT] legacy_6ch_reverse_v1")
+            self.log("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
+            import hashlib as _hashlib
+            if os.path.isfile(self.args.vmamba_pretrained_weight_path):
+                h = _hashlib.sha256()
+                with open(self.args.vmamba_pretrained_weight_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                self.log(f"[PRETRAIN-SHA256] {h.hexdigest()[:16]}")
+            load_stats = getattr(self.model.encoder, "_load_stats", None)
+            if load_stats:
+                self.log(f"[PRETRAIN-LOAD] retained={load_stats['retained']}/"
+                         f"{load_stats['pretrained_keys']} worst_diff={load_stats['worst_diff']:.3e}")
+            _pb = self.model.param_breakdown()
+            self.log(f"[PARAM-BREAKDOWN] backbone={_pb['backbone']} hqkv={_pb['hqkv']} "
+                     f"tar={_pb['tar']} dcr={_pb['dcr']} head={_pb['head']} "
+                     f"total={_pb['total']} non_backbone={_pb['non_backbone']}")
+            if self.model.hqkv_op is not None:
+                _hr = self.model.hqkv_report()
+                self.log(f"[HQKV-PARAMS] total={_hr['total_params']} per_stage={_hr['per_stage']}")
+                self.log(f"[HQKV-GAMMA] detail={_hr['gammas']['detail']:.6e} "
+                         f"global={_hr['gammas']['global']:.6e} lite={_hr['gammas']['lite']:.6e}")
+                _dg = self.model.hqkv_diag()
+                for _sk, _sv in sorted(_dg.get("stages", {}).items()):
+                    self.log(f"[HQKV-DIAG-{_sk}] " + " ".join(
+                        f"{k}={v:.6e}" if isinstance(v, float) else f"{k}={v}"
+                        for k, v in sorted(_sv.items())))
+                _gg = _dg.get("gammas", {})
+                if _gg:
+                    self.log(f"[HQKV-GAMMA-FINAL] {_gg}")
+            self.log("[BACKBONE] VMamba-Tiny v2 (depths=[2,2,9,2], dims=[96,192,384,768], "
+                     "ssm_ratio=2.0, patch4, ln2d; official 0230 ckpt)")
+            self.log("[FEATURE-TAPS] stage0_1_4(96) stage1_1_8(192) stage2_1_16(384) stage3_1_32(768)")
+        elif is_casa:
             self.log("[MODEL] CASA-TViM-STR (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)")
             self.log("[ARCH] casa_tvim_str")
             self.log(f"[CAACP] {int(self.args.caacp)}")
@@ -1008,6 +1291,8 @@ class ChangeViTTrainer(object):
         if is_casa:
             self.log("[BACKBONE] TinyViM-S-Slim (Stage4 = Localx3 + final TViM; 1000e EMA weights)")
             self.log("[FEATURE-TAPS] stage1_1_4(48) stage2_1_8(64) stage3_1_16(168) stage4_1_32(224)")
+        elif is_vmamba:
+            pass          # 已在 is_vmamba 分支内打印 [BACKBONE] / [FEATURE-TAPS]
         else:
             self.log(f"[STR-FREEZE-VIT] 1")
             self.log(f"[STR-VIT-DEPTH] 4")
@@ -1022,7 +1307,7 @@ class ChangeViTTrainer(object):
         self.log(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
                  f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
         self.log(f"[BEST-F1] {self.best_f1:.4f} (epoch {self.best_epoch})")
-        if getattr(self.args, "arch", "changevit") == "casa_tvim_str":
+        if getattr(self.args, "arch", "changevit") in ("casa_tvim_str", "casa_vmamba_str"):
             # R4（设计文档 §6.2 / T10）：exact-80K 的步数证据必须落在**最后一个完整 TEST 区块内**，
             # 训练期的 per-epoch [ACTUAL-OPT-STEPS] 行在区块之外、不作为正式结果来源。
             self.log(f"[ACTUAL-OPT-STEPS] {int(self.cur_iter)}")
@@ -1137,8 +1422,11 @@ def main():
 
     # STRFusion Run1 / Run11 TASS / CASA-TViM-STR（融合主线；changevit 路径不受影响）
     parser.add_argument('--arch', type=str, default='changevit',
-                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str'],
-                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)')
+                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str',
+                                 'casa_vmamba_str'],
+                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str '
+                             '(TinyViM-S-Slim + CAACP-SS2D) | casa_vmamba_str '
+                             '(Run8: VMamba-Tiny + CAACP-HQKV + TAR/DCR + HGSL)')
     parser.add_argument('--caacp', type=int, default=0,
                         help='casa_tvim_str CAACP-SS2D gate: 1 = change-aware context pooling; 0 = official uniform pool')
     parser.add_argument('--caacp_score_mode', type=str, default='rank', choices=['rank', 'cp'],
@@ -1172,6 +1460,45 @@ def main():
                         help='HFAE tap scales: 1_4_1_8 = stage0(1/4,36ch HF) + stage1(1/8,32ch HF); 1_4 = stage0 only')
     parser.add_argument('--hf_edge_lambda', type=float, default=HF_EDGE_LAMBDA_DEFAULT,
                         help='HFAE aux loss weight (PRE-REGISTERED and fixed at 0.2; searching it is forbidden)')
+    # ---- Run8：CASA-VMamba-STRNet（VMamba-Tiny + CAACP-HQKV + HGSL）
+    parser.add_argument('--vmamba_pretrained_weight_path', type=str, default=None,
+                        help='Run8 VMamba-Tiny official v2 checkpoint '
+                             '(vssm_tiny_0230_ckpt_epoch_262.pth, top-level key "model")')
+    parser.add_argument('--hqkv', type=int, default=1, choices=[0, 1],
+                        help='Run8 CAACP-HQKV gate: 1 = hyperbolic dual-branch SAT-QKV change aggregation; '
+                             '0 = same-wave CTRL (VMamba + TAR/DCR only)')
+    parser.add_argument('--hqkv_geometry', type=str, default='hyperbolic',
+                        choices=['hyperbolic', 'euclidean'],
+                        help='Run8 geometry: hyperbolic (Lorentz geodesic, MAIN) | euclidean '
+                             '(SAME radial quantities, tangential distance — the mandatory curvature counterfactual)')
+    parser.add_argument('--hqkv_branch', type=str, default='both',
+                        choices=['both', 'detail_only', 'global_only'],
+                        help='Run8 branch specialisation ablation: both | detail_only | global_only')
+    parser.add_argument('--hqkv_inject_mode', type=str, default='dcr1',
+                        choices=['none', 'dcr1', 'dcr1_16'],
+                        help='Run8 injection point: dcr1 = DCR 1/4 input only | dcr1_16 = also 1/16 skip | none')
+    parser.add_argument('--hqkv_rank', type=int, default=32,
+                        help='Run8 Q/K/V channel rank (budget dial; fixed before the campaign)')
+    parser.add_argument('--hqkv_lite_dim', type=int, default=192,
+                        help='Run8 per-stage output width before summation (must equal str_dim)')
+    parser.add_argument('--hqkv_detail_window', type=int, default=2,
+                        help='Run8 detail-branch K/V token compression window (N -> N/w^2)')
+    parser.add_argument('--hqkv_global_window', type=int, default=4,
+                        help='Run8 global-branch K/V token compression window (N -> N/w^2)')
+    parser.add_argument('--hqkv_attn_stages', type=str, default='1,2,3',
+                        help='Run8 stages that run attention (others use the cheap 1x1 fusion): e.g. "1,2,3"')
+    parser.add_argument('--hqkv_r0', type=float, default=0.5,
+                        help='Run8 hyperbolic radius floor r0 (PRE-REGISTERED and frozen)')
+    parser.add_argument('--hqkv_a', type=float, default=0.5,
+                        help='Run8 hyperbolic radius span a, r in [r0, r0+a] (PRE-REGISTERED and frozen)')
+    parser.add_argument('--hgsl', type=int, default=1, choices=[0, 1],
+                        help='Run8 HGSL (hyperbolic geometric supervision loss) gate: 1 = add lambda*L_HGSL')
+    parser.add_argument('--hgsl_detach_score', type=int, default=1, choices=[0, 1],
+                        help='HGSL gradient path: 1 = score detached (loss only reshapes how the score is consumed); '
+                             '0 = gradient flows into the Lorentz geometry itself')
+    parser.add_argument('--hgsl_lambda', type=float, default=HGSL_LAMBDA_DEFAULT,
+                        help='HGSL loss weight (PRE-REGISTERED and fixed at 0.2; searching it is forbidden)')
+
     parser.add_argument('--exact_max_steps', type=int, default=0, choices=[0, 1],
                         help='R4 exact-80K protocol: 1 = stop at exactly args.max_steps optimizer updates and fix the poly '
                              'denominator to args.max_steps; 0 = legacy (epoch-granular, max_epochs=ceil(max_steps/iters)). '

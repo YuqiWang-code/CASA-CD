@@ -124,8 +124,9 @@ def main():
 
     # STRFusion Run1 / Run11 TASS / CASA-TViM-STR
     parser.add_argument('--arch', type=str, default='changevit',
-                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str'],
-                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str (must match training)')
+                        choices=['changevit', 'strfusion', 'str_tass', 'casa_tvim_str',
+                                 'casa_vmamba_str'],
+                        help='model architecture: changevit | strfusion | str_tass | casa_tvim_str | casa_vmamba_str (must match training)')
     parser.add_argument('--str_dim', type=int, default=160,
                         help='decoder width D (must match training)')
     parser.add_argument('--str_rep_mode', type=str, default='full', choices=['plain', 'full'],
@@ -153,6 +154,44 @@ def main():
     parser.add_argument('--rep_mode', type=str, default='full', choices=['plain', 'full'])
     parser.add_argument('--tinyvim_pretrained_weight_path', type=str, default=None,
                         help='TinyViM-S 1000e checkpoint (tinyvim_s_1000e.pth)')
+
+    # Run8：CASA-VMamba-STR（VMamba-Tiny 骨干 + CAACP-HQKV + TAR/DCR + HGSL）。
+    # 与 train.py 同名同默认值、一一对应：这些开关共同决定结构，少给一个就重建出与训练
+    # 不同的网络（arch.json 逐字段校验会在加载前拦住，这里只是把契约暴露出来）。
+    parser.add_argument('--vmamba_pretrained_weight_path', type=str, default=None,
+                        help='Run8 VMamba-Tiny official v2 checkpoint (vssm_tiny_0230_ckpt_epoch_262.pth); '
+                             'its basename is compared against ckpt arch.json backbone_weight')
+    parser.add_argument('--hqkv', type=int, default=1, choices=[0, 1],
+                        help='Run8 CAACP-HQKV gate: 1 = hyperbolic dual-branch SAT-QKV aggregation; 0 = CTRL')
+    parser.add_argument('--hqkv_geometry', type=str, default='hyperbolic',
+                        choices=['hyperbolic', 'euclidean'],
+                        help='Run8 geometry: hyperbolic (Lorentz geodesic) | euclidean (curvature counterfactual)')
+    parser.add_argument('--hqkv_branch', type=str, default='both',
+                        choices=['both', 'detail_only', 'global_only'],
+                        help='Run8 branch specialisation: both | detail_only | global_only')
+    parser.add_argument('--hqkv_inject_mode', type=str, default='dcr1',
+                        choices=['none', 'dcr1', 'dcr1_16'],
+                        help='Run8 injection point: dcr1 = DCR 1/4 input only | dcr1_16 = also 1/16 skip | none')
+    parser.add_argument('--hqkv_rank', type=int, default=32,
+                        help='Run8 Q/K/V channel rank (must match ckpt sidecar exactly)')
+    parser.add_argument('--hqkv_lite_dim', type=int, default=192,
+                        help='Run8 per-stage output width before summation (must match ckpt sidecar exactly)')
+    parser.add_argument('--hqkv_detail_window', type=int, default=2,
+                        help='Run8 detail-branch K/V token compression window')
+    parser.add_argument('--hqkv_global_window', type=int, default=4,
+                        help='Run8 global-branch K/V token compression window')
+    parser.add_argument('--hqkv_attn_stages', type=str, default='1,2,3',
+                        help='Run8 stages that run attention ("1,2,3"); parsed into a tuple[int]')
+    parser.add_argument('--hqkv_r0', type=float, default=0.5,
+                        help='Run8 hyperbolic radius floor r0 (PRE-REGISTERED and frozen)')
+    parser.add_argument('--hqkv_a', type=float, default=0.5,
+                        help='Run8 hyperbolic radius span a, r in [r0, r0+a] (PRE-REGISTERED and frozen)')
+    parser.add_argument('--hgsl', type=int, default=1, choices=[0, 1],
+                        help='Run8 HGSL (hyperbolic geometric supervision loss) gate')
+    parser.add_argument('--hgsl_detach_score', type=int, default=1, choices=[0, 1],
+                        help='HGSL gradient path: 1 = score detached (loss only reshapes score consumption)')
+    parser.add_argument('--hgsl_lambda', type=float, default=0.2,
+                        help='HGSL loss weight (PRE-REGISTERED and fixed at 0.2; searching it is forbidden)')
 
     parser.add_argument('--mean', type=float, nargs=6,
                         default=[0.406, 0.456, 0.485, 0.406, 0.456, 0.485])
@@ -185,6 +224,11 @@ def main():
     if args.arch == "casa_tvim_str" and args.hf_edge and not os.path.isfile(arch_path):
         # R7 fail-closed：HFAE checkpoint 没有 sidecar 时无法核对 form/taps/lambda 契约，直接拒绝
         raise SystemExit(f"[ARCH-MISSING] --hf_edge 1 but no arch.json in {args.ckpt_dir}; refusing to eval")
+    if args.arch == "casa_vmamba_str" and not os.path.isfile(arch_path):
+        # Run8 fail-closed：casa_vmamba_str 的结构完全由 sidecar 定义（hqkv/hgsl/geometry/inject/
+        # rank/attn_stages/...）。没有 arch.json 就没有任何东西能证明"重建结构与训练一致"，
+        # 此时按 CLI 默认值硬跑等于用未经验证的结构出一个 F1 —— 直接拒绝，不给静默回退路径。
+        raise SystemExit(f"[ARCH-MISSING] casa_vmamba_str requires arch.json in {args.ckpt_dir}; refusing to eval")
     if os.path.isfile(arch_path):
         import json as _json
         with open(arch_path, encoding="utf-8") as f:
@@ -264,6 +308,73 @@ def main():
                 raise SystemExit(f"[ARCH-MISMATCH] ckpt arch={arch_cmp} vs cli={cli}; refusing to eval")
             print(f"[ARCH] eval arch matches ckpt sidecar: {arch_cmp}")
             arch_checked = True
+        elif args.arch == "casa_vmamba_str":
+            # Run8 fail-closed：期望字典的字段名与 train.py `_save_last()` 里 casa_vmamba_str 的
+            # arch dict **完全一致**，逐字段与 arch.json 核对；缺字段或值不符一律 SystemExit。
+            # 为什么不像上面 casa_tvim_str 那样"缺字段按当时默认补齐"：那是 Run1–Run3 旧 sidecar 的
+            # 历史包袱；casa_vmamba_str 从第一版起就是严格契约 —— 少一个开关就无法证明重建结构与
+            # 训练一致，静默补齐会把"手工拼出的错误实验臂"评成一个看起来正常的 F1。
+            # backbone_lr_ratio 在 train.py / Run8 run_all.sh 里是预注册固定值 0.1，eval 侧不开放这个
+            # 旋钮（它不是结构开关，而是优化器口径）：sidecar 里出现别的值即视为外来 checkpoint。
+            _vmamba_bb_lr_ratio = 0.1
+            # 协议身份硬编码（与上面 casa_tvim_str 的 run4_exact80k_v1 / run7_hf_edge_exact80k_v1 同风格）：
+            # 只接受 Run8 exact-80K 协议产出的 sidecar，防止把别的实验线/手写 json 当 Run8 评。
+            _vmamba_protocol = "run8_vmamba_hqkv_exact80k_v1"
+            cli = {"arch": "casa_vmamba_str",
+                   "backbone": "vmamba_tiny_v2",
+                   "backbone_weight": os.path.basename(args.vmamba_pretrained_weight_path or ""),
+                   "hqkv": int(args.hqkv),
+                   "hqkv_form": ("hqkv_v1" if int(args.hqkv) else "none"),
+                   "hqkv_geometry": (args.hqkv_geometry if int(args.hqkv) else "none"),
+                   "hqkv_branch": (args.hqkv_branch if int(args.hqkv) else "none"),
+                   "hqkv_inject_mode": (args.hqkv_inject_mode if int(args.hqkv) else "none"),
+                   "hqkv_rank": (int(args.hqkv_rank) if int(args.hqkv) else 0),
+                   "hqkv_lite_dim": (int(args.hqkv_lite_dim) if int(args.hqkv) else 0),
+                   "hqkv_detail_window": (int(args.hqkv_detail_window) if int(args.hqkv) else 0),
+                   "hqkv_global_window": (int(args.hqkv_global_window) if int(args.hqkv) else 0),
+                   "hqkv_attn_stages": (args.hqkv_attn_stages if int(args.hqkv) else "none"),
+                   "hqkv_r0": (float(args.hqkv_r0) if int(args.hqkv) else 0.0),
+                   "hqkv_a": (float(args.hqkv_a) if int(args.hqkv) else 0.0),
+                   "hgsl": int(args.hgsl),
+                   "hgsl_detach_score": (int(args.hgsl_detach_score) if int(args.hgsl) else None),
+                   "hgsl_lambda": (float(args.hgsl_lambda) if int(args.hgsl) else 0.0),
+                   "fs_tar": int(args.fs_tar),
+                   "rep_mode": args.rep_mode,
+                   "str_dim": args.str_dim,
+                   "backbone_lr_ratio": _vmamba_bb_lr_ratio}
+            arch_cmp = dict(arch)
+            # 身份字段（与 casa_tvim_str 块同策略）：不参与结构比较，但必须齐备 ——
+            # 缺 protocol_version / source_code_sha256 说明 sidecar 不是本协议写出来的。
+            proto = arch_cmp.pop("protocol_version", None)
+            src = arch_cmp.pop("source_code_sha256", None)
+            if proto != _vmamba_protocol:
+                raise SystemExit(f"[ARCH-MISMATCH] ckpt protocol_version={proto} "
+                                 f"!= {_vmamba_protocol}; refusing to eval")
+            if not src:
+                raise SystemExit("[ARCH-MISMATCH] ckpt sidecar lacks source_code_sha256; refusing to eval")
+            # 逐字段严格比对：**缺字段也拒绝**（新 arch 不允许"缺字段就按默认补齐"的旧兼容逻辑）。
+            # float 字段用 1e-12 容差比较（JSON 往返），其余按值相等比较（含 None == None）。
+            _float_keys = ("hqkv_r0", "hqkv_a", "hgsl_lambda", "backbone_lr_ratio")
+            for k, exp in cli.items():
+                if k not in arch_cmp:
+                    raise SystemExit(f"[ARCH-MISMATCH] ckpt sidecar missing field {k} "
+                                     f"(expected {exp}); refusing to eval")
+                got = arch_cmp[k]
+                if k in _float_keys:
+                    try:
+                        ok = abs(float(got) - float(exp)) < 1e-12
+                    except (TypeError, ValueError):
+                        ok = False
+                else:
+                    ok = (got == exp)
+                if not ok:
+                    hint = ("; pass the same --vmamba_pretrained_weight_path as training"
+                            if k == "backbone_weight" else "")
+                    raise SystemExit(f"[ARCH-MISMATCH] ckpt {k}={got} vs cli={exp}{hint}; refusing to eval")
+            # sidecar 的额外字段不参与比较（与 train.py run_manifest 的 compare_keys 约定一致）
+            print(f"[ARCH] ckpt protocol_version={proto} source_code_sha256={src}")
+            print(f"[ARCH] eval arch matches ckpt sidecar: {cli}")
+            arch_checked = True
         elif args.arch == "str_tass":
             cli = {"arch": "str_tass", "vit_depth": 4,
                    "str_dim": args.str_dim, "spatial_mode": args.spatial_mode}
@@ -296,6 +407,39 @@ def main():
                                hf_edge=bool(args.hf_edge), hf_edge_form=args.hf_edge_form,
                                hf_edge_taps=args.hf_edge_taps,
                                hf_edge_lambda=args.hf_edge_lambda).float()
+        if args.onGPU:
+            model = model.cuda()
+        state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
+        model.load_state_dict(state_dict)
+        model.switch_to_deploy()
+        model.eval()
+        print(f"[RESUME] loaded {args.resume}; deploy graph folded")
+    elif args.arch == 'casa_vmamba_str':
+        # Run8 主线：VMamba-Tiny 骨干 + CAACP-HQKV + TAR/DCR（+ HGSL）。
+        # 为什么 import 放在分支内部：VMamba 依赖（selective_scan 扩展 / mamba 站点包）在独立
+        # eval 环境里未必存在；放顶层会让 changevit / strfusion / str_tass / casa_tvim_str 的
+        # eval 一起 import 失败，违反"新增 arch 不得影响既有分支"的纪律。
+        # 数值模式与 train.py test_best_strfusion 完全一致（TF32 off + cudnn deterministic）：
+        # deploy 折叠口径必须在同一数值模式下取得，否则 TF32 卷积舍入会污染等价性读数。
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.deterministic = True
+        from model.casa_vmamba_net import CASAVMambaSTRNet
+        # 逐项抄 train.py 的 CASAVMambaSTRNet(...) 调用（顺序/开关一一对应）：
+        # hqkv_attn_stages 从逗号字符串转 tuple[int]，fs_tar 走 bool()，其余原样透传。
+        model = CASAVMambaSTRNet(
+            vmamba_pretrained_path=args.vmamba_pretrained_weight_path,
+            hqkv=bool(args.hqkv), str_dim=args.str_dim,
+            geometry=args.hqkv_geometry, branch=args.hqkv_branch,
+            hgsl=bool(args.hgsl), hgsl_detach_score=bool(args.hgsl_detach_score),
+            inject_mode=args.hqkv_inject_mode,
+            hqkv_rank=args.hqkv_rank, hqkv_lite_dim=args.hqkv_lite_dim,
+            hqkv_detail_window=args.hqkv_detail_window,
+            hqkv_global_window=args.hqkv_global_window,
+            hqkv_attn_stages=tuple(int(s) for s in args.hqkv_attn_stages.split(",") if s != ""),
+            rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar),
+            hqkv_r0=args.hqkv_r0, hqkv_a=args.hqkv_a,
+        ).float()
         if args.onGPU:
             model = model.cuda()
         state_dict = torch.load(args.resume, map_location="cpu", weights_only=False)
@@ -362,6 +506,28 @@ def main():
         flops_line = f"measurement failed ({type(e).__name__}: {e})"
 
     print("=== TEST RESULTS ===")
+    if args.arch == "casa_vmamba_str":
+        # 口径与 train.py is_vmamba TEST 区块一致：deploy 图 Params/FLOPs + test 集六指标。
+        # 这里只做打印，total_params / flops_line / score_test 全部复用 main() 里既有的
+        # measure_params / measure_flops / val()，不重写任何评估循环代码。
+        import json as _json
+        print("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV + TAR/DCR)")
+        print("[ARCH] casa_vmamba_str")
+        print(f"[HQKV] {int(args.hqkv)} geometry={args.hqkv_geometry} branch={args.hqkv_branch} "
+              f"inject={args.hqkv_inject_mode} rank={args.hqkv_rank}")
+        print(f"[HGSL] {int(args.hgsl)} detach_score={int(args.hgsl_detach_score)} "
+              f"lambda={args.hgsl_lambda}")
+        print(f"[PARAM-BREAKDOWN] {_json.dumps(model.param_breakdown())}")
+        print("[DEPLOY-NUMERICS] tf32=off deterministic=on (STR T2 protocol)")
+        print("[DEPLOY] folded deploy graph")
+        print(f"[DEPLOY-PARAMS] total={total_params / 1e6:.3f} M "
+              f"effective={measure_effective_params(model) / 1e6:.3f} M")
+        print(f"[DEPLOY-FLOPS] {flops_line}")
+        print(f"Recall={score_test['recall']:.4f} | Precision={score_test['precision']:.4f} | OA={score_test['OA']:.4f} | "
+              f"F1={score_test['F1']:.4f} | IoU={score_test['IoU']:.4f} | Kappa={score_test['Kappa']:.4f}")
+        print("=== END TEST RESULTS ===")
+        return
+
     if args.arch == "casa_tvim_str":
         print("[MODEL] CASA-TViM-STR (TinyViM-S-Slim + CAACP-SS2D + TAR/DCR)")
         print("[BACKBONE] tinyvim_s_slim")
