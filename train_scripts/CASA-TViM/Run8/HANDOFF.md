@@ -19,18 +19,29 @@
 5. 真实数据 dry-run：`bash train_scripts/CASA-TViM/Run8/_r8_dryrun.sh`；
 6. 两关全绿才开波一：`bash train_scripts/CASA-TViM/Run8/run_all.sh --wave 1`。
 
-## 1. 一句话现状（生成时）
+## 1. 一句话现状（2026-10-15 01:55 实测）
 
-**代码已写完、本地 CPU 预检已过（24/26，2 个 FAIL 是待对账的容差与口径），
-服务器尚未跑任何 Run8 训练。** 等待：① SOURCE 身份账本生成；② smoke；③ dry-run；④ 波一。
+**代码已定稿并提交（commit `efba3d1`）；服务器 smoke 与 dry-run 全绿；波一 `CTRL_R8` 正在跑。**
 
 | 项 | 值 |
 |---|---|
 | 协议版本 | `run8_vmamba_hqkv_exact80k_v1` |
-| 骨干 | VMamba-Tiny v2，`vssm_tiny_0230_ckpt_epoch_262.pth`（已复制到 `pretrained_weight/`） |
-| scan 内核 | `selective_scan_cuda_oflex`（casacd 自带；`casacd` 里的 `selective_scan_cuda.so` ABI 已坏，**不要用**） |
-| 环境要求 | `PYTHONPATH` 前置 `mamba_base` 的 site-packages（见 `models/model/layers/vmamba_kernel.py`） |
-| 波次 | 1=CTRL_R8 · 2=H1_HYP · 3=H2_EUC · 4=H3_HYP_GS；**四库串行**（GPU1 被占） |
+| 骨干 | VMamba-Tiny（`vssm_tiny_0230` 口径）**29,938,176 = 29.94 M**；权重 worst_diff=**0.0** 逐位加载 |
+| 非骨干参数 | CTRL **2,038,868**；+HQKV **2,342,999**（HQKV 本身 304,131） |
+| FLOPs | CTRL **14.6841 G**（input 2×3×256×256，unsupported_ops=11） |
+| scan 内核 | `selective_scan_cuda_oflex`（casacd 自带）；`mamba_base` 的 site-packages 前置在 `PYTHONPATH` |
+| 排卡 | GPU0 单卡**四库串行**（batch32 peak 26.9–27.7 GB，余量仅 ~5 GB，**不可同卡 2 run**） |
+| 波一实测 | CDD ~**104 s/epoch**（t=104s @ epoch1，F1=0.7730），313 iters/epoch ⇒ 256 epoch |
+| ETA（粗估） | 单库 ≈ 15 iters/s ≈ **1.5 h**；单波 ≈ **6 h**；四波 ≈ **24 h** |
+
+### 开跑时踩过的两个坑（已修，写在这里避免重犯）
+
+1. **`run_all.sh` 由 `setsid nohup` 拉起时不继承 conda 激活** ⇒ `python: command not found`
+   （rc=127，四库各失败 3 次）。已在脚本顶部显式 `source conda.sh` + `conda activate casacd`
+   + `export PATH/PYTHONPATH/LD_LIBRARY_PATH/PYTORCH_CUDA_ALLOC_CONF`，并加 `command -v python` 断言。
+2. **`train.py` 的 `--arch` choices 漏了 `casa_vmamba_str`** ⇒ argparse rc=2。
+   为此新增 `_r8_preflight.sh`：用**真实 train.py + 真实数据**跑 3 步（`--max_steps 3`，
+   ckpt 落 `/tmp`），把这两类错误压缩成 30 秒的检查。**开波前必须先跑它。**
 
 ## 2. 关键路径
 
@@ -55,15 +66,19 @@
 
 ## 4. 尚未验证 / 待办（接手者要注意）
 
-1. ~~`models/eval.py` 的 `casa_vmamba_str` 支持~~ —— 由子任务补齐，接手时先确认
-   `python models/eval.py --help | grep hqkv` 有输出；
-2. **VMamba-T 参数量口径**：文档写「≈30M」，本地按官方 v2 配置实测 **42,954,720**。
-   已派任务与权重文件对账；**在对账完成前，论文不得写任何 VMamba 参数数字**；
-3. 服务器 smoke（GPU 前向 + batch32 显存）——本地无 CUDA 跑不了；
-4. dry-run 的四库结果；
-5. `SOURCE_SHA256.txt` 需在文件冻结后由 `_r7_stage.py` 生成；
-6. `finish_run8.sh` / `check_run.py` / `run8_verdict.py` / `independent_audit.py`
-   尚未移植（照 Run7 的六步链改；**在四波跑完前完成即可**）。
+1. **服务器 smoke 与 dry-run 已全绿**（2026-10-15）：
+   - smoke：VMamba worst_diff=0.0（212/222）、CPU 预检 26/26、HQKV 非退化性 0.73–0.996
+     （门 0.05）、batch32 peak 26.9–27.7 GB；
+   - dry-run：四库 × {CTRL_R8, H1_HYP} = **8/8 全绿**；epoch-0 逐位恒等；折叠门非零
+     disagreement 全部判为 **KNIFE_EDGE_ARTIFACT**（1–3 像素、margin ≤ 3e-7）。
+2. **VMamba-T 参数量口径已对账**：29,938,176（29.94 M），官方 ckpt 30,705,832（含 1000 类头）。
+   论文引用必须连同 `depths=[2,2,5,2]`/`d_state=1`/`noz`/patch v2/downsample v3 一起标注。
+3. **`SOURCE_SHA256.txt` 尚未生成** —— 文件已冻结（commit `efba3d1`），可在开波前用
+   `_r7_stage.py` 生成；**一次 campaign 中途不得再改任何受哈希约束的文件**。
+4. **收口工具尚未移植**：`finish_run8.sh` / `check_run.py` / `run8_verdict.py` /
+   `independent_audit.py` / `collect_results.py`。照 Run7 六步链改；
+   **在四波跑完前完成即可**（Run7 是在波三进行中就把收口链排练完的）。
+5. 波二/三/四尚未开跑（逐个开：`bash _r8_launch.sh --wave N`）。
 
 ## 5. 冻结项（见结果之前已固定，**任何情况下不得事后修改**）
 
