@@ -17,14 +17,18 @@ git push origin main
 
 # CASA-CD
 
-CASA-TViM-STRNet：超轻量遥感二值变化检测（变化感知上下文聚合 + 结构重参数化）。
+CASA-CD：遥感二值变化检测（变化感知上下文聚合 + 结构重参数化）。两条主线：
 
-硕士课题：极轻量遥感二值变化检测。当前主线 **CASA-TViM-STRNet** =
-TinyViM-S-Slim（ICCV 2025 主干瘦身版）+ CAACP-SS2D（创新一）+ TAR/DCR（创新二），
-deploy 4.880M ≤5M。早期路线（ChangeViT baseline / CASAA / UltraLight / STR-Fusion /
-CASA-STR/SHViT）已全部归档——历史实验记录见 git 历史、
-`docs/temporary/过去的想法/` 与 `docs/experiment_metrics.xlsx`（历史 sheet 行），
-本 README 只保留当前主线。
+| 主线 | 骨干 | 状态 | 约束口径 |
+|---|---|---|---|
+| **CASA-TViM-STRNet**（Run1–Run7） | TinyViM-S-Slim（ICCV 2025） | Run7 收官，`MECHANISM-PASS`（winner `E9_HFAE_A`） | deploy **4,880,190 ≤ 5M** |
+| **CASA-VMamba-STRNet**（Run8，当前） | **VMamba-Tiny**（NeurIPS 2024，`vssm_tiny_0230`） | **进行中**（4 wave × 4 库） | 主干 **29.94M** + 非主干 **2.04–2.34M**（无硬上限，见 §「参数上限变更」） |
+
+硕士课题：遥感二值变化检测。Run1–Run7 已建立并验证「CAACP-SS2D（变化感知上下文聚合）+
+STR/TAR-DCR（可折叠结构重参数化）」这条主线；Run8 在**换主干**的同时把它重做成
+**双曲流形 + 双分支特化 QKV** 的形式，并引入一条几何监督损失（HGSL）。
+早期路线（ChangeViT baseline / CASAA / UltraLight / STR-Fusion / CASA-STR/SHViT）已全部归档——
+历史实验记录见 git 历史、`docs/temporary/过去的想法/` 与 `docs/experiment_metrics.xlsx`。
 服务器与数据规范见
 [`docs/RSML-3_服务器环境与变化检测数据统一说明.md`](docs/RSML-3_服务器环境与变化检测数据统一说明.md)。
 
@@ -97,6 +101,10 @@ CASA-STR/SHViT）已全部归档——历史实验记录见 git 历史、
 |---|---|---|
 | 是否允许**追加辅助损失**（边缘监督 / 深监督 aux head） | **已批准（2026-10-11）**：仅限 GT 边缘图辅助监督，λ=0.2 固定不搜；两种落地形式都跑（`aux_only` 训练期深监督、deploy 不变；`aux_inject` 零初始化注入解码器） | Run7（HFAE）据此执行；辅助分支不得影响推理，由 train↔deploy 折叠 smoke 守门 |
 | 论文叙事里「边缘 / 高频」能否作为贡献点 | R8（EdgeRefNet, TGRS 2026）已占据「边缘引导细化 + 边缘监督」 | 需按「STR 内部增强 / 消融」定位，不得抬成独立第三贡献；引用细节在正式写作前必须重新核验 |
+| **`deploy ≤5M` 参数上限** | **2026-10-15 变更（Run8 起生效）**：原「有效推理（deploy）参数 ≤5M」**解除**，改为「**除主干（VMamba-Tiny）本身以外，模型总体参数量尽量小**」，不设硬数值上限 | 论文的「超轻量」定位必须改写为**分项报告**（主干 / 非主干分别列）；Run7 及以前的 `≤5M` 结论仍按其当时口径成立、不得混用 |
+| **新增损失的审批** | **2026-10-15 批准 1 条**（Run8 的 HGSL，λ=0.2 固定不搜）；**再新增任何损失都必须先经用户审核** | 控制损失条数，避免"堆 loss"式训练 |
+| 换主干 | **2026-10-15 用户裁定**：换成 **VMamba-Tiny** | 与 Run1–Run7 的 TinyViM 主线**不可横比**；Run8 必须自带同期 CTRL |
+
 
 
 
@@ -757,6 +765,172 @@ verdict_rc=0 / audit_rc=0`；**独立审计 10 checks / 0 FAILED**（A1–A10，
 > 接受标准只看**相对同期 CTRL**（≥3/4 库 F1 ≥ CTRL 且 SYSU F1 > CTRL，且机制自检全过）。
 > 未达硬目标**不等于**失败，但**绝不可**因此回调 λ/阈值/seed。
 
+---
+
+## Run8（CASA-VMamba-STRNet · **换主干为 VMamba-Tiny** + CAACP-HQKV + HGSL，**进行中**）
+
+> **状态（2026-10-15 更新）：代码定稿并开跑。** 4 wave × 4 库、各**严格 80,000** `optimizer.step`，
+> 协议 `run8_vmamba_hqkv_exact80k_v1`；双卡并行、波次按"有空位才接续"自动推进。
+> 执行索引 `train_scripts/CASA-TViM/Run8/README.md`；会话交接 `…/Run8/HANDOFF.md`；
+> 判据唯一规范形式 `…/Run8/SELECTION_LOCK.json`（**在任何 Run8 训练之前冻结**）。
+> **结果表见「# Run8 结果」——四波跑完后补齐。**
+
+**要回答的两个问题**
+
+1. 把主干从 TinyViM-S-Slim 换成 **VMamba-Tiny**，并把它 **4 个 stage 的双时相输出**映射到
+   **双曲（Lorentz）流形**，按「局部离散度半径」与「全局偏离半径」分成**两个分支**、各做
+   **特化 SAT 式 QKV**（K/V 压到 `k·N`、**Q 保持 `N`**），再注入解码器——
+   能否相对**同期 CTRL** 取得受控提升？
+2. 上述收益里，有多少来自**双曲曲率**本身、有多少只来自**局部径向结构信息**？
+   （必须用**同式欧氏**对照回答；若两者持平，就**不得**主张"负曲率必要"。）
+
+**参数预算（用户 2026-10-15 裁定：解除 `deploy ≤5M`，改为"除主干外尽量小"）**
+
+| 组件 | 参数量 |
+|---|---:|
+| VMamba-Tiny 主干 | **29,938,176（29.94 M）** |
+| CAACP-HQKV（新模块） | **304,131** |
+| TAR | 1,351,688 |
+| DCR | 686,987 |
+| head | 193 |
+| **合计** | **31,977,044**（CTRL）/ **32,281,175**（+HQKV） |
+| **非主干合计** | **2,038,868（CTRL）/ 2,342,999（+HQKV）** |
+
+**主干口径（⚠️ 必须连同配置一起引用，否则失真）**：`vssm_tiny_0230_ckpt_epoch_262.pth`
+（ImageNet-1k 1000 类，**30,705,832** 含分类头 / **29,935,296** 纯骨干）——
+`depths=[2,2,5,2]`、`dims=[96,192,384,768]`、`ssm_ratio=2.0`、`ssm_d_state=1`、
+**无 z 门控（noz）**、`ssm_conv_bias=False`、patch_embed v2（3→48→96）、downsample v3（k3/s2）、
+`norm_layer=ln2d`、`mlp_ratio=4.0`。
+> ⚠️ 不得引用 `others/VMamba/vmamba.py::VSSM.__init__` 的**类默认值**（`[2,2,9,2]`/`d_state16`/v1/v2）
+> ——那会得到 42.95M 且**根本加载不了这枚权重**（本项目首版正是这么错的，smoke 直接 shape mismatch）。
+
+**关键设计取舍（逐条对应"已知陷阱"）**
+
+1. **不用 `rank_normalize_2d`。** 这是本轮最重要的取舍。`rank(·)` 只保留序、丢弃一切幅度，
+   **任何保序变换**（包括固定半径的双曲距离）在其之后都得到**逐位相同**的权重
+   ⇒ "把 `1−cos` 换成双曲距离"不构成任何新增信息。该退化定理已在真实张量上**复现**
+   （固定半径双曲 vs 余弦：`frac_rank_diff=0.0, Kendall τ=1.000000`）。
+   Run8 改为让 Q/K/V **直接消费数值分数**（softmax 对幅度敏感）。
+2. **半径非恒定**：`r = r0 + a·q`，`q` 来自同**时相**的局部离散度（detail 分支）或全图偏离
+   （global 分支）；`r0=0.5`、`a=0.5` **预注册冻结、禁止搜索**。
+   非退化性实测：`detail vs 余弦` `frac_rank_diff=0.9785`；两分支之间 `0.9746`。
+3. **压缩必须落在规则二维网格上**（detail 2×2 ⇒ `k=1/4`；global 4×4 ⇒ `k=1/16`）：
+   不做 TopK、不做聚类、不做随机采样——SSM 的四向 `CrossScan/CrossMerge` 依赖同一 H×W 网格，
+   spatially-agnostic 的 token reduction 会让结构化 Mamba 崩溃（STORM, ICML 2026）。
+   这也同时消掉了 CASAA（Run1/Run3，已终止）引入的 `randperm/rand_like` 随机性。
+4. **QKV 便宜但保留在部署图里**：`V` 用 per-channel depthwise 1×1（`groups=rank`），
+   单分支参数从 `2·dim²` 降到 `3·dim·rank`（`dim=768, rank=32` 时 1.18M → 74K）。
+   ⚠️ CAACP-HQKV **是推理期真实算子**（不像 Run7 的 `aux_only` 那样可整头删除）
+   ⇒ **不得**声称它零推理代价。FLOPs 实测 **14.6841 G**（input 2×3×256×256，`unsupported_ops=11`）。
+5. **新损失 HGSL（λ=0.2 固定）**：监督的是**模块自己的双曲变化分数**（参数自由的量），
+   目标用**变化掩码**（`adaptive_max_pool2d` 保底，避免 1–15px 小目标在 1/32 上被平均掉）。
+   与 Run7 HFAE 的机制差异：HFAE 监督的是**新增的有参边缘头** + GT 轮廓带；
+   而 CAACP 的 score 在 **Run1–Run7 一直走 `no_grad`、从未接收过梯度**。
+   `hgsl_detach_score` 是**独立实验臂**（梯度是否进入几何量本身），不得混为一句"加了新损失"。
+6. **注入零初始化**（`γ_detail/γ_global` 在 `apply` 之后置零）⇒ `hqkv=1` 与 `hqkv=0`
+   在 **epoch-0 逐位一致**（真实数据 batch 实测 `torch.equal=True, max|d|=0.0`）。
+
+**消融设计（每阶段唯一变量 + 每阶段同期 CTRL）**
+
+| 波 | 变体 | `hqkv` | `geometry` | `hgsl` | 注入 | 唯一变量 / 作用 |
+|---|---|---|---|---|---|---|
+| 1 | **`CTRL_R8`** | 0 | — | 0 | none | — / **同期对照**（VMamba + TAR/DCR） |
+| 2 | **`H1_HYP`** | 1 | hyperbolic | 0 | dcr1 | 整个 HQKV 模块 / **主实验** |
+| 3 | **`H2_EUC`** | 1 | euclidean | 0 | dcr1 | **仅几何** / **曲率必要性对照**（同式欧氏，用完全相同的 `r_A,r_B,u_A,u_B`） |
+| 4 | **`H3_HYP_GS`** | 1 | hyperbolic | 1 | dcr1 | **仅 HGSL** / 新损失的增量 |
+
+**接受标准（预注册冻结，`SELECTION_LOCK.json::acceptance_criteria_frozen_numeric`，冻结于
+2026-10-15T02:00:00+08:00，见结果之前）**：`H1_HYP` 在 **≥3/4 库 F1 ≥ 同期 CTRL** 且
+**SYSU F1 严格 > CTRL**，且机制自检全过；**曲率门**：`H1` 必须在 **≥3/4 库**优于 `H2`，
+否则结论只能写成"局部径向结构信息有用"，**不许**写"负曲率必要"；**非退化门**：两分支在真实特征上的
+排序分歧 > 0.05；守门沿用 Run6/Run7 已冻结的「中大对象 pooled Recall 降幅 ≤0.02、
+CDD/WHU F1 降幅 ≤0.002」。
+
+**服务器预检（实测，全部通过）**
+
+| 项 | 读数 |
+|---|---|
+| VMamba 官方权重加载 | `retained=212/222`、**`worst_diff=0.0`**（逐位） |
+| CPU 预检（数学/形状/预算/HGSL） | **26/26 PASS** |
+| HQKV 非退化性（真实 backbone 特征，4 stage） | `deg_frac = 0.7344 ~ 0.9963`（门 0.05） |
+| epoch-0 恒等（真实 batch，四库 × 2 变体） | `torch.equal=True`、`max|d|=0.0` |
+| train↔deploy 折叠门 | 翻转像素 1–3 个、margin ≤ 3e-7、`max_abs_diff ~1e-6` ⇒ 全部判为 **`KNIFE_EDGE_ARTIFACT`**（与 Run7 预注册 §7.6 **同一定义**，报告须写明走的是这条判据） |
+| batch32 峰值显存 | **26.9–27.7 GB**（32.6 GB 卡）⇒ **每卡只能放 1 个 run** |
+| 排卡 | 双卡并行（GPU0 / GPU1 各 1 run），波次自动接续；对**别人的进程只检测、从不抢占** |
+
+**过程记录（诚实披露，论文须写）**
+
+1. **首版按 `VSSM` 类默认值搭主干 ⇒ 42.95M 且加载不了权重**（smoke 报
+   `patch_embed.0.weight: ckpt (48,3,3,3) vs model (96,3,4,4)`）。
+   已按权重 shape **反推**真实配置（见上「主干口径」），修正后 29.94M、`worst_diff=0.0`。
+2. **channel-first 下不能用 `nn.Linear`**：`LayerNorm2d` 的输出是 (B,C,H,W)，
+   最后一维是 W 不是 C ⇒ `F.linear` 直接 shape 报错。`in_proj`/`out_proj`/`Mlp`
+   三处改用官方 `Linear2d`（权重仍是 2D `(out,in)`，只在 forward 里视图成 conv2d 权重）。
+3. **`run_all.sh` 由 `setsid nohup` 拉起时不继承 conda 激活** ⇒ `python: command not found`
+   （四库各失败 3 次）。已显式 source+activate+导出环境变量，并新增 `_r8_preflight.sh`
+   （真实 train.py + 真实数据跑 3 步）把这类错误压成 30 秒检查。
+4. **调度器层面的 5 个真实缺陷**（见 `train_scripts/CASA-TViM/Run8/HANDOFF.md` 与 git 提交信息）：
+   `own_pids()` 认不出自己的 GPU 进程（`nvidia-smi` 的 `pid, mem` 未按逗号切分 +
+   后台起的 `train.py` 匹配不到）⇒ 自己的 run 被判成 foreign；`pgrep -f '_r8_supervisor\.sh'`
+   **子串匹配**到并行督导 ⇒ 误杀；"非空目录"守卫不看文件名 ⇒ 连 `*SUPERSEDED*` 也当非空而拒绝启动；
+   断点续训缺口；重复督导实例。**全部已修，且全程未打断任何正在跑的 `train.py`。**
+
+**产物**：`models/model/{vmamba_tiny,casa_vmamba_net,hgsl_loss}.py` ·
+`models/model/layers/{vmamba_kernel,hyperbolic,caacp_hqkv}.py` ·
+`models/{run8_dry_run,test_run8_cpu_precheck}.py` ·
+`train_scripts/CASA-TViM/Run8/`（`run_all.sh`、`_r8_run_one_ds.sh`、`_r8_pipeline_supervisor.sh`、
+`SELECTION_LOCK.json`、`SOURCE_FILES.txt`、`SOURCE_SHA256.txt`、`check_mapping.py`、
+`README.md`、`HANDOFF.md` 及 `_r8_*.sh` 探针/启动/诊断脚本）。
+
+---
+
+# Run8 结果（**进行中**；正式训练次数目标 = 16 = 4 变体 × 4 库）
+
+> ⚠️ **本节在四波全部跑完、且收口链与独立审计通过之前不是最终结论。**
+> 下面只放**已产出的同期读数**与进度；最终表在收口后补齐（并同步 `docs/experiment_metrics.xlsx`）。
+> 正式结果一律取每库 `train_log.txt` **最后一个完整** `=== TEST RESULTS === … === END TEST RESULTS ===` 区块。
+
+**① 进度（2026-10-15 13:35 实测）**
+
+| 变体 | 库 | 严格 `optimizer.step` | 完整 TEST 区块 | 备注 |
+|---|---|---:|---:|---|
+| `CTRL_R8` | CDD-CD-256 | **80,000 / 80,000** | **1** | ✅ 完成，`best_F1 = 0.9776` |
+| `CTRL_R8` | LEVIR-CD-256 | 49,729 / 80,000 | 0 | 训练中（GPU0），`best_F1 = 0.9103` |
+| `CTRL_R8` | SYSU-CD-256 | 48,375 / 80,000 | 0 | 训练中（GPU1），`best_F1 = 0.8188` |
+| `CTRL_R8` | WHU-CD-256 | 0 / 80,000 | 0 | 等 GPU 空位 |
+| `H1_HYP` / `H2_EUC` / `H3_HYP_GS` | 四库 | 0 / 80,000 | 0 | 等波一结束 |
+
+**② 四库 F1 表**（各 run 最后一个完整 TEST 区块）—— *四波跑完后补齐*
+
+| dataset | CTRL_R8 | H1_HYP（双曲） | ΔH1 | H2_EUC（同式欧氏） | ΔH2 | H3_HYP_GS（+HGSL） | ΔH3 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| CDD-CD-256 | 0.9776 ⏳ | — | — | — | — | — | — |
+| LEVIR-CD-256 | — | — | — | — | — | — | — |
+| SYSU-CD-256 | — | — | — | — | — | — | — |
+| WHU-CD-256 | — | — | — | — | — | — | — |
+| **接受门（≥3/4 库 ≥ CTRL 且 SYSU 严格提升）** | — | — | — | — | — | — | — |
+| **曲率门（H1 在 ≥3/4 库 > H2）** | — | — | — | — | — | — | — |
+
+> `CTRL_R8/CDD = 0.9776` 是**训练过程中 best checkpoint 的选择值**（`best_F1=0.9776.pth`），
+> **不是**最后一个完整 TEST 区块的读数；正式值以 TEST 区块为准，补齐时替换。
+
+**③ 机制自检表**（各 run 的逐 run 读数，收口后由 `check_run.py` 产出）
+—— *待补*：`[PRETRAIN-LOAD] worst_diff`、`[HQKV-GAMMA]` 终值、`[HQKV-DIAG-*]` 的非退化度、
+`[REPARAM-REAL-ARGMAX-DISAGREE]` 与刀锋判定、`[BACKBONE-ADAPT-FINAL]`、`[DEPLOY-PARAMS]`/`[DEPLOY-FLOPS]`。
+
+**④ 归因与结论** —— *待补*（含：H1 是否优于 CTRL、H1 是否优于同式欧氏、HGSL 的边际增量、
+以及"若 H1≈H2 则曲率主张必须撤回"这条预设的失败判据是否触发）。
+
+**仍需补充的证据**
+
+- [ ] 四波 16 个 run 的完整 TEST 区块
+- [ ] 收口链（`finish_run8.sh` / `check_run.py` / `run8_verdict.py` / `independent_audit.py`）
+      尚未移植（照 Run7 六步链改；四波跑完前完成）
+- [ ] 对象级小目标复算（`analyse/tvim_object_metrics.py` 口径：4 连通、native 256² mask、按 GT 面积分组）
+- [ ] 训练/推理 wall latency 与峰值显存（论文"轻量"叙事需要，尤其 HQKV 不是零推理代价）
+
+---
+
 ## 参考文献
 
 - **文献总索引**：[`docs/参考文献/文献索引.md`](docs/参考文献/文献索引.md)——
@@ -775,19 +949,28 @@ verdict_rc=0 / audit_rc=0`；**独立审计 10 checks / 0 FAILED**（A1–A10，
 ## 目录结构
 
 ```
-models/                        # 全部代码（当前主线 casa_tvim_str）
-  train.py                     #   训练入口（--arch casa_tvim_str）
-  eval.py                      #   独立测试入口（同款架构参数）
+models/                        # 全部代码（两条主线：casa_tvim_str / casa_vmamba_str）
+  train.py                     #   训练入口（--arch casa_tvim_str | casa_vmamba_str）
+  eval.py                      #   独立测试入口（同款架构参数，arch.json 侧车 fail-closed 校验）
   smoke_test.py                #   冒烟测试（--mode casa_tvim_str，T-CA-1..10）
+  run8_dry_run.py              #   ★Run8 真实数据 dry-run（6 道门 + 折叠刀锋定位）
+  test_run8_cpu_precheck.py    #   ★Run8 CPU 预检 26 项（退化定理复现 / 非退化性 / 预算 / HGSL）
   model/
     tinyvim_s_slim.py          #   TinyViM-S-Slim（Stage4 裁剪 + 预训练 key 重映射）
-    casa_tvim_str_net.py       #   CASA-TViM-STRNet（当前主线主架构）
+    casa_tvim_str_net.py       #   CASA-TViM-STRNet（Run1–Run7 主线主架构）
+    casa_vmamba_net.py         #   ★CASA-VMamba-STRNet（Run8 主线主架构）
+    vmamba_tiny.py             #   ★VMamba-Tiny 自包含主干（vssm_tiny_0230 口径，权重逐位加载）
+    hgsl_loss.py               #   ★HGSL 双曲几何监督损失（Run8 唯一新损失，λ=0.2 冻结）
     str_tar.py                 #   TAR（TemporalRep1x1 / TemporalRepFine3x3）
     str_dcr.py                 #   DCRDecoder + RepLocalBlock/RepPW1x1
     str_reparam.py             #   折叠原语（fold_conv_bn / RepDW3 等）
     str_fine_head.py           #   STRFineHead（Run2 FRH，可选）
+    str_hf_edge.py             #   Run7 HFAE（高频边缘辅助监督）
     layers/ss2d.py             #   SS2D 自包含移植（oflex/mamba-ssm/Triton 三后端）
-    layers/caacp_ss2d.py       #   CAACP-SS2D（创新一：score_mode / residual_mode）
+    layers/caacp_ss2d.py       #   CAACP-SS2D（Run1–Run7 创新一：score_mode / residual_mode）
+    layers/caacp_hqkv.py       #   ★CAACP-HQKV（Run8 创新：4 stage × 双分支 × SAT 式 QKV）
+    layers/hyperbolic.py       #   ★Lorentz 双曲变化证据算子（含退化定理推导与复现）
+    layers/vmamba_kernel.py    #   ★selective-scan 后端适配（绕过 casacd 里 ABI 已坏的 .so）
     layers/mamba_scan_triton.py#   vendored Triton 兜底 kernel
   dataset/                     #   DataLoader（A/B/label + list 格式）
 train_scripts/
@@ -798,6 +981,9 @@ train_scripts/
   CASA-TViM/Run5/              #   原生高频证据复用前测（已完成，NO_80K；正式训练 0 次）
   CASA-TViM/Run6/              #   变化判别瓶颈可分辨性前测（已完成，NO_80K；正式训练 0 次）
   CASA-TViM/Run7/              #   HFAE 高频→边缘辅助监督消融（3 变体 × 4 库，已完成，MECHANISM-PASS；含收口 runbook §8/§9）
+  CASA-TViM/Run8/              #   ★CASA-VMamba 换主干 + CAACP-HQKV + HGSL（4 变体 × 4 库，进行中）
+                               #     双卡并行调度：_r8_run_one_ds.sh / _r8_pipeline_supervisor.sh
+                               #     只读诊断：_r8_state.sh / _r8_eta.sh / _r8_gpu_survey.sh / _r8_preflight.sh
   CASA-TViM/Diag1/             #   小目标瓶颈分阶段诊断流水线（run_diag.sh，只读；已完成）
 analyse/                       # 分析工具
   extract_metrics_to_excel.py  #   outputs → docs/experiment_metrics.xlsx
@@ -818,6 +1004,9 @@ analyse/                       # 分析工具
   run7_object_metrics.py       #   ★Run7 三变体对象级只读复算（--all-variants/--compare；CPU 上拒绝运行）
 others/                        # 参考实现（非本仓库模型代码）
   TinyViM-main/                #   TinyViM(ICCV2025) 官方核心（tinyvim.py + tvimblock.py）
+  VMamba/                      #   VMamba(NeurIPS2024) 官方 vmamba.py（Run8 主干的结构来源）
+  STR-RepNet/                  #   STR-RepNet 的 TAR/DCR/Mamba_backbone 参考实现
+  SAT/                         #   SAT(CVPR2026) 官方 SAA 抽取版（CASAA 历史机制来源）
 outputs/                       # 训练日志（训练结束后下载到这里）
 docs/                          # 项目文档（temporary / 参考文献 / 服务器说明）
 .claude/                       # 服务器部署与 SSH 辅助脚本（不进 git）
@@ -879,7 +1068,18 @@ python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --dat
 bash train_scripts/CASA-TViM/Run7/finish_run7.sh          # 6 步收口；rc 含义见 Run7/README.md §8.2
 #   交付状态一条命令核对（身份 26/26 / 四个工具自检 / 督导与进度）见 Run7/README.md §9
 #   新接手者请从 train_scripts/CASA-TViM/Run7/HANDOFF.md §0 开始
+# Run8（CASA-VMamba，双卡并行 + 波次自动接续）
+bash train_scripts/CASA-TViM/Run8/_r8_state.sh        # 权威状态快照（推荐；避免 tail 混流误判）
+bash train_scripts/CASA-TViM/Run8/_r8_eta.sh CTRL_R8  # 实测步速与剩余时间
+bash train_scripts/CASA-TViM/Run8/_r8_gpu_survey.sh   # 排卡 + foreign 检测自检
+tail -8 /tmp/run8/pipeline.log                        # 督导决策日志
+#   一次性安装（幂等）：bash …/Run8/_r8_reenroll_pipeline.sh
+#   新接手者请从 train_scripts/CASA-TViM/Run8/HANDOFF.md §0 开始
 ```
+
+> ⚠️ **远端命令一律写进 `.sh` 文件再上传执行**：PowerShell 会吃掉内联命令里的
+> `2>/dev/null`、`\$()` 与引号（会变成 `F:\dev\null` 之类），本项目已因此反复踩坑。
+
 
 ### 小目标瓶颈分阶段诊断（Diag1，只读；已完成）
 
@@ -903,3 +1103,14 @@ D5_DATASETS="LEVIR-CD-256 WHU-CD-256" bash run_diag.sh d5   # 指定子集（可
 - `.sh` 脚本需 LF 行尾（Windows 编辑后由 `_deploy.py` 上传，本地已确认 LF）。
 - 训练脚本必须导出 `LD_LIBRARY_PATH=.../torch/lib:.../env/lib`（oflex kernel 依赖）。
 - `run_all.sh` 的 `wait` 必须传 `$pid`（数值），直接传变量名会被 bash 当作 job 名。
+- **`setsid nohup bash <script>` 拉起的脚本不继承 conda 激活** ⇒ 脚本内必须显式
+  `source conda.sh && conda activate casacd` + `export PATH/PYTHONPATH/LD_LIBRARY_PATH`
+  （Run8 首启即因此四库各失败 3 次）。开跑前建议先跑 `_r8_preflight.sh`。
+- **`nvidia-smi --query-compute-apps --format=csv,noheader` 的输出是 `pid, mem`（带逗号）**；
+  用 `read -r pid _rest` 会把整行读进第一个字段，导致进程归属判断永远失配
+  （Run8 曾因此把自己正在跑的 run 判成"别人的作业"）⇒ 必须显式 `IFS=,`。
+- **`pgrep -f 'xxx.sh'` 是子串匹配**：`_r8_supervisor.sh` 会同时匹配
+  `_r8_pipeline_supervisor.sh`（Run8 曾因此误杀刚拉起的督导）⇒ 要用锚定正则并在脚本内显式排除。
+- **"ckpt 目录非空即拒绝启动"的守卫必须忽略封存残留**（`*SUPERSEDED*`）：
+  否则按纪律"只改名不删除"的产物反而会把后续自动重启全部挡死。
+
