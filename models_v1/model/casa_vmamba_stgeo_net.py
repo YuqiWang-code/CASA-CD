@@ -1,0 +1,123 @@
+"""CASA-VMamba-STGeo（探索线 Exp1）：Run8 主干/编解码器 + SPD(2)/H² 结构张量测地证据。
+
+设计纪律（与 Run1–Run8 完全一致，目的是让 **CTRL_R8** 直接充当同期对照）：
+  1. 共享路径（VMamba-Tiny / MultiScaleTAR / DCRDecoder / head）与
+     `models/model/casa_vmamba_net.py` 的 `hqkv=0` 分支**逐行同构**；
+  2. ST-GEO 分支**最后构造**且在 `fork_rng` 内初始化 ⇒ 不推进全局随机流
+     ⇒ epoch-0 时 `stgeo=none` 与 `stgeo=inject` 的前向**逐位相同**（dry-run 断言）；
+  3. γ 零初始化 ⇒ epoch-0 增量恒为 0，与 Run8 `CTRL_R8`（同协议同 seed）逐位一致；
+  4. ST-GEO 是**推理期真实算子**（保留在部署图里），不得声称零推理代价。
+
+数据流：
+    pre/post (B,3,256,256)
+      ├─ cat(dim=0) → VMamba-Tiny(2B) → f1(1/4,96) f2(1/8,192) f3(1/16,384) f4(1/32,768)
+      ├─ ST-GEO（原始图像上的 SPD(2) 测地证据，全分辨率 → 池化到 1/4）
+      │     → γ · Stem(...)  ∈ (B,192,64,64)
+      └─ feats = TAR(fA, fB)  → feats[0] += γ·Stem(...)  → DCR → head → bilinear → sigmoid
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from model.layers.st_geodesic import STGEO_FORM, STGEO_SEED, STGeoEvidence
+from model.str_dcr import DCRDecoder
+from model.str_tar import MultiScaleTAR
+from model.vmamba_tiny import VMambaBackbone, build_vmamba_tiny
+
+ENCODER_DIMS = (96, 192, 384, 768)
+STR_DIM = 192
+STGEO_FORMS = ("none", "inject")
+
+
+class CASAVMambaSTGeoNet(nn.Module):
+    def __init__(self, vmamba_pretrained_path=None, str_dim=STR_DIM,
+                 stgeo="inject", stgeo_sigmas=(1.0, 2.0, 4.0), stgeo_mid=32,
+                 stgeo_dim=192, rep_mode="full", fs_tar=False,
+                 vmamba_cfg=None, hqkv=False, hf_edge=False, hf_edge_form="none"):
+        super().__init__()
+        assert stgeo in STGEO_FORMS, stgeo
+        assert rep_mode in ("plain", "full")
+        assert not hqkv and not hf_edge, (
+            "[ARCH] casa_vmamba_stgeo 是独立探索架构：不启用 Run8 HQKV / Run7 HFAE "
+            "（要对比它们请用各自的原架构，避免实验臂混叠）")
+        self.stgeo = stgeo
+        self.str_dim = int(str_dim)
+        self.rep_mode = rep_mode
+        self.fs_tar = bool(fs_tar)
+
+        # ---- 与 casa_vmamba_net 同序构造（RNG 账本一致）
+        self.encoder = build_vmamba_tiny(pretrained_path=vmamba_pretrained_path,
+                                         cfg=vmamba_cfg)
+        self.head = nn.Conv2d(self.str_dim, 1, 1)
+        self.tar = MultiScaleTAR(
+            encoder_dims=ENCODER_DIMS, dim=self.str_dim,
+            use_temporal_aux=(rep_mode == "full"),
+            use_dcr_aux=(rep_mode == "full"), use_residual=True,
+            fine_stage1=self.fs_tar,
+        )
+        self.decoder = DCRDecoder(dim=self.str_dim, use_aux=(rep_mode == "full"),
+                                  use_residual=True)
+
+        # ---- ST-GEO（**最后构造** + 内部 fork_rng）
+        self.stgeo_op = STGeoEvidence(in_ch=3, sigmas=stgeo_sigmas, mid=stgeo_mid,
+                                      out_dim=stgeo_dim, form=stgeo,
+                                      init_seed=STGEO_SEED)
+
+    # ------------------------------------------------------------------ 诊断
+    def stgeo_report(self):
+        rep = self.stgeo_op.param_report()
+        rep.update({"sigmas": list(self.stgeo_op.sigmas), "form_tag": STGEO_FORM})
+        return rep
+
+    def stgeo_diag(self):
+        return self.stgeo_op.diag()
+
+    def pretrain_load_stats(self):
+        return self.encoder.load_stats()
+
+    def param_breakdown(self):
+        enc = sum(p.numel() for p in self.encoder.parameters())
+        tar = sum(p.numel() for p in self.tar.parameters())
+        dcr = sum(p.numel() for p in self.decoder.parameters())
+        head = sum(p.numel() for p in self.head.parameters())
+        stg = (sum(p.numel() for p in self.stgeo_op.parameters())
+               if self.stgeo != "none" else 0)
+        total = sum(p.numel() for p in self.parameters())
+        return {"backbone": enc, "stgeo": stg, "tar": tar, "dcr": dcr, "head": head,
+                "total": total, "non_backbone": total - enc,
+                "non_backbone_no_stgeo": total - enc - stg}
+
+    # ------------------------------------------------------------------
+    def forward(self, pre, post, label=None):
+        # ST-GEO 证据（在原始图像上算，全分辨率 → 1/4）
+        delta, _ = self.stgeo_op(pre, post, (pre.shape[-2] // 4, pre.shape[-1] // 4))
+
+        x2b = torch.cat([pre, post], dim=0)
+        outs = self.encoder.forward_features(x2b)
+        del x2b
+        feats_a, feats_b = [], []
+        for t in outs:
+            a, b = t.chunk(2, dim=0)
+            feats_a.append(a)
+            feats_b.append(b)
+        del outs
+
+        feats = self.tar(feats_a, feats_b)
+        if delta is not None:
+            assert feats[0].shape[-2:] == delta.shape[-2:], \
+                f"[STGEO-INJECT] 尺度不匹配 {tuple(feats[0].shape[-2:])} vs {tuple(delta.shape[-2:])}"
+            feats = list(feats)
+            feats[0] = feats[0] + delta
+        x = self.decoder(feats)
+        logits = self.head(x)
+        logits = F.interpolate(logits, size=pre.shape[-2:], mode="bilinear",
+                               align_corners=False)
+        return torch.sigmoid(logits)
+
+    # ------------------------------------------------------------------
+    @torch.no_grad()
+    def switch_to_deploy(self):
+        """折叠 TAR/DCR；**ST-GEO 保留**（推理期真实算子，与 Run8 HQKV 同理）。"""
+        self.tar.switch_to_deploy()
+        self.decoder.switch_to_deploy()
+        return self
