@@ -30,6 +30,8 @@ def main():
     ap.add_argument("--pkg-root", default=None)
     ap.add_argument("--arch", default="stgeo")
     ap.add_argument("--stgeo", default="none")
+    ap.add_argument("--stgeo-pool", dest="stgeo_pool", default="max_shape")
+    ap.add_argument("--stgeo-xscale", dest="stgeo_xscale", type=int, default=0)
     ap.add_argument("--vmamba", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--a", default=None)
@@ -57,13 +59,16 @@ def main():
     else:
         from model.casa_vmamba_stgeo_net import CASAVMambaSTGeoNet
         model = CASAVMambaSTGeoNet(vmamba_pretrained_path=args.vmamba,
-                                   stgeo=args.stgeo).float().cuda().eval()
+                                   stgeo=args.stgeo, stgeo_pool=args.stgeo_pool,
+                                   stgeo_xscale=bool(args.stgeo_xscale)
+                                   ).float().cuda().eval()
     st = model.pretrain_load_stats() or {}
     pre, post = build_fixed_batch(device="cuda")
     with torch.no_grad():
         out = model(pre, post)
     torch.save(out.cpu(), args.out)
-    print(f"[EPOCH0-DUMP] arch={args.arch} stgeo={args.stgeo} out={args.out} "
+    print(f"[EPOCH0-DUMP] arch={args.arch} stgeo={args.stgeo} "
+          f"pool={args.stgeo_pool} xscale={args.stgeo_xscale} out={args.out} "
           f"shape={tuple(out.shape)} sum={float(out.sum()):.6f} "
           f"pretrain_retained={st.get('retained')}/{st.get('pretrained_keys')} "
           f"worst_diff={st.get('worst_diff')}")

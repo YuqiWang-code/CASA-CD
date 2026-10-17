@@ -32,7 +32,8 @@ STGEO_FORMS = ("none", "inject")
 class CASAVMambaSTGeoNet(nn.Module):
     def __init__(self, vmamba_pretrained_path=None, str_dim=STR_DIM,
                  stgeo="inject", stgeo_sigmas=(1.0, 2.0, 4.0), stgeo_mid=32,
-                 stgeo_dim=192, rep_mode="full", fs_tar=False,
+                 stgeo_dim=192, stgeo_pool="max_shape", stgeo_xscale=False,
+                 rep_mode="full", fs_tar=False,
                  vmamba_cfg=None, hqkv=False, hf_edge=False, hf_edge_form="none"):
         super().__init__()
         assert stgeo in STGEO_FORMS, stgeo
@@ -61,6 +62,7 @@ class CASAVMambaSTGeoNet(nn.Module):
         # ---- ST-GEO（**最后构造** + 内部 fork_rng）
         self.stgeo_op = STGeoEvidence(in_ch=3, sigmas=stgeo_sigmas, mid=stgeo_mid,
                                       out_dim=stgeo_dim, form=stgeo,
+                                      pool_mode=stgeo_pool, xscale_gate=stgeo_xscale,
                                       init_seed=STGEO_SEED)
 
     # ------------------------------------------------------------------ 诊断

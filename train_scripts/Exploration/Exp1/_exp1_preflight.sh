@@ -48,11 +48,17 @@ echo "=== 2) epoch-0 恒等性：Run8 CTRL 架构 vs 本探索架构(stgeo=none/
 ( cd "$V1" && CUDA_VISIBLE_DEVICES=$GPU python epoch0_check.py --mode dump \
     --pkg-root "$V1" --arch stgeo --stgeo inject --vmamba "$PRET" --out "$TMP/v1_inj.pt" ) \
     > "$TMP/d_inj.log" 2>&1 && ok "v1 stgeo=inject dump" || { bad "v1 inject dump"; tail -5 "$TMP/d_inj.log"; }
+( cd "$V1" && CUDA_VISIBLE_DEVICES=$GPU python epoch0_check.py --mode dump \
+    --pkg-root "$V1" --arch stgeo --stgeo inject --stgeo-pool topk_mean --stgeo-xscale 1 \
+    --vmamba "$PRET" --out "$TMP/v1_v2.pt" ) > "$TMP/d_v2.log" 2>&1 \
+    && ok "v2(topk+xscale) dump" || { bad "v2 dump"; tail -5 "$TMP/d_v2.log"; }
 grep -h "EPOCH0-DUMP" "$TMP"/d_*.log
 python "$V1/epoch0_check.py" --mode cmp --a "$TMP/ref_ctrl.pt" --b "$TMP/v1_none.pt" \
   && ok "CTRL_R8 ≡ v1(stgeo=none) 逐位" || bad "CTRL_R8 与 v1(stgeo=none) 不逐位一致"
 python "$V1/epoch0_check.py" --mode cmp --a "$TMP/v1_none.pt" --b "$TMP/v1_inj.pt" \
   && ok "v1(none) ≡ v1(inject) 逐位（γ=0 门控生效）" || bad "γ 零初始化未生效"
+python "$V1/epoch0_check.py" --mode cmp --a "$TMP/ref_ctrl.pt" --b "$TMP/v1_v2.pt" \
+  && ok "CTRL_R8 ≡ v2(topk+xscale) 逐位" || bad "v2 与 CTRL_R8 不逐位一致"
 
 echo
 echo "=== 3) 3 步真实 dry-run（CDD，GPU$GPU，ckpt 落 /tmp）==="

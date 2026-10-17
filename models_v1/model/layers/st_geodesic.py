@@ -334,24 +334,50 @@ def spd_geodesic_evidence(pre, post, sigma_d=1.0, sigma_i=None, tr_floor=TR_FLOO
 # 4. 可部署模块（γ 零初始化门；构造不消耗全局 RNG）
 # ---------------------------------------------------------------------------
 STGEO_FORM = "stgeo_spd2_v1"
+STGEO_FORM_V2 = "stgeo_spd2_v2"
 STGEO_SEED = 23
+
+
+POOL_MODES = ("max_shape", "topk_mean")
+
+
+def _cell_topk_mean(x, size, k=4):
+    """(B,C,H,W) → (B,C,size,size)：每个 cell 取最大 k 个值的均值。
+
+    k=4 即取每 4×4 cell 的**上四分位均值**：2×2 以上的真实结构几乎无损（权重 4/16），
+    而单点噪声的贡献从 max 的 1.0 降到 0.25 ⇒ 抑制碎片化（v1 在 SYSU 上 +49% 的直接对症）。
+    """
+    B, C, H, W = x.shape
+    step = H // size
+    if step <= 1 or H % size != 0 or W % size != 0:
+        return F.adaptive_avg_pool2d(x, size)
+    v = (x.view(B, C, size, step, size, step)
+          .permute(0, 1, 2, 4, 3, 5)
+          .reshape(B, C, size, size, step * step))
+    kk = max(1, min(int(k), step * step))
+    return v.topk(kk, dim=-1).values.mean(dim=-1)
 
 
 def _pool_evidence(ev, size, mode="max_shape"):
     """全分辨率证据 → 1/4（64²）。
 
-    `max_shape`（默认）：**形状/朝向通道取 4×4 cell 内最大值**——1–15px 小目标与细边缘在
-    平均池化下被稀释（1px 线 → 1/16 幅度），max 保底（与 Run7 HFAE 的
-    `adaptive_max_pool2d` 保底理由一致）；尺度/κ 通道用平均池化（更平滑稳定）。
+    mode 取值：
+      · `max_shape`（v1）：形状/朝向通道取 4×4 cell 内**最大值**（保小结构但放噪声）；
+      · `topk_mean`（v2）：形状/朝向通道取 cell 内 **top-4 均值**（保 ≥2×2 结构、压单点噪声）。
+    两模式下尺度/κ 通道都用平均池化（更平滑稳定）。
     """
     B, K, H, W = ev.shape
     out = F.adaptive_avg_pool2d(ev, size)
-    if mode == "max_shape":
-        s = int(round(H / size))
-        if s > 1 and H % size == 0 and W % size == 0:
-            take = [0, 4] if K >= 5 else [0]         # d_shape, ori
-            mx = F.max_pool2d(ev[:, take], kernel_size=s, stride=s)
-            out = torch.cat([mx, out[:, [i for i in range(K) if i not in take]]], dim=1)
+    if mode not in POOL_MODES:
+        raise ValueError(f"unknown pool mode {mode}")
+    step = int(round(H / size))
+    if step > 1 and H % size == 0 and W % size == 0:
+        take = [0, 4] if K >= 5 else [0]                 # d_shape, ori
+        if mode == "max_shape":
+            red = F.max_pool2d(ev[:, take], kernel_size=step, stride=step)
+        else:
+            red = _cell_topk_mean(ev[:, take], size, k=4)
+        out = torch.cat([red, out[:, [i for i in range(K) if i not in take]]], dim=1)
     return out
 
 
@@ -370,9 +396,10 @@ class STGeoEvidence(nn.Module):
 
     def __init__(self, in_ch=3, sigmas=(1.0, 2.0, 4.0), out_dim=192, mid=32,
                  form="inject", tr_floor=TR_FLOOR, pool_mode="max_shape",
-                 init_seed=STGEO_SEED):
+                 xscale_gate=False, init_seed=STGEO_SEED):
         super().__init__()
         assert form in self.FORMS, form
+        assert pool_mode in POOL_MODES, pool_mode
         self.in_ch = int(in_ch)
         self.sigmas = tuple(float(s) for s in sigmas)
         self.out_dim = int(out_dim)
@@ -380,12 +407,17 @@ class STGeoEvidence(nn.Module):
         self.form = form
         self.tr_floor = float(tr_floor)
         self.pool_mode = pool_mode
+        self.xscale_gate = bool(xscale_gate)
         self.k_per_scale = 5
-        self.form_tag = STGEO_FORM if form != "none" else None
+        # v2 的跨尺度一致性门：额外 1 个通道 min_σ d_shape
+        self.in_ch_ev = self.k_per_scale * len(self.sigmas) + (1 if self.xscale_gate else 0)
+        self.form_tag = (STGEO_FORM_V2 if (self.xscale_gate or
+                                          pool_mode == "topk_mean") else STGEO_FORM) \
+            if form != "none" else None
 
         with torch.random.fork_rng(devices=[]):   # 不推进全局 RNG
             torch.manual_seed(int(init_seed))
-            self.proj = nn.Conv2d(self.k_per_scale * len(self.sigmas), self.mid, 1,
+            self.proj = nn.Conv2d(self.in_ch_ev, self.mid, 1,
                                   bias=False)
             self.dw = nn.Conv2d(self.mid, self.mid, 3, 1, 1, groups=self.mid, bias=False)
             self.bn = nn.BatchNorm2d(self.mid)
@@ -423,6 +455,10 @@ class STGeoEvidence(nn.Module):
                     "kappa_mean": float(parts["kappa_a"].mean()),
                     "valid_frac": float(parts["valid"].mean()),
                 }
+        if self.xscale_gate:
+            # 跨尺度一致性：三个尺度的 d_shape（通道 0）逐像素取最小
+            gate = torch.stack([e[:, 0:1] for e in evs], dim=0).amin(dim=0)
+            evs.append(gate)
         h = torch.cat(evs, dim=1)
         z = self.act(self.bn(self.dw(self.proj(h))))
         z = self.out(z)
@@ -437,6 +473,8 @@ class STGeoEvidence(nn.Module):
         n = sum(p.numel() for p in self.parameters())
         return {"form": self.form_tag, "sigmas": list(self.sigmas), "mid": self.mid,
                 "out_dim": self.out_dim, "k_per_scale": self.k_per_scale,
+                "pool_mode": self.pool_mode, "xscale_gate": self.xscale_gate,
+                "in_ch_ev": self.in_ch_ev,
                 "params": int(n),
                 "gamma_init_zero": bool(float(self.gamma.detach()) == 0.0),
                 "gamma": float(self.gamma.detach())}

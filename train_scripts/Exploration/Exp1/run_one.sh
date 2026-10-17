@@ -30,8 +30,9 @@ PROTOCOL=exp1_stgeo_exact80k_v1
 
 VARIANT="$1"; DS="$2"; GPU="${3:-1}"
 case "$VARIANT" in
-  STG_INJ) STGEO=inject ;;
-  STG_OFF) STGEO=none ;;
+  STG_INJ) STGEO=inject; EXTRA="--stgeo_pool max_shape --stgeo_xscale 0" ;;  # v1（已完成）
+  STG_V2)  STGEO=inject; EXTRA="--stgeo_pool topk_mean --stgeo_xscale 1" ;;  # v2：鲁棒池化+跨尺度门
+  STG_OFF) STGEO=none;   EXTRA="--stgeo_pool max_shape --stgeo_xscale 0" ;;
   *) echo "unknown variant $VARIANT" >&2; exit 2 ;;
 esac
 
@@ -66,6 +67,7 @@ for attempt in 1 2 3; do
     --ckpt_dir "${CKPT}" --max_steps 80000 --exact_max_steps 1 \
     --batch_size 32 --test_batch_size 16 --inWidth 256 --inHeight 256 \
     --stgeo "${STGEO}" --stgeo_sigmas 1.0,2.0,4.0 --stgeo_mid 32 --stgeo_dim 192 \
+    ${EXTRA} \
     --rep_mode full --backbone_lr_ratio 0.1 --str_dim 192 \
     --lr 2e-4 --lr_mode poly --num_workers 4 --seed 16 --gpu_id 0 \
     >> "$LOG" 2>&1

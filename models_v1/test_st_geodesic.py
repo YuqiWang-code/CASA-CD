@@ -230,6 +230,47 @@ def main():
     check("T13 scale channel responds to structural change (>0.1)", ratio > 0.1,
           f"max d_str in region={ratio:.4f}")
 
+    # ==================== v2 验收 ====================
+    from model.layers.st_geodesic import (  # noqa: E402
+        STGEO_FORM_V2, _cell_topk_mean, _pool_evidence,
+    )
+
+    # T14 鲁棒池化：单点尖峰 vs 2×2 真实结构
+    spike = torch.zeros(1, 1, 4, 4)
+    spike[0, 0, 1, 1] = 1.0                       # 单点噪声
+    block = torch.zeros(1, 1, 4, 4)
+    block[0, 0, 1:3, 1:3] = 1.0                   # 2×2 真实小结构
+    mx_s = float(torch.nn.functional.max_pool2d(spike, 4).max())
+    tk_s = float(_cell_topk_mean(spike, 1, k=4).max())
+    mx_b = float(torch.nn.functional.max_pool2d(block, 4).max())
+    tk_b = float(_cell_topk_mean(block, 1, k=4).max())
+    check("T14 鲁棒池化：单点尖峰被压到 1/4，而 2x2 结构无损",
+          abs(tk_s - 0.25) < 1e-6 and abs(mx_s - 1.0) < 1e-6
+          and abs(tk_b - 1.0) < 1e-6 and abs(mx_b - 1.0) < 1e-6,
+          f"spike: max={mx_s:.3f} topk={tk_s:.3f} | block: max={mx_b:.3f} topk={tk_b:.3f}")
+
+    # T15 跨尺度门：通道数与零初始化门
+    m2 = STGeoEvidence(in_ch=3, out_dim=8, mid=4, form="inject",
+                       pool_mode="topk_mean", xscale_gate=True)
+    out2, _ = m2(torch.randn(2, 3, 32, 32), torch.randn(2, 3, 32, 32), (8, 8))
+    rep2 = m2.param_report()
+    check("T15 v2：in_ch=16（3 尺度×5 + 跨尺度门）、form 标记、γ=0 ⇒ 输出恒 0",
+          rep2["in_ch_ev"] == 16 and rep2["form"] == STGEO_FORM_V2
+          and float(out2.detach().abs().max()) == 0.0,
+          f"in_ch={rep2['in_ch_ev']} form={rep2['form']} params={rep2['params']}")
+
+    # T16 v2 证据在纯辐射变化下仍恒为 0（含跨尺度门）
+    evs, gates = [], []
+    for s_ in (1.0, 2.0, 4.0):
+        ev_, pr_ = spd_geodesic_evidence(base, base * 1.6, sigma_d=s_)
+        pool_ = _pool_evidence(ev_, 16, mode="topk_mean")
+        evs.append(pool_)
+        gates.append(float(pool_[:, 0:1].abs().max()))
+    gate = torch.stack([e[:, 0:1] for e in evs], dim=0).amin(dim=0)
+    check("T16 v2（topk_mean + 跨尺度门）在纯对比度变化下 d_shape 与门恒为 0",
+          all(g == 0.0 for g in gates) and float(gate.abs().max()) == 0.0,
+          f"per-scale max={gates} gate max={float(gate.abs().max()):.1e}")
+
     print()
     if FAILED:
         print(f"RESULT: FAIL ({len(FAILED)}): {FAILED}")

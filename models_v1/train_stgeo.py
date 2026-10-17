@@ -182,6 +182,9 @@ def main():
     ap.add_argument("--stgeo_sigmas", default="1.0,2.0,4.0")
     ap.add_argument("--stgeo_mid", type=int, default=32)
     ap.add_argument("--stgeo_dim", type=int, default=192)
+    ap.add_argument("--stgeo_pool", default="max_shape",
+                    choices=["max_shape", "topk_mean"])
+    ap.add_argument("--stgeo_xscale", type=int, default=0, choices=[0, 1])
     ap.add_argument("--rep_mode", default="full", choices=["plain", "full"])
     ap.add_argument("--fs_tar", type=int, default=0, choices=[0, 1])
     ap.add_argument("--str_dim", type=int, default=192)
@@ -207,6 +210,7 @@ def main():
         str_dim=args.str_dim, stgeo=args.stgeo,
         stgeo_sigmas=tuple(float(s) for s in args.stgeo_sigmas.split(",") if s),
         stgeo_mid=args.stgeo_mid, stgeo_dim=args.stgeo_dim,
+        stgeo_pool=args.stgeo_pool, stgeo_xscale=bool(args.stgeo_xscale),
         rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar)).float()
     if args.onGPU:
         model = model.cuda()
@@ -231,7 +235,8 @@ def main():
         f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed} "
         f"lr={args.lr} backbone_lr_ratio={args.backbone_lr_ratio}")
     log(f"[STGEO] form={rep['form']} sigmas={rep['sigmas']} mid={rep['mid']} "
-        f"out_dim={rep['out_dim']} params={rep['params']} "
+        f"out_dim={rep['out_dim']} pool={rep['pool_mode']} xscale={rep['xscale_gate']} "
+        f"in_ch={rep['in_ch_ev']} params={rep['params']} "
         f"gamma_init_zero={rep['gamma_init_zero']}")
     log(f"[PRETRAIN-LOAD] retained={st.get('retained')}/{st.get('pretrained_keys')} "
         f"worst_diff={st.get('worst_diff')} missing_new={len(st.get('missing_new', []))} "
@@ -253,6 +258,7 @@ def main():
         "backbone_weight_sha256": sha16(args.vmamba_pretrained_weight_path),
         "stgeo": args.stgeo, "stgeo_sigmas": args.stgeo_sigmas,
         "stgeo_mid": args.stgeo_mid, "stgeo_dim": args.stgeo_dim,
+        "stgeo_pool": args.stgeo_pool, "stgeo_xscale": int(args.stgeo_xscale),
         "stgeo_form_tag": (STGEO_FORM if args.stgeo != "none" else None),
         "rep_mode": args.rep_mode, "fs_tar": int(args.fs_tar), "str_dim": args.str_dim,
         "backbone_lr_ratio": args.backbone_lr_ratio,
@@ -406,7 +412,8 @@ def main():
     log("[MODEL] CASA-VMamba-STGeo (VMamba-Tiny + SPD(2)/H2 geodesic evidence + TAR/DCR)")
     log(f"[ARCH] {args.arch}")
     log(f"[STGEO] {args.stgeo} sigmas={args.stgeo_sigmas} mid={args.stgeo_mid} "
-        f"dim={args.stgeo_dim} form={STGEO_FORM}")
+        f"dim={args.stgeo_dim} pool={args.stgeo_pool} xscale={int(args.stgeo_xscale)} "
+        f"form={model.stgeo_report()['form']}")
     log(f"[STGEO-GAMMA] {gamma_final:.6e} (zero-init gate; value on best ckpt)")
     log(f"[STGEO-DIAG] {json.dumps(model.stgeo_diag(), default=str)}")
     log(f"[REP-MODE] {args.rep_mode}")
