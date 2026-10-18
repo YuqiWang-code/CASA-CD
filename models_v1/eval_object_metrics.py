@@ -33,6 +33,8 @@ def main():
     ap.add_argument("--analyse-dir", required=True)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--num-workers", type=int, default=4)
+    ap.add_argument("--stgeo-pool", dest="stgeo_pool", default="max_shape")
+    ap.add_argument("--stgeo-xscale", dest="stgeo_xscale", type=int, default=0)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -47,7 +49,9 @@ def main():
                     inject_mode="none").float().cuda()
     else:
         from model.casa_vmamba_stgeo_net import CASAVMambaSTGeoNet as Net
-        model = Net(vmamba_pretrained_path=None, stgeo="inject").float().cuda()
+        model = Net(vmamba_pretrained_path=None, stgeo="inject",
+                    stgeo_pool=args.stgeo_pool,
+                    stgeo_xscale=bool(args.stgeo_xscale)).float().cuda()
     sd = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     sd = sd.get("state_dict", sd)
     missing, unexpected = model.load_state_dict(sd, strict=False)
