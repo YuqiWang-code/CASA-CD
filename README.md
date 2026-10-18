@@ -1042,10 +1042,75 @@ CDD/WHU F1 降幅 ≤0.002」。
 
 **仍需补充的证据**
 
-- [ ] `H2_EUC` / `H3_HYP_GS` 各四库（H2 剩 3 库，H3 全部；预计 **10-19 13:40** 完成）
+- [x] ~~修复 `γ` 自锁后的重跑~~ ⇒ **已由 `Run8b` 执行**（见下一节）
+- [ ] Run8b 的四库结果（进行中）
 - [ ] 收口链（`finish_run8.sh` / `check_run.py` / `run8_verdict.py` / `independent_audit.py`）尚未移植
 - [ ] 对象级小目标复算（`analyse/tvim_object_metrics.py` 口径：4 连通、native 256² mask、按 GT 面积分组）
-- [ ] **修复 `γ` 自锁后的重跑**（需新协议版本号 + 新 run 目录；不得覆盖本轮产物）
+
+---
+
+# Run8b 结果（**进行中**；抗自锁重跑，正式训练次数目标 = 16）
+
+> 执行索引与预注册：`train_scripts/CASA-TViM/Run8b/README.md` · `…/Run8b/SELECTION_LOCK.json`
+> 协议 `run8b_vmamba_hqkv_antilock_exact80k_v2` · `arch=casa_vmamba_str_v2` · `γ` 初值 **0.5**
+
+**① 进度（2026-10-18 13:32 实测）**
+
+| 变体 | CDD | LEVIR | SYSU | WHU | 状态 |
+|---|---|---|---|---|---|
+| `CTRL_R8B` | ✅ 80,000 | ✅ 80,000 | ✅ 80,000 | 18,414 / 80,000 | 波一 3/4 |
+| `B1_HYP` | — | — | — | — | 等波一闸门 |
+| `B2_EUC` | — | — | — | — | 等 |
+| `B3_HYP_GS` | — | — | — | — | 等 |
+
+**② 已产出的正式结果（`CTRL_R8B`，最后一个完整 TEST 区块）**
+
+| dataset | Recall | Precision | OA | F1 | IoU | Kappa |
+|---|---:|---:|---:|---:|---:|---:|
+| CDD-CD-256 | 0.9776 | 0.9775 | 0.9945 | **0.9776** | 0.9561 | 0.9744 |
+| LEVIR-CD-256 | 0.8997 | 0.9248 | 0.9912 | **0.9121** | 0.8384 | 0.9074 |
+| SYSU-CD-256 | 0.8040 | 0.8323 | 0.9156 | **0.8179** | 0.6919 | 0.7630 |
+
+**③ 关键的"唯一变量"验证：`CTRL_R8B`（v2，hqkv=0）vs `CTRL_R8`（v1，hqkv=0）**
+
+| dataset | Run8 `CTRL_R8` | Run8b `CTRL_R8B` | Δ |
+|---|---:|---:|---:|
+| CDD | 0.9776 | 0.9776 | **+0.0000** |
+| LEVIR | 0.9121 | 0.9121 | **+0.0000** |
+| SYSU | 0.8188 | 0.8179 | −0.0009 |
+
+> **这条对照很重要**：`hqkv=0` 时 v2 与 v1 **逐库几乎逐位一致**（CDD/LEVIR 完全相同、SYSU 差 0.0009）。
+> 它证明「抗自锁改动」在**关掉模块时是零影响**的 ⇒ Run8b 与 Run8 的差异确实**只落在模块内部**，
+> 满足"唯一变量"要求。同时这也是一次**跨协议的可复现性交叉验证**。
+
+**④ 抗自锁门（待 `B1_HYP` 开跑后填）** —— 期望看到：
+`[HQKV-GRAD] step=1 gamma_grad` 三支全 > 0 · `[FAILFAST-PASS]` · 每 epoch `[HQKV-DIAG]`
+的 `contrib_norm > 0` 且 `gammas` 稳定（**尤其不能反向跑大**，风险 R4）。
+CPU 预检与服务器 smoke 已给出等效证据（见下）。
+
+**⑤ 开跑前的机制证据（已实测，非推断）**
+
+| 项 | 读数 |
+|---|---|
+| CPU 预检 | **26/26 PASS**；注入 RMS **0.5054**（期望 0.5） |
+| **负对照 γ=0** | `contrib_norm = 0` **且三支 `gamma_grad` 全为 0** ⇒ 精确复现 v1 自锁 |
+| 主实验 γ=0.5 | 三支 share 各 **1/3**；`gamma_grad = {0.3333, 0.3375, 0.3261}` |
+| 服务器 smoke（真实特征） | `worst_diff=0.0`；γ=0.5 ⇒ `contrib_norm=442.7`、梯度全 >0；γ=0 ⇒ 全 0 |
+| dry-run（四库 × 2 变体） | **8/8 全绿**；`B1_HYP` `contrib_norm≈2.6e3`、**RMS≈0.489–0.497**；`CTRL` 正确为 0 |
+| `check_mapping.py` / `sha256sum -c` | **PASS** / **22/22 OK** |
+
+**⑥ ETA（实测 step = 3.2632 step/s）**
+
+单库 80K = **6.81 h**；单波（4 库串行）= **27.24 h**；四波 = **109 h ≈ 4.5 天**。
+按 2026-10-18 13:32 起算：波一 ≈ 10-18 18:46 → 波二 `B1_HYP` ≈ **10-19 22:00** →
+波三 `B2_EUC` ≈ 10-21 01:15 → 波四 `B3_HYP_GS` ≈ **10-22 04:30**。
+
+**⑦ 排卡（硬约束，实测依据）**
+
+- 只用 **GPU0**（单卡串行）；**GPU1 上是另一会话的探索线**，督导**只统计、绝不触碰**；
+- 单 run 峰值显存 26.9–28.4 GB（32.6 GB 卡）⇒ 每卡只能放 1 个 run；
+- 20 分钟的 "GPU1 空了" 不可信：2026-10-15 22:07 实测同门退出、**22:08 就回来了**
+  （本项目记录在案，故不据此改回双卡）。
 
 ---
 
@@ -1186,13 +1251,17 @@ python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --dat
 bash train_scripts/CASA-TViM/Run7/finish_run7.sh          # 6 步收口；rc 含义见 Run7/README.md §8.2
 #   交付状态一条命令核对（身份 26/26 / 四个工具自检 / 督导与进度）见 Run7/README.md §9
 #   新接手者请从 train_scripts/CASA-TViM/Run7/HANDOFF.md §0 开始
-# Run8（CASA-VMamba，双卡并行 + 波次自动接续）
-bash train_scripts/CASA-TViM/Run8/_r8_state.sh        # 权威状态快照（推荐；避免 tail 混流误判）
+# Run8（CASA-VMamba v1，已停止）—— 保留只读诊断脚本备查
+bash train_scripts/CASA-TViM/Run8/_r8_state.sh        # 权威状态快照
 bash train_scripts/CASA-TViM/Run8/_r8_eta.sh CTRL_R8  # 实测步速与剩余时间
-bash train_scripts/CASA-TViM/Run8/_r8_gpu_survey.sh   # 排卡 + foreign 检测自检
-tail -8 /tmp/run8/pipeline.log                        # 督导决策日志
-#   一次性安装（幂等）：bash …/Run8/_r8_reenroll_pipeline.sh
-#   新接手者请从 train_scripts/CASA-TViM/Run8/HANDOFF.md §0 开始
+# Run8b（CASA-VMamba v2 抗自锁，**当前主线**）
+bash train_scripts/CASA-TViM/Run8b/_r8b_state.sh            # 进度矩阵 + 抗自锁证据 + 正式 TEST 块
+bash train_scripts/CASA-TViM/Run8b/_r8b_timeline.sh         # 各库起止时间 + 实测速率 + ETA
+bash train_scripts/CASA-TViM/Run8b/_r8b_key_readings.sh B1_HYP CDD-CD-256
+                                                           # fail-fast / gamma_grad / HQKV-DIAG
+tail -8 /tmp/run8b/pipeline.log                            # Run8b 督导决策日志
+#   开跑：bash …/Run8b/_r8b_launch.sh
+#   预注册与设计说明：train_scripts/CASA-TViM/Run8b/README.md
 ```
 
 > ⚠️ **远端命令一律写进 `.sh` 文件再上传执行**：PowerShell 会吃掉内联命令里的
