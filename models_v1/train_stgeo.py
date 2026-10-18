@@ -450,7 +450,7 @@ def main():
     log("=== TEST RESULTS ===")
     log("[MODEL] CASA-VMamba-STGeo (VMamba-Tiny + SPD(2)/H2 geodesic evidence + TAR/DCR)")
     log(f"[ARCH] {args.arch}")
-    log(f"[STGEO] {args.stgeo} form={model.stgeo_report()['form']} "
+    log(f"[STGEO] {args.stgeo} form={rep.get('form')} "
         f"sigmas={args.stgeo_sigmas} mid={args.stgeo_mid} dim={args.stgeo_dim} "
         f"pool={args.stgeo_pool} xscale={int(args.stgeo_xscale)} "
         f"sup_small={args.stgeo_sup_small} sup_lambda={args.stgeo_sup_lambda}")

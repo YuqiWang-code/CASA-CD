@@ -85,6 +85,10 @@ class CASAVMambaSTGeoNet(nn.Module):
     def stgeo_report(self):
         if self.stgeo_sup is not None:
             return self.stgeo_sup.param_report()
+        if self.stgeo_op is None:
+            # deploy 后（sup 形态）支路已删除：返回带标记的报告，绝不抛错
+            return {"form": STGEO_SUP_FORM, "dropped_at_deploy": True, "params": 0,
+                    "lambda": None, "small": None, "in_ch": None}
         rep = self.stgeo_op.param_report()
         rep.update({"sigmas": list(self.stgeo_op.sigmas), "form_tag": STGEO_FORM})
         return rep
