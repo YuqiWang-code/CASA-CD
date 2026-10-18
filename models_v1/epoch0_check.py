@@ -58,10 +58,13 @@ def main():
                                  inject_mode="none").float().cuda().eval()
     else:
         from model.casa_vmamba_stgeo_net import CASAVMambaSTGeoNet
+        kw = dict(stgeo_pool=args.stgeo_pool,
+                  stgeo_xscale=bool(args.stgeo_xscale))
+        if args.stgeo == "sup":
+            kw["stgeo_sup_small"] = 16
+            kw["stgeo_sup_lambda"] = 0.2
         model = CASAVMambaSTGeoNet(vmamba_pretrained_path=args.vmamba,
-                                   stgeo=args.stgeo, stgeo_pool=args.stgeo_pool,
-                                   stgeo_xscale=bool(args.stgeo_xscale)
-                                   ).float().cuda().eval()
+                                   stgeo=args.stgeo, **kw).float().cuda().eval()
     st = model.pretrain_load_stats() or {}
     pre, post = build_fixed_batch(device="cuda")
     with torch.no_grad():

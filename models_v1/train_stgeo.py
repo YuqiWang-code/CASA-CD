@@ -29,6 +29,7 @@ if _MODELS_V1 not in sys.path:
 
 from model.casa_vmamba_stgeo_net import CASAVMambaSTGeoNet  # noqa: E402
 from model.layers.st_geodesic import STGEO_FORM  # noqa: E402
+from model.layers.stgeo_sup import STGEO_SUP_FORM  # noqa: E402
 from model.metric_tool import ConfuseMatrixMeter  # noqa: E402
 from model.utils import BCEDiceLoss, adjust_learning_rate, init_seed  # noqa: E402
 
@@ -134,6 +135,7 @@ def train_one_epoch(args, loader, model, optimizer, epoch, max_batches, cur_iter
     model.train()
     meter = ConfuseMatrixMeter(n_class=2)
     losses, executed, lr = [], 0, None
+    aux_hist = []
     for it, (img, target) in enumerate(loader):
         if remaining is not None and executed >= remaining:
             break
@@ -144,15 +146,34 @@ def train_one_epoch(args, loader, model, optimizer, epoch, max_batches, cur_iter
         target = target.float()
         out = model(pre.float(), post.float(), target)
         loss = BCEDiceLoss(out, target)
+        aux_val = None
+        if args.stgeo == "sup":
+            logit = model.aux_change_logits()
+            if logit is None:
+                raise RuntimeError("[STGEO-SUP] stgeo=sup 但没有产生辅助 logits")
+            aux = model.stgeo_sup.loss(logit, target)
+            loss = loss + aux
+            aux_val = float(aux.detach())
         optimizer.zero_grad()
         loss.backward()
+        if args.stgeo == "sup" and executed == 0 and (it + cur_iter) == 0:
+            # **必须在 backward 之后**读梯度（曾把诊断写在 backward 之前，恒打印 0）
+            gn = model.stgeo_sup.proj.weight.grad
+            enc_gn = sum(float(p.grad.norm()) for n, p in model.encoder.named_parameters()
+                         if p.grad is not None and "layers.0" in n)
+            print(f"[STGEO-GRAD] step=1 aux_loss={aux_val:.6f} "
+                  f"proj_grad_norm={(float(gn.norm()) if gn is not None else 0.0):.6e} "
+                  f"encoder_stage0_grad_norm={enc_gn:.6e}", flush=True)
         optimizer.step()
         executed += 1
         losses.append(float(loss.item()))
+        if aux_val is not None:
+            aux_hist.append(aux_val)
         with torch.no_grad():
             pred = (out > 0.5).long()
             meter.update_cm(pr=pred.cpu().numpy(), gt=target.cpu().numpy())
-    return (sum(losses) / max(1, len(losses)), meter.get_scores(), lr, executed)
+    return (sum(losses) / max(1, len(losses)), meter.get_scores(), lr, executed,
+            (sum(aux_hist) / len(aux_hist)) if aux_hist else None)
 
 
 def main():
@@ -181,6 +202,9 @@ def main():
     ap.add_argument("--stgeo", default="inject")
     ap.add_argument("--stgeo_sigmas", default="1.0,2.0,4.0")
     ap.add_argument("--stgeo_mid", type=int, default=32)
+    ap.add_argument("--stgeo_sup_small", type=int, default=16)
+    ap.add_argument("--stgeo_sup_lambda", type=float, default=0.2,
+                    help="辅助损失权重（预注册固定 0.2，禁止搜索）")
     ap.add_argument("--stgeo_dim", type=int, default=192)
     ap.add_argument("--stgeo_pool", default="max_shape",
                     choices=["max_shape", "topk_mean"])
@@ -211,6 +235,7 @@ def main():
         stgeo_sigmas=tuple(float(s) for s in args.stgeo_sigmas.split(",") if s),
         stgeo_mid=args.stgeo_mid, stgeo_dim=args.stgeo_dim,
         stgeo_pool=args.stgeo_pool, stgeo_xscale=bool(args.stgeo_xscale),
+        stgeo_sup_small=args.stgeo_sup_small, stgeo_sup_lambda=args.stgeo_sup_lambda,
         rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar)).float()
     if args.onGPU:
         model = model.cuda()
@@ -234,10 +259,15 @@ def main():
     log(f"[CONFIG] protocol={PROTOCOL_VERSION} exact_max_steps={args.exact_max_steps} "
         f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed} "
         f"lr={args.lr} backbone_lr_ratio={args.backbone_lr_ratio}")
-    log(f"[STGEO] form={rep['form']} sigmas={rep['sigmas']} mid={rep['mid']} "
-        f"out_dim={rep['out_dim']} pool={rep['pool_mode']} xscale={rep['xscale_gate']} "
-        f"in_ch={rep['in_ch_ev']} params={rep['params']} "
-        f"gamma_init_zero={rep['gamma_init_zero']}")
+    if args.stgeo == "sup":
+        log(f"[STGEO] form={rep['form']} in_ch={rep['in_ch']} small={rep['small']} "
+            f"lambda={rep['lambda']} params={rep['params']} "
+            f"deploy_dropped={rep['deploy_dropped']}")
+    else:
+        log(f"[STGEO] form={rep['form']} sigmas={rep['sigmas']} mid={rep['mid']} "
+            f"out_dim={rep['out_dim']} pool={rep['pool_mode']} xscale={rep['xscale_gate']} "
+            f"in_ch={rep['in_ch_ev']} params={rep['params']} "
+            f"gamma_init_zero={rep['gamma_init_zero']}")
     log(f"[PRETRAIN-LOAD] retained={st.get('retained')}/{st.get('pretrained_keys')} "
         f"worst_diff={st.get('worst_diff')} missing_new={len(st.get('missing_new', []))} "
         f"dropped={len(st.get('dropped_intentional', []))}")
@@ -259,6 +289,9 @@ def main():
         "stgeo": args.stgeo, "stgeo_sigmas": args.stgeo_sigmas,
         "stgeo_mid": args.stgeo_mid, "stgeo_dim": args.stgeo_dim,
         "stgeo_pool": args.stgeo_pool, "stgeo_xscale": int(args.stgeo_xscale),
+        "stgeo_sup_small": (int(args.stgeo_sup_small) if args.stgeo == "sup" else None),
+        "stgeo_sup_lambda": (float(args.stgeo_sup_lambda) if args.stgeo == "sup" else 0.0),
+        "stgeo_sup_form": (STGEO_SUP_FORM if args.stgeo == "sup" else None),
         "stgeo_form_tag": (STGEO_FORM if args.stgeo != "none" else None),
         "rep_mode": args.rep_mode, "fs_tar": int(args.fs_tar), "str_dim": args.str_dim,
         "backbone_lr_ratio": args.backbone_lr_ratio,
@@ -283,7 +316,9 @@ def main():
     def save_arch():
         arch = dict(manifest)
         arch.pop("resume_source", None)
-        arch["gamma"] = rep["gamma"]
+        if "gamma" in rep:
+            arch["gamma"] = rep["gamma"]
+        arch["stgeo_params"] = rep.get("params")
         json.dump(arch, open(os.path.join(args.ckpt_dir, "arch.json"), "w",
                              encoding="utf-8"), indent=2)
 
@@ -338,9 +373,12 @@ def main():
         if remaining is not None and remaining <= 0:
             log(f"[EXACT-STEPS] budget reached ({cur_iter})")
             break
-        loss_tr, score_tr, lr, executed = train_one_epoch(
+        loss_tr, score_tr, lr, executed, aux_tr = train_one_epoch(
             args, train_loader, model, optimizer, epoch, max_batches, cur_iter, remaining)
         cur_iter += executed if exact else max_batches
+        if aux_tr is not None:
+            log(f"[STGEO-LOSS] epoch={epoch} aux_loss={aux_tr:.6f} "
+                f"lambda={args.stgeo_sup_lambda}")
         if exact:
             log(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={executed} "
                 f"cumulative={cur_iter}/{args.max_steps}")
@@ -391,7 +429,8 @@ def main():
     with torch.no_grad():
         y_tr = model(pre_fix, post_fix)
         y_tr_r = model(pre_r.float(), post_r.float())
-        gamma_final = float(model.stgeo_op.gamma.detach())
+        gamma_final = (float(model.stgeo_op.gamma.detach())
+                       if model.stgeo_op is not None else 0.0)
     model.switch_to_deploy()
     model.eval()
     with torch.no_grad():
@@ -411,10 +450,15 @@ def main():
     log("=== TEST RESULTS ===")
     log("[MODEL] CASA-VMamba-STGeo (VMamba-Tiny + SPD(2)/H2 geodesic evidence + TAR/DCR)")
     log(f"[ARCH] {args.arch}")
-    log(f"[STGEO] {args.stgeo} sigmas={args.stgeo_sigmas} mid={args.stgeo_mid} "
-        f"dim={args.stgeo_dim} pool={args.stgeo_pool} xscale={int(args.stgeo_xscale)} "
-        f"form={model.stgeo_report()['form']}")
-    log(f"[STGEO-GAMMA] {gamma_final:.6e} (zero-init gate; value on best ckpt)")
+    log(f"[STGEO] {args.stgeo} form={model.stgeo_report()['form']} "
+        f"sigmas={args.stgeo_sigmas} mid={args.stgeo_mid} dim={args.stgeo_dim} "
+        f"pool={args.stgeo_pool} xscale={int(args.stgeo_xscale)} "
+        f"sup_small={args.stgeo_sup_small} sup_lambda={args.stgeo_sup_lambda}")
+    if args.stgeo == "sup":
+        log(f"[STGEO-SUP] lambda={args.stgeo_sup_lambda} small={args.stgeo_sup_small} "
+            f"form={STGEO_SUP_FORM} dropped_at_deploy=1")
+    else:
+        log(f"[STGEO-GAMMA] {gamma_final:.6e} (zero-init gate; value on best ckpt)")
     log(f"[STGEO-DIAG] {json.dumps(model.stgeo_diag(), default=str)}")
     log(f"[REP-MODE] {args.rep_mode}")
     log(f"[BACKBONE-LR-RATIO] {args.backbone_lr_ratio}")

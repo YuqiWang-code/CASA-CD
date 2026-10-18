@@ -32,6 +32,7 @@ VARIANT="$1"; DS="$2"; GPU="${3:-1}"
 case "$VARIANT" in
   STG_INJ) STGEO=inject; EXTRA="--stgeo_pool max_shape --stgeo_xscale 0" ;;  # v1（已完成）
   STG_V2)  STGEO=inject; EXTRA="--stgeo_pool topk_mean --stgeo_xscale 1" ;;  # v2：鲁棒池化+跨尺度门
+  STG_SUP) STGEO=sup;    EXTRA="--stgeo_sup_small 16 --stgeo_sup_lambda 0.2" ;; # B：特征域几何 + GT 掩码监督（deploy 删除）
   STG_OFF) STGEO=none;   EXTRA="--stgeo_pool max_shape --stgeo_xscale 0" ;;
   *) echo "unknown variant $VARIANT" >&2; exit 2 ;;
 esac
