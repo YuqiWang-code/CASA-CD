@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--stgeo", default="none")
     ap.add_argument("--stgeo-pool", dest="stgeo_pool", default="max_shape")
     ap.add_argument("--stgeo-xscale", dest="stgeo_xscale", type=int, default=0)
+    ap.add_argument("--stgeo-geom", dest="stgeo_geom", default="hyperbolic")
     ap.add_argument("--vmamba", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--a", default=None)
@@ -63,6 +64,9 @@ def main():
         if args.stgeo == "sup":
             kw["stgeo_sup_small"] = 16
             kw["stgeo_sup_lambda"] = 0.2
+        if args.stgeo == "rel":
+            kw["stgeo_geom"] = args.stgeo_geom
+            kw["stgeo_detail_only"] = True
         model = CASAVMambaSTGeoNet(vmamba_pretrained_path=args.vmamba,
                                    stgeo=args.stgeo, **kw).float().cuda().eval()
     st = model.pretrain_load_stats() or {}

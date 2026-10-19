@@ -20,6 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model.layers.st_geodesic import STGEO_FORM, STGEO_SEED, STGeoEvidence
+from model.layers.stgeo_reliable import (STGEO_REL_FORM, STGEO_REL_SEED,
+                                        STGeoReliable)
 from model.layers.stgeo_sup import STGEO_SUP_FORM, STGEO_SUP_SEED, STGeoFeatureSup
 from model.str_dcr import DCRDecoder
 from model.str_tar import MultiScaleTAR
@@ -27,7 +29,7 @@ from model.vmamba_tiny import VMambaBackbone, build_vmamba_tiny
 
 ENCODER_DIMS = (96, 192, 384, 768)
 STR_DIM = 192
-STGEO_FORMS = ("none", "inject", "sup")
+STGEO_FORMS = ("none", "inject", "sup", "rel")
 
 
 class CASAVMambaSTGeoNet(nn.Module):
@@ -35,6 +37,7 @@ class CASAVMambaSTGeoNet(nn.Module):
                  stgeo="inject", stgeo_sigmas=(1.0, 2.0, 4.0), stgeo_mid=32,
                  stgeo_dim=192, stgeo_pool="max_shape", stgeo_xscale=False,
                  stgeo_sup_small=16, stgeo_sup_lambda=0.2,
+                 stgeo_geom="hyperbolic", stgeo_detail_only=True,
                  rep_mode="full", fs_tar=False,
                  vmamba_cfg=None, hqkv=False, hf_edge=False, hf_edge_form="none"):
         super().__init__()
@@ -62,19 +65,37 @@ class CASAVMambaSTGeoNet(nn.Module):
                                   use_residual=True)
 
         # ---- ST-GEO（**最后构造** + 内部 fork_rng）
-        if stgeo == "sup":
+        self.stgeo_rel = None
+        if stgeo == "rel":
+            # 方向 A：可靠性感知 + 尺度选择性修正（推理期真实算子）
+            self.stgeo_op = None
+            self.stgeo_sup = None
+            self.stgeo_rel = STGeoReliable(in_ch=3, sigmas=stgeo_sigmas,
+                                           mid=stgeo_mid, out_dim=stgeo_dim,
+                                           geom=stgeo_geom,
+                                           detail_only=stgeo_detail_only,
+                                           tr_floor=1e-10, pool_mode="topk_mean",
+                                           init_seed=STGEO_REL_SEED)
+        elif stgeo == "sup":
             # B 形态：特征域几何 + GT 掩码监督；**不注入**，deploy 整支删除
             self.stgeo_op = None
             self.stgeo_sup = STGeoFeatureSup(in_ch=ENCODER_DIMS[0],
                                              small=stgeo_sup_small,
                                              lambda_=stgeo_sup_lambda,
                                              init_seed=STGEO_SUP_SEED)
-        else:
+        elif stgeo == "inject":
             self.stgeo_op = STGeoEvidence(in_ch=3, sigmas=stgeo_sigmas, mid=stgeo_mid,
                                           out_dim=stgeo_dim, form=stgeo,
                                           pool_mode=stgeo_pool, xscale_gate=stgeo_xscale,
                                           init_seed=STGEO_SEED)
             self.stgeo_sup = None
+            self.stgeo_rel = None
+        else:
+            self.stgeo_op = None
+            self.stgeo_sup = None
+            self.stgeo_rel = None
+        if not hasattr(self, "stgeo_rel"):
+            self.stgeo_rel = None
         self._aux_logits = None
 
     # ------------------------------------------------------------------ 诊断
@@ -85,6 +106,8 @@ class CASAVMambaSTGeoNet(nn.Module):
     def stgeo_report(self):
         if self.stgeo_sup is not None:
             return self.stgeo_sup.param_report()
+        if self.stgeo_rel is not None:
+            return self.stgeo_rel.param_report()
         if self.stgeo_op is None:
             # deploy 后（sup 形态）支路已删除：返回带标记的报告，绝不抛错
             return {"form": STGEO_SUP_FORM, "dropped_at_deploy": True, "params": 0,
@@ -96,6 +119,8 @@ class CASAVMambaSTGeoNet(nn.Module):
     def stgeo_diag(self):
         if self.stgeo_sup is not None:
             return self.stgeo_sup.score_stats()
+        if self.stgeo_rel is not None:
+            return self.stgeo_rel.diag()
         if self.stgeo_op is None:
             return {"note": "dropped_at_deploy"}      # deploy 后无诊断量，绝不抛错
         return self.stgeo_op.diag()
@@ -113,6 +138,8 @@ class CASAVMambaSTGeoNet(nn.Module):
             stg += sum(p.numel() for p in self.stgeo_op.parameters())
         if self.stgeo_sup is not None:
             stg += sum(p.numel() for p in self.stgeo_sup.parameters())
+        if self.stgeo_rel is not None:
+            stg += sum(p.numel() for p in self.stgeo_rel.parameters())
         total = sum(p.numel() for p in self.parameters())
         return {"backbone": enc, "stgeo": stg, "tar": tar, "dcr": dcr, "head": head,
                 "total": total, "non_backbone": total - enc,
@@ -122,6 +149,8 @@ class CASAVMambaSTGeoNet(nn.Module):
     def forward(self, pre, post, label=None):
         # ST-GEO 证据（在原始图像上算，全分辨率 → 1/4）；`sup` 形态无此支路
         delta = None
+        if self.stgeo_rel is not None:
+            delta = self.stgeo_rel(pre, post, (pre.shape[-2] // 4, pre.shape[-1] // 4))
         if self.stgeo_op is not None:
             delta, _ = self.stgeo_op(pre, post,
                                      (pre.shape[-2] // 4, pre.shape[-1] // 4))

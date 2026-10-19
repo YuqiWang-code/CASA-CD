@@ -203,6 +203,9 @@ def main():
     ap.add_argument("--stgeo_sigmas", default="1.0,2.0,4.0")
     ap.add_argument("--stgeo_mid", type=int, default=32)
     ap.add_argument("--stgeo_sup_small", type=int, default=16)
+    ap.add_argument("--stgeo_geom", default="hyperbolic",
+                    choices=["hyperbolic", "euclidean"])
+    ap.add_argument("--stgeo_detail_only", type=int, default=1, choices=[0, 1])
     ap.add_argument("--stgeo_sup_lambda", type=float, default=0.2,
                     help="辅助损失权重（预注册固定 0.2，禁止搜索）")
     ap.add_argument("--stgeo_dim", type=int, default=192)
@@ -236,6 +239,7 @@ def main():
         stgeo_mid=args.stgeo_mid, stgeo_dim=args.stgeo_dim,
         stgeo_pool=args.stgeo_pool, stgeo_xscale=bool(args.stgeo_xscale),
         stgeo_sup_small=args.stgeo_sup_small, stgeo_sup_lambda=args.stgeo_sup_lambda,
+        stgeo_geom=args.stgeo_geom, stgeo_detail_only=bool(args.stgeo_detail_only),
         rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar)).float()
     if args.onGPU:
         model = model.cuda()
@@ -265,9 +269,10 @@ def main():
             f"deploy_dropped={rep['deploy_dropped']}")
     else:
         log(f"[STGEO] form={rep['form']} sigmas={rep['sigmas']} mid={rep['mid']} "
-            f"out_dim={rep['out_dim']} pool={rep['pool_mode']} xscale={rep['xscale_gate']} "
-            f"in_ch={rep['in_ch_ev']} params={rep['params']} "
-            f"gamma_init_zero={rep['gamma_init_zero']}")
+            f"out_dim={rep['out_dim']} pool={rep.get('pool_mode')} "
+            f"xscale={rep.get('xscale_gate')} geom={rep.get('geom')} "
+            f"detail_only={rep.get('detail_only')} in_ch={rep.get('in_ch_ev')} "
+            f"params={rep['params']} gamma_init_zero={rep.get('gamma_init_zero')}")
     log(f"[PRETRAIN-LOAD] retained={st.get('retained')}/{st.get('pretrained_keys')} "
         f"worst_diff={st.get('worst_diff')} missing_new={len(st.get('missing_new', []))} "
         f"dropped={len(st.get('dropped_intentional', []))}")
@@ -292,6 +297,8 @@ def main():
         "stgeo_sup_small": (int(args.stgeo_sup_small) if args.stgeo == "sup" else None),
         "stgeo_sup_lambda": (float(args.stgeo_sup_lambda) if args.stgeo == "sup" else 0.0),
         "stgeo_sup_form": (STGEO_SUP_FORM if args.stgeo == "sup" else None),
+        "stgeo_geom": (args.stgeo_geom if args.stgeo == "rel" else None),
+        "stgeo_detail_only": (int(args.stgeo_detail_only) if args.stgeo == "rel" else None),
         "stgeo_form_tag": (STGEO_FORM if args.stgeo != "none" else None),
         "rep_mode": args.rep_mode, "fs_tar": int(args.fs_tar), "str_dim": args.str_dim,
         "backbone_lr_ratio": args.backbone_lr_ratio,
@@ -453,7 +460,8 @@ def main():
     log(f"[STGEO] {args.stgeo} form={rep.get('form')} "
         f"sigmas={args.stgeo_sigmas} mid={args.stgeo_mid} dim={args.stgeo_dim} "
         f"pool={args.stgeo_pool} xscale={int(args.stgeo_xscale)} "
-        f"sup_small={args.stgeo_sup_small} sup_lambda={args.stgeo_sup_lambda}")
+        f"sup_small={args.stgeo_sup_small} sup_lambda={args.stgeo_sup_lambda} "
+        f"geom={args.stgeo_geom} detail_only={int(args.stgeo_detail_only)}")
     if args.stgeo == "sup":
         log(f"[STGEO-SUP] lambda={args.stgeo_sup_lambda} small={args.stgeo_sup_small} "
             f"form={STGEO_SUP_FORM} dropped_at_deploy=1")
