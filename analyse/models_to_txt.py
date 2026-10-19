@@ -21,16 +21,17 @@ SKIP_DIRS = {"__pycache__", "build", "csrc", ".git"}
 SKIP_EXTS = {".pth", ".pt", ".pyc"}
 
 
-def collect_code():
+def collect_code(models_dir=None):
+    models_dir = models_dir or MODELS
     files = []
-    for root, dirs, names in os.walk(MODELS):
+    for root, dirs, names in os.walk(models_dir):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for n in sorted(names):
             ext = os.path.splitext(n)[1]
             if ext in SKIP_EXTS:
                 continue
             if ext in (".py", ".yaml", ".yml"):
-                files.append(os.path.relpath(os.path.join(root, n), MODELS))
+                files.append(os.path.relpath(os.path.join(root, n), models_dir))
     return files
 
 
@@ -52,20 +53,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", type=str, default="baseline")
     ap.add_argument("--run", type=str, default="Run1")
+    ap.add_argument("--models-dir", type=str, default="models",
+                    help="代码目录（相对仓库根）：models | models_v1")
     args = ap.parse_args()
 
+    models_dir = os.path.join(ROOT, args.models_dir)
+    assert os.path.isdir(models_dir), f"缺目录 {models_dir}"
     os.makedirs(DOCS_TMP, exist_ok=True)
     out_path = os.path.join(DOCS_TMP, f"models_and_metrics_{args.tag}_{args.run}.txt")
 
     with open(out_path, "w", encoding="utf-8") as out:
         out.write(f"# CASA-CD models snapshot + metrics\n")
-        out.write(f"# tag={args.tag}  run={args.run}\n")
+        out.write(f"# tag={args.tag}  run={args.run}  models_dir={args.models_dir}\n")
 
-        files = collect_code()
+        files = collect_code(models_dir)
         out.write(f"\n{'=' * 80}\n## MODELS CODE ({len(files)} files)\n{'=' * 80}\n")
         for rel in files:
-            out.write(f"\n{'=' * 80}\n# FILE: models/{rel}\n{'=' * 80}\n")
-            with open(os.path.join(MODELS, rel), encoding="utf-8", errors="replace") as f:
+            out.write(f"\n{'=' * 80}\n# FILE: {args.models_dir}/{rel}\n{'=' * 80}\n")
+            with open(os.path.join(models_dir, rel), encoding="utf-8", errors="replace") as f:
                 out.write(f.read())
 
         metrics = collect_metrics()

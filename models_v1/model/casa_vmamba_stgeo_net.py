@@ -96,6 +96,8 @@ class CASAVMambaSTGeoNet(nn.Module):
     def stgeo_diag(self):
         if self.stgeo_sup is not None:
             return self.stgeo_sup.score_stats()
+        if self.stgeo_op is None:
+            return {"note": "dropped_at_deploy"}      # deploy 后无诊断量，绝不抛错
         return self.stgeo_op.diag()
 
     def pretrain_load_stats(self):
