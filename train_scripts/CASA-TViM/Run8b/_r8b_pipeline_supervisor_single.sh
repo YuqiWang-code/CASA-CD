@@ -28,7 +28,12 @@ mkdir -p "$STATE"
 GPU_ID="${GPU_ID:-0}"
 POLL_S=120
 DEADLINE_H=200
-NEED_MB=30500
+# 单 run 的显存**实测**峰值：Run8b batch32 = 28,371 MB（B1_HYP）/ 26,864 MB（CTRL）。
+# 原阈值 30500 = 峰值 + ~2.1 GB 余量；但 2026-10-19 08:04 起 GPU0 上出现同门 `bqwang` 的
+# 小作业（1,938 MiB，脚本名带 lowmem）⇒ free 只剩 30,495 MB，**差 5 MB** 卡在门外，
+# 督导空转数小时。改为**可配置**（默认 30000 = 峰值 + 1.6 GB 余量），
+# 并保留"卡上有别人的进程时只统计"的原则——我们用**更小的余量**去共享，而不是去抢。
+NEED_MB="${NEED_MB:-30000}"
 MAX_WAVE_RETRY=3
 DATASETS="CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256"
 
@@ -85,10 +90,18 @@ wait_gpu_ready() {
     local free foreign
     free="$(gpu_free_mb "$idx")"
     foreign="$(foreign_on_gpu "$idx" | tr '\n' ' ' | tr -d ' ')"
-    if [ -z "$foreign" ] && [ "${free:-0}" -ge "$NEED_MB" ]; then
-      log "GPU${idx}-READY free=${free}MB foreign=none"; return 0
+    # 判据：只看**真实余量**，不要求"卡上完全没有别人的进程"。
+    # 理由（2026-10-19 08:04 实测）：同门在 GPU0 上跑了一个 1,938 MiB 的 lowmem 小作业，
+    # 卡上于是永远有 foreign ⇒ 旧的 `-z "$foreign"` 条件会让督导**无限期空转**。
+    # 本项目的单 run 峰值是实测的 28.4 GB，所以只要 free ≥ NEED_MB 就能安全共卡；
+    # 我们**不**为了独占而等待，也**不**触碰别人的进程。
+    if [ "${free:-0}" -ge "$NEED_MB" ]; then
+      if [ -z "$foreign" ]; then
+        log "GPU${idx}-READY free=${free}MB foreign=none"; return 0
+      fi
+      log "GPU${idx}-READY(shared) free=${free}MB foreign=[${foreign}]（只共存，不触碰）"; return 0
     fi
-    log "GPU${idx}-WAIT free=${free:-?}MB foreign=[${foreign}] -> ${POLL_S}s 后再探"
+    log "GPU${idx}-WAIT free=${free:-?}MB need=${NEED_MB}MB foreign=[${foreign}] -> ${POLL_S}s 后再探"
     [ "$DRY" = "1" ] && return 7
     sleep "$POLL_S"
     if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE_H * 3600 )) ]; then
