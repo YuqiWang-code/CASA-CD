@@ -53,7 +53,11 @@ import dataset.Transforms as myTransforms
 # R8b（2026-10-17）：v1 的 `gamma` 零初始化导致**自锁**（实测 gamma≈1e-41、contrib_norm=0，
 #   四库 H1/H2 与 CTRL 的 F1 逐位同级）⇒ 新增 `arch=casa_vmamba_str_v2`（抗自锁）并 bump 协议。
 #   v1 的 12 个 run 已停在干净状态、产物保留；两版**不可互相 resume**（协议串不同）。
-PROTOCOL_VERSION = "run8b_vmamba_hqkv_antilock_exact80k_v2"
+# R8c（2026-10-20）：**拆除双曲几何 + 半径分解**。B1_HYP 四库 ΔF1 均值 −0.00085（1 平 3 负）、
+#   还多付 0.304 M 参数 / +0.46 G FLOPs / 约 +9% 时间 ⇒ 几何与 detail/global 双分支移除，
+#   只保留跨层 SAT 式 QKV 注入（K/V 用**固定格点**压缩）。故再次 bump 协议串，
+#   使任何 lattice 版 checkpoint **绝不可能**被当成 Run8b 的 ckpt 复用。
+PROTOCOL_VERSION = "run8c_vmamba_lattice_qkv_exact80k_v1"
 
 # 抗自锁 fail-fast：step 1000 时若 `contrib_norm` 低于此值，直接中止该 run。
 # 依据：v1 的 contrib_norm 恒为 **0.0**；v2 三支 RMS 归一化后应为 O(1)。
@@ -81,7 +85,10 @@ SOURCE_IDENTITY_FILES = (
     "models/model/layers/caacp_hqkv.py",
     # R8b 新增（抗自锁版；v1 的文件同时保留，保证 Run8 身份链可复现）
     "models/model/casa_vmamba_net_v2.py",
-    "models/model/layers/caacp_hqkv_v2.py",
+    # 2026-10-20 拆除双曲几何：caacp_hqkv_v2.py 已移入
+    # train_scripts/CASA-TViM/Run8b/_SUPERSEDED_hqkv_v2_2026-10-20/（字节可 sha256 复核），
+    # 现行 lattice 版进入身份链。
+    "models/model/layers/caacp_hqkv_lattice.py",
 )
 
 
@@ -404,6 +411,10 @@ class ChangeViTTrainer(object):
                 "vssm_tiny_0230_ckpt_epoch_262.pth", \
                 f"pretrained path must be vssm_tiny_0230_ckpt_epoch_262.pth, got {args.vmamba_pretrained_weight_path}"
             from model.casa_vmamba_net import CASAVMambaSTRNet
+            # v1（Run8 血统）保留几何：--hqkv_geometry 的 argparse 默认是 None，
+            # 因为同一个开关还要服务 v2（v2 默认 lattice）。这里落定 v1 的历史默认值。
+            if args.hqkv_geometry is None:
+                args.hqkv_geometry = "hyperbolic"
             self.model = CASAVMambaSTRNet(
                 vmamba_pretrained_path=args.vmamba_pretrained_weight_path,
                 hqkv=bool(args.hqkv), str_dim=args.str_dim,
@@ -482,6 +493,16 @@ class ChangeViTTrainer(object):
         if getattr(args, "arch", "changevit") == "casa_vmamba_str_v2":
             assert args.resume is None, \
                 "from-scratch discipline: --resume is forbidden at launch (crash recovery uses own last.pth)"
+            # 2026-10-20 拆除：v2 只跑 lattice；几何默认值在这里落定（argparse 默认是 None，
+            # 因为同一个 --hqkv_geometry 还要服务 v1 的 hyperbolic）。
+            if args.hqkv_geometry is None:
+                args.hqkv_geometry = "lattice"
+            if int(args.hgsl):
+                raise SystemExit(
+                    "[HGSL-REMOVED] casa_vmamba_str_v2 不再支持 --hgsl 1：\n"
+                    "  双曲几何已于 2026-10-20 拆除，CAACP 不再产生变化分数，HGSL 没有输入口。\n"
+                    "  请显式传 --hgsl 0（这不是默认值，避免静默跑成另一条协议）。\n"
+                    "  HGSL 实现仍在 models/model/hgsl_loss.py，供将来另开预注册时复用。")
             assert args.seed == 16, f"from-scratch discipline: seed must be 16, got {args.seed}"
             assert os.path.basename(args.vmamba_pretrained_weight_path) == \
                 "vssm_tiny_0230_ckpt_epoch_262.pth", \
@@ -494,11 +515,11 @@ class ChangeViTTrainer(object):
                 hgsl=bool(args.hgsl), hgsl_detach_score=bool(args.hgsl_detach_score),
                 inject_mode=args.hqkv_inject_mode,
                 hqkv_rank=args.hqkv_rank, hqkv_lite_dim=args.hqkv_lite_dim,
-                hqkv_detail_window=args.hqkv_detail_window,
-                hqkv_global_window=args.hqkv_global_window,
+                # 2026-10-20 拆除：双曲半径（r0/a）与 detail/global 双窗口已删除，
+                # 改为单一**格点窗口** `hqkv_window`（固定 cell lattice，无参数）。
+                hqkv_window=args.hqkv_window,
                 hqkv_attn_stages=tuple(int(s) for s in args.hqkv_attn_stages.split(",") if s != ""),
                 rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar),
-                hqkv_r0=args.hqkv_r0, hqkv_a=args.hqkv_a,
                 gamma_init=args.hqkv_gamma_init,
             ).float()
             if args.onGPU:
@@ -544,10 +565,11 @@ class ChangeViTTrainer(object):
                      f"(v1 的自锁读数是 contrib_norm=0.0；v2 必须 ≫ 该阈值)")
             if self.model.hqkv_op is not None:
                 _hr = self.model.hqkv_report()
-                self.log(f"[HQKV] form={_hr['form']} rank={_hr['rank']} r0={_hr['r0']} a={_hr['a']} "
-                         f"detail_w={_hr['detail_window']} global_w={_hr['global_window']} "
-                         f"attn_stages={_hr['attn_stages']} params={_hr['total_params']} "
-                         f"gamma_init={_hr['gammas']}")
+                self.log(f"[HQKV] form={_hr['form']} rank={_hr['rank']} window={_hr['window']} "
+                         f"attn_stages={_hr['attn_stages']} kv_from={_hr['kv_from']} "
+                         f"params={_hr['total_params']} gammas={_hr['gammas']} "
+                         f"(geometry={_hr['geometry']} manifold={_hr['manifold']} "
+                         f"radius_decomposition={_hr['radius_decomposition']})")
                 self.log(f"[HQKV-PER-STAGE] {_hr['per_stage']}")
             _pb = self.model.param_breakdown()
             self.log(f"[PARAM-BREAKDOWN] backbone={_pb['backbone']:,} hqkv={_pb['hqkv']:,} "
@@ -824,8 +846,13 @@ class ChangeViTTrainer(object):
         """Run8b `casa_vmamba_str_v2` 的 run_manifest.json（fail-closed）。
 
         与 v1 版（`_write_casa_vmamba_manifest`）的字段差别：
-        - `arch` = `casa_vmamba_str_v2`、`hqkv_form` = `hqkv_v2_antilock`；
+        - `arch` = `casa_vmamba_str_v2`、`hqkv_form` = `hqkv_v3_lattice`
+          （2026-10-20 拆除双曲几何与半径分解后，form 由 `hqkv_v2_antilock` 改为 lattice）；
         - 新增 `hqkv_gamma_init`（抗自锁的关键开关，必须进侧车）；
+        - 新增 `hqkv_window`（**单一**格点窗口，取代旧的 detail/global 双窗口）；
+        - 新增 `hqkv_manifold` / `hqkv_radius_decomposition` / `hqkv_score_weighted_pooling`
+          三个恒为 `"none"` 的字段 —— 它们是**拆除的显式墓碑**，让任何后续读取侧车的人
+          一眼看到"这一版没有几何"，不必去翻 commit；
         - 去掉 `hqkv_branch`（v2 三支固定全开；分支消融改由 `--hqkv_attn_stages` 与
           `--hqkv_gamma_init 0` 组合表达，避免"分支开关"与"门开关"两个旋钮互相混淆）。
         """
@@ -846,16 +873,20 @@ class ChangeViTTrainer(object):
             "backbone_weight_sha256": pretrain_sha,
             "feature_taps": ["stage0_1_4_96", "stage1_1_8_192", "stage2_1_16_384", "stage3_1_32_768"],
             "hqkv": int(self.args.hqkv),
-            "hqkv_form": ("hqkv_v2_antilock" if int(self.args.hqkv) else "none"),
+            "hqkv_form": ("hqkv_v3_lattice" if int(self.args.hqkv) else "none"),
             "hqkv_geometry": (self.args.hqkv_geometry if int(self.args.hqkv) else "none"),
+            "hqkv_manifold": "none",
+            "hqkv_radius_decomposition": "none",
+            "hqkv_score_weighted_pooling": "none",
             "hqkv_inject_mode": (self.args.hqkv_inject_mode if int(self.args.hqkv) else "none"),
             "hqkv_rank": (int(self.args.hqkv_rank) if int(self.args.hqkv) else 0),
             "hqkv_lite_dim": (int(self.args.hqkv_lite_dim) if int(self.args.hqkv) else 0),
-            "hqkv_detail_window": (int(self.args.hqkv_detail_window) if int(self.args.hqkv) else 0),
-            "hqkv_global_window": (int(self.args.hqkv_global_window) if int(self.args.hqkv) else 0),
+            "hqkv_window": (int(self.args.hqkv_window) if int(self.args.hqkv) else 0),
             "hqkv_attn_stages": (self.args.hqkv_attn_stages if int(self.args.hqkv) else "none"),
-            "hqkv_r0": (float(self.args.hqkv_r0) if int(self.args.hqkv) else 0.0),
-            "hqkv_a": (float(self.args.hqkv_a) if int(self.args.hqkv) else 0.0),
+            "hqkv_detail_window": 0,
+            "hqkv_global_window": 0,
+            "hqkv_r0": 0.0,
+            "hqkv_a": 0.0,
             "hqkv_gamma_init": (float(self.args.hqkv_gamma_init) if int(self.args.hqkv) else 0.0),
             "hgsl": int(self.args.hgsl),
             "hgsl_detach_score": (int(self.args.hgsl_detach_score) if int(self.args.hgsl) else None),
@@ -1047,19 +1078,23 @@ class ChangeViTTrainer(object):
                 "backbone_weight": os.path.basename(
                     self.args.vmamba_pretrained_weight_path or ""),
                 "hqkv": int(self.args.hqkv),
-                "hqkv_form": ("hqkv_v2_antilock" if int(self.args.hqkv) else "none"),
+                # 2026-10-20：双曲几何与半径分解已拆除，form 改为 lattice；
+                # 旧值 `hqkv_v2_antilock` / manifold=r0+a / detail+global 双窗口不再可能出现。
+                "hqkv_form": ("hqkv_v3_lattice" if int(self.args.hqkv) else "none"),
                 "hqkv_geometry": (self.args.hqkv_geometry if int(self.args.hqkv) else "none"),
+                "hqkv_manifold": "none",
+                "hqkv_radius_decomposition": "none",
+                "hqkv_score_weighted_pooling": "none",
                 "hqkv_inject_mode": (self.args.hqkv_inject_mode if int(self.args.hqkv) else "none"),
                 "hqkv_rank": (int(self.args.hqkv_rank) if int(self.args.hqkv) else 0),
                 "hqkv_lite_dim": (int(self.args.hqkv_lite_dim) if int(self.args.hqkv) else 0),
-                "hqkv_detail_window": (int(self.args.hqkv_detail_window)
-                                       if int(self.args.hqkv) else 0),
-                "hqkv_global_window": (int(self.args.hqkv_global_window)
-                                       if int(self.args.hqkv) else 0),
+                "hqkv_window": (int(self.args.hqkv_window) if int(self.args.hqkv) else 0),
                 "hqkv_attn_stages": (self.args.hqkv_attn_stages
                                      if int(self.args.hqkv) else "none"),
-                "hqkv_r0": (float(self.args.hqkv_r0) if int(self.args.hqkv) else 0.0),
-                "hqkv_a": (float(self.args.hqkv_a) if int(self.args.hqkv) else 0.0),
+                "hqkv_detail_window": 0,
+                "hqkv_global_window": 0,
+                "hqkv_r0": 0.0,
+                "hqkv_a": 0.0,
                 "hqkv_gamma_init": (float(self.args.hqkv_gamma_init)
                                     if int(self.args.hqkv) else 0.0),
                 "hgsl": int(self.args.hgsl),
@@ -1258,17 +1293,16 @@ class ChangeViTTrainer(object):
                     f"t={time.time() - t0:.0f}s")
             self.log(line)
 
-            # R8b：每 epoch 打印一次 HQKV 的**生效读数**（v1 的对应读数恒为 contrib_norm=0，
-            # 本轮要靠这条逐 epoch 确认"模块真的在起作用"，而不是只看终值）。
+            # 2026-10-20 拆除双曲几何后：每 epoch 打印一次 HQKV 的**生效读数**，
+            # 确认模块真的在起作用（v1 的对应读数恒为 contrib_norm=0，是自锁的指纹）。
             if getattr(self.args, "arch", "") == "casa_vmamba_str_v2" and int(self.args.hqkv):
                 _d = self.model.hqkv_diag()
                 _g = _d.get("gammas", {})
                 _sh = {k.replace("part_", "").replace("_share", ""): v
                        for k, v in _d.items() if k.endswith("_share")}
+                _gs = " ".join(f"{k}={v:.4e}" for k, v in _g.items())
                 self.log(f"[HQKV-DIAG] epoch={epoch} contrib_norm={_d.get('contrib_norm', 0.0):.6e} "
-                         f"gamma_detail={_g.get('detail', 0.0):.4e} "
-                         f"gamma_global={_g.get('global', 0.0):.4e} "
-                         f"gamma_lite={_g.get('lite', 0.0):.4e} shares={_sh}")
+                         f"{_gs} shares={_sh}")
 
             # P2（Run2 §18）：best 元数据先更新并保存，再写 last.pth ——
             # 使 last.pth 内 best_f1/best_epoch 与磁盘 best 文件一致（崩溃恢复元数据不落后一拍）。
@@ -1415,8 +1449,8 @@ class ChangeViTTrainer(object):
         self.log("=== TEST RESULTS ===")
         if is_vmamba:
             _is_v2 = getattr(self.args, "arch", "changevit") == "casa_vmamba_str_v2"
-            self.log("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV%s + TAR/DCR + HGSL)"
-                     % (" v2 anti-lock" if _is_v2 else ""))
+            self.log("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV%s + TAR/DCR%s)"
+                     % (" lattice" if _is_v2 else "", "" if _is_v2 else " + HGSL"))
             self.log(f"[ARCH] {self.args.arch}")
             self.log(f"[HQKV] {int(self.args.hqkv)}")
             self.log(f"[HQKV-FORM] {self.model.hqkv_form or 'none'}")
@@ -1426,7 +1460,13 @@ class ChangeViTTrainer(object):
             self.log(f"[HQKV-INJECT-MODE] {self.args.hqkv_inject_mode}")
             self.log(f"[HQKV-RANK] {self.args.hqkv_rank}")
             self.log(f"[HQKV-ATTN-STAGES] {self.args.hqkv_attn_stages}")
-            self.log(f"[HQKV-RADIUS] r0={self.args.hqkv_r0} a={self.args.hqkv_a}")
+            if _is_v2:
+                # 2026-10-20 拆除后：格点窗口取代旧的 detail/global 双窗口；半径不存在了。
+                self.log(f"[HQKV-WINDOW] {self.args.hqkv_window}")
+                self.log("[HQKV-MANIFOLD] none (拆除于 2026-10-20)")
+                self.log("[HQKV-RADIUS] none (拆除于 2026-10-20)")
+            else:
+                self.log(f"[HQKV-RADIUS] r0={self.args.hqkv_r0} a={self.args.hqkv_a}")
             if _is_v2:
                 # 抗自锁的承重开关，必须落在 TEST 区块里（可审计）
                 self.log(f"[HQKV-GAMMA-INIT] {self.args.hqkv_gamma_init}")
@@ -1735,15 +1775,18 @@ def main():
                         help='Run8 VMamba-Tiny official v2 checkpoint '
                              '(vssm_tiny_0230_ckpt_epoch_262.pth, top-level key "model")')
     parser.add_argument('--hqkv', type=int, default=1, choices=[0, 1],
-                        help='Run8 CAACP-HQKV gate: 1 = hyperbolic dual-branch SAT-QKV change aggregation; '
+                        help='CAACP-HQKV gate: 1 = cross-layer SAT-style QKV injection; '
                              '0 = same-wave CTRL (VMamba + TAR/DCR only)')
-    parser.add_argument('--hqkv_geometry', type=str, default='hyperbolic',
-                        choices=['hyperbolic', 'euclidean'],
-                        help='Run8 geometry: hyperbolic (Lorentz geodesic, MAIN) | euclidean '
-                             '(SAME radial quantities, tangential distance — the mandatory curvature counterfactual)')
+    parser.add_argument('--hqkv_geometry', type=str, default=None,
+                        choices=['hyperbolic', 'euclidean', 'lattice', 'none'],
+                        help='[2026-10-20 CHANGED] hyperbolic/euclidean were REMOVED (the manifold + '
+                             'radius decomposition is gone; only their archived bytes remain). '
+                             'casa_vmamba_str_v2 now defaults to "lattice" and REJECTS the removed '
+                             'values with a SystemExit; casa_vmamba_str (v1, Run8) still defaults to '
+                             '"hyperbolic" so the historical config stays reproducible.')
     parser.add_argument('--hqkv_branch', type=str, default='both',
                         choices=['both', 'detail_only', 'global_only'],
-                        help='Run8 branch specialisation ablation: both | detail_only | global_only')
+                        help='[v1 only] Run8 branch specialisation ablation (removed from v2)')
     parser.add_argument('--hqkv_inject_mode', type=str, default='dcr1',
                         choices=['none', 'dcr1', 'dcr1_16'],
                         help='Run8 injection point: dcr1 = DCR 1/4 input only | dcr1_16 = also 1/16 skip | none')
@@ -1751,27 +1794,31 @@ def main():
                         help='Run8 Q/K/V channel rank (budget dial; fixed before the campaign)')
     parser.add_argument('--hqkv_lite_dim', type=int, default=192,
                         help='Run8 per-stage output width before summation (must equal str_dim)')
+    # ---- 2026-10-20 拆除后：单一格点窗口取代 detail/global 双窗口
+    parser.add_argument('--hqkv_window', type=int, default=2,
+                        help='[v2/lattice] fixed cell-lattice window for K/V token compression '
+                             '(N -> N/w^2). Must divide both H and W of every attention stage.')
     parser.add_argument('--hqkv_detail_window', type=int, default=2,
-                        help='Run8 detail-branch K/V token compression window (N -> N/w^2)')
+                        help='[v1 only, removed from v2] detail-branch K/V compression window')
     parser.add_argument('--hqkv_global_window', type=int, default=4,
-                        help='Run8 global-branch K/V token compression window (N -> N/w^2)')
+                        help='[v1 only, removed from v2] global-branch K/V compression window')
     parser.add_argument('--hqkv_attn_stages', type=str, default='1,2,3',
                         help='Run8 stages that run attention (others use the cheap 1x1 fusion): e.g. "1,2,3"')
     parser.add_argument('--hqkv_r0', type=float, default=0.5,
-                        help='Run8 hyperbolic radius floor r0 (PRE-REGISTERED and frozen)')
+                        help='[v1 only, removed from v2] Run8 hyperbolic radius floor r0')
     parser.add_argument('--hqkv_a', type=float, default=0.5,
-                        help='Run8 hyperbolic radius span a, r in [r0, r0+a] (PRE-REGISTERED and frozen)')
+                        help='[v1 only, removed from v2] Run8 hyperbolic radius span a, r in [r0, r0+a]')
     # ---- Run8b（抗自锁）：γ 初值。**>0 是修复自锁的承重开关**，不是可调超参。
     parser.add_argument('--hqkv_gamma_init', type=float, default=0.5,
-                        help='Run8b gamma initial value for the three independent gates. '
+                        help='gamma initial value for the independent gates. '
                              'MUST be > 0: with gamma=0 the module output is identically zero and '
                              'dL/dgamma = <dL/dr, Delta> = 0, so gamma can never leave 0 (Run8 v1 self-lock). '
                              'Use 0.0 ONLY to reproduce the v1 self-lock as a negative control.')
     parser.add_argument('--hgsl', type=int, default=1, choices=[0, 1],
-                        help='Run8 HGSL (hyperbolic geometric supervision loss) gate: 1 = add lambda*L_HGSL')
+                        help='[v1 only] Run8 HGSL gate: 1 = add lambda*L_HGSL. '
+                             'REJECTED for casa_vmamba_str_v2 since the geometry (its score input) was removed.')
     parser.add_argument('--hgsl_detach_score', type=int, default=1, choices=[0, 1],
-                        help='HGSL gradient path: 1 = score detached (loss only reshapes how the score is consumed); '
-                             '0 = gradient flows into the Lorentz geometry itself')
+                        help='HGSL gradient path: 1 = score detached; 0 = gradient flows into the geometry')
     parser.add_argument('--hgsl_lambda', type=float, default=HGSL_LAMBDA_DEFAULT,
                         help='HGSL loss weight (PRE-REGISTERED and fixed at 0.2; searching it is forbidden)')
 

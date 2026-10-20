@@ -1052,6 +1052,11 @@ CDD/WHU F1 降幅 ≤0.002」。
 
 # Run8b 结果（**已停训 2026-10-20 11:49**；8/16 封口；判定 = 双曲 HQKV **无正增益**）
 
+> **2026-10-20 后续：双曲几何已按用户指令拆除**，见下一节 `# Run8c`。
+> 拆除前的实现字节归档在
+> `train_scripts/CASA-TViM/Run8b/_SUPERSEDED_hqkv_v2_2026-10-20/`（6 个文件，SHA256 与
+> `SOURCE_SHA256.txt` 逐项相等）。
+>
 > **停训决策依据**：`B1_HYP` 四库跑完后 ΔF1 = {+0.0001, −0.0009, −0.0012, −0.0014}、均值 **−0.00085**，
 > 且多付 +0.304 M 参数 / +0.46 G FLOPs / 约 +9% 时间 ⇒ 「加了双曲几何的 HQKV 不比不加更好」。
 > 冻结记录（含未跑项、可复现命令、仍有效资产清单）：`train_scripts/CASA-TViM/Run8b/STOPPED_2026-10-20.md`
@@ -1244,6 +1249,63 @@ CDD/WHU F1 降幅 ≤0.002」。
 
 ---
 
+# Run8c：拆除双曲几何（2026-10-20，**代码已改完，未训练**）
+
+> 用户指令：停训（"现在的设计没什么用"）→ **拆除双曲几何结构**，范围 **B** =
+> 拆「流形映射 + 半径分解」，**保留跨层 QKV 注入**；拆完只做清理 + 归档，**先不训练**。
+> 完整记录：`train_scripts/CASA-TViM/Run8b/TEARDOWN_R8C_2026-10-20.md`
+
+**① 拆了什么**（`CAACP-HQKV` 的整条几何链）
+
+| 删除 | 保留 |
+|---|---|
+| Lorentz 双曲映射、变化分数 `r = r0 + a·q`、半径 `r0`/`a` | 跨层 QKV 注入（Q 全 `N`，K/V 压到 `k·N`） |
+| detail（局部离散度）/ global（全局半径）**双分支**及其双窗口 | SAT 式非对称注意力（Q 长 `N`、K/V 长 `n`） |
+| 分数驱动的加权池化 | **固定格点**压缩（`window=2`，无参数、无 TopK/聚类/随机） |
+| HGSL 的分数输入口 | 反自锁资产：每支独立 γ + `rms_normalize` + 非零初值 + `contrib_norm` fail-fast |
+
+- 删除文件：`models/model/layers/caacp_hqkv_v2.py`、`models/test_run8b_antilock_precheck.py`、
+  `models/run8b_dry_run.py`（**均已归档**，不丢）；
+- 新增：`models/model/layers/caacp_hqkv_lattice.py`、`models/test_hqkv_lattice_cpu.py`；
+- 改写：`models/model/casa_vmamba_net_v2.py`（传 `hyperbolic`/`euclidean` ⇒ **`SystemExit`**；
+  `hqkv=1 且 hgsl=1` 也 ⇒ `SystemExit`，不静默跳过）；
+- `models/train.py`：协议串 bump 为 **`run8c_vmamba_lattice_qkv_exact80k_v1`**、
+  新增 `--hqkv_window`、v2 的侧车字段改为 `hqkv_form=hqkv_v3_lattice` +
+  三个恒为 `"none"` 的**墓碑字段**（`hqkv_manifold` / `hqkv_radius_decomposition` /
+  `hqkv_score_weighted_pooling`）。
+
+**② 参数量变化**
+
+| 版本 | 模块参数 | 说明 |
+|---|---:|---|
+| v2（双曲，三支） | ≈ 0.62 M | 拆除前 |
+| **lattice（单支 + 格点）** | **198,340（0.198 M）** | 拆除后，**↓68%** |
+
+**③ 验证（服务器实测，`_r8c_verify.sh`）**
+
+| 组 | 结果 |
+|---|---|
+| A 拆除完整性（10 项） | **PASS** — 无 hyperbolic import、无 r0/radius 参数、三个几何字段全 `none` |
+| B 反自锁不回退（4 项） | **PASS** — 4 支 γ 梯度全非零 `{2.44,2.45,2.23,2.52}×1e-1`、`contrib_norm=615.7`；负对照 γ=0 ⇒ contrib=0 且梯度全 0 |
+| C 结构（6 项） | **PASS** — Q=1024 / KV=256、窗口不整除报错、净网络 GPU 前向 `contrib=2.40e+02` |
+| D 参数量（3 项） | **PASS** — `report == real == 198,340`，在结构性上界内 |
+| E fail-closed（4 项） | **PASS** — `hyperbolic`/`euclidean`/`hgsl=1` 三种非法组合全部 `SystemExit` |
+| **合计** | **27/27 PASS**（2026-10-20 12:02） |
+
+**④ 边界（不许外推）**
+
+lattice 版**没有任何训练结果**。27 项 PASS 只证明「代码对、能跑、有梯度、fail-closed」，
+**不证明**它优于 CTRL。双曲臂的「不划算」结论也不能推广成「任何跨层 QKV 注入都无效」——
+`B2_EUC`（欧氏反事实）只有 5.1%、无 TEST 区块。
+
+**⑤ 停训时踩到的坑（已修进脚本）**
+
+只杀 `python train.py` 不够：`_r8b_run_one_ds.sh` 里有 **10 s 重试循环**，
+父进程活着就会把训练**复活**（实测 11:48 杀掉 → 11:50 自己回来，新 pid 720375 重新吃 GPU0）。
+`_r8b_stop.sh` 已改为「**先杀重试宿主 → 再杀 train.py → 再观察 20 s**」，实测复活检查 4 拍全 0。
+
+---
+
 ## 探索线 Exp1：SPD(2)/H² 结构张量测地变化证据（2026-10-16 → 10-19，已完成）
 
 > 独立于 Run8：代码在 **`models_v1/`**（`models/` 未改动，Run8 campaign 的身份链保持冻结），
@@ -1348,17 +1410,19 @@ CDD/WHU F1 降幅 ≤0.002」。
 
 ```
 models/                        # 全部代码（两条主线：casa_tvim_str / casa_vmamba_str）
-  train.py                     #   训练入口（--arch casa_tvim_str | casa_vmamba_str）
+  train.py                     #   训练入口（--arch casa_tvim_str | casa_vmamba_str | casa_vmamba_str_v2）
   eval.py                      #   独立测试入口（同款架构参数，arch.json 侧车 fail-closed 校验）
   smoke_test.py                #   冒烟测试（--mode casa_tvim_str，T-CA-1..10）
   run8_dry_run.py              #   ★Run8 真实数据 dry-run（6 道门 + 折叠刀锋定位）
   test_run8_cpu_precheck.py    #   ★Run8 CPU 预检 26 项（退化定理复现 / 非退化性 / 预算 / HGSL）
+  test_hqkv_lattice_cpu.py     #   ★Run8c 拆除回归门 27 项（无几何 / 反自锁 / fail-closed）
   model/
     tinyvim_s_slim.py          #   TinyViM-S-Slim（Stage4 裁剪 + 预训练 key 重映射）
     casa_tvim_str_net.py       #   CASA-TViM-STRNet（Run1–Run7 主线主架构）
     casa_vmamba_net.py         #   ★CASA-VMamba-STRNet（Run8 主线主架构）
+    casa_vmamba_net_v2.py      #   ★Run8b 血统；**2026-10-20 已拆双曲**，现走 lattice QKV 注入
     vmamba_tiny.py             #   ★VMamba-Tiny 自包含主干（vssm_tiny_0230 口径，权重逐位加载）
-    hgsl_loss.py               #   ★HGSL 双曲几何监督损失（Run8 唯一新损失，λ=0.2 冻结）
+    hgsl_loss.py               #   ★HGSL 双曲几何监督损失（实现保留；v2 已无分数输入口 ⇒ fail-closed）
     str_tar.py                 #   TAR（TemporalRep1x1 / TemporalRepFine3x3）
     str_dcr.py                 #   DCRDecoder + RepLocalBlock/RepPW1x1
     str_reparam.py             #   折叠原语（fold_conv_bn / RepDW3 等）
@@ -1366,8 +1430,9 @@ models/                        # 全部代码（两条主线：casa_tvim_str / c
     str_hf_edge.py             #   Run7 HFAE（高频边缘辅助监督）
     layers/ss2d.py             #   SS2D 自包含移植（oflex/mamba-ssm/Triton 三后端）
     layers/caacp_ss2d.py       #   CAACP-SS2D（Run1–Run7 创新一：score_mode / residual_mode）
-    layers/caacp_hqkv.py       #   ★CAACP-HQKV（Run8 创新：4 stage × 双分支 × SAT 式 QKV）
-    layers/hyperbolic.py       #   ★Lorentz 双曲变化证据算子（含退化定理推导与复现）
+    layers/caacp_hqkv.py       #   ★CAACP-HQKV v1（Run8，含自锁缺陷，仅作历史复现）
+    layers/caacp_hqkv_lattice.py # ★Run8c：无几何的格点压缩跨层 SAT-QKV（当前 live 实现）
+    layers/hyperbolic.py       #   ★Lorentz 双曲算子（v1 仍用；v2 已不引用，拆除记录见 Run8c）
     layers/vmamba_kernel.py    #   ★selective-scan 后端适配（绕过 casacd 里 ABI 已坏的 .so）
     layers/mamba_scan_triton.py#   vendored Triton 兜底 kernel
   dataset/                     #   DataLoader（A/B/label + list 格式）
