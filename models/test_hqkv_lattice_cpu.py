@@ -5,7 +5,7 @@
 只保留跨层 SAT 式 QKV 注入。这个脚本就是那次拆除的**回归门**：
 它不训练、不碰 GPU、不需要数据集，`python models/test_hqkv_lattice_cpu.py` 直接跑。
 
-## 检查项（24 条）
+## 检查项（27 条；服务器实测 27/27 PASS，其中 C6 需要 CUDA scan 算子）
 
 A. **拆除完整性**（这是本轮的主诉求，放在最前面）
   A1 `caacp_hqkv_lattice` 模块及其依赖链**不 import** `hyperbolic`
