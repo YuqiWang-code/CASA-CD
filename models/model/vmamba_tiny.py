@@ -686,6 +686,30 @@ class VMambaBackbone(nn.Module):
                 outs.append(getattr(self, f"outnorm{i}")(o))
         return outs
 
+    def forward_pre_norm(self, x):
+        """返回 `outnorm` **之前**的 stage 激活 `(o0..o3)`，形状与 `forward_features` 相同。
+
+        （2026-10-20 实测结论）`forward_features` 的每个 stage 输出都过了
+        `outnorm{i} = LayerNorm2d(dim)`；LayerNorm 在通道维上做零均值单位方差标准化 ⇒
+        **每个 token 的范数精确等于 √dim**（实测 `‖v‖/√dim = 1.0000 ± 5e-7`，`1-‖p‖² = 0.4200`
+        对所有 token 完全相同）。任何靠**半径**携带信息的流形机制（Poincaré 球双曲距离）
+        在这组特征上都会退化成常数半径，从而把双曲距离压成"余弦距离的单调变换"。
+
+        本口给出 `outnorm` 之前的激活，其范数随内容变化（实测 cv：stage2 9.7e-2、stage3 6.8e-1），
+        恢复论文（JSTARS 2024 HSAM）依赖的"未归一化 CNN 激活"前提。
+
+        网络主干**仍然**使用 `forward_features`（归一化后）；本口只给旁路模块取数，
+        因此不改变任何既有 run 的前向数值。
+        """
+        x = self.patch_embed(x)
+        outs = []
+        for i, layer in enumerate(self.layers):
+            o = layer.blocks(x)
+            x = layer.downsample(o)
+            if i in self.out_indices:
+                outs.append(o)
+        return outs
+
     def forward(self, x):
         return self.forward_features(x)
 

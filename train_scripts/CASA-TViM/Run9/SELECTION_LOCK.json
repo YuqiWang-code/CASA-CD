@@ -1,0 +1,82 @@
+{
+  "run": "Run9",
+  "created": "2026-10-20",
+  "protocol_version": "run9_hsam_poincare_exact80k_v1",
+  "arch": "casa_vmamba_str_v2",
+  "question": "把编码器最深两层（stage2=1/16、stage3=1/32）的** outnorm 之前**的双时相激活映射到 Poincare 球、用双曲距离构造 HW x HW 注意力矩阵、双向聚合+残差（论文 HSAM），是否比不加更准？",
+  "source_paper": "Yang et al., Hyperboloid-Embedded Siamese Network for Change Detection in Remote Sensing Images, IEEE JSTARS 2024 (docs/参考文献/流形空间spd黎曼几何/)",
+  "unique_variable": "hsam (0 vs 1)；其余全部逐字相同（包括 feature_source/radius_mode/logit_norm/stages）",
+  "variants": {
+    "S0_CTRL": {"hsam": 0, "hqkv": 0, "hgsl": 0},
+    "S1_HSAM": {"hsam": 1, "hqkv": 0, "hgsl": 0}
+  },
+  "frozen_values_not_searched": {
+    "max_steps": 80000,
+    "batch_size": 32,
+    "seed": 16,
+    "lr": 2e-4,
+    "lr_mode": "poly",
+    "backbone_lr_ratio": 0.1,
+    "str_dim": 192,
+    "hqkv": 0,
+    "hgsl": 0,
+    "hsam_stages": "2,3",
+    "hsam_curvature_c": 1.0,
+    "hsam_logit_norm": "std",
+    "hsam_radius": "feature_energy",
+    "hsam_feature_source": "pre_norm",
+    "hsam_params": 0
+  },
+  "datasets": ["CDD-CD-256", "LEVIR-CD-256", "SYSU-CD-256", "WHU-CD-256"],
+  "wave_order": "按数据集交错：每个数据集先 S0_CTRL 再 S1_HSAM（保证同期同波 CTRL）",
+  "early_stop_rule_preregistered": {
+    "when": "CDD 与 LEVIR 两个数据集的两臂都封口后",
+    "condition": "两个数据集上 delta_F1 = HSAM - CTRL 都 <= 0",
+    "action": "STOP，不再跑 SYSU/WHU；结果按实际已完成的报，不挑选",
+    "script": "train_scripts/CASA-TViM/Run9/_r9_delta.py"
+  },
+  "measures_decided_before_any_f1_was_seen": {
+    "note": "以下三条修法都在看到任何 Run9 F1 之前确定，依据是机制读数（半径 cv / 秩相关 / 注意力熵），不是精度。",
+    "1_pre_norm_tap": {
+      "why": "outnorm=LayerNorm2d 让每个 token 的范数精确等于 sqrt(C)（实测 cv 5e-7），Poincare 半径恒定 ⇒ HD 退化成余弦距离的单调变换",
+      "evidence": "rank_corr(HD,1-cos) = 1.000001 / 1.000000 (stage2/stage3)",
+      "fix": "改取 outnorm 之前的激活 o（cv 4.9e-2 / 1.1e-1），HSAM 在 outnorm 之前混合、之后照常归一化 ⇒ CTRL 路径不变"
+    },
+    "2_global_rms_scaling": {
+      "why": "残差流范数随深度增长（stage3 实测 ‖v‖/sqrt(C)=2.71），1-‖p‖² 最小 8.5e-6 ⇒ HD 被分母主导、半径压倒角度",
+      "evidence": "rank_corr 变成 0.0047（另一种退化）",
+      "fix": "exp 映射前只除以整张量的标量 rms(v)：保序、保留 token 间相对幅度、零参数"
+    },
+    "3_logit_std_normalisation": {
+      "why": "论文原式 tanh(HD/sqrt(C)) 在 LayerNorm 特征上注意力熵 = 1.0000（prob_max 恰为 1/N），agg/feat = 1.9e-4",
+      "fix": "对 HD/sqrt(C) 逐样本标准化再 softmax（尺度无关，不是可搜索超参）"
+    }
+  },
+  "smoke_real_features_CDD_after_fix": {
+    "pretrain_worst_diff": 0.0,
+    "retained": "212/222",
+    "params_total": 31977044,
+    "params_hsam": 0,
+    "hsam_stage2": {"N": 256, "r_cv": 0.05662, "hd_cv": 0.1988, "prob_max": 0.23957,
+                    "entropy_norm": 0.9093, "entropy_paper": 1.0,
+                    "rank_corr_hd_vs_cos": 0.828569, "agg_over_feat": 1.6379,
+                    "out_over_in": 2.2969},
+    "hsam_stage3": {"N": 64, "r_cv": 0.2300, "hd_cv": 0.5951, "prob_max": 0.41173,
+                    "entropy_norm": 0.8636, "entropy_paper": 0.9999,
+                    "rank_corr_hd_vs_cos": 0.290213, "agg_over_feat": 1.2090,
+                    "out_over_in": 1.9881},
+    "throughput_cost_pct": 3.08,
+    "vram_peak_mib": {"hsam0": 26798, "hsam1": 26941}
+  },
+  "hard_gates_per_run": {
+    "finite": true,
+    "agg_over_feat_gt": 1e-6,
+    "radius_cv_gt": 1e-3,
+    "attn_entropy_norm_lt": 0.995,
+    "rank_corr_hd_vs_cos_lt": 0.999,
+    "note": "任一不满足 ⇒ train.py raise SystemExit(4)，run_one_ds 不重试、督导终止整轮"
+  },
+  "reserved_but_not_run": {
+    "hsam_radius=local_dispersion": "半径只由 3x3 局部离散度决定、与 token 能量解耦；代码已就绪并通过 CPU 检验，本轮不跑，留作后续对照臂"
+  }
+}

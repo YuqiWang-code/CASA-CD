@@ -39,6 +39,7 @@ from model.str_tass_fusion import STRTASSNet
 from model.str_hf_edge import (HF_EDGE_FORM, HF_EDGE_LAMBDA_DEFAULT, HF_EDGE_TAPS,
                                hf_edge_loss)
 from model.hgsl_loss import (HGSL_LAMBDA_DEFAULT, HGSL_STAGES_DEFAULT, hgsl_loss)
+from model.layers.hsam import ENT_MAX_OK, RANK_CORR_MAX_OK
 from model.metric_tool import ConfuseMatrixMeter
 from model.utils import BCEDiceLoss, init_seed, adjust_learning_rate
 
@@ -55,9 +56,12 @@ import dataset.Transforms as myTransforms
 #   v1 的 12 个 run 已停在干净状态、产物保留；两版**不可互相 resume**（协议串不同）。
 # R8c（2026-10-20）：**拆除双曲几何 + 半径分解**。B1_HYP 四库 ΔF1 均值 −0.00085（1 平 3 负）、
 #   还多付 0.304 M 参数 / +0.46 G FLOPs / 约 +9% 时间 ⇒ 几何与 detail/global 双分支移除，
-#   只保留跨层 SAT 式 QKV 注入（K/V 用**固定格点**压缩）。故再次 bump 协议串，
-#   使任何 lattice 版 checkpoint **绝不可能**被当成 Run8b 的 ckpt 复用。
-PROTOCOL_VERSION = "run8c_vmamba_lattice_qkv_exact80k_v1"
+#   只保留跨层 SAT 式 QKV 注入（K/V 用**固定格点**压缩）。
+# R9（2026-10-20）：**新增 HSAM**（Poincaré 球双曲相似度注意力，论文 JSTARS 2024，**零参数**），
+#   作用在编码器最深两层（论文 (3,4) H-Layer），重写双时相特征后再进 TAR/DCR。
+#   与 R8c 拆掉的东西**不是同一个机制**（那是 Lorentz 变化分数→半径分解，这是 Poincaré 相似度注意力）。
+#   再 bump 协议串，使 Run9 的 ckpt 与 R8b/R8c 绝不可互相复用。
+PROTOCOL_VERSION = "run9_hsam_poincare_exact80k_v1"
 
 # 抗自锁 fail-fast：step 1000 时若 `contrib_norm` 低于此值，直接中止该 run。
 # 依据：v1 的 contrib_norm 恒为 **0.0**；v2 三支 RMS 归一化后应为 O(1)。
@@ -89,6 +93,8 @@ SOURCE_IDENTITY_FILES = (
     # train_scripts/CASA-TViM/Run8b/_SUPERSEDED_hqkv_v2_2026-10-20/（字节可 sha256 复核），
     # 现行 lattice 版进入身份链。
     "models/model/layers/caacp_hqkv_lattice.py",
+    # R9 新增：HSAM（Poincaré 球双曲相似度注意力，零参数）
+    "models/model/layers/hsam.py",
 )
 
 
@@ -521,6 +527,12 @@ class ChangeViTTrainer(object):
                 hqkv_attn_stages=tuple(int(s) for s in args.hqkv_attn_stages.split(",") if s != ""),
                 rep_mode=args.rep_mode, fs_tar=bool(args.fs_tar),
                 gamma_init=args.hqkv_gamma_init,
+                # Run9：HSAM（零参数，Poincaré 球双曲相似度注意力）
+                hsam=bool(args.hsam),
+                hsam_stages=tuple(int(s) for s in args.hsam_stages.split(",") if s != ""),
+                hsam_logit_norm=args.hsam_logit_norm,
+                hsam_radius=args.hsam_radius,
+                hsam_feature_source=args.hsam_feature_source,
             ).float()
             if args.onGPU:
                 self.model = self.model.cuda()
@@ -559,6 +571,8 @@ class ChangeViTTrainer(object):
             self.log(f"[CONFIG] hgsl={int(self.args.hgsl)} "
                      f"hgsl_detach_score={int(self.args.hgsl_detach_score)} "
                      f"hgsl_lambda={self.args.hgsl_lambda} "
+                     f"hsam={int(getattr(self.args, 'hsam', 0))} "
+                     f"hsam_stages={getattr(self.args, 'hsam_stages', 'none')} "
                      f"protocol={PROTOCOL_VERSION} exact_max_steps={int(args.exact_max_steps)} "
                      f"max_steps={args.max_steps} batch={args.batch_size} seed={args.seed}")
             self.log(f"[FAILFAST] at_step={FAILFAST_AT_STEP} contrib_min={FAILFAST_CONTRIB_MIN} "
@@ -888,6 +902,19 @@ class ChangeViTTrainer(object):
             "hqkv_r0": 0.0,
             "hqkv_a": 0.0,
             "hqkv_gamma_init": (float(self.args.hqkv_gamma_init) if int(self.args.hqkv) else 0.0),
+            # R9：HSAM（零参数；Poincaré 球双曲相似度注意力）
+            "hsam": int(self.args.hsam),
+            "hsam_form": ("hsam_poincare_v1" if int(self.args.hsam) else "none"),
+            "hsam_stages": (self.args.hsam_stages if int(self.args.hsam) else "none"),
+            "hsam_curvature_c": (1.0 if int(self.args.hsam) else 0.0),
+            "hsam_params": 0,
+                "hsam_radius": (self.args.hsam_radius if int(self.args.hsam) else "none"),
+                "hsam_feature_source": (self.args.hsam_feature_source
+                                        if int(self.args.hsam) else "none"),
+                "hsam_rank_corr_max_ok": (float(RANK_CORR_MAX_OK)
+                                          if int(self.args.hsam) else 0.0),
+            "hsam_feature_scale": ("v/sqrt(C) (fixed, non-learnable)"
+                                   if int(self.args.hsam) else "none"),
             "hgsl": int(self.args.hgsl),
             "hgsl_detach_score": (int(self.args.hgsl_detach_score) if int(self.args.hgsl) else None),
             "hgsl_lambda": (float(self.args.hgsl_lambda) if int(self.args.hgsl) else 0.0),
@@ -1097,6 +1124,19 @@ class ChangeViTTrainer(object):
                 "hqkv_a": 0.0,
                 "hqkv_gamma_init": (float(self.args.hqkv_gamma_init)
                                     if int(self.args.hqkv) else 0.0),
+                # R9：HSAM（零参数；Poincaré 球双曲相似度注意力）
+                "hsam": int(self.args.hsam),
+                "hsam_form": ("hsam_poincare_v1" if int(self.args.hsam) else "none"),
+                "hsam_stages": (self.args.hsam_stages if int(self.args.hsam) else "none"),
+                "hsam_curvature_c": (1.0 if int(self.args.hsam) else 0.0),
+                "hsam_params": 0,
+                "hsam_radius": (self.args.hsam_radius if int(self.args.hsam) else "none"),
+                "hsam_feature_source": (self.args.hsam_feature_source
+                                        if int(self.args.hsam) else "none"),
+                "hsam_rank_corr_max_ok": (float(RANK_CORR_MAX_OK)
+                                          if int(self.args.hsam) else 0.0),
+                "hsam_feature_scale": ("v/sqrt(C) (fixed, non-learnable)"
+                                       if int(self.args.hsam) else "none"),
                 "hgsl": int(self.args.hgsl),
                 "hgsl_detach_score": (int(self.args.hgsl_detach_score)
                                       if int(self.args.hgsl) else None),
@@ -1213,6 +1253,63 @@ class ChangeViTTrainer(object):
             dataset, batch_size=batch_size, shuffle=shuffle,
             num_workers=self.args.num_workers, pin_memory=True, drop_last=False)
 
+    def _log_and_check_hsam(self, epoch, cur_iter):
+        """打印 Run9 HSAM 的生效读数，并在第一次拿到读数时做 fail-fast 判定。
+
+        为什么 HSAM 需要 fail-fast：它是**零参数确定算子**，不会有"学不出来"的自锁，
+        但有两类会被静默吞掉的失败：
+          ① 数值 —— exp 饱和导致 HD 分母为 0，输出 NaN/Inf（反向会把整个网络污染成 NaN）；
+          ② 退化 —— 所有点落在同一球面 ⇒ 双曲距离只是 L2 的单调变换，双曲性等于没有。
+        所以判定用三条硬条件（不是可调阈值）：
+          finite 全 True、agg_over_feat > 1e-6（聚合项确实非零）、radius_cv > 1e-3（半径确实在变）。
+        """
+        if getattr(self.model, "hsam_op", None) is None:
+            return
+        d = self.model.hsam_diag()
+        if not d:
+            return
+        for s in d.get("stages", []):
+            st = d.get(f"stage{s}")
+            if not st:
+                continue
+            self.log(
+                f"[HSAM-DIAG] epoch={epoch} stage{s} C={st['dim']} N={st['tokens']} "
+                f"src={st['feature_source']} radius={st['radius_mode']} "
+                f"logit_norm={st['logit_norm']} r_cv={st['radius_cv']:.3e} "
+                f"(1-r²)cv={st['one_minus_r2_cv']:.3e} min={st['one_minus_r2_min']:.3e} "
+                f"at_eps={st['at_eps_frac']:.2e} "
+                f"rank_corr={st['rank_corr_hd_vs_cos']:.6f} "
+                f"prob_max={st['attn_prob_max']:.4e} ent={st['attn_entropy_norm']:.4f} "
+                f"ent_paper={st['attn_entropy_paper']:.4f} clip={st['atanh_clip_frac']:.2e} "
+                f"agg/feat={st['agg_over_feat']:.4e} out/in={st['out_over_in']:.4f} "
+                f"finite={int(st['finite'])}")
+
+        if getattr(self, "_hsam_ff_done", False):
+            return
+        self._hsam_ff_done = True
+        bad = []
+        for s in d.get("stages", []):
+            st = d.get(f"stage{s}") or {}
+            if not st.get("finite", False):
+                bad.append(f"stage{s}: 输出非有限（NaN/Inf）")
+            if st.get("agg_over_feat", 0.0) <= 1e-6:
+                bad.append(f"stage{s}: 聚合项≈0（agg/feat={st.get('agg_over_feat')}）")
+            if st.get("radius_cv", 0.0) <= 1e-3:
+                bad.append(f"stage{s}: 半径退化（cv={st.get('radius_cv')}）")
+            if st.get("attn_entropy_norm", 1.0) > ENT_MAX_OK:
+                bad.append(f"stage{s}: 注意力退化成均匀（ent={st.get('attn_entropy_norm')} "
+                           f"> {ENT_MAX_OK}）⇒ 等价于均值池化")
+            # **非退化证书**：秩相关 ≈ 1 说明 HD 只是余弦距离的单调变换，
+            # 那就不是在测"双曲"，而是在测"余弦注意力"（Run8b 的教训在新模块上重演）。
+            rc = st.get("rank_corr_hd_vs_cos", 1.0)
+            if rc > RANK_CORR_MAX_OK:
+                bad.append(f"stage{s}: 双曲距离退化成余弦距离的单调变换"
+                           f"（rank_corr={rc:.6f} > {RANK_CORR_MAX_OK}）")
+        if bad:
+            self.log("[HSAM-FAILFAST-FAIL] " + " | ".join(bad))
+            raise SystemExit(4)
+        self.log(f"[HSAM-FAILFAST-PASS] step={cur_iter} HSAM 有限、非零贡献、半径非退化")
+
     def train(self):
         train_loader = self._make_loader(self.args.train_list, self.args.batch_size, True)
         test_loader = self._make_loader(self.args.test_list, self.args.test_batch_size, False)
@@ -1283,8 +1380,19 @@ class ChangeViTTrainer(object):
                     break
                 continue
 
+            _has_hsam = getattr(self.model, "hsam_op", None) is not None
+            if _has_hsam:
+                self.model.set_hsam_collect(True)     # 统计只在这条 val 里打开
             loss_val, score_val = val(self.args, test_loader, self.model)
+            if _has_hsam:
+                self.model.set_hsam_collect(False)
             torch.cuda.empty_cache()
+
+            # ---- Run9 HSAM 读数 + fail-fast（只在 val 期间打开统计，不拖累训练步）
+            # HSAM 是**零参数**的确定算子，不存在"学不出来"的自锁；它可能出的问题是
+            #   ① 数值：exp 饱和 ⇒ HD 分母为 0 ⇒ NaN；
+            #   ② 退化：所有点落在同一球面 ⇒ 双曲距离只是 L2 的单调变换，双曲性失去意义。
+            self._log_and_check_hsam(epoch, cur_iter)
 
             line = (f"Epoch {epoch}/{self.args.max_epochs} | Loss={loss_val:.4f} | "
                     f"Recall={score_val['recall']:.4f} | Precision={score_val['precision']:.4f} | "
@@ -1304,8 +1412,7 @@ class ChangeViTTrainer(object):
                 self.log(f"[HQKV-DIAG] epoch={epoch} contrib_norm={_d.get('contrib_norm', 0.0):.6e} "
                          f"{_gs} shares={_sh}")
 
-            # P2（Run2 §18）：best 元数据先更新并保存，再写 last.pth ——
-            # 使 last.pth 内 best_f1/best_epoch 与磁盘 best 文件一致（崩溃恢复元数据不落后一拍）。
+            # P2（Run2 §18）：best 元数据先更新并保存，再写 last.pth ——            # 使 last.pth 内 best_f1/best_epoch 与磁盘 best 文件一致（崩溃恢复元数据不落后一拍）。
             if score_val["F1"] > self.best_f1:
                 prev_best = os.path.join(self.args.ckpt_dir, f"best_F1={self.best_f1:.4f}.pth")
                 if self.best_f1 >= 0 and os.path.isfile(prev_best):
@@ -1449,8 +1556,9 @@ class ChangeViTTrainer(object):
         self.log("=== TEST RESULTS ===")
         if is_vmamba:
             _is_v2 = getattr(self.args, "arch", "changevit") == "casa_vmamba_str_v2"
-            self.log("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV%s + TAR/DCR%s)"
-                     % (" lattice" if _is_v2 else "", "" if _is_v2 else " + HGSL"))
+            self.log("[MODEL] CASA-VMamba-STR (VMamba-Tiny + CAACP-HQKV%s + TAR/DCR%s%s)"
+                     % (" lattice" if _is_v2 else "", "" if _is_v2 else " + HGSL",
+                        " + HSAM" if int(getattr(self.args, "hsam", 0)) else ""))
             self.log(f"[ARCH] {self.args.arch}")
             self.log(f"[HQKV] {int(self.args.hqkv)}")
             self.log(f"[HQKV-FORM] {self.model.hqkv_form or 'none'}")
@@ -1470,6 +1578,13 @@ class ChangeViTTrainer(object):
             if _is_v2:
                 # 抗自锁的承重开关，必须落在 TEST 区块里（可审计）
                 self.log(f"[HQKV-GAMMA-INIT] {self.args.hqkv_gamma_init}")
+                # Run9：HSAM 的关键开关同样必须落进 TEST 区块
+                self.log(f"[HSAM] {int(getattr(self.args, 'hsam', 0))}")
+                self.log(f"[HSAM-STAGES] {getattr(self.args, 'hsam_stages', 'none')}")
+                self.log(f"[HSAM-FORM] {self.model.hsam_form or 'none'}")
+                if int(getattr(self.args, "hsam", 0)):
+                    self.log("[HSAM-MODEL] poincare_ball c=1 exp0(v)=tanh(||v/sqrt(C)||)·v/||v||")
+                    self.log("[HSAM-PARAMS] 0 (zero learnable parameters)")
             self.log(f"[HGSL] {int(self.args.hgsl)} detach_score={int(self.args.hgsl_detach_score)} "
                      f"lambda={self.args.hgsl_lambda}")
             self.log(f"[FS-TAR] {int(self.args.fs_tar)}")
@@ -1798,6 +1913,35 @@ def main():
     parser.add_argument('--hqkv_window', type=int, default=2,
                         help='[v2/lattice] fixed cell-lattice window for K/V token compression '
                              '(N -> N/w^2). Must divide both H and W of every attention stage.')
+    # ---- Run9：HSAM（Poincaré 球双曲相似度注意力，零参数）
+    parser.add_argument('--hsam', type=int, default=0, choices=[0, 1],
+                        help='Run9 HSAM gate: 1 = hyperbolic similarity attention (Poincare ball, '
+                             '0 learnable params) on the two deepest encoder stages, rewriting the '
+                             'bitemporal features before TAR/DCR. 0 = CTRL (identical to Run8b CTRL).')
+    parser.add_argument('--hsam_stages', type=str, default='2,3',
+                        help='Run9 HSAM target stages (0-based, 4 stages at 1/4,1/8,1/16,1/32). '
+                             'Default "2,3" = 1/16 & 1/32 = the two deepest = the paper\'s (3,4) H-Layer '
+                             '(their best). "1,2,3" would add 1/8; the paper measured that as worse.')
+    parser.add_argument('--hsam_logit_norm', type=str, default='std',
+                        choices=['std', 'paper', 'raw'],
+                        help='How the hyperbolic-distance matrix becomes softmax logits. '
+                             '"std" (default) = per-sample standardisation, scale-free; '
+                             '"paper" = literal tanh(HD/sqrt(C)) which is PROVABLY uniform '
+                             '(entropy 1.0000) on LayerNorm-ed features -- kept only to reproduce it; '
+                             '"raw" = HD without the sqrt(C) normaliser.')
+    parser.add_argument('--hsam_radius', type=str, default='feature_energy',
+                        choices=['feature_energy', 'local_dispersion'],
+                        help='What sets the Poincare radius. "feature_energy" (default, paper-adjacent) '
+                             '= the activation strength after a global-RMS scalar scaling. '
+                             '"local_dispersion" = the local 3x3 dispersion only, decoupled from token '
+                             'energy (a more radical design, NOT part of Run9\'s main arm).')
+    parser.add_argument('--hsam_feature_source', type=str, default='pre_norm',
+                        choices=['pre_norm', 'post_norm'],
+                        help='Taps for HSAM. "pre_norm" (default) = the activation BEFORE outnorm '
+                             '(LayerNorm2d). REQUIRED for a meaningful hyperbolic module: outnorm forces '
+                             '||v||^2 = C exactly, which makes the Poincare radius constant and reduces '
+                             'HD to a monotone function of cosine distance (measured rank corr = 1.000000). '
+                             '"post_norm" is kept only as a negative control that reproduces the degeneracy.')
     parser.add_argument('--hqkv_detail_window', type=int, default=2,
                         help='[v1 only, removed from v2] detail-branch K/V compression window')
     parser.add_argument('--hqkv_global_window', type=int, default=4,

@@ -1,10 +1,17 @@
 """CASA-VMamba-STRNet v2（Run8b 血统）：**拆除双曲几何后**的 CASA-VMamba 网络。
 
-## 2026-10-20 拆除（本文件的结构性变更）
+## 2026-10-20 之后的两件事，分清楚
 
-拆除前，本文件的 `geometry` 参数会打开 `hyperbolic.py` 的 Lorentz 映射，
-并由 `CAACPHQKVv2` 做「双曲变化分数 → 半径分解 → detail/global 双分支特化 QKV」。
-实测 `B1_HYP` vs `CTRL_R8B` 四库 **ΔF1 均值 −0.00085**、还更贵 ⇒ 拆除。
+**（a）拆除**：原来的 `geometry=hyperbolic|euclidean` 走 Lorentz 映射 + 半径分解 + detail/global
+双分支特化 QKV，实测 `B1_HYP` 四库 ΔF1 均值 −0.00085 且更贵 ⇒ **已拆**。
+现在 `geometry` 只接受 `"none"`/`"lattice"`，传旧值直接 `SystemExit`。
+
+**（b）新增 Run9 HSAM**：`hsam=True` 打开 `model/layers/hsam.py` 的
+**Poincaré 球双曲相似度注意力**（论文 JSTARS 2024 的 HSAM，**零参数**）。
+它作用在编码器**最深两层**的输出上：exp 映射 → 双曲距离 → `HW×HW` 注意力矩阵 →
+双向聚合 + 残差，得到 `F^H_1/F^H_2` 后**替换**原特征再进 TAR/DCR。
+注意：这两件事的几何**不是同一个东西** —— (a) 是 Lorentz 上做"变化分数→半径分解"，
+(b) 是 Poincaré 球上做"相似度注意力"。
 
 现在：
 
@@ -40,6 +47,10 @@ from model.layers.caacp_hqkv_lattice import (
     LATTICE_WINDOW_DEFAULT,
     build_caacp_hqkv_lattice,
 )
+from model.layers.hsam import ATTN_STAGES_DEFAULT as HSAM_STAGES_DEFAULT
+from model.layers.hsam import HSAM_FORM, LOGIT_NORM_DEFAULT as HSAM_LOGIT_NORM_DEFAULT
+from model.layers.hsam import RADIUS_MODE_DEFAULT as HSAM_RADIUS_DEFAULT
+from model.layers.hsam import build_hsam
 from model.str_dcr import DCRDecoder
 from model.str_tar import MultiScaleTAR
 from model.vmamba_tiny import build_vmamba_tiny
@@ -62,7 +73,11 @@ class CASAVMambaSTRNetV2(nn.Module):
                  hqkv_window=LATTICE_WINDOW_DEFAULT,
                  hqkv_attn_stages=(1, 2, 3),
                  rep_mode="full", fs_tar=False, vmamba_cfg=None,
-                 hqkv_seed=HQKV_SEED, gamma_init=GAMMA_INIT):
+                 hqkv_seed=HQKV_SEED, gamma_init=GAMMA_INIT,
+                 hsam=False, hsam_stages=HSAM_STAGES_DEFAULT,
+                 hsam_logit_norm=HSAM_LOGIT_NORM_DEFAULT,
+                 hsam_radius=HSAM_RADIUS_DEFAULT,
+                 hsam_feature_source="pre_norm"):
         super().__init__()
         g = str(geometry).lower()
         if g in REMOVED_GEOMETRIES:
@@ -72,7 +87,9 @@ class CASAVMambaSTRNetV2(nn.Module):
                 f"+0.46 G FLOPs / 约 +9% 时间。\n"
                 f"  归档（字节可复核）："
                 f"train_scripts/CASA-TViM/Run8b/_SUPERSEDED_hqkv_v2_2026-10-20/\n"
-                f"  现在只接受 geometry in {GEOMETRIES}；要重开流形几何请先写新的预注册。")
+                f"  现在只接受 geometry in {GEOMETRIES}；要重开流形几何请先写新的预注册。\n"
+                f"  注：Run9 的双曲模块是 **HSAM**（Poincaré 球、零参数、只作相似度），"
+                f"由 `hsam=True` 打开，与本条无关。")
         if g not in GEOMETRIES:
             raise SystemExit(f"[HQKV-GEOMETRY] 不支持 {geometry!r}，只接受 {GEOMETRIES}")
         if hqkv and hgsl:
@@ -81,6 +98,10 @@ class CASAVMambaSTRNetV2(nn.Module):
                 "HGSL 没有输入口。\n"
                 "  HGSL 的实现留在 models/model/hgsl_loss.py（未删），但需要先有分数来源；"
                 "若要用它，必须另开一轮预注册说明分数从哪来。")
+        if hsam and hgsl:
+            raise SystemExit(
+                "[HGSL-REMOVED] hsam=1 且 hgsl=1 已不可用：HSAM 不产生变化分数（它只重写特征），"
+                "HGSL 没有输入口。")
         assert inject_mode in INJECT_MODES, inject_mode
         assert rep_mode in ("plain", "full")
 
@@ -94,6 +115,9 @@ class CASAVMambaSTRNetV2(nn.Module):
         self.fs_tar = bool(fs_tar)
         self.hqkv_form = HQKV_FORM_NAME if self.hqkv else None
         self.gamma_init = float(gamma_init)
+        self.hsam = bool(hsam)
+        self.hsam_stages = tuple(int(s) for s in hsam_stages)
+        self.hsam_form = HSAM_FORM if self.hsam else None
         self._failfast_done = False
 
         self.encoder = build_vmamba_tiny(pretrained_path=vmamba_pretrained_path,
@@ -110,6 +134,7 @@ class CASAVMambaSTRNetV2(nn.Module):
 
         # HQKV **最后构造** + fork_rng（保证 RNG 消耗不影响主干初始化）
         self._diag = {}
+        self._hsam_diag = {}
         if self.hqkv:
             with torch.random.fork_rng(devices=[]):
                 torch.manual_seed(int(hqkv_seed))
@@ -120,6 +145,15 @@ class CASAVMambaSTRNetV2(nn.Module):
                     init_seed=int(hqkv_seed), gamma_init=gamma_init)
         else:
             self.hqkv_op = None
+        # Run9：HSAM 零参数 ⇒ 不影响 RNG；放在 HQKV 之后再构造，保持既有 run 的 RNG 序列不变
+        self.hsam_logit_norm = str(hsam_logit_norm)
+        self.hsam_radius = str(hsam_radius)
+        self.hsam_feature_source = str(hsam_feature_source)
+        self.hsam_op = (build_hsam(stage_dims=ENCODER_DIMS, stages=self.hsam_stages,
+                                   logit_norm=self.hsam_logit_norm,
+                                   radius_mode=self.hsam_radius,
+                                   feature_source=self.hsam_feature_source)
+                        if self.hsam else None)
 
     # ------------------------------------------------------------------ 诊断
     def hqkv_report(self):
@@ -146,6 +180,18 @@ class CASAVMambaSTRNetV2(nn.Module):
         d = self.hqkv_diag()
         return float(d.get("contrib_norm", 0.0))
 
+    # ------------------------------------------------------------------ Run9 HSAM
+    def hsam_report(self):
+        return None if self.hsam_op is None else self.hsam_op.param_report()
+
+    def hsam_diag(self):
+        return {} if self.hsam_op is None else self.hsam_op.diag()
+
+    def set_hsam_collect(self, flag=True):
+        """打开/关闭 HSAM 统计。默认关闭（每步统计会触发 device sync，白吃吞吐）。"""
+        if self.hsam_op is not None:
+            self.hsam_op.collect_diag = bool(flag)
+
     def pretrain_load_stats(self):
         return self.encoder.load_stats()
 
@@ -156,22 +202,50 @@ class CASAVMambaSTRNetV2(nn.Module):
         head = sum(p.numel() for p in self.head.parameters())
         hq = (sum(p.numel() for p in self.hqkv_op.parameters())
               if self.hqkv_op is not None else 0)
+        hs = (sum(p.numel() for p in self.hsam_op.parameters())
+              if self.hsam_op is not None else 0)
         total = sum(p.numel() for p in self.parameters())
-        return {"backbone": enc, "hqkv": hq, "tar": tar, "dcr": dcr, "head": head,
+        return {"backbone": enc, "hqkv": hq, "hsam": hs, "tar": tar, "dcr": dcr,
+                "head": head,
                 "total": total, "non_backbone": total - enc,
-                "non_backbone_no_hqkv": total - enc - hq}
+                "non_backbone_no_hqkv": total - enc - hq - hs}
 
     # ------------------------------------------------------------------
     def forward(self, pre, post, label=None):
         x2b = torch.cat([pre, post], dim=0)
-        outs = self.encoder.forward_features(x2b)
-        del x2b
-        feats_a, feats_b = [], []
-        for t in outs:
-            a, b = t.chunk(2, dim=0)
-            feats_a.append(a)
-            feats_b.append(b)
-        del outs
+        if self.hsam_op is not None and self.hsam_op.feature_source == "pre_norm":
+            # Run9：HSAM 必须在 `outnorm`（LayerNorm2d）**之前**混合。
+            # 原因（实测）：outnorm 让每个 token 的范数精确等于 √C ⇒ Poincaré 半径恒定
+            # ⇒ 双曲距离退化成余弦距离的单调变换（秩相关 1.000000）。
+            pre_taps = self.encoder.forward_pre_norm(x2b)
+            del x2b
+            a_pre, b_pre = [], []
+            for t in pre_taps:
+                a, b = t.chunk(2, dim=0)
+                a_pre.append(a)
+                b_pre.append(b)
+            del pre_taps
+            a_pre, b_pre = self.hsam_op(a_pre, b_pre)
+            self._hsam_diag = self.hsam_op.diag()
+            feats_a = [getattr(self.encoder, f"outnorm{i}")(a_pre[i])
+                       for i in range(len(a_pre))]
+            feats_b = [getattr(self.encoder, f"outnorm{i}")(b_pre[i])
+                       for i in range(len(b_pre))]
+            del a_pre, b_pre
+        else:
+            outs = self.encoder.forward_features(x2b)
+            del x2b
+            feats_a, feats_b = [], []
+            for t in outs:
+                a, b = t.chunk(2, dim=0)
+                feats_a.append(a)
+                feats_b.append(b)
+            del outs
+            if self.hsam_op is not None:      # post_norm 负对照（已证明退化，仅作对照）
+                feats_a, feats_b = self.hsam_op(feats_a, feats_b)
+                self._hsam_diag = self.hsam_op.diag()
+            else:
+                self._hsam_diag = {}
 
         if self.hqkv_op is not None:
             out, diag = self.hqkv_op(feats_a, feats_b)

@@ -1306,6 +1306,70 @@ lattice 版**没有任何训练结果**。27 项 PASS 只证明「代码对、�
 
 ---
 
+# Run9：HSAM（Poincaré 球双曲相似度注意力，**零参数**，进行中）
+
+> 用户指令（2026-10-20）：按 JSTARS 2024 论文 Fig.2 的 HSAM，把编码器 3、4 层输出映射到双曲空间
+> 算双曲距离、构造注意力矩阵，再经注意力聚合 + 残差增强双时相特征。**就加这个模块。Run9。**
+> 预注册与冻结方案：`train_scripts/CASA-TViM/Run9/README.md` · `…/Run9/SELECTION_LOCK.json`
+> 协议 `run9_hsam_poincare_exact80k_v1` · 变体 `S0_CTRL` / `S1_HSAM` · 8 个 run
+
+**① 开跑前发现并修掉的两个**必然退化**（这是本轮最重要的技术结果）**
+
+`outnorm{i}=LayerNorm2d(dim)` 在通道维把每个空间位置标准化 ⇒ **`‖v‖²=C` 精确成立**
+（实测 `‖v‖/√C=1.0000±5e-7`，`1−‖p‖²` 对所有 token 恒为 `0.4200`）。于是所有点同半径：
+
+```
+‖p−q‖²=2r₀²(1−cosθ)，(1−‖p‖²)(1−‖q‖²)=sech⁴(1)=常数
+⇒ HD = arcosh(1+K(1−cosθ))     ← 余弦距离的严格单调函数
+```
+
+实测秩相关 **`rank_corr(HD,1−cos)=1.000001/1.000000`** ⇒ **"双曲"不携带任何信息**，
+模块等价于余弦注意力。若不开跑前查出来，60 小时 GPU 会去回答一个错误的问题。
+
+| 修法 | 依据 | 效果（实测 rank_corr） |
+|---|---|---|
+| ① 改取 `outnorm` **之前**的激活（新增 `encoder.forward_pre_norm()`） | `o` 的范数随内容变化（cv 4.9e-2 / 1.1e-1） | 1.000000 → **0.83 / 0.29** |
+| ② exp 映射前除以**全局 RMS 标量**（保序、零参数） | 不处理时 stage3 `1−‖p‖²` 触底 8.5e-6、半径压倒角度（rank_corr 掉到 0.0047） | 维持 **0.83 / 0.29** |
+| ③ logit 逐样本标准化 | 论文原式 `tanh(HD/√C)` 注意力熵 = **1.0000**、`agg/feat=1.9e-4`（等于没加） | 熵 0.91 / 0.86 |
+
+> **② 的注**：HSAM 在 `outnorm` **之前**混合、之后照常归一化 ⇒ **CTRL 路径一个字节都不变**。
+
+**② 硬门（每个 run 都查，任一不过 ⇒ `SystemExit(4)`，不重试、终止整轮）**
+
+`finite` · `agg_over_feat>1e-6` · `radius_cv>1e-3` · `attn_entropy_norm<0.995` ·
+**`rank_corr_hd_vs_cos<0.999`**（本轮的核心门：挡住"以为在测双曲、其实在测余弦"）
+
+**③ 开跑前实测（服务器，CDD 真实特征）**
+
+| 项 | `hsam=0` | `hsam=1` |
+|---|---:|---:|
+| 预训练 | `212/222, worst_diff=0.0` | 同 |
+| 总参数 | 31,977,044 | **31,977,044（HSAM 贡献 0）** |
+| step/s | 3.691 | 3.581（**−3.08%**） |
+| 峰值显存 | 26,798 MiB | 26,941 MiB |
+| stage2 | — | `r_cv 5.7e-2` `rank_corr 0.829` `ent 0.909` `agg/feat 1.64` |
+| stage3 | — | `r_cv 2.3e-1` `rank_corr 0.290` `ent 0.864` `agg/feat 1.21` |
+
+CPU 回归门 `models/test_hsam_cpu.py` **32/32 PASS**，其中两条是**固定断言**：
+"论文原式必然均匀（熵>0.9999）"、"post_norm 负对照 rank_corr≈1"。
+
+**④ 预注册早停**：CDD+LEVIR 两臂都封口后，若两库 `ΔF1` 都 ≤ 0 ⇒ STOP（不再跑 SYSU/WHU），
+结果按实际完成的报、不挑选。脚本 `_r9_delta.py`。
+
+**⑤ 保留但本轮不跑**：`--hsam_radius local_dispersion`（半径只由 3×3 局部离散度决定、
+与 token 能量解耦；代码已就绪并通过 CPU 检验），留作后续对照臂。
+
+**⑥ 监控**
+
+```bash
+bash train_scripts/CASA-TViM/Run9/_r9_state.sh      # 进度 + HSAM 读数 + Δ 表
+bash train_scripts/CASA-TViM/Run9/_r9_probe.sh      # 当前 stage 日志 + 督导决策
+tail -20 /tmp/run9/pipeline.log
+bash train_scripts/CASA-TViM/Run9/_r9_stop.sh --kill-run
+```
+
+---
+
 ## 探索线 Exp1：SPD(2)/H² 结构张量测地变化证据（2026-10-16 → 10-19，已完成）
 
 > 独立于 Run8：代码在 **`models_v1/`**（`models/` 未改动，Run8 campaign 的身份链保持冻结），
