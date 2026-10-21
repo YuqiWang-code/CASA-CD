@@ -20,10 +20,12 @@ git add -A && git commit -m "<描述性提交信息>" && git push origin main
 
 | 主线 | 骨干 | 状态 | 约束口径 |
 |---|---|---|---|
-| **CASA-VMamba-STRNet**（Run9） | **VMamba-Tiny**（NeurIPS 2024，`vssm_tiny_0230`） | **已停训**（3 个有效结果、1 个失败、1 个中断、3 个未启动） | 主干 **29.94M** + 非主干 **≈2.04M**（无硬上限） |
+| **CASA-VMamba-STRNet**（Run10） | **VMamba-Tiny**（NeurIPS 2024，`vssm_tiny_0230`） | **训练中**（SYSU→LEVIR，各 CTRL→HSAM local_dispersion，共 4 项） | 主干 **29.94M** + 非主干 **≈2.04M**（无硬上限） |
 
-硕士课题：遥感二值变化检测。当前一轮（Run9）在 VMamba-Tiny 主干上验证
-**HSAM（Poincaré 球双曲相似度注意力，零可学习参数）** 是否带来增益。
+硕士课题：遥感二值变化检测。Run10 于 2026-10-21 17:19（CST）在 GPU0 启动，
+按 SYSU 对照→SYSU HSAM→LEVIR 对照→LEVIR HSAM 串行跑满各 80K step。
+HSAM 使用 `local_dispersion` 半径；冻结协议与停训命令见
+[`train_scripts/CASA-TViM/Run10/README.md`](train_scripts/CASA-TViM/Run10/README.md)。
 
 历史版本（Run1–Run8c、探索线 Exp1、Diag1）的设计、指标、判定与教训
 **全部移到** [`docs/temporary/历史版本结论与指标_2026-10-21.md`](docs/temporary/历史版本结论与指标_2026-10-21.md)，
@@ -144,7 +146,7 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
   结尾 `=== TEST RESULTS ===` 正式测试区块（含 deploy 折叠等价性、
   [CAACP-BETA]/[CAACP-WEIGHT-ENTROPY]/[PRETRAIN-DRIFT] 等诊断行）
 
-# 当前结果：Run9 · HSAM（Poincaré 球双曲相似度注意力，**零参数**，已停训）
+# Run9 已停训结果：HSAM（Poincaré 球双曲相似度注意力，**零参数**，已停训）
 
 > 用户指令（2026-10-20）：按 JSTARS 2024 论文 Fig.2 的 HSAM，把编码器 3、4 层输出映射到双曲空间
 > 算双曲距离、构造注意力矩阵，再经注意力聚合 + 残差增强双时相特征。**就加这个模块。Run9。**
@@ -282,12 +284,13 @@ bash train_scripts/CASA-TViM/Run9/_r9_stop.sh --kill-run
 ## 目录结构
 
 ```
-models/                        # ★主线代码（当前 Run9）
+models/                        # ★主线代码（当前 Run10）
   train.py                     #   训练入口（--arch casa_tvim_str | casa_vmamba_str | casa_vmamba_str_v2）
   eval.py                      #   独立测试入口（arch.json 侧车 fail-closed 校验）
   main.py                      #   上游 ChangeViT 原版入口（仅参考，未改动）
   smoke_test.py                #   冒烟测试（T-CA-1..10）
-  test_hsam_cpu.py             #   ★Run9 回归门 32 项（HSAM 数值/退化证书/零参数/fail-closed）
+  test_hsam_cpu.py             #   HSAM 回归门 32 项（数值/退化证书/零参数/fail-closed）
+  test_run10_cpu.py            #   Run10 后期硬门与数值梯度回归
   test_hqkv_lattice_cpu.py     #   ★Run8c 回归门 27 项（无几何/反自锁/fail-closed）
   test_str_reparam_equivalence.py  # 折叠原语等价性测试
   run9_smoke.py                #   ★Run9 真实数据 smoke（hsam 0/1 对比：读数/吞吐/显存）
@@ -302,7 +305,7 @@ models/                        # ★主线代码（当前 Run9）
     tinyvim_s_slim.py          #   TinyViM-S-Slim（Stage4 裁剪 + 预训练 key 重映射）
     hgsl_loss.py               #   HGSL（实现保留；当前无分数输入口 ⇒ fail-closed）
     str_tar.py / str_dcr.py / str_reparam.py / str_fine_head.py / str_hf_edge.py
-    layers/hsam.py             #   ★Run9：Poincaré 球双曲相似度注意力（零参数）
+    layers/hsam.py             #   ★Run10：Poincaré 球双曲相似度注意力（零参数，局部离散度半径）
     layers/caacp_hqkv_lattice.py   # ★Run8c：格点压缩跨层 SAT-QKV（无几何）
     layers/caacp_hqkv.py       #   Run8 v1（含自锁缺陷，仅历史复现）
     layers/hyperbolic.py       #   Lorentz 双曲算子（v1 仍用）
@@ -328,7 +331,8 @@ tools/                         # ★通用分析工具
 train_scripts/
   CASA-TViM/Run1..Run8/        #   历史各轮（设计 + 执行 + 收口脚本）
   CASA-TViM/Run8b/             #   抗自锁重跑（已停训；含停训与拆除记录）
-  CASA-TViM/Run9/              #   ★当前主线：预注册 / 督导 / 状态 / 停训 / 探针
+  CASA-TViM/Run9/              #   已停训历史轮次，保留全部记录
+  CASA-TViM/Run10/             #   ★当前主线：四项训练协议 / 串行督导 / 停训
   CASA-TViM/Diag1/             #   小目标瓶颈分阶段诊断流水线（只读）
   Exploration/Exp1/            #   探索线 Exp1 执行索引
 others/                        #   参考实现（非本仓库模型代码）
@@ -384,12 +388,10 @@ docs/                          #   文档：temporary/（历史舱 + 过去的�
 ## 运行监控 / 分析
 
 ```bash
-# ---- 当前主线 Run9 ----
-bash train_scripts/CASA-TViM/Run9/_r9_state.sh      # 进度矩阵 + HSAM 读数 + 正式 TEST 块 + Δ 表
-bash train_scripts/CASA-TViM/Run9/_r9_timeline.sh   # 逐库起止耗时 + 当前速率 + 不截断读数
-bash train_scripts/CASA-TViM/Run9/_r9_probe.sh      # 当前 stage 日志 + 督导决策
-tail -20 /tmp/run9/pipeline.log                     # 督导每拍决策
-bash train_scripts/CASA-TViM/Run9/_r9_stop.sh --kill-run   # 停（顺序已修正，不会被重试循环复活）
+# ---- 当前主线 Run10 ----
+tail -20 /tmp/run10/pipeline.log                    # 四项串行队列进度
+tail -20 /home/yqwang/outputs/CASA-CD/CASA-TViM/Run10/S0_CTRL/SYSU-CD-256/train_log.txt
+bash train_scripts/CASA-TViM/Run10/_r10_stop.sh    # 停止 Run10 进程组
 
 # ---- 通用工具 ----
 python .claude/_ssh.py '<cmd>'                     # 通用 SSH 执行（远端命令请写成 .sh 再上传）
