@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Run9 单数据集编排器（`bash _r9_run_one_ds.sh <VARIANT> <DATASET> <GPU>`）。
 #
 # Run9 = Run8c 的 CTRL + **HSAM**（Poincaré 球双曲相似度注意力，零参数，论文 JSTARS 2024）。
