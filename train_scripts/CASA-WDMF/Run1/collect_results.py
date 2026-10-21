@@ -1,5 +1,6 @@
 """Collect formal WDMF-STR results using the project metric and snapshot tools."""
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 import subprocess
@@ -45,7 +46,8 @@ def main():
             else:
                 progress = "待启动"
             rows.append(f"| {dataset.split('-')[0]} | `{variant}` | {progress} | {f1} | {iou} |")
-    section = f"状态更新：{status.get('updated', '')} CST；队列 `{status['status']}`；正式结果 **{len(formal)}/12**。\n\n"
+    observed = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    section = f"状态更新：{observed} CST；队列 `{status['status']}`；正式结果 **{len(formal)}/12**。\n\n"
     section += "| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |\n|---|---|---|---:|---:|\n"
     section += "\n".join(rows)
     readme = ROOT / "README.md"

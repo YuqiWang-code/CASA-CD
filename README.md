@@ -62,7 +62,22 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 <!-- WDMF_RESULTS_START -->
 
-队列待启动，正式结果 0/12。
+状态更新：2026-10-21 21:23:47 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| SYSU | `M0_CTRL` | 训练中：800/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：800/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 待启动 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 待启动 | — | — |
+| LEVIR | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- WDMF_RESULTS_END -->
 
