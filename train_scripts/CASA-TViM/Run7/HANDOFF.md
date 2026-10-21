@@ -288,7 +288,7 @@ bash train_scripts/CASA-TViM/Run7/finish_run7.sh; echo "FINISH_RC=$?"
 | 收口产物 | `…/Run7/_RESULTS/{summary,verdict,INDEPENDENT_AUDIT}.json` + `check_run_*.json` |
 | 对象级指标 | `…/Run7/_OBJECT_METRICS/object_metrics_*.json` |
 | 收口工具 | `train_scripts/CASA-TViM/Run7/{finish_run7.sh,check_run.py,collect_results.py,run7_verdict.py,independent_audit.py}` |
-| 对象级工具 | `analyse/run7_object_metrics.py` |
+| 对象级工具 | `tools/archive/run7_object_metrics.py` |
 | 预注册文档 | `docs/temporary/CASA-CD_Run7_高频边缘辅助监督HFAE_预注册_2026-10-11.md` |
 | **收口 runbook** | `train_scripts/CASA-TViM/Run7/README.md` §8（rc→动作、五种 verdict 写法、三张表、禁做清单） |
 | 督导 | `train_scripts/CASA-TViM/Run7/supervise_waves.sh` + `…/Run7_supervisor.log` |

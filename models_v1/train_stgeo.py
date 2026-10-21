@@ -5,7 +5,7 @@
      Adam(2e-4, 0.9/0.99, wd=1e-4) / poly^0.9 + 200 iter warmup / test-as-val /
      prob > 0.5 / gray ≥ 128），因此已跑完的 `CTRL_R8` 可作为**同期同协议对照**；
   2. **日志格式与 Run8 相同**（`=== TEST RESULTS ===` … `=== END TEST RESULTS ===`，
-     内含 `[ACTUAL-OPT-STEPS]`、`[PROTOCOL-VERSION]`），使 analyse/ 的现成解析器
+     内含 `[ACTUAL-OPT-STEPS]`、`[PROTOCOL-VERSION]`），使 tools/archive/ 的现成解析器
      （`extract_metrics_to_excel.py` / `tvim_diag_common.parse_test_block`）可直接使用；
   3. **fail-closed**：run_manifest.json 逐字段校验；`--resume` 在启动时禁止
      （崩溃恢复只允许从自己的 last.pth 自动续训）。

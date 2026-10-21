@@ -916,7 +916,7 @@ head_mode=sgdp
 
 新增 T-R6 测试（见下一节）。
 
-## 10.8 新增 `analyse/run6_semantic_token_audit.py`
+## 10.8 新增 `tools/archive/run6_semantic_token_audit.py`
 
 复用：
 
@@ -1358,7 +1358,7 @@ R6-1                             final token-reconstruction model
 
 # 18. 立即执行顺序
 
-1. **只先写 `analyse/run6_semantic_token_audit.py`**，不要先改最终模型；
+1. **只先写 `tools/archive/run6_semantic_token_audit.py`**，不要先改最终模型；
 2. 用现成 R4-1/R4-0 + corrected DeiT 跑完整 SYSU R6-D0；
 3. 人工核对 control、P0、B4、Fuse gate；
 4. 只有 `[R6-D0-GATE] PASS` 才实现 `token_reconstructor.py` 与 `detail_mode=token_recon`；

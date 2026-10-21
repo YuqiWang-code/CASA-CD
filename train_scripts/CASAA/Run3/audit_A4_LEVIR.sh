@@ -13,7 +13,7 @@ OUT=/home/yqwang/outputs/CASA-CD/CASAA/Run3/AUDIT/${DS}/router_audit.txt
 mkdir -p "$(dirname ${OUT})"
 
 cd ${PROJ}
-python analyse/casaa_router_diagnostic.py \
+python tools/archive/casaa_router_diagnostic.py \
     --dataset ${DS} --dataset_root /share_datasets/CD/${DS} \
     --pretrained_weight_path ${PROJ}/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth \
     --ckpt "${CK}" --ckpt_tag A1_SAA_FROZEN \

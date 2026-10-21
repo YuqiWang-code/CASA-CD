@@ -446,7 +446,7 @@ def t7_gradients(h, args, device):
 # --------------------------------------------------------------------------- T8
 def t8_dry_run(h, args, device):
     if not args.dry_run_json:
-        h.skip("T8", "real-data 3-step dry-run", "run models/run4_dry_run.py then pass --dry-run-json")
+        h.skip("T8", "real-data 3-step dry-run", "run models/_legacy/run4_dry_run.py then pass --dry-run-json")
         return
     if not os.path.isfile(args.dry_run_json):
         h.check("T8", "dry_run.json present", False, args.dry_run_json)

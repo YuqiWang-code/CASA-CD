@@ -1669,7 +1669,7 @@ def main():
         import sys as _sys
         pre = args.tinyvim_pretrained_weight_path or args.pretrained_weight_path
         cmd = [_sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                            "test_run4_fine_tap.py"),
+                                            "_legacy", "test_run4_fine_tap.py"),
                "--tinyvim-pretrained-weight-path", pre, "--device", device]
         print(f"[SMOKE] casa_tvim_run4 -> {' '.join(cmd)}")
         rc = subprocess.call(cmd)

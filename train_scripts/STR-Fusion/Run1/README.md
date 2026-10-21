@@ -21,7 +21,7 @@
 - 等价性：T0/T1/T2/T2b ALL PASSED（活分支全模型折叠 5.1e-7/5.4e-7、disagree=0）；
 - smoke：T-SF-1..8 全过（含 C0/M1 epoch-0 逐位一致、RNG 纪律落地）；
 - 预算 G4 PASS：deploy **2,596,353（2.596M < 3M）** / FLOPs 2.2136G，C0/M1 deploy 相等；
-- 审计工具：`analyse/run1_strfusion_{budget,interface_audit}.py`。
+- 审计工具：`tools/archive/run1_strfusion_{budget,interface_audit}.py`。
 
 ## 方案一句话
 

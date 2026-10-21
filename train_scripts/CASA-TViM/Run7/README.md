@@ -13,8 +13,8 @@
 | 决策锁 | `train_scripts/CASA-TViM/Run7/SELECTION_LOCK.json` |
 | 新模块 | `models/model/str_hf_edge.py`（唯一的架构新增） |
 | 接线文件 | `models/model/casa_tvim_str_net.py`、`models/train.py`、`models/eval.py` |
-| 验收测试 | `models/test_run7_hf_edge.py`（T0–T11） |
-| 真实数据 dry-run | `models/run7_dry_run.py` |
+| 验收测试 | `models/_legacy/test_run7_hf_edge.py`（T0–T11） |
+| 真实数据 dry-run | `models/_legacy/run7_dry_run.py` |
 | 编排 | `train_scripts/CASA-TViM/Run7/run_all.sh --wave {1,2,3,all}` |
 | `protocol_version` | `run7_hf_edge_exact80k_v1`（**由 run4 升级**，因训练目标改变） |
 | 预训练 | `pretrained_weight/tinyvim_s_1000e.pth`（sha 短 `f63e58da8109dbb1`） |
@@ -45,8 +45,8 @@
 | 步 | 内容 | 阻断条件 |
 |---|---|---|
 | S0 | 上传 + 远端 `sha256sum -c` 对拍（`_r7_stage.py`） | 任一不符 ⇒ STOP |
-| S1 | **服务器 T0–T11 全量**（`python models/test_run7_hf_edge.py --device cuda:0`） | 任一 FAIL ⇒ 不训练 |
-| S2 | **SYSU dry-run**（`models/run7_dry_run.py`，3 步，三个变体） | 任一 gate FAIL ⇒ 不训练 |
+| S1 | **服务器 T0–T11 全量**（`python models/_legacy/test_run7_hf_edge.py --device cuda:0`） | 任一 FAIL ⇒ 不训练 |
+| S2 | **SYSU dry-run**（`models/_legacy/run7_dry_run.py`，3 步，三个变体） | 任一 gate FAIL ⇒ 不训练 |
 | S3 | **波一 `M1_R7CTRL` × 4 库** 80K | 波内有 run 失败 ⇒ 不启动下一波 |
 | S4 | **波二 `E9_HFAE_A` × 4 库** 80K | 同上 |
 | S5 | **波三 `E10_HFAE_B` × 4 库** 80K | 同上 |
@@ -131,7 +131,7 @@ GPU 布局：GPU0 = CDD + LEVIR，GPU1 = SYSU + WHU，每卡 2 并发、batch 32
 
 ### 7.2 收口工具自身的缺陷（训练期间发现并修复）
 
-`analyse/run7_object_metrics.py` 原先复用 `tvim_diag_common.build_model()`，但该函数的
+`tools/archive/run7_object_metrics.py` 原先复用 `tvim_diag_common.build_model()`，但该函数的
 `VARIANT_CFG` **没有 Run7 变体**（`M1_R7CTRL`/`E9_HFAE_A`/`E10_HFAE_B`），且它**不传
 `hf_edge*`** —— 即使把变体名补进去，E9/E10 的 train 图 state_dict（含 `hf_edge_head.*`）
 也会 strict 失败。**这会在最终裁决那一步才炸、导致 12 个 run 的对象级指标全部算不出来。**
@@ -271,7 +271,7 @@ E9/E10 一次，得到**契约完整**的真实日志（GPU 占用回到基线�
 
 ### 7.6 对象级复算在**真实 E9/E10 权重**上的严格加载验证（收口最后一块未验证的环节）
 
-`analyse/run7_object_metrics.py` 是收口第 3 步，也是**唯一会碰 E9/E10 train 图权重**的环节
+`tools/archive/run7_object_metrics.py` 是收口第 3 步，也是**唯一会碰 E9/E10 train 图权重**的环节
 （`hf_edge_head.*` 键）。此前只用"自建 state_dict 回灌"验过，**有循环论证嫌疑**：构造与加载
 走同一套代码，键名不一致照样能过。用 §7.5 那次真实 750 步训练产出的权重第一次做了独立验证：
 
@@ -567,7 +567,7 @@ casa_tvim_str_net.py:276   logits = self.head(x)
 `[REPARAM-REAL-ARGMAX-DISAGREE] 9.537e-07`（**1 / 1,048,576 像素**），而预注册 §4③ 写的是
 「真实 batch disagreement = 0」⇒ 严格读法下该 run FAIL，收口链会 `exit 4` **不产出裁决**。
 
-**定位证据**（`analyse/run7_fold_knife_edge.py`，用真实 best ckpt 复现 train.py 收尾的同一 batch）：
+**定位证据**（`tools/archive/run7_fold_knife_edge.py`，用真实 best ckpt 复现 train.py 收尾的同一 batch）：
 
 | 项 | 值 |
 |---|---|
@@ -945,8 +945,8 @@ grep -l -E "Traceback|CUDA out of memory|3 attempts exhausted" \
 | `Run7/` 通配根 | 仅含活跃 campaign（`*SUPERSEDED*` 匹配数 = 0） |
 | 作废步数（可追溯） | CTRL 4×80000；E9 65,730 / 66,677 / 63,375 / 80,000 |
 
-本地侧同样应有：`models/test_run7_hf_edge.py` = 13 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
-服务器上为 0 SKIP）；`analyse/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
+本地侧同样应有：`models/_legacy/test_run7_hf_edge.py` = 13 checks / 0 FAIL（6 项因无 CUDA kernel 跳过，
+服务器上为 0 SKIP）；`tools/tests` 五个文件合计 **142 tests OK**；`git status` 干净。
 
 ---
 

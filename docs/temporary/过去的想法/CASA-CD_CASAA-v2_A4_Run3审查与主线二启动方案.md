@@ -1,7 +1,7 @@
 # CASA-CD：CASAA-v2（A4）审查、Run3 实验决策与主线二启动方案
 
 > **审查基准**：GitHub `YuqiWang-code/CASA-CD` `main`，HEAD=`1ffe9012d4cd44e8f5e26397ab8e5d2c9c2c4bf1`（2026-09-29）。  
-> **重点核对**：`README.md`、`docs/temporary/CASA-CD_CASAA_Run1复盘与下一步实验决策.md`、`docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`、`models/model/layers/casaa.py`、`models/model/encoder.py`、`models/model/resnet.py`、`models/model/layers/block.py`、`models/train.py`、`models/smoke_test.py`、`train_scripts/CASAA/Run2/`、`analyse/casaa_router_diagnostic.py`、`docs/temporary/models_and_metrics_CASAA_Run2.txt`。  
+> **重点核对**：`README.md`、`docs/temporary/CASA-CD_CASAA_Run1复盘与下一步实验决策.md`、`docs/temporary/CASA-CD_ViT崩溃发现与Run2修订.md`、`models/model/layers/casaa.py`、`models/model/encoder.py`、`models/model/resnet.py`、`models/model/layers/block.py`、`models/train.py`、`models/smoke_test.py`、`train_scripts/CASAA/Run2/`、`tools/archive/casaa_router_diagnostic.py`、`docs/temporary/models_and_metrics_CASAA_Run2.txt`。  
 > **方法依据**：ChangeViT（Pattern Recognition 172, 2026, 112539）与 SAT/SAA（CVPR 2026 / arXiv:2604.07994）。  
 > **约束**：方法创新优先；不改 loss；不把训练技巧包装成创新；单 seed=16；当前机制筛选不做多 seed；CASAA 保持 Full Query、只压缩 K/V；零新增参数优先；最终主线二目标总有效推理参数 `<3M`。
 
@@ -782,7 +782,7 @@ Run3 仍：
 
 ---
 
-## 11.6 `analyse/casaa_router_diagnostic.py`
+## 11.6 `tools/archive/casaa_router_diagnostic.py`
 
 建议升级为：
 

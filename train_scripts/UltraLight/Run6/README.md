@@ -20,7 +20,7 @@ G3 Fuse : PR-AUC 0.4753 < 0.50  FAIL（Spearman 0.2427 < 0.25）
 `docs/temporary/CASA-CD_Run6_R6-D0结果与Run6停止.md`。
 
 下一轮唯一出口：**semantic source replacement（候选 3）**，重新预注册。
-可复用：`analyse/run6_semantic_token_audit.py`（换 semantic 源后照跑同一 gate）。
+可复用：`tools/archive/run6_semantic_token_audit.py`（换 semantic 源后照跑同一 gate）。
 
 ## 启动命令（历史留存）
 

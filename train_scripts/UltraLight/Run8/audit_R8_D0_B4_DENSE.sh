@@ -14,7 +14,7 @@ LOG_DIR=/home/yqwang/outputs/CASA-CD/UltraLight/Run8/R8_D0_B4_DENSE_AUDIT
 mkdir -p "${LOG_DIR}"
 cd "${PROJ}"
 
-python analyse/run8_b4_dense_recoverability_audit.py \
+python tools/archive/run8_b4_dense_recoverability_audit.py \
     --data_root /share_datasets/CD \
     --datasets CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256 \
     --pretrained_weight_path "${PROJ}/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth" \

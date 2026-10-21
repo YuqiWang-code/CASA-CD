@@ -12,7 +12,7 @@
 | 设计文档 | `docs/temporary/过去的想法/CASA-CD_Run5_原生高频证据复用与结构改进实验设计_2026-10-10.md`（2026-10-11 归档；内容与 SHA 未变） |
 | 设计文档 SHA256 | `8d721d77cf3a362c24687db54f20ecd1fad7bab05fd5b46f910f1501351239bc` |
 | 冻结仓库版本 | `YuqiWang-code/CASA-CD@a6d49bc151674a93a8274aca52e2ca707f8d070a` |
-| 前测脚本 | `analyse/tvim_run5_hf_pair_preflight.py`（`run5_hf_pair_preflight_v1`） |
+| 前测脚本 | `tools/archive/tvim_run5_hf_pair_preflight.py`（`run5_hf_pair_preflight_v1`） |
 | 前测输出根 | `/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run5-HF-PREFLIGHT-20261010` |
 | 代码/资产身份 | `train_scripts/CASA-TViM/Run5/SOURCE_IDENTITY.json`（服务器 `--require-all` 生成） |
 
@@ -66,11 +66,11 @@ TViM-Run5-HF-PREFLIGHT-20261010/
 
 ```bash
 python -m compileall -q analyse models train_scripts
-python -m unittest discover -s analyse/tests -p 'test_tvim_*.py' -v
-python analyse/tvim_run5_hf_pair_preflight.py --help
+python -m unittest discover -s tools/tests -p 'test_tvim_*.py' -v
+python tools/archive/tvim_run5_hf_pair_preflight.py --help
 ```
 
-`analyse/tests/test_tvim_run5_preflight.py` 覆盖纯逻辑：平均秩/逐图 rank 单调性、
+`tools/archive/tests/test_tvim_run5_preflight.py` 覆盖纯逻辑：平均秩/逐图 rank 单调性、
 环带 margin（含“其它 GT 对象不进环带”）、对象集合口径（missed_small / FP-like）、
 逐图计数、三类图像级 bootstrap、§5.3.3 选层规则、gate 常数与预算冻结值。
 
@@ -96,7 +96,7 @@ S8 两波 8×80K（波一 `M1_R5CTRL`，波二 `E7_FHR_TAR`）→ §9.4 收口�
 |---|---|
 | S0.1 环境 | torch 2.14.0+cu132 / CUDA 13.2 / 2×RTX 5090；`selective_scan_cuda_oflex` import PASS |
 | S0.2 代码身份 | `make_source_identity.py --require-all` PASS（12 核心文件 + Run4 冻结文件 + Run5 新增 + tinyvim pth + 四库 list 全部有 SHA） |
-| S1.1 单测 | `analyse/tests/test_tvim_*.py` 46 项 rc=0 |
+| S1.1 单测 | `tools/tests/test_tvim_*.py` 46 项 rc=0 |
 | S1.2 P0 素材 | M1 best `best_F1=0.8347.pth` SHA256 == Diag1 锁；SYSU test list `sha256_text_lines` == Diag1 锁；两个 tap probe `encoder_input=concat`、`C_in=192/504` PASS |
 | S1.3 DRY 排练（`--limit 600`） | `DRY_ONLY`，链路健康；排练先行捕获 1 个真实缺陷（见 §4.4） |
 | **S1.4 正式前测** | **val 1212 张 + 统计，用时 26.8 s（预算 600 s）→ `status=FAIL` / `val_screen_status=BOTH_SCREENED_OUT` / `decision=NO_80K`；test pass 依 §5.3.3 未运行** |
@@ -187,7 +187,7 @@ SHA256，`missing=[]`）；仓库内一份是本地生成物，因此 `missing` 
 
 ## 6. §10 止损只读诊断：SYSU FP 空间画像（已完成）
 
-脚本 `analyse/tvim_run5_fp_profile.py`（`run5_fp_profile_v1`），SYSU test 4000 张，**39.5 s**，只读。
+脚本 `tools/archive/tvim_run5_fp_profile.py`（`run5_fp_profile_v1`），SYSU test 4000 张，**39.5 s**，只读。
 对象集合：预测 4 连通域、面积 [1,255]、IoU≥0.10 一次性最大权重匹配后未匹配 = **2430 个**
 （与 Diag1 冻结的 “2430 unmatched <256px” **逐数一致**，是外部一致性校验）。
 对照组：面积匹配、落在 `~GT` 且远离预测的背景窗口 2397 个；另有 GT small matched 35、missed 292。

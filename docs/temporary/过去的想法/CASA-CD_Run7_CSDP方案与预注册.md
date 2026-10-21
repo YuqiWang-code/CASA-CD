@@ -31,7 +31,7 @@
 
 ## 2. R7-D0：四数据集零训练深度审计（先做，不训练）
 
-新增 `analyse/run7_depth_source_audit.py`：CDD/LEVIR/SYSU/WHU 完整 test，用
+新增 `tools/archive/run7_depth_source_audit.py`：CDD/LEVIR/SYSU/WHU 完整 test，用
 frozen depth-12 corrected DeiT 提取 P0/B1-B12 的 1−cos change score（同一权重；
 R6-D0 已证明其与 R4-1/R4-0 冻结 checkpoint 的 ViT 逐位一致）。SYSU 附 R4-1
 ResNet 1/8 对照自检（0.6535/0.5948 ±0.005），越界 → [AUDIT-INVALID]。
@@ -134,7 +134,7 @@ tokens or depth.**
 
 ## 9. 立即执行顺序
 
-1. 先只写 `analyse/run7_depth_source_audit.py`，GPU1 跑四数据集 → 读 [R7-D0-GATE]。
+1. 先只写 `tools/archive/run7_depth_source_audit.py`，GPU1 跑四数据集 → 读 [R7-D0-GATE]。
 2. PASS → R7-0（vit_depth=2 脚本 + dryrun + 80K）。
 3. R7-0 PASS → 实现 `depth_pyramid_head.py` + `detail_mode=depth_pyramid` +
    `head_mode=csdp` + T-R7 smoke（exact 继承 / 参数 1,177,936 / 对称 <1e-6 /

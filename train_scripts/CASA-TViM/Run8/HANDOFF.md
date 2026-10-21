@@ -50,7 +50,7 @@
 | 训练日志 | `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run8/<variant>/<dataset>/train_log.txt` |
 | 权重 | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run8/<variant>/<dataset>/` |
 | dry-run | `/home/yqwang/outputs/CASA-CD/CASA-TViM/Run8_DRY/<dataset>/<variant>/` |
-| 变体定义三处 | `run_all.sh::variant_args()` · `models/run8_dry_run.py::VARIANTS` · `SELECTION_LOCK.json::variants` |
+| 变体定义三处 | `run_all.sh::variant_args()` · `models/_legacy/run8_dry_run.py::VARIANTS` · `SELECTION_LOCK.json::variants` |
 
 ## 3. 已做完的验证（**不要重验**）
 

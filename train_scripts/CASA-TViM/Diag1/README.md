@@ -24,17 +24,17 @@ D5_DATASETS="LEVIR-CD-256 WHU-CD-256" bash run_diag.sh d5   # 跨数据集（可
 
 | 文件 | 作用 |
 |---|---|
-| `analyse/tvim_diag_common.py` | 路径/变体表、SHA256、严格 TEST 解析、checkpoint 唯一性校验、模型构造与严格键核对、混淆矩阵六指标（与 `metric_tool` 同式）、bootstrap、`audit` 子命令（D0） |
-| `analyse/tvim_object_metrics.py` | **P0 核心**：正确的 GT 面积分组（tiny_1_15 / tiny_16_63 / small_64_255 / medium / large）、pooled & object-macro 像素 Recall、ObjectHit@1/25/50、真正的对象级 ObjP/ObjR/ObjF1（IoU≥0.10/0.50，一次性最大权重二分匹配）、边界带 ±2/±4 |
-| `analyse/tvim_small_error_audit.py` | D1：逐 GT 对象的错误画像 + M1/A2 same-object 配对 Δrecall + 预注册样例图 |
-| `analyse/tvim_stage_recoverability.py` | D2：L00–L08 / T / D / head 节点 hook；编码器 A/B cosine proxy + 原生 256² 评价、native occupancy 副口径；CAACP 内部（β、ΔC、βΔC、entropy、分组统计）；重建校验 |
-| `analyse/tvim_linear_probe.py` | D3：冻结线性 probe（train 拟合 / val 固定 / test 一次性评估）；`--encoder-input {absdiff,concat}` 支持可学习时相口径对比 |
-| `analyse/tvim_probe_stratified.py` | D3c：**按 GT 面积分层**的 probe AP 与 per-object margin（复用已保存的 PROBE_ONLY 权重） |
-| `analyse/tvim_stage_raw_stats.py` | D2b：从 `stage_raw.csv` 计算 cosine margin 的**配对** image-level bootstrap CI |
-| `analyse/tvim_caacp_counterfactual.py` | D4：β ON/OFF 受控反事实 + 完整性核对 |
-| `analyse/tvim_diag_report.py` | 汇总报告 + 预注册判据自动评估 + `RUN_MANIFEST.json` |
-| `analyse/tests/test_tvim_object_metrics.py` | P0 的 10 项人造阵列单测（含旧 FP≡0 bug 的回归用例） |
-| `analyse/tests/test_tvim_log_parser.py` | 诊断侧日志解析器与官方实现逐字对拍 |
+| `tools/tvim_diag_common.py` | 路径/变体表、SHA256、严格 TEST 解析、checkpoint 唯一性校验、模型构造与严格键核对、混淆矩阵六指标（与 `metric_tool` 同式）、bootstrap、`audit` 子命令（D0） |
+| `tools/tvim_object_metrics.py` | **P0 核心**：正确的 GT 面积分组（tiny_1_15 / tiny_16_63 / small_64_255 / medium / large）、pooled & object-macro 像素 Recall、ObjectHit@1/25/50、真正的对象级 ObjP/ObjR/ObjF1（IoU≥0.10/0.50，一次性最大权重二分匹配）、边界带 ±2/±4 |
+| `tools/archive/tvim_small_error_audit.py` | D1：逐 GT 对象的错误画像 + M1/A2 same-object 配对 Δrecall + 预注册样例图 |
+| `tools/tvim_stage_recoverability.py` | D2：L00–L08 / T / D / head 节点 hook；编码器 A/B cosine proxy + 原生 256² 评价、native occupancy 副口径；CAACP 内部（β、ΔC、βΔC、entropy、分组统计）；重建校验 |
+| `tools/tvim_linear_probe.py` | D3：冻结线性 probe（train 拟合 / val 固定 / test 一次性评估）；`--encoder-input {absdiff,concat}` 支持可学习时相口径对比 |
+| `tools/tvim_probe_stratified.py` | D3c：**按 GT 面积分层**的 probe AP 与 per-object margin（复用已保存的 PROBE_ONLY 权重） |
+| `tools/tvim_stage_raw_stats.py` | D2b：从 `stage_raw.csv` 计算 cosine margin 的**配对** image-level bootstrap CI |
+| `tools/archive/tvim_caacp_counterfactual.py` | D4：β ON/OFF 受控反事实 + 完整性核对 |
+| `tools/tvim_diag_report.py` | 汇总报告 + 预注册判据自动评估 + `RUN_MANIFEST.json` |
+| `tools/tests/test_tvim_object_metrics.py` | P0 的 10 项人造阵列单测（含旧 FP≡0 bug 的回归用例） |
+| `tools/tests/test_tvim_log_parser.py` | 诊断侧日志解析器与官方实现逐字对拍 |
 
 ## 关键结论（详见 DIAGNOSIS_REPORT.md）
 

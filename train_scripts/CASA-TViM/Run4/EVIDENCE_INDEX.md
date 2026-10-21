@@ -39,11 +39,11 @@
 | 包装脚本崩溃重试 | 同上 → `wrapper_crash_retry_rehearsal` | 第一次尝试 SIGKILL(137) → `[RETRY 1/3]` → 第二次自动 resume → 跑满预算 → 收尾调用硬门；退出码由硬门决定 |
 | 协议审计工具 | `$LOG/M1_R4CTRL/PROTOCOL_AUDIT.json`；工具 `train_scripts/CASA-TViM/Run4/audit_protocol.py` | 运行中波次四库 **PASS**（步数预算/epoch 算术/exact_max_steps/manifest 全字段/LR 计划逐点）；负例（区块步数 79875、区块 80000 但 manifest 30K）均被拒 |
 | 收口脚本 fail-closed 守卫 | 工具 `train_scripts/CASA-TViM/Run4/post_train.sh`（实测于训练中途） | 8 个 run 未全部产出完整 TEST 区块时 **exit 3** 且不写 `verdict.json`/`objects/`；协议审计不过则 **exit 4**；仅 `FORCE=1` 可产出已记录的部分裁决 |
-| README 报告机器生成 | `analyse/run4_fet_report.py --mode markdown`（`post_train.sh` 第 4 段 → `$LOG/README_SNIPPET.md`） | 四张表（每 run 六指标+部署实测 / 对象指标+参数 / 层 B / 层 C）全部取自 `verdict.json`，杜绝人工转抄；已在真实短跑 ckpt 上渲染验证 |
+| README 报告机器生成 | `tools/archive/run4_fet_report.py --mode markdown`（`post_train.sh` 第 4 段 → `$LOG/README_SNIPPET.md`） | 四张表（每 run 六指标+部署实测 / 对象指标+参数 / 层 B / 层 C）全部取自 `verdict.json`，杜绝人工转抄；已在真实短跑 ckpt 上渲染验证 |
 | 运行时防护 | `$LOG/ckpt_backup_watchdog.log` | `last.pth` → `last.pth.bak` 原子备份持续运行（只备份能成功 `torch.load` 的文件） |
-| 同期 CTRL 轨迹对照（SYSU） | 工具 `analyse/run4_progress_eta.py` 同目录的轨迹核对；数据源 `$LOG/M1_R4CTRL/SYSU-CD-256/train_log.txt` vs Run1 `M1_FULL` 同名日志 | 31 个可比 epoch 的 ΔF1 均值 **−0.0008**（区间 [−0.0158, +0.0168]），CTRL best 0.8326 vs Run1 官方 0.8347 ⇒ **exact-80K 协议修正未实质改变轨迹**，文档要求的"≥ 同期 CTRL / 不退守门"比较才有意义 |
+| 同期 CTRL 轨迹对照（SYSU） | 工具 `tools/archive/run4_progress_eta.py` 同目录的轨迹核对；数据源 `$LOG/M1_R4CTRL/SYSU-CD-256/train_log.txt` vs Run1 `M1_FULL` 同名日志 | 31 个可比 epoch 的 ΔF1 均值 **−0.0008**（区间 [−0.0158, +0.0168]），CTRL best 0.8326 vs Run1 官方 0.8347 ⇒ **exact-80K 协议修正未实质改变轨迹**，文档要求的"≥ 同期 CTRL / 不退守门"比较才有意义 |
 | 重启一致性抽查 | 同上（重启前波次已判 INVALID，仅作对照） | 四库同 epoch ΔF1 ≤ |0.003|、正负号混合 ⇒ 重启无系统性偏差 |
-| 运行状态快照 | `$LOG/STATUS.md`（`analyse/run4_progress_eta.py --write-status` 生成） | 逐 run 步数/速率/ETA 与收口命令，可随时刷新 |
+| 运行状态快照 | `$LOG/STATUS.md`（`tools/archive/run4_progress_eta.py --write-status` 生成） | 逐 run 步数/速率/ETA 与收口命令，可随时刷新 |
 | 训练日志健康 | `$LOG/M1_R4CTRL/*/train_log.txt` 计数 | 四库 **0 error / 0 NaN**，仅各 8 条启动期 xFormers `not available` 告警；`run4_run_all.log` 无 ABORT/FAIL 标记 |
 | 自动收口守候 | `train_scripts/CASA-TViM/Run4/auto_post_train.sh`；日志 `$LOG/auto_post_train.log`；完成标记 `$LOG/AUTO_POST_TRAIN_DONE` | 触发条件为**8 个 run 全部产出完整 TEST 区块 且 无任何 `train.py` 在运行**（后者避免与收尾中的 run 争抢 GPU、也避免读到正在写入的 checkpoint），满足后**自动**执行 `post_train.sh`（只读、自带 fail-closed 守卫）⇒ 即使监控会话中断，第 ⑧ 步结果也一定被产出 |
 

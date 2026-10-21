@@ -15,7 +15,7 @@ LOG_DIR=/home/yqwang/outputs/CASA-CD/diagnostics/STR-Fusion/Run2_TASS/TASS_D0_SO
 mkdir -p "${LOG_DIR}"
 cd "${PROJ}"
 
-python analyse/run11_tass_source_gate.py \
+python tools/archive/run11_tass_source_gate.py \
     --data_root /share_datasets/CD \
     --datasets CDD-CD-256,LEVIR-CD-256,SYSU-CD-256,WHU-CD-256 \
     --pretrained_weight_path "${PROJ}/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth" \

@@ -53,7 +53,7 @@ nohup bash train_scripts/UltraLight/Run7/train_R7_1_CSDP_SYSU.sh > /dev/null 2>&
 
 代码入口：
 - `models/model/depth_pyramid_head.py`（CSDP head，90,832 参数）
-- `analyse/run7_depth_source_audit.py`（R7-D0）
+- `tools/archive/run7_depth_source_audit.py`（R7-D0）
 - CLI：`--vit_depth 2 --detail_mode depth_pyramid --head_mode csdp`
 - smoke：`python smoke_test.py --mode run7_csdp`（T-R7）
 

@@ -66,7 +66,7 @@ HQKV_A=0.5
 DATASETS=(CDD-CD-256 LEVIR-CD-256 SYSU-CD-256 WHU-CD-256)
 
 # variant -> (hqkv, geometry, hgsl, hgsl_detach_score, inject_mode)
-# 与 models/run8_dry_run.py::VARIANTS 必须一致（check_mapping.py 会查这个）
+# 与 models/_legacy/run8_dry_run.py::VARIANTS 必须一致（check_mapping.py 会查这个）
 variant_args() {
   case "$1" in
 CTRL_R8)   echo "0 hyperbolic 0 1 none" ;;

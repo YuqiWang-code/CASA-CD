@@ -320,7 +320,7 @@ Run5-D0 仍使用无训练 audit，但只把它用于**淘汰明显不合格候�
 新增：
 
 ```text
-analyse/run5_postmortem_and_mobile_audit.py
+tools/archive/run5_postmortem_and_mobile_audit.py
 ```
 
 使用：
@@ -1794,8 +1794,8 @@ postmortem + Mobile pretrained audit
 ```text
 models/model/mobile_detail.py
 models/model/sgdp_head.py
-analyse/run5_postmortem_and_mobile_audit.py
-analyse/run5_param_breakdown.py
+tools/archive/run5_postmortem_and_mobile_audit.py
+tools/archive/run5_param_breakdown.py
 
 train_scripts/UltraLight/Run5/
   README.md
@@ -2216,7 +2216,7 @@ R5_2_MOBILEDETAIL_SGDP
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 \
-python analyse/run5_postmortem_and_mobile_audit.py ...
+python tools/archive/run5_postmortem_and_mobile_audit.py ...
 ```
 
 读：

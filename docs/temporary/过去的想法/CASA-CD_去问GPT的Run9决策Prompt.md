@@ -22,7 +22,7 @@ https://github.com/YuqiWang-code/CASA-CD （main 分支已是最新）。
 6. `docs/参考文献/文献索引.md`（2024–2026 已调研文献清单 + 官方链接 + 参考代码）
 7. `docs/RSML-3_服务器环境与变化检测数据统一说明.md`（服务器/数据规范）
 代码重点：`models/model/{encoder,trainer,decoder,sgdp_head,depth_pyramid_head,b4_spe_head}.py`、
-`analyse/{run4_detail_interface_audit,run5_postmortem_and_mobile_audit,run6_semantic_token_audit,run7_depth_source_audit,run8_b4_dense_recoverability_audit}.py`。
+`tools/archive/{run4_detail_interface_audit,run5_postmortem_and_mobile_audit,run6_semantic_token_audit,run7_depth_source_audit,run8_b4_dense_recoverability_audit}.py`。
 
 ## 一、新的最终硬目标（本课题必须全部达到，不可打折）
 

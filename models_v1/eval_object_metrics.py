@@ -3,7 +3,7 @@
 同时支持两种架构（用 `--pkg-root` 选择代码树）：
   --arch run8  --pkg-root <repo>/models      → Run8 `CTRL_R8`（VMamba + TAR/DCR）
   --arch stgeo --pkg-root <repo>/models_v1   → Exp1 `STG_INJ`（+ SPD(2)/H² 证据）
-两者**同一份指标实现**（`analyse/tvim_object_metrics.py`），因此数字可直接对比。
+两者**同一份指标实现**（`tools/tvim_object_metrics.py`），因此数字可直接对比。
 
 用法（服务器，GPU1）：
   CUDA_VISIBLE_DEVICES=1 python eval_object_metrics.py --arch stgeo --pkg-root ../models_v1 \

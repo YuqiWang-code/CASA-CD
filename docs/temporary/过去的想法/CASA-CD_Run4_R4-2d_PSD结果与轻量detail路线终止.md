@@ -95,7 +95,7 @@ detail 分支可以保留足够精度」这一路线假设。
 ## 7. 留存资产（代码已进仓库）
 
 - `models/model/psd_detail.py`（PSD-Detail 78,464 参数，smoke T-PSD0..T-PSD5 全过）；
-- `analyse/run4_detail_interface_audit.py`（R4-D0，可复用于任何 detail 候选）；
+- `tools/archive/run4_detail_interface_audit.py`（R4-D0，可复用于任何 detail 候选）；
 - `train_scripts/UltraLight/Run4/{audit_R4_D0,train_R4_2d_PSD_DETAIL,dryrun_R4_PSD}_SYSU.sh`；
 - `train_R4_2c_ADAPTER_ALIGN_SYSU.sh` 与 `--detail_mode light_bnrelu` 代码路径
   （预注册选项，audit 判定后未触发，留存备查）。

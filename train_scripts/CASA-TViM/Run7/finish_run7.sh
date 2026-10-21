@@ -83,7 +83,7 @@ except Exception:
     print(0)")
     if [ "$need" = "1" ]; then
       echo "  [KNIFE] $v/$d disagreement=$dis maxabs=$mxa -> 生成定位证据"
-      python analyse/run7_fold_knife_edge.py --variant "$v" --dataset "$d" \
+      python tools/archive/run7_fold_knife_edge.py --variant "$v" --dataset "$d" \
         --ckpt-root "$CKPT_PARENT" --run Run7 \
         --log-fold-err-real "$mxa" --log-disagree-real "$dis" \
         --out "$KNIFE/KNIFE_EDGE_${d}_${v}.json" > "/tmp/r7_knife_${v}_${d}.log" 2>&1
@@ -124,7 +124,7 @@ if [ "$cr_fail" -ne 0 ] && [ "${RUN7_ALLOW_CHECKRUN_FAIL:-0}" != "1" ]; then
 fi
 
 echo "############ [3/6] 对象级只读复算（3 变体 × 4 库，用各自 best ckpt） ############"
-python analyse/run7_object_metrics.py --run Run7 --all-variants \
+python tools/archive/run7_object_metrics.py --run Run7 --all-variants \
   --variants "$V_CSV" --datasets "$D_CSV" --ckpt-root "$CKPT_PARENT" \
   --out "$OBJ" --device "${RUN7_DEVICE:-cuda:0}" \
   --batch-size "${RUN7_OBJ_BATCH:-16}" --num-workers "${RUN7_OBJ_WORKERS:-4}"
@@ -144,7 +144,7 @@ audit_rc=$?
 echo "[FINISH] independent audit rc=$audit_rc"
 
 echo "############ [6/6] 对象级跨变体对照表（含冻结参考） ############"
-python analyse/run7_object_metrics.py --compare --out "$OBJ"
+python tools/archive/run7_object_metrics.py --compare --out "$OBJ"
 
 echo "############ [FINISH] 汇总 ############"
 echo "  gate_rc=$gate_rc check_run_fail=$cr_fail object_rc=$obj_rc verdict_rc=$verdict_rc audit_rc=$audit_rc"

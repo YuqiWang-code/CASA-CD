@@ -3,7 +3,7 @@
 
 **只读语义**：绝不写 `best_F1=*.pth`，不触碰 Run1–Run7 / Diag1 任何产物；只写自己的 log 与 summary。
 
-    python models/run8_dry_run.py --variant CTRL_R8 \
+    python models/_legacy/run8_dry_run.py --variant CTRL_R8 \
       --dataset-root /share_datasets/CD/SYSU-CD-256 \
       --train-list /share_datasets/CD/SYSU-CD-256/list/train.txt \
       --vmamba-pretrained-weight-path .../vssm_tiny_0230_ckpt_epoch_262.pth \
@@ -227,7 +227,7 @@ def main():
     dis = float(((y_tr > 0.5) != (y_dp > 0.5)).float().mean())
     err = float((y_tr - y_dp).abs().max())
     dep_params = npar(dep)
-    # ---- 刀锋像素定位（与 analyse/run7_fold_knife_edge.py 的判据**同一定义**）
+    # ---- 刀锋像素定位（与 tools/archive/run7_fold_knife_edge.py 的判据**同一定义**）
     # `fold_disagreement_zero` 是**硬门**；但当它非零时不能直接判"实现错误"，必须先区分：
     #   KNIFE_EDGE_ARTIFACT ⇔ 存在翻转 且 **所有**翻转像素的 |p_train − 0.5| 都 < 本次折叠的最大绝对误差
     #   ⇒ 翻转由「该像素在阈值上没有 margin、二值化本就不适定」造成，而非折叠实现错误。

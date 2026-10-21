@@ -17,7 +17,7 @@
 | `models_v1/model/layers/st_geodesic.py` | 数学核心（结构张量 / 双角度坐标 / H² 测地距离 / 证据图 / 可部署模块），含完整推导与数值纪律 |
 | `models_v1/test_st_geodesic.py` | 20 项数学验收（T1 对拍 eigh 参考、T1b 反例守卫、T2/T2c/T11 辐射不变性、T4 分解恒等式、T12 真实变化响应…） |
 | `models_v1/model/casa_vmamba_stgeo_net.py` | 网络（VMamba-Tiny + TAR/DCR + ST-GEO，与 Run8 `hqkv=0` 分支同序构造） |
-| `models_v1/train_stgeo.py` | 训练/测试入口（协议与 Run8 逐项一致；日志格式与 Run8 相同，可直接被 `analyse/` 解析） |
+| `models_v1/train_stgeo.py` | 训练/测试入口（协议与 Run8 逐项一致；日志格式与 Run8 相同，可直接被 `tools/archive/` 解析） |
 | `models_v1/epoch0_check.py` | epoch-0 恒等性核对（三模式：dump Run8 CTRL / dump v1 / cmp） |
 | `.claude/_deploy_v1.py` | 上传器（**只传 `models_v1/` 与 `train_scripts/Exploration/`**，绝不触碰服务器 `models/`） |
 | `train_scripts/Exploration/Exp1/run_one.sh` | 单 run 启动（环境导出 / 非空目录守卫 / 3 次续训重试 / 严格 TEST 区块门） |

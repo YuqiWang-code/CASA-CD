@@ -41,14 +41,14 @@ echo "[Diag1] dataset=$DATASET run=$RUN variant=$VARIANT limit=$LIMIT device=$DE
 # ---------------------------------------------------------------- P0
 if has p0 || has all; then
   echo "===== P0: metric protocol + unit tests ====="
-  python -m unittest discover -s analyse/tests -p 'test_tvim_*.py' -v 2>&1 | tail -5
-  python analyse/tvim_diag_common.py protocol --out-dir "$DIAG/P0"
+  python -m unittest discover -s tools/tests -p 'test_tvim_*.py' -v 2>&1 | tail -5
+  python tools/tvim_diag_common.py protocol --out-dir "$DIAG/P0"
 fi
 
 # ---------------------------------------------------------------- D0
 if has d0 || has all; then
   echo "===== D0: audit $VARIANT ====="
-  python analyse/tvim_diag_common.py audit --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+  python tools/tvim_diag_common.py audit --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
     --device "$DEVICE" --out-dir "$DIAG/D0/$VARIANT" $([ "$LIMIT" -gt 0 ] && echo "--limit $LIMIT")
   st=$(gate_status "$DIAG/D0/$VARIANT/gate.json")
   echo "[Diag1] D0($VARIANT) gate=$st"
@@ -57,7 +57,7 @@ if has d0 || has all; then
     exit 1
   fi
   if has d0_compare || has all; then
-    python analyse/tvim_diag_common.py audit --dataset "$DATASET" --run "$RUN" --variant "$COMPARE_VARIANT" \
+    python tools/tvim_diag_common.py audit --dataset "$DATASET" --run "$RUN" --variant "$COMPARE_VARIANT" \
       --device "$DEVICE" --out-dir "$DIAG/D0/$COMPARE_VARIANT"
     echo "[Diag1] D0($COMPARE_VARIANT) gate=$(gate_status "$DIAG/D0/$COMPARE_VARIANT/gate.json")"
   fi
@@ -66,7 +66,7 @@ fi
 # ---------------------------------------------------------------- D1
 if has d1 || has all; then
   echo "===== D1: small-object error audit ====="
-  python analyse/tvim_small_error_audit.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+  python tools/archive/tvim_small_error_audit.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
     --compare-run "$COMPARE_RUN" --compare-variant "$COMPARE_VARIANT" --device "$DEVICE" \
     --out-dir "$DIAG/D1/$VARIANT" --examples $([ "$LIMIT" -gt 0 ] && echo "--limit $LIMIT")
   echo "[Diag1] D1 gate=$(gate_status "$DIAG/D1/$VARIANT/gate.json")"
@@ -75,7 +75,7 @@ fi
 # ---------------------------------------------------------------- D2
 if has d2 || has all; then
   echo "===== D2: stage recoverability ====="
-  python analyse/tvim_stage_recoverability.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+  python tools/tvim_stage_recoverability.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
     --device "$DEVICE" --out-dir "$DIAG/D2/$VARIANT" --verbose $([ "$LIMIT" -gt 0 ] && echo "--limit $LIMIT")
   echo "[Diag1] D2 gate=$(gate_status "$DIAG/D2/$VARIANT/gate.json")"
 fi
@@ -85,7 +85,7 @@ if has d3 || has all; then
   d1st=$(gate_status "$DIAG/D1/$VARIANT/gate.json"); d2st=$(gate_status "$DIAG/D2/$VARIANT/gate.json")
   if [ "$d1st" = "PASS" ] && [ "$d2st" = "PASS" ]; then
     echo "===== D3: frozen linear probe ====="
-    python analyse/tvim_linear_probe.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+    python tools/tvim_linear_probe.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
       --device "$DEVICE" --out-dir "$DIAG/D3/$VARIANT" --max-train "$MAX_TRAIN" --steps "$STEPS"
     echo "[Diag1] D3 gate=$(gate_status "$DIAG/D3/$VARIANT/gate.json")"
   else
@@ -96,7 +96,7 @@ fi
 # ---------------------------------------------------------------- D4
 if has d4 || has all; then
   echo "===== D4: CAACP beta counterfactual ====="
-  python analyse/tvim_caacp_counterfactual.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+  python tools/archive/tvim_caacp_counterfactual.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
     --device "$DEVICE" --out-dir "$DIAG/D4/$VARIANT" $([ "$LIMIT" -gt 0 ] && echo "--limit $LIMIT")
   echo "[Diag1] D4 gate=$(gate_status "$DIAG/D4/$VARIANT/gate.json")"
 fi
@@ -104,7 +104,7 @@ fi
 # ---------------------------------------------------------------- report
 if has report || has all; then
   echo "===== report ====="
-  python analyse/tvim_diag_report.py --root "$DIAG" --out "$DIAG/DIAGNOSIS_REPORT.md" --write-manifest
+  python tools/tvim_diag_report.py --root "$DIAG" --out "$DIAG/DIAGNOSIS_REPORT.md" --write-manifest
 fi
 
 # ---------------------------------------------------------------- D3c 分层 probe（用已保存权重）
@@ -112,7 +112,7 @@ if has d3c || has all; then
   PROBE_DIR="$DIAG/D3_${ENC_INPUT}/$VARIANT"
   [ -d "$PROBE_DIR" ] || PROBE_DIR="$DIAG/D3/$VARIANT"
   echo "===== D3c: stratified probe ($PROBE_DIR) ====="
-  python analyse/tvim_probe_stratified.py --probe-dir "$PROBE_DIR" --dataset "$DATASET" \
+  python tools/tvim_probe_stratified.py --probe-dir "$PROBE_DIR" --dataset "$DATASET" \
     --run "$RUN" --variant "$VARIANT" --device "$DEVICE" \
     --out-dir "$DIAG/D3_stratified/$VARIANT"
   echo "[Diag1] D3c gate=$(gate_status "$DIAG/D3_stratified/$VARIANT/gate.json")"
@@ -121,14 +121,14 @@ fi
 # ---------------------------------------------------------------- D2b margin 配对 CI（CPU）
 if has d2b || has all; then
   echo "===== D2b: margin paired bootstrap CI ====="
-  python analyse/tvim_stage_raw_stats.py --stage-raw "$DIAG/D2/$VARIANT/stage_raw.csv" \
+  python tools/tvim_stage_raw_stats.py --stage-raw "$DIAG/D2/$VARIANT/stage_raw.csv" \
     --out "$DIAG/D2/$VARIANT/margin_paired_ci.json"
 fi
 
 # ---------------------------------------------------------------- D1 8 连通敏感性
 if has d1conn8 || has all; then
   echo "===== D1 sensitivity: 8-connectivity ====="
-  python analyse/tvim_small_error_audit.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
+  python tools/archive/tvim_small_error_audit.py --dataset "$DATASET" --run "$RUN" --variant "$VARIANT" \
     --device "$DEVICE" --out-dir "$DIAG/D1_conn8/$VARIANT" --connectivity 8
 fi
 
@@ -136,11 +136,11 @@ fi
 if has d5 || has all; then
   for ds in $D5_DATASETS; do
     echo "===== D5: $ds (D0 + D1 + D2) ====="
-    python analyse/tvim_diag_common.py audit --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+    python tools/tvim_diag_common.py audit --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
       --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D0"
-    python analyse/tvim_small_error_audit.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+    python tools/archive/tvim_small_error_audit.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
       --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D1" --no-compare
-    python analyse/tvim_stage_recoverability.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
+    python tools/tvim_stage_recoverability.py --dataset "$ds" --run "$RUN" --variant "$VARIANT" \
       --device "$DEVICE" --out-dir "$DIAG/D5/$ds/D2"
     echo "[Diag1] D5 $ds: D0=$(gate_status "$DIAG/D5/$ds/D0/gate.json") \
 D1=$(gate_status "$DIAG/D5/$ds/D1/gate.json") D2=$(gate_status "$DIAG/D5/$ds/D2/gate.json")"

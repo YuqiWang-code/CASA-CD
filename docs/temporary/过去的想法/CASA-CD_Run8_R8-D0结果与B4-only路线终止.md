@@ -2,7 +2,7 @@
 
 > **日期**：2026-10-02
 > **方案**：`docs/temporary/CASA-CD_Run8_B4-SPE最终路线与预注册.md`（按 §15 执行）
-> **执行事实**：只写了 `analyse/run8_b4_dense_recoverability_audit.py`，在 GPU1 用 frozen
+> **执行事实**：只写了 `tools/archive/run8_b4_dense_recoverability_audit.py`，在 GPU1 用 frozen
 > depth-12 corrected DeiT 对 CDD/LEVIR/SYSU/WHU 完整 test 集零训练前向；无任何 80K。
 > **结果纪律**：无正式 TEST RESULTS；gate 数字来自完整 test 集确定性前向。
 

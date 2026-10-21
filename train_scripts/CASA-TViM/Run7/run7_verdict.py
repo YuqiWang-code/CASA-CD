@@ -283,7 +283,7 @@ def decide(rows, obj, logs, th, knife_dir=None):
             return {"verdict": "INCOMPLETE", "winner": v,
                     "reasons": [f"守门无法评估：{v} 缺对象级指标（datasets={miss}，"
                                 f"缺字段={bad}）；请先跑 "
-                                f"`analyse/run7_object_metrics.py --all-variants`。"],
+                                f"`tools/archive/run7_object_metrics.py --all-variants`。"],
                     "detail": detail,
                     "attribution": f"（对象级指标未齐，尚不能归因）{sy_line(v)}"}
         gf = detail["guardrail_fails"][v]
@@ -434,7 +434,7 @@ def _mk_logs(grad=5e-2, aux=(0.34, 0.33)):
 
 
 def _mk_obj(ctrl=0.5, exp=0.5):
-    """夹具必须与 `analyse/run7_object_metrics.py` 的真实 headline 字段**逐键一致**
+    """夹具必须与 `tools/archive/run7_object_metrics.py` 的真实 headline 字段**逐键一致**
     （已用 Run1 M1_FULL 的真实输出核对过 schema），否则守卫会把夹具判成"字段缺失"。"""
     out = {}
     for v in VARIANTS:

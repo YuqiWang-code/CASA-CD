@@ -18,7 +18,7 @@ https://github.com/YuqiWang-code/CASA-CD （main 分支已是最新）。
 7. `docs/temporary/过去的想法/CASA-CD_Run4_极轻量结构主线_可执行方案.md`（Run4 原始设计）
 8. `train_scripts/UltraLight/Run5/README.md`（Run5 gate 定义）
 代码重点：`models/model/encoder.py`、`mobile_detail.py`、`sgdp_head.py`、`trainer.py`、
-`analyse/run5_postmortem_and_mobile_audit.py`、`analyse/run4_detail_interface_audit.py`。
+`tools/archive/run5_postmortem_and_mobile_audit.py`、`tools/archive/run4_detail_interface_audit.py`。
 
 ## 一句话现状
 
@@ -82,8 +82,8 @@ raw/端到端 gate 失败）。**Run5 已按 §12 收束，预注册规定下一
   difference-first + 语义门控 + coarse-to-fine），T1/T2 交换严格对称，
   **FLOPs 1.6778G（≤2.0G 硬门槛达标）**，参数 2,102,587 的 R5-2 组合设计完全成立
   （ViT4 1,976,832 + Mobile 10,488 + SGDP 115,267）——head 侧不需要重新设计。
-- **零训练 raw gate 工具**：`analyse/run4_detail_interface_audit.py`（feature 级
-  PR-AUC/Spearman/Top32）与 `analyse/run5_postmortem_and_mobile_audit.py` 的 D 部分，
+- **零训练 raw gate 工具**：`tools/archive/run4_detail_interface_audit.py`（feature 级
+  PR-AUC/Spearman/Top32）与 `tools/archive/run5_postmortem_and_mobile_audit.py` 的 D 部分，
   可对任何新 semantic/detail 候选直接复用。
 - **预算事实**：ViT4-192（depth 4, width 192, DeiT 原位继承）独占总预算的 1.977M；
   SGDP 0.115M；剩余 ~0.11M。depth-4 证据只来自 width=192；**width 缩减（192→128/96）

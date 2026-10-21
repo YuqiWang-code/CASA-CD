@@ -110,7 +110,7 @@ F1 = 0.8099 (ΔF1 = -0.0131)   IoU = 0.6805 (ΔIoU = -0.0187)   ref 82.30/69.92
    都必须先查各尺度 q/kv 范数，否则"三路注入"是假前提。
 3. **代码资产**：`models/model/mobile_detail.py`、`models/model/sgdp_head.py`
    （smoke 全绿，SGDP 参数 115,267、FLOPs 1.68G 达标）——Run6 若采用
-   change-evidence head 设计可直接复用；`analyse/run5_postmortem_and_mobile_audit.py`
+   change-evidence head 设计可直接复用；`tools/archive/run5_postmortem_and_mobile_audit.py`
    （H1/H2/H3 + 任意新 detail 候选的 raw gate 可复跑）。
 4. **MobileDetail 数据点**：10.5K 参数的完整 ImageNet 预训练前缀，raw ranking
    达 ResNet 的 77-81%——为 Run6 的「用成熟预训练子层」类设计提供了标定。

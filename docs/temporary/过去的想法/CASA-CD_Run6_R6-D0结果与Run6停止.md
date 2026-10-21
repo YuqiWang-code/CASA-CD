@@ -2,7 +2,7 @@
 
 > **日期**：2026-10-01
 > **方案**：`docs/temporary/CASA-CD_Run6_ViT语义预算重分配_可执行预注册方案.md`（按 §18 执行）
-> **执行事实**：只写了 `analyse/run6_semantic_token_audit.py`（未动模型代码），在 GPU1 用
+> **执行事实**：只写了 `tools/archive/run6_semantic_token_audit.py`（未动模型代码），在 GPU1 用
 > R4-1/R4-0 best checkpoint + corrected DeiT 对完整 SYSU test（4000 对）零训练前向。
 > **结果纪律**：无正式 TEST RESULTS；gate 数字来自完整 test 集确定性前向。
 
@@ -75,7 +75,7 @@
    semantic change source」。
 2. **B1→B4 单调增强**（0.535→0.613）：全局 mixing 在 token 级逐步建立变化判别；
    变化信息不需要独立的 raw-image CNN 来提供 semantic 级证据。
-3. **R6-D0 审计工具**（`analyse/run6_semantic_token_audit.py`）可直接复用于
+3. **R6-D0 审计工具**（`tools/archive/run6_semantic_token_audit.py`）可直接复用于
    「候选 3：semantic source replacement」的任何新 semantic backbone——
    换源后照跑同一 gate（可加新门槛重新预注册）。
 
@@ -100,7 +100,7 @@ gate（含 CTRL 自检），过 gate 才花 80K。
 ## 7. 立即执行顺序（已完成）
 
 - [x] 归档旧决策文档至 `docs/temporary/过去的想法/`
-- [x] 只写 `analyse/run6_semantic_token_audit.py`（未改模型代码）
+- [x] 只写 `tools/archive/run6_semantic_token_audit.py`（未改模型代码）
 - [x] GPU1 完整 SYSU test 跑 R6-D0（checksum + CTRL 自检 + P0/B1-B4/B12/Fuse）
 - [x] [R6-D0-GATE] FAIL → 按规则不实现/不训练 R6-1
 - [x] 本记录 + README + 快照 + 推送 GitHub

@@ -842,7 +842,7 @@ Oracle 诊断模式需要显式传 `label` route hint。
 
 最终方法的 `casaa/detail/adaptive` 模式绝不能依赖 label。
 
-## `analyse/casaa_router_diagnostic.py`
+## `tools/archive/casaa_router_diagnostic.py`
 
 建议新增。
 
@@ -1026,7 +1026,7 @@ Router Audit + Oracle
 
 1. 固定当前 Run1 commit / 不覆盖日志与 checkpoint；
 2. 修 `casaa.py` 的 qkv sliced projection，并做 `<1e-6` 等价 smoke；
-3. 新增 `analyse/casaa_router_diagnostic.py`；
+3. 新增 `tools/archive/casaa_router_diagnostic.py`；
 4. 用已有 baseline/A2 checkpoint 在 LEVIR + SYSU 做 router–GT 对齐分析；
 5. 统计真实 change-patch 数分布与 Top32 changed-pixel coverage；
 6. 实现 `oracle` diagnostic router；

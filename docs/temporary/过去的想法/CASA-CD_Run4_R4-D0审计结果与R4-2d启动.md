@@ -108,7 +108,7 @@ R4-D0 → 判定 C → R4-2d PSD_DETAIL（唯一变量 = detail branch）
 ```
 
 - 实现：`models/model/psd_detail.py`（78,464 参数，smoke T-PSD0..T-PSD5 全过）
-- audit 代码：`analyse/run4_detail_interface_audit.py`；脚本：
+- audit 代码：`tools/archive/run4_detail_interface_audit.py`；脚本：
   `train_scripts/UltraLight/Run4/audit_R4_D0_detail_interface_SYSU.sh`、
   `train_R4_2d_PSD_DETAIL_SYSU.sh`、`train_R4_2c_ADAPTER_ALIGN_SYSU.sh`（已永久停用）
 - 完整报告：服务器 `/home/yqwang/outputs/CASA-CD/UltraLight/Run4/R4_D0_DETAIL_AUDIT/audit_report.txt`

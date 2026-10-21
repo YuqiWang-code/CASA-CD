@@ -71,6 +71,6 @@ bash train_scripts/UltraLight/Run4/dryrun_R4_PSD_SYSU.sh
 
 代码入口：
 - `models/model/psd_detail.py`（PSD-Detail，78,464 参数）
-- `analyse/run4_detail_interface_audit.py`（R4-D0）
+- `tools/archive/run4_detail_interface_audit.py`（R4-D0）
 - `--detail_mode resnet|light|light48|light_bnrelu|psd`
 - smoke：`python smoke_test.py --mode all`（含 T-PSD0..T-PSD5）

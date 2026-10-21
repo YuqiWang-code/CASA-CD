@@ -4,8 +4,8 @@
 本地（无 GPU / 无 selective_scan kernel）会**跳过**需要前向的检查并明确打印 SKIP；
 服务器（casacd 环境）应全 PASS。
 
-    python models/test_run7_hf_edge.py                 # 全量
-    python models/test_run7_hf_edge.py --device cuda:0
+    python models/_legacy/test_run7_hf_edge.py                 # 全量
+    python models/_legacy/test_run7_hf_edge.py --device cuda:0
 """
 import argparse
 import copy
@@ -278,7 +278,7 @@ def t8_params_flops(dev, has_kernel):
 
 
 def t9_dry_run(dev, has_kernel):
-    """T9：真实数据 3 步 dry-run（由 models/run7_dry_run.py 承担；此处检查可调用性）。"""
+    """T9：真实数据 3 步 dry-run（由 models/_legacy/run7_dry_run.py 承担；此处检查可调用性）。"""
     script = os.path.join(_MODELS, "run7_dry_run.py")
     ok = os.path.isfile(script)
     rec("T9", "real-data 3-step dry-run entrypoint exists", ok,
@@ -312,7 +312,7 @@ def t10_sidecar_negative(dev, has_kernel):
 
 
 def t11_resume(dev, has_kernel):
-    """T11：resume/protocol-exact 由 models/run7_dry_run.py + train.py 侧车校验承担。"""
+    """T11：resume/protocol-exact 由 models/_legacy/run7_dry_run.py + train.py 侧车校验承担。"""
     ok = os.path.isfile(os.path.join(_MODELS, "train.py"))
     rec("T11", "resume protocol-exact entrypoint", ok,
         "train.py [PROTOCOL-MISMATCH] strict resume gate (runs on server)")

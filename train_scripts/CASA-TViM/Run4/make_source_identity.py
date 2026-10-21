@@ -28,8 +28,8 @@ RUN4_FILES = [
     "models/model/utils.py",
     "models/train.py",
     "models/eval.py",
-    "models/test_run4_fine_tap.py",
-    "models/run4_dry_run.py",
+    "models/_legacy/test_run4_fine_tap.py",
+    "models/_legacy/run4_dry_run.py",
     "models/smoke_test.py",
     "models/model/tinyvim_s_slim.py",
     "models/model/layers/caacp_ss2d.py",
@@ -37,8 +37,8 @@ RUN4_FILES = [
     "models/model/metric_tool.py",
     "models/dataset/dataset.py",
     "models/dataset/Transforms.py",
-    "analyse/tvim_run4_tap_preflight.py",
-    "analyse/run4_fet_report.py",
+    "tools/archive/tvim_run4_tap_preflight.py",
+    "tools/archive/run4_fet_report.py",
 ]
 
 

@@ -2,7 +2,7 @@
 
 > **日期**：2026-10
 > **方案**：`docs/temporary/CASA-CD_下一步方案_Run11_TASS_设计与预注册.md`（按 §7 / §15 执行）
-> **执行事实**：只写了 `analyse/run11_tass_source_gate.py`（参数自由 raw-RGB 差分代理 +
+> **执行事实**：只写了 `tools/archive/run11_tass_source_gate.py`（参数自由 raw-RGB 差分代理 +
 > Rfuse 融合 + 边界带 PR-AUC），在 GPU1 用 frozen depth-4 corrected DeiT 对
 > CDD/LEVIR/SYSU/WHU 完整 test 集零训练前向；**未实现 TASS 模型、未跑任何 80K**。
 > **结果纪律**：无正式 TEST RESULTS；gate 数字来自完整 test 集确定性前向。
@@ -103,7 +103,7 @@ Run11  raw 空间证据(TASS-D0)        ：G1 1/4、G2 2/4（证伪，本记录�
 
 - 审计报告：`/home/yqwang/outputs/CASA-CD/diagnostics/STR-Fusion/Run2_TASS/TASS_D0_SOURCE_GATE/audit_report.txt`
 - 明细 JSON：同目录 `tass_d0_results.json`
-- 代码：`analyse/run11_tass_source_gate.py` + `train_scripts/STR-Fusion/Run2_TASS/`（gate 工具存档）
+- 代码：`tools/archive/run11_tass_source_gate.py` + `train_scripts/STR-Fusion/Run2_TASS/`（gate 工具存档）
 
 ---
 

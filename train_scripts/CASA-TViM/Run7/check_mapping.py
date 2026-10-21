@@ -2,7 +2,7 @@
 """Run7 一致性自检（本地可跑，不需 GPU/数据）。
 
 校验 `variant → (hf_edge, hf_edge_form)` 与 `wave → variant` 在**四个来源**中完全一致：
-`run_all.sh`（真正下发 CLI 的地方）、`models/run7_dry_run.py`、`Run7/SELECTION_LOCK.json`、
+`run_all.sh`（真正下发 CLI 的地方）、`models/_legacy/run7_dry_run.py`、`Run7/SELECTION_LOCK.json`、
 `Run7/README.md`。
 
 存在的理由：波二/三各要烧 ~4.5 h GPU 时间。若 runner 把 E9/E10 的 flag 传错、或把 CTRL 的

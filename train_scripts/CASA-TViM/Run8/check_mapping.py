@@ -3,7 +3,7 @@
 
 必须一致的三处：
   1. `train_scripts/CASA-TViM/Run8/run_all.sh` 的 `variant_args()` / `wave_variant()`
-  2. `models/run8_dry_run.py` 的 `VARIANTS`
+  2. `models/_legacy/run8_dry_run.py` 的 `VARIANTS`
   3. `train_scripts/CASA-TViM/Run8/SELECTION_LOCK.json` 的 `variants[].name`
 
 另附两条 Run8 专属一致性检查：

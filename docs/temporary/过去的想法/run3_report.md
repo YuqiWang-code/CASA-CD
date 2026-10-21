@@ -42,7 +42,7 @@
 | SYSU-CD-256 | 83.47 / 71.63 | 83.16 / 71.17 | -0.31 | 81.44 / 84.94 |  | 6.74e-03 | 0.00e+00 | 4.880 |
 | WHU-CD-256 | 95.07 / 90.60 | 95.02 / 90.50 | -0.05 | 93.42 / 96.66 | ✗ 95.02>=95.07 | 6.54e-03 | 0.00e+00 | 4.880 |
 
-预注册机制条件（SYSU F1>83.47、SYSU Recall≥84.41、SYSU small F1≥0.195（D2 复测））→ 需 D2 复测（python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E4_RA_CAACP --datasets SYSU-CD-256）裁决；LEVIR 不显著低于 91.07。
+预注册机制条件（SYSU F1>83.47、SYSU Recall≥84.41、SYSU small F1≥0.195（D2 复测））→ 需 D2 复测（python tools/archive/run2_zero_cost_diag.py --ckpt_run Run3 --variants E4_RA_CAACP --datasets SYSU-CD-256）裁决；LEVIR 不显著低于 91.07。
 
 ## E5_FS_TAR
 
@@ -53,4 +53,4 @@
 | SYSU-CD-256 | 83.47 / 71.63 | 83.24 / 71.29 | -0.23 | 81.26 / 85.31 |  | 1.69e-02 | 0.00e+00 | 4.954 |
 | WHU-CD-256 | 95.07 / 90.60 | 94.91 / 90.31 | -0.16 | 93.11 / 96.78 | ✗ 94.91>=95.07 | 9.79e-03 | 0.00e+00 | 4.954 |
 
-预注册机制条件（SYSU F1≥83.80、SYSU Recall>84.41、SYSU small F1≥0.205（D2 复测））→ 需 D2 复测（python analyse/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --datasets SYSU-CD-256）裁决；LEVIR 不显著低于 91.2。
+预注册机制条件（SYSU F1≥83.80、SYSU Recall>84.41、SYSU small F1≥0.205（D2 复测））→ 需 D2 复测（python tools/archive/run2_zero_cost_diag.py --ckpt_run Run3 --variants E5_FS_TAR --datasets SYSU-CD-256）裁决；LEVIR 不显著低于 91.2。

@@ -2,7 +2,7 @@
 
 > **日期**：2026-10-01
 > **方案**：`docs/temporary/CASA-CD_Run7_CSDP方案与预注册.md`（含四数据集预注册 gate）
-> **执行事实**：只写了 `analyse/run7_depth_source_audit.py`（未启动任何训练），在 GPU1
+> **执行事实**：只写了 `tools/archive/run7_depth_source_audit.py`（未启动任何训练），在 GPU1
 > 用 frozen depth-12 corrected DeiT 对 CDD/LEVIR/SYSU/WHU 完整 test 集零训练前向，
 > 提取 P0/B1-B12 的 1−cos token change score。
 > **结果纪律**：无正式 TEST RESULTS；gate 数字来自完整 test 集确定性前向。
@@ -81,7 +81,7 @@ Top32 precision：
 3. 文献证据（FDAM/LaViT/ResCLIP 的 frequency vanishing / attention saturation /
    intermediate localization）对本现象的解释力保留——它解释「深于 B4 为什么变差」，
    但不支持「B2 就够」。
-4. `analyse/run7_depth_source_audit.py` 成为四数据集 depth audit 的标准工具。
+4. `tools/archive/run7_depth_source_audit.py` 成为四数据集 depth audit 的标准工具。
 
 ## 6. 下一步决策叉（供下一步调研/预注册）
 

@@ -2,7 +2,7 @@
 
 > 审查对象：`YuqiWang-code/CASA-CD`  
 > GitHub 当前最新提交：`f63ddf17351d0abe40d91b76783026411a1fe19e`（2026-09-27）  
-> 重点阅读：`README.md`、`docs/temporary/CASA-CD_研究路线_ChatGPT方案记录.md`、`models/`、`others/SAT/`、`train_scripts/baseline/Run1/`、`analyse/`。  
+> 重点阅读：`README.md`、`docs/temporary/CASA-CD_研究路线_ChatGPT方案记录.md`、`models/`、`others/SAT/`、`train_scripts/baseline/Run1/`、`tools/archive/`。  
 > 本文只讨论创新主线一 **CASAA（Change-Aware Asymmetric Token Modeling）** 与 `train_scripts/CASAA/Run1`。不在 Run1 同时改轻量 Detail Branch、Decoder、Loss，避免变量混杂。
 
 ---
@@ -47,7 +47,7 @@ Run1 的目标不是 `<3M`，而是**单独证明 CASAA 机制是否成立**。�
 | baseline Run1 汇总 | CDD F1 97.75 / LEVIR 91.95 / SYSU 82.48 / WHU 94.84 | Run1 的工作对照 |
 | baseline 复杂度 | Effective Params 11.754M；TOTAL/TRAINABLE 20.661M（含 ResNet 死参数）；FLOPs 26.3246G | CASAA-v1 应基本不增加参数；总 FLOPs下降不会很大，因为主耗时并不只在 ViT Attention |
 
-**证据纪律说明：** GitHub 当前没有原始服务器 `train_log.txt`，仓库只有由 `analyse/models_to_txt.py` 从最后完整 `=== TEST RESULTS ===` 区块抽取出的汇总。上表可作为 Run1 的工作基线；论文正式结果仍应以服务器对应 `train_log.txt` 最后一个完整 TEST RESULTS 区块为准。
+**证据纪律说明：** GitHub 当前没有原始服务器 `train_log.txt`，仓库只有由 `tools/models_to_txt.py` 从最后完整 `=== TEST RESULTS ===` 区块抽取出的汇总。上表可作为 Run1 的工作基线；论文正式结果仍应以服务器对应 `train_log.txt` 最后一个完整 TEST RESULTS 区块为准。
 
 ---
 
@@ -528,7 +528,7 @@ Decoder 不改。
 [CASAA-ROUTER] change
 ```
 
-`=== TEST RESULTS ===` 继续保持现有格式，使 `analyse/extract_metrics_to_excel.py` 不需要改。
+`=== TEST RESULTS ===` 继续保持现有格式，使 `tools/extract_metrics_to_excel.py` 不需要改。
 
 建议把当前 header 中硬编码的：
 
@@ -747,7 +747,7 @@ train_scripts/
 /home/yqwang/outputs/CASA-CD/CASAA/Run1/A2_CASAA/<dataset>/train_log.txt
 ```
 
-这个目录格式正好能被现有 `analyse/extract_metrics_to_excel.py` 解析成：
+这个目录格式正好能被现有 `tools/extract_metrics_to_excel.py` 解析成：
 
 ```text
 Tag = CASAA

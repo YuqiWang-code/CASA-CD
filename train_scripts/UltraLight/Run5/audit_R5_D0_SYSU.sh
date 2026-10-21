@@ -14,7 +14,7 @@ LOG_DIR=/home/yqwang/outputs/CASA-CD/UltraLight/Run5/R5_D0_DETAIL_AUDIT
 mkdir -p "${LOG_DIR}"
 cd "${PROJ}"
 
-python analyse/run5_postmortem_and_mobile_audit.py \
+python tools/archive/run5_postmortem_and_mobile_audit.py \
     --dataset_root /share_datasets/CD/SYSU-CD-256 \
     --pretrained_weight_path "${PROJ}/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth" \
     --mobile_pretrained_weight_path "${PROJ}/pretrained_weight/mobilenet_v3_small-047dcff4.pth" \

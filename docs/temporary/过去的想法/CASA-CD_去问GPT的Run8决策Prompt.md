@@ -20,7 +20,7 @@ https://github.com/YuqiWang-code/CASA-CD （main 分支已是最新）。
 7. `docs/参考文献/文献索引.md`（本轮调研的 11 篇文献 PDF 清单 + 官方链接 +
    参考代码清单；PDF 都在 `docs/参考文献/2024-2026主证据/`）
 代码重点：`models/model/{encoder,trainer,decoder,sgdp_head,depth_pyramid_head}.py`、
-`analyse/{run4_detail_interface_audit,run5_postmortem_and_mobile_audit,
+`tools/archive/{run4_detail_interface_audit,run5_postmortem_and_mobile_audit,
 run6_semantic_token_audit,run7_depth_source_audit}.py`。
 
 ## 一句话现状

@@ -14,7 +14,7 @@
 
 你现在是 CASA-CD 项目的科研代码审计及诊断执行代理。本次唯一任务：**校准旧诊断的评价口径，定位 TinyViM-S-Slim + CAACP-SS2D + TAR/DCR 对 SYSU 小变化的首次信息衰减位置，并给出有证据的下一轮方向选择；不要先发明新模块。**
 
-1. 完整阅读：`README.md`、`models/model/casa_tvim_str_net.py`、`models/model/tinyvim_s_slim.py`、`models/model/layers/ss2d.py`、`models/model/layers/caacp_ss2d.py`、`models/model/str_tar.py`、`models/model/str_dcr.py`、`models/train.py`、`models/eval.py`、`models/dataset/{dataset.py,Transforms.py}`、`models/model/metric_tool.py`、`analyse/run2_zero_cost_diag.py`、`analyse/run3_report.py`、`docs/temporary/{run2_zero_cost_diag.json,run3_z12_summary.md,run3_report.md}`、`docs/temporary/CASA-TViM_Run1/metrics_tables.md`、`train_scripts/CASA-TViM/Run{1,2,3}/README.md`。检查真实服务器目录是否与文档一致。
+1. 完整阅读：`README.md`、`models/model/casa_tvim_str_net.py`、`models/model/tinyvim_s_slim.py`、`models/model/layers/ss2d.py`、`models/model/layers/caacp_ss2d.py`、`models/model/str_tar.py`、`models/model/str_dcr.py`、`models/train.py`、`models/eval.py`、`models/dataset/{dataset.py,Transforms.py}`、`models/model/metric_tool.py`、`tools/archive/run2_zero_cost_diag.py`、`tools/archive/run3_report.py`、`docs/temporary/{run2_zero_cost_diag.json,run3_z12_summary.md,run3_report.md}`、`docs/temporary/CASA-TViM_Run1/metrics_tables.md`、`train_scripts/CASA-TViM/Run{1,2,3}/README.md`。检查真实服务器目录是否与文档一致。
 2. 新诊断尽量**仅增文件，不触碰主训练图**。如确需加 hook/forward 可观测接口，只能加默认关闭的诊断接口，并证明 `diag=off` 时与原模型输出完全一致。旧的 `run2_zero_cost_diag.py` 可以通过新增 `v2` 文件替代，**不得覆盖旧 JSON**。
 3. 全部结果使用固定 `seed=16`、256×256 输入、原有 test split、固定二值判定 `p>0.5`（与 `models/train.py` 一致）、`gray>=128`，不按 test 集调阈值。诊断用轻量探针如需拟合，**只能用 train 数据拟合，test 只计算固定指标**；探针不属于新 CASA-CD 训练运行，也不作为正式模型指标。
 4. **每一个归因必须区分**：`[F] 直接代码/日志/计算事实`、`[I] 证据支持的推断`、`[H] 待验证假设`、`[M] 关键证据缺失`。不得把相关性写成因果，不得把运行时 β 消融等同于“从头训练的消融”。
@@ -121,7 +121,7 @@ PY
 
 - 不执行 `git clean -fdx`、`git reset --hard`、覆盖式 `git clone`、`rm -rf` 既有资产；不删除 best/last 权重、训练日志、数据集、参考 PDF。
 - 不在代码中出现为了诊断而临时 `model.train()`、改 BN running stats、改 optimizer/LR、test-label 参与推理路由；`GT` 只能用于**离线指标和诊断分桶**。
-- 不直接调用 `analyse/extract_metrics_to_excel.py` 覆盖 `docs/experiment_metrics.xlsx`；不写回历史 `run2_zero_cost_diag.json`。
+- 不直接调用 `tools/extract_metrics_to_excel.py` 覆盖 `docs/experiment_metrics.xlsx`；不写回历史 `run2_zero_cost_diag.json`。
 - 不把 `best_F1=x.pth` 文件名或训练过程中某个验证行当正式结果。只能用**同一个原始 train_log.txt 的最后一个完整 `=== TEST RESULTS ===` 至 `=== END TEST RESULTS ===` 区块**。
 - 不以 `small F1` 单一数值或一张好看的热力图宣称因果结论；不能根据 test 表现调 probe 参数/阈值后再报告同一个 test 结果。
 
@@ -131,7 +131,7 @@ PY
 
 ### 3.1 已在仓库定位到的计算缺陷
 
-`analyse/run2_zero_cost_diag.py` 中 `component_pr(pred_np, gt_np)` 先使用 `scipy.ndimage.label(gt_np > 0)`，构造指定 GT 正连通域掩码 `m`，再计算：
+`tools/archive/run2_zero_cost_diag.py` 中 `component_pr(pred_np, gt_np)` 先使用 `scipy.ndimage.label(gt_np > 0)`，构造指定 GT 正连通域掩码 `m`，再计算：
 
 ```python
 TP = ((pred > 0) & (gt > 0) & m).sum()
@@ -141,7 +141,7 @@ FN = ((pred == 0) & (gt > 0) & m).sum()
 
 由 `m⇒gt>0` 可知，**FP 恒等于 0**。于是单图 pseudo-Precision：有命中即 1，无命中为 0；`small P≈0.2` 并非“准确预测了 20% 的小目标区域”的正常 Precision，按图简单平均的 pseudo-F1 也不是对象级 F1。旧值 0.1796 / 0.8273 只能作为**历史受限正样本分组得分**，不得再用来设真实对象 F1 门槛。`run3_z12_summary.md` 中的 `small P/R/F1` 同理。
 
-### 3.2 新增 `analyse/tvim_object_metrics.py`（只读、独立实现）
+### 3.2 新增 `tools/tvim_object_metrics.py`（只读、独立实现）
 
 **A. GT 面积分组、全局累计像素召回（主诊断）**
 
@@ -215,11 +215,11 @@ Run3/E5_FS_TAR/SYSU-CD-256    ← fine TAR 修改
 
 `M1` 模型构造精确使用当前 `CASATViMSTRNet(tinyvim_pretrained_path=...,caacp=True,rep_mode='full',str_dim=96,caacp_score_mode='rank',frh=False,caacp_residual_mode='current',fs_tar=False)`；具体读取各 `train_scripts/.../train_SYSU...sh` 的实参，不能用默认 CLI 猜配置。先 build 模型、load state_dict、`eval()`，**严格核对 missing/unexpected keys**；探针的 `torch.load(...,weights_only=False)` 仅用于信任的本项目 checkpoint，不能加载未知来源文件。
 
-`analyse/run2_zero_cost_diag.py` 通过 `sorted(glob(...best_F1=*.pth))[-1]` 选 checkpoint；**新代码禁止多 best 文件时按字典序猜哪一个是正式 checkpoint**：从原始 TEST 区块 `[BEST-F1]`、该实验 `run_manifest/sidecar`、实际文件内容作一致性校验；多候选但无法唯一确认则 `BLOCKED`，不擅自删除。
+`tools/archive/run2_zero_cost_diag.py` 通过 `sorted(glob(...best_F1=*.pth))[-1]` 选 checkpoint；**新代码禁止多 best 文件时按字典序猜哪一个是正式 checkpoint**：从原始 TEST 区块 `[BEST-F1]`、该实验 `run_manifest/sidecar`、实际文件内容作一致性校验；多候选但无法唯一确认则 `BLOCKED`，不擅自删除。
 
 ### 4.2 核对 TEST RESULTS 的正确方式
 
-建议复用 `analyse/extract_metrics_to_excel.py` 的 `extract_test_block(text)` 与 `parse_block(block)`，**只导入函数、不要运行主程序覆盖 Excel**。为每个 Run 记录：原始日志路径、最后完整 TEST 区块起止、`Recall/Precision/OA/F1/IoU/Kappa`、训练图参数、部署图参数、可训练参数、deploy FLOPs、fold disagreement、训练预算/seed/batch、配置与 checkpoint SHA256。
+建议复用 `tools/extract_metrics_to_excel.py` 的 `extract_test_block(text)` 与 `parse_block(block)`，**只导入函数、不要运行主程序覆盖 Excel**。为每个 Run 记录：原始日志路径、最后完整 TEST 区块起止、`Recall/Precision/OA/F1/IoU/Kappa`、训练图参数、部署图参数、可训练参数、deploy FLOPs、fold disagreement、训练预算/seed/batch、配置与 checkpoint SHA256。
 
 缺日志不能用 README 代替正式结果；可先做技术性诊断，但 Gate 标为 `WARN/MISSING-LOG`，最终论文结论必须补原日志。
 
@@ -243,7 +243,7 @@ Run3/E5_FS_TAR/SYSU-CD-256    ← fine TAR 修改
 
 ## 5. D1：修正后的小目标错误画像（Zero-training）
 
-### 5.1 新增 `analyse/tvim_small_error_audit.py`
+### 5.1 新增 `tools/archive/tvim_small_error_audit.py`
 
 主输入：`--variant M1_FULL --run Run1 --dataset SYSU-CD-256 --ckpt ... --out-dir ...`；增量扩展 `A2_STR/E1/E2/E3/E4/E5`。每次只加载一个 variant、按文件名稳定顺序遍历全 test；输出 CSV/JSON，不保存全部 `[N,256,256]` logits（避免多 GB 文件）。
 
@@ -287,7 +287,7 @@ GT object bbox 与面积是统计属性；**训练或正常 inference 不可以�
 
 ## 6. D2：按模型真实计算顺序定位首次证据衰减（本轮核心）
 
-### 6.1 新增 `analyse/tvim_stage_recoverability.py`
+### 6.1 新增 `tools/tvim_stage_recoverability.py`
 
 以一个训练完成的**固定 M1 checkpoint** 为主，冻结全部参数、`model.eval()`、`torch.no_grad()`。只加临时 hook 或用不改输出的 `forward_with_diagnostics`，取以下节点：
 
@@ -379,7 +379,7 @@ X_high @16² → local_conv / high-frequency dense 分支
 
 **这一步可选但优先级高。** 若 D2 只是 cosine 热力图，并不足以得出“早期信息丢失”。
 
-### 7.1 新增 `analyse/tvim_linear_probe.py`
+### 7.1 新增 `tools/tvim_linear_probe.py`
 
 输入冻结模型 checkpoint 与确定的层名，可读出：
 
@@ -498,15 +498,15 @@ X_high @16² → local_conv / high-frequency dense 分支
 ### 11.1 建议新增（非覆盖）文件清单
 
 ```text
-analyse/tvim_diag_common.py                # 固定路径/模型构造/严格日志解析/manifest/metrics helper
-analyse/tvim_object_metrics.py             # 正确 GT 面积与预测 CC 的像素/对象指标
-analyse/tvim_small_error_audit.py          # D1 全数据集 GT 组件错误画像
-analyse/tvim_stage_recoverability.py       # D2 feature hook、A/B score、stage summary
-analyse/tvim_linear_probe.py               # D3 可选冻结 probe，训练/验证严格分离
-analyse/tvim_caacp_counterfactual.py       # D4 βON/OFF 固定 checkpoint
-analyse/tvim_diag_report.py                # 汇总所有 evidence、Gate 与决策
-analyse/tests/test_tvim_object_metrics.py  # 最少第3.3节 10个用例
-analyse/tests/test_tvim_feature_capture.py # shape、pair、hook 等价与清理
+tools/tvim_diag_common.py                # 固定路径/模型构造/严格日志解析/manifest/metrics helper
+tools/tvim_object_metrics.py             # 正确 GT 面积与预测 CC 的像素/对象指标
+tools/archive/tvim_small_error_audit.py          # D1 全数据集 GT 组件错误画像
+tools/tvim_stage_recoverability.py       # D2 feature hook、A/B score、stage summary
+tools/tvim_linear_probe.py               # D3 可选冻结 probe，训练/验证严格分离
+tools/archive/tvim_caacp_counterfactual.py       # D4 βON/OFF 固定 checkpoint
+tools/tvim_diag_report.py                # 汇总所有 evidence、Gate 与决策
+tools/tests/test_tvim_object_metrics.py  # 最少第3.3节 10个用例
+tools/archive/tests/test_tvim_feature_capture.py # shape、pair、hook 等价与清理
 train_scripts/CASA-TViM/Diag1/run_diag.sh  # 一键分阶段 Gate，不覆盖旧脚本
 train_scripts/CASA-TViM/Diag1/README.md
 ```
@@ -523,30 +523,30 @@ DIAG=/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1
 mkdir -p "$DIAG"
 
 # 1. P0 metrics unit tests（无需数据）
-python -m unittest discover -s analyse/tests -p 'test_tvim_*.py' -v
+python -m unittest discover -s tools/tests -p 'test_tvim_*.py' -v
 
 # 2. D0 严格对拍 M1。GPU_VISIBLE后 torch 设备为 cuda:0
-python analyse/tvim_diag_common.py audit \
+python tools/tvim_diag_common.py audit \
   --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
   --device cuda:0 --out-dir "$DIAG/D0/M1_FULL"
 
 # 3. D1 小对象诊断
-python analyse/tvim_small_error_audit.py \
+python tools/archive/tvim_small_error_audit.py \
   --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
   --device cuda:0 --out-dir "$DIAG/D1/M1_FULL"
 
 # 4. D2 full test 阶段信息流失诊断
-python analyse/tvim_stage_recoverability.py \
+python tools/tvim_stage_recoverability.py \
   --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
   --device cuda:0 --out-dir "$DIAG/D2/M1_FULL"
 
 # 5. D4 β 反事实（不是从头重训的消融）
-python analyse/tvim_caacp_counterfactual.py \
+python tools/archive/tvim_caacp_counterfactual.py \
   --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
   --device cuda:0 --out-dir "$DIAG/D4/M1_FULL"
 
 # 6. 先 D0-D2 输出诊断报告，再判断是否启动 D3 probe
-python analyse/tvim_diag_report.py \
+python tools/tvim_diag_report.py \
   --root "$DIAG" --out "$DIAG/DIAGNOSIS_REPORT.md"
 ```
 
@@ -554,7 +554,7 @@ python analyse/tvim_diag_report.py \
 
 ```bash
 # 仅当 D0/D1/D2 PASS 后执行；独立列出探针运行预算与结果
-python analyse/tvim_linear_probe.py \
+python tools/tvim_linear_probe.py \
   --dataset SYSU-CD-256 --run Run1 --variant M1_FULL \
   --device cuda:0 --seed 16 --steps 2000 \
   --out-dir "$DIAG/D3/M1_FULL"
@@ -706,11 +706,11 @@ P0/D0/D1/D2/D3/D4 gate: ...
 - TinyViM-S-Slim：[models/model/tinyvim_s_slim.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/models/model/tinyvim_s_slim.py)
 - SS2D：[models/model/layers/ss2d.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/models/model/layers/ss2d.py)
 - CAACP：[models/model/layers/caacp_ss2d.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/models/model/layers/caacp_ss2d.py)
-- 旧诊断 bug：[analyse/run2_zero_cost_diag.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/analyse/run2_zero_cost_diag.py)
+- 旧诊断 bug：[tools/archive/run2_zero_cost_diag.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/tools/archive/run2_zero_cost_diag.py)
 - Run2 诊断：[docs/temporary/run2_zero_cost_diag.json](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/docs/temporary/run2_zero_cost_diag.json)
 - Run3 报告：[docs/temporary/run3_report.md](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/docs/temporary/run3_report.md)
 - Run1 汇总：[docs/temporary/CASA-TViM_Run1/metrics_tables.md](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/docs/temporary/CASA-TViM_Run1/metrics_tables.md)
-- 训练协议、原始结果规范：[models/train.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/models/train.py) 与 [analyse/extract_metrics_to_excel.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/analyse/extract_metrics_to_excel.py)
+- 训练协议、原始结果规范：[models/train.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/models/train.py) 与 [tools/extract_metrics_to_excel.py](https://github.com/YuqiWang-code/CASA-CD/blob/fd8e0e3dee49ceffc4fbf9e2a3d6ada99be51f6f/tools/extract_metrics_to_excel.py)
 - 服务器数据契约：`docs/RSML-3_服务器环境与变化检测数据统一说明.md`。
 
 **最后约束：用户给 DSH 的当前任务是“把问题诊断清楚”，不是“必须找到显著改进”。允许诊断后给出 `INCONCLUSIVE` 或认为研究动机需要修正。机制判断不能先于证据。**

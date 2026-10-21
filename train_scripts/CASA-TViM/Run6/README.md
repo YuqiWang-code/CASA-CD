@@ -19,8 +19,8 @@
 | 设计文档 | `docs/temporary/过去的想法/CASA-CD_Run6_变化判别瓶颈可分辨性前测与读出结构设计_2026-10-11.md`（2026-10-11 归档；内容与 SHA 未变） |
 | 设计文档 SHA256 | `d77cacbd7b52363598487b348b2593ce5f989a6ae66d55dc688a0cd80969eb5b`（461 行 / 45282 bytes；本地现算一致） |
 | 冻结仓库版本 | `YuqiWang-code/CASA-CD@b1f5e54`（Run6 S1：审阅修正 + 75 单测 + P0 特征列补全 + 本 README） |
-| 前测脚本 | `analyse/tvim_run6_discriminability.py`（`run6_discriminability_v1`） |
-| 本地单测 | `analyse/tests/test_tvim_run6_discriminability.py`（71 项） |
+| 前测脚本 | `tools/archive/tvim_run6_discriminability.py`（`run6_discriminability_v1`） |
+| 本地单测 | `tools/archive/tests/test_tvim_run6_discriminability.py`（71 项） |
 | 身份生成器 | `train_scripts/CASA-TViM/Run6/make_source_identity.py`（`--require-all --expect-plan`） |
 | 独立审计 | `.claude/_r6_audit.py`（独立最小实现，与主脚本不共享代码路径） |
 | 上传/对拍 | `.claude/_r6_stage.py` + `SOURCE_FILES.txt` → `SOURCE_SHA256.txt` → 远端 `sha256sum -c` |
@@ -163,11 +163,11 @@ full 17448（= 4 列）逐项吻合。这正是把这些缺失计数写进产物
 
 ```bash
 python -m compileall -q analyse models train_scripts
-python -m unittest discover -s analyse/tests -p 'test_tvim_*.py' -v      # 138 项（Run6 新增 71 项）
-python analyse/tvim_run6_discriminability.py --help
+python -m unittest discover -s tools/tests -p 'test_tvim_*.py' -v      # 138 项（Run6 新增 71 项）
+python tools/archive/tvim_run6_discriminability.py --help
 ```
 
-`analyse/tests/test_tvim_run6_discriminability.py` 覆盖：`pool_map` / `resize_frac`（覆盖率池化）、
+`tools/archive/tests/test_tvim_run6_discriminability.py` 覆盖：`pool_map` / `resize_frac`（覆盖率池化）、
 `auc_score` / `ap_score`（手工小例子对拍，含并列分数与全并列）、`cross_scale_features`、
 `fit_logistic`（可分数据 AUC>0.9、确定性、L2 单调收缩、标准化只用拟合集统计）、`_impute`
 （中位数只从拟合集取、全 NaN 列兜底 0）、`ring_mask` / `interior_mask`（**无 GT 依赖**、
@@ -209,7 +209,7 @@ Run5 F15 回归项）、预算切分、以及手工通道像素空间（§2.1 �
 |---|---|
 | S0.1 环境 | torch 2.14.0+cu132 / CUDA 13.2 / 2×RTX 5090；`selective_scan_cuda_oflex` import PASS |
 | S0.2 代码身份 | `make_source_identity.py --require-all --expect-plan` PASS；设计文档 SHA == `d77cacbd…eb5b` |
-| S1.1 单测 | `analyse/tests/test_tvim_*.py` **142 项 rc=0**（含 Run6 的 75 项） |
+| S1.1 单测 | `tools/tests/test_tvim_*.py` **142 项 rc=0**（含 Run6 的 75 项） |
 | S1.2 P0 素材 | ckpt SHA == 锁；test list `sha256_text_lines` == 锁（4000 行）；输出目录全新；**core12 + Run5 冻结模块 13 文件 DIFF=0** |
 | S1.3 DRY 排练 | `--limit 400` → `DRY_ONLY`，261 对象，`timed_out=false`，链路健康 |
 | **S1.4 正式前测** | fit **10788** 图 / test **4000** 图；4362 训练对象 / **2757** 评估对象；**用时 69.6 s（预算 900 s）**，`timed_out=false` |

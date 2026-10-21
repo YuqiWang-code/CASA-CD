@@ -52,7 +52,7 @@ Run8 的注入对象是**变化感知聚合后的跨尺度增量**（不是边�
 ### 1.3 为什么绕开了几何退化（P0-3 陷阱③）——**本轮最关键的一条**
 
 固定半径下 `cosh d = 1 + sinh²r(1−cos)`，`acosh` 严格递增 ⇒ **与 `1−cos` 逐像素同序**
-（`models/test_run8_cpu_precheck.py` 的 C2 在真实张量上复现：`frac_rank_diff=0.0`）。
+（`models/_legacy/test_run8_cpu_precheck.py` 的 C2 在真实张量上复现：`frac_rank_diff=0.0`）。
 
 **更强的结论**：退化的根源其实是 `rank_normalize_2d` —— `rank(·)` 只保留序、丢弃一切幅度，
 所以**任何保序变换**（不止固定半径双曲）走 rank 之后都得到逐位相同的权重。
@@ -81,7 +81,7 @@ CPU 预检实测（随机张量）：`detail(变半径) vs 余弦` 的 `frac_ran
 
 ## 3. 参数预算（用户要求的"非骨干尽量小"）
 
-实测（服务器 GPU 图，`models/run8_dry_run.py` 会打印）：
+实测（服务器 GPU 图，`models/_legacy/run8_dry_run.py` 会打印）：
 
 | 组件 | 参数量 |
 |---|---:|
@@ -106,7 +106,7 @@ cd /home/yqwang/projects/CASA-CD
 # 0) 身份对拍（必须全 OK）
 sha256sum -c train_scripts/CASA-TViM/Run8/SOURCE_SHA256.txt | grep -c ': OK'
 
-# 1) 本地已跑：python models/test_run8_cpu_precheck.py   （CPU，24/26 起）
+# 1) 本地已跑：python models/_legacy/test_run8_cpu_precheck.py   （CPU，24/26 起）
 
 # 2) 服务器 GPU 预检（smoke + dry-run，四库各一次 CTRL_R8 与 H1_HYP）
 bash train_scripts/CASA-TViM/Run8/_r8_smoke.sh

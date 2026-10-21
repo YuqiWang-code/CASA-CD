@@ -799,7 +799,7 @@ if __name__ == "__main__":
 同时支持两种架构（用 `--pkg-root` 选择代码树）：
   --arch run8  --pkg-root <repo>/models      → Run8 `CTRL_R8`（VMamba + TAR/DCR）
   --arch stgeo --pkg-root <repo>/models_v1   → Exp1 `STG_INJ`（+ SPD(2)/H² 证据）
-两者**同一份指标实现**（`analyse/tvim_object_metrics.py`），因此数字可直接对比。
+两者**同一份指标实现**（`tools/tvim_object_metrics.py`），因此数字可直接对比。
 
 用法（服务器，GPU1）：
   CUDA_VISIBLE_DEVICES=1 python eval_object_metrics.py --arch stgeo --pkg-root ../models_v1 \
@@ -2256,7 +2256,7 @@ def main():
     dis = float(((y_tr > 0.5) != (y_dp > 0.5)).float().mean())
     err = float((y_tr - y_dp).abs().max())
     dep_params = npar(dep)
-    # ---- 刀锋像素定位（与 analyse/run7_fold_knife_edge.py 的判据**同一定义**）
+    # ---- 刀锋像素定位（与 tools/archive/run7_fold_knife_edge.py 的判据**同一定义**）
     # `fold_disagreement_zero` 是**硬门**；但当它非零时不能直接判"实现错误"，必须先区分：
     #   KNIFE_EDGE_ARTIFACT ⇔ 存在翻转 且 **所有**翻转像素的 |p_train − 0.5| 都 < 本次折叠的最大绝对误差
     #   ⇒ 翻转由「该像素在阈值上没有 margin、二值化本就不适定」造成，而非折叠实现错误。
@@ -7554,7 +7554,7 @@ if __name__ == "__main__":
      Adam(2e-4, 0.9/0.99, wd=1e-4) / poly^0.9 + 200 iter warmup / test-as-val /
      prob > 0.5 / gray ≥ 128），因此已跑完的 `CTRL_R8` 可作为**同期同协议对照**；
   2. **日志格式与 Run8 相同**（`=== TEST RESULTS ===` … `=== END TEST RESULTS ===`，
-     内含 `[ACTUAL-OPT-STEPS]`、`[PROTOCOL-VERSION]`），使 analyse/ 的现成解析器
+     内含 `[ACTUAL-OPT-STEPS]`、`[PROTOCOL-VERSION]`），使 tools/archive/ 的现成解析器
      （`extract_metrics_to_excel.py` / `tvim_diag_common.parse_test_block`）可直接使用；
   3. **fail-closed**：run_manifest.json 逐字段校验；`--resume` 在启动时禁止
      （崩溃恢复只允许从自己的 last.pth 自动续训）。
@@ -14439,7 +14439,7 @@ router 模式：
   - routing 索引（TopK / assignment）在 torch.no_grad() 下计算；聚合/收集仍使用
     带梯度的原 feature tensor，梯度可回传到背景 token。
   - _routing 记录上一次 forward_pair 的诊断统计（score / 索引 / 聚类大小 /
-    bank 范数 / 注意力质量），供 analyse/casaa_router_diagnostic.py 做 Router Audit。
+    bank 范数 / 注意力质量），供 tools/archive/casaa_router_diagnostic.py 做 Router Audit。
 """
 import torch
 import torch.nn as nn

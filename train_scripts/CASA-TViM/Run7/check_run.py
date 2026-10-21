@@ -89,7 +89,7 @@ def _get(pattern, text, cast=float, default=None):
 def knife_edge_ok(knife_dir, variant, dataset, log_disagree, log_maxabs):
     """真实 batch 折叠 disagreement > 0 时的**唯一**合法豁免（见 pre-reg §7.6 / Run4 §10 先例）。
 
-    判据（与 analyse/run7_fold_knife_edge.py 的 verdict 同定义）：
+    判据（与 tools/archive/run7_fold_knife_edge.py 的 verdict 同定义）：
       翻转像素的 |p_train − 0.5| 全部小于该次折叠的最大绝对误差 ⇒ 该像素在阈值上没有 margin，
       二值化本就不适定，属数值现象而非折叠实现错误。
     但**必须**有定位证据文件，且其 variant/dataset 与本次一致、verdict 为 KNIFE_EDGE_ARTIFACT、

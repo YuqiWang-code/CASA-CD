@@ -4822,7 +4822,7 @@ router 模式：
   - routing 索引（TopK / assignment）在 torch.no_grad() 下计算；聚合/收集仍使用
     带梯度的原 feature tensor，梯度可回传到背景 token。
   - _routing 记录上一次 forward_pair 的诊断统计（score / 索引 / 聚类大小 /
-    bank 范数 / 注意力质量），供 analyse/casaa_router_diagnostic.py 做 Router Audit。
+    bank 范数 / 注意力质量），供 tools/archive/casaa_router_diagnostic.py 做 Router Audit。
 """
 import torch
 import torch.nn as nn

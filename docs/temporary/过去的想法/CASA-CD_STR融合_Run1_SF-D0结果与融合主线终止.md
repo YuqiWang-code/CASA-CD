@@ -4,7 +4,7 @@
 > **方案**：`docs/temporary/CASA-CD_STR融合_Run1_设计与预注册方案.md`（按 §6.1 / §7 执行）
 > **执行事实**：完成了全部融合实现与训练前审计——`models/model/str_{reparam,tar,dcr,encoder,fusion}.py`、
 > `models/test_str_reparam_equivalence.py`（T0/T1/T2/T2b）、`models/smoke_test.py` 的 T-SF-1..8、
-> `analyse/run1_strfusion_budget.py`（G4）、`analyse/run1_strfusion_interface_audit.py`（SF-D0），
+> `tools/archive/run1_strfusion_budget.py`（G4）、`tools/archive/run1_strfusion_interface_audit.py`（SF-D0），
 > 全部在 GPU1 运行。**0 个 80K**（SF-D0 FAIL → 未进入 dry run / 正式训练）。
 > **结果纪律**：无正式 TEST RESULTS；gate 数字来自四数据集完整 test 集确定性零训练前向。
 
@@ -79,7 +79,7 @@
 | smoke | T-SF-1..8 全过（epoch-0 逐位一致、双梯度家族、冻结 checksum、分支删除、C0/M1 deploy 相等） | 新机制 smoke 范式 |
 | 预算（G4 PASS） | deploy TOTAL=EFFECTIVE **2,596,353（2.596M < 3M）**、FLOPs **2.2136G**（vs baseline 26.32G）；M1 训练图 3.123M/1.146M 可训练 | 机器实测预算事实 |
 | RNG 纪律落地 | `skip_init` + 本地 Generator 的 aux 初始化（C0/M1 共享初始化逐位一致，0/267 键差异） | 解决 STR 交接文档 7.1-3 的坑 |
-| SF-D0 审计工具 | `analyse/run1_strfusion_interface_audit.py`（四数据集边界带 gate，G0 自检可复用） | 未来任何「ViT token 作 dense 证据」候选的免费闸门 |
+| SF-D0 审计工具 | `tools/archive/run1_strfusion_interface_audit.py`（四数据集边界带 gate，G0 自检可复用） | 未来任何「ViT token 作 dense 证据」候选的免费闸门 |
 
 ## 6. 课题状态更新（八轮负结果后的证据总结）
 

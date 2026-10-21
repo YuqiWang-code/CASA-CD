@@ -2,7 +2,7 @@
 
 > **审查基准**：GitHub `YuqiWang-code/CASA-CD` `main`  
 > **本次核对 HEAD**：`b6502f675d0784299fd9b6f2919557053a58c916`（2026-09-30）  
-> **重点已读**：`README.md`、`docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md`、`docs/temporary/CASA-CD_CASAA-v2_A4_Run3审查与主线二启动方案.md`、`models/model/encoder.py`、`models/model/light_detail.py`、`models/model/decoder.py`、`models/model/trainer.py`、`models/model/resnet.py`、`models/train.py`、`models/eval.py`、`models/smoke_test.py`、`analyse/param_breakdown.py`、`analyse/vit_pretrain_audit.py`、`train_scripts/UltraLight/Run4/`。  
+> **重点已读**：`README.md`、`docs/temporary/CASA-CD_Run4_极轻量结构主线_可执行方案.md`、`docs/temporary/CASA-CD_CASAA-v2_A4_Run3审查与主线二启动方案.md`、`models/model/encoder.py`、`models/model/light_detail.py`、`models/model/decoder.py`、`models/model/trainer.py`、`models/model/resnet.py`、`models/train.py`、`models/eval.py`、`models/smoke_test.py`、`tools/param_breakdown.py`、`tools/vit_pretrain_audit.py`、`train_scripts/UltraLight/Run4/`。  
 > **固定协议**：BCE+Dice；Adam `2e-4`；poly + 200 warmup；80000 steps；batch 16；256×256；seed 16；test-as-val；GPU1；ViT frozen。  
 > **最终约束**：工程目标 `≤2.20M effective params`；论文硬口径 `<3M`；SYSU F1 `≥82.30`；LEVIR F1 `≥91.50`；不改 loss、不做多 seed、不把训练技巧当贡献。
 
@@ -294,7 +294,7 @@ Adapter + GN
 建议新增：
 
 ```text
-analyse/run4_detail_interface_audit.py
+tools/archive/run4_detail_interface_audit.py
 ```
 
 使用已经训练完的：
@@ -1545,7 +1545,7 @@ R4-2 与 R4-2b 都在最后 5% steps 刷新 best
 ## 新增
 
 ```text
-analyse/run4_detail_interface_audit.py
+tools/archive/run4_detail_interface_audit.py
 models/model/psd_detail.py
 ```
 

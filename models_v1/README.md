@@ -1,35 +1,31 @@
-# models/ — ChangeViT baseline 代码（CASA-CD 改造版）
+# models_v1/ — 探索性实验 / 额外任务区
 
-上游：https://github.com/zhuduowang/ChangeViT
-（ChangeViT: Unleashing Plain Vision Transformers for Change Detection in Remote
-Sensing Images, Pattern Recognition 2025）
+**这里的东西不属主线**。主线是 `../models/`（当前 Run9：HSAM）。
+本目录是一个**自包含的 v1 快照 + 探索线**：可以随便改、随便试，只要不把结果混进主线结论。
 
-## 与上游的差异（改造点）
+## 当前在做什么
 
-| 文件 | 改造 |
+| 文件 | 用途 |
 |---|---|
-| `train.py` | 新训练入口（替代上游 `main.py`）：A/B/label + list 格式、config header、每 epoch 单行日志（Loss + 六指标）、`last.pth`/`best_F1=x.pth` 保存、开头与结尾输出参数量/FLOPs |
-| `eval.py` | 独立测试入口，加载 `best_F1=*.pth`，输出与 train.py 一致的 `=== TEST RESULTS ===` 区块 |
-| `smoke_test.py` | 冒烟测试（无需真实数据）：forward/backward + 参数量/FLOPs |
-| `dataset/dataset.py` | list 格式 DataLoader（`<root>/{A,B,label}/` + `<root>/list/*.txt`） |
-| `dataset/Transforms.py` | label 二值化改为 lab 统一约定 `gray >= 128` |
-| `model/encoder.py` | 预训练权重路径参数化（`--pretrained_weight_path`） |
-| `model/resnet.py` | `model_zoo.load_url` → `torch.hub.load_state_dict_from_url`（torch 2.x 兼容） |
-| `main.py` | 保留上游原版（未改动），仅作参考 |
+| `train_stgeo.py` | **探索线 Exp1**（STG 系列）：把局部结构张量当 SPD(2)/H² 上的点，用黎曼测地距离做变化证据 |
+| `test_st_geodesic.py` | 上述几何的数值验收（拉回度量 / 闭式测地距离 / 退化检查） |
+| `eval_object_metrics.py` | 对象级指标评估（按 GT 面积分组） |
+| `eval_stgeo_tb.py` | Exp1 的逐样本读数落盘 |
+| `check_sup_wiring.py` / `epoch0_check.py` | 接线与 epoch-0 自检 |
 
-训练协议与上游一致：BCE+Dice loss、Adam(lr=2e-4, β=(0.9,0.99), wd=1e-4)、poly LR（0.9 次方 + 200 iter warmup）、`max_steps=80000`、batch 16、256×256、
-test 集当验证集按 test F1 选 best、seed 16。
+## 为什么这里还有一份完整代码快照
 
-## 用法（服务器）
+`train.py` / `eval.py` / `main.py` / `model/` / `dataset/` 是 v1 的**冻结快照**，
+上面的探索脚本要 import 它们。所以本目录里与 `../models/` 同名的文件**是刻意的副本**——
+不要为了"去重"删掉，那会让探索线直接跑不起来。
 
-```bash
-cd /home/yqwang/projects/CASA-CD/models
-python train.py \
-    --dataset LEVIR-CD-256 \
-    --dataset_root /share_datasets/CD/LEVIR-CD-256 \
-    --train_list /share_datasets/CD/LEVIR-CD-256/list/train.txt \
-    --test_list  /share_datasets/CD/LEVIR-CD-256/list/test.txt \
-    --pretrained_weight_path /home/yqwang/projects/CASA-CD/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth \
-    --ckpt_dir /share_datasets/yqwang/checkpoints/CASA-CD/baseline/Run1/LEVIR-CD-256 \
-    --model_type tiny --max_steps 80000 --batch_size 16 --gpu_id 0
-```
+> 2026-10-21 整理时确认：本目录与 `../models/` 的同名文件（`train.py` 除外）逐字节一致。
+> 探索线若要跟进主线改动，请显式同步并记录，不要指望自动一致。
+
+## 纪律
+
+- 本目录的实验**不影响主线结论**。要进论文/主线，必须按
+  `../train_scripts/CASA-TViM/Run9/` 那种「预注册 + 同期 CTRL + 唯一变量」的方式重开一轮。
+- Exp1 的历史设计与结果已归档到 `../docs/temporary/过去的想法/CASA-CD_Exp1_*.md`。
+- 许可证：与 `../models/` 同源（ChangeViT），文本在
+  `../docs/参考文献/baseline/ChangeViT_LICENSE_v1.txt`。

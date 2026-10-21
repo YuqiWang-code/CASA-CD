@@ -54,7 +54,7 @@ nohup bash train_scripts/UltraLight/Run5/train_R5_3_MOBILEDETAIL_SGDP_LEVIR.sh >
 代码入口：
 - `models/model/mobile_detail.py`（MobileDetail-P3，10,488 参数，exact 继承）
 - `models/model/sgdp_head.py`（SGDP，115,267 参数）
-- `analyse/run5_postmortem_and_mobile_audit.py`（R5-D0）
+- `tools/archive/run5_postmortem_and_mobile_audit.py`（R5-D0）
 - CLI：`--detail_mode mobile_p3 --head_mode legacy|sgdp --mobile_pretrained_weight_path <pth>`
 - smoke：`python smoke_test.py --mode all --mobile_pretrained_weight_path <pth>`（T-R5 系列）
 

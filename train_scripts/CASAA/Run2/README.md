@@ -39,7 +39,7 @@
   change_share 0.50、共享确定性 density-peak 聚类、qkv/proj 预训练原位继承、
   BCE+Dice、poly、80000 steps、batch 16、256×256、seed 16、test-as-val。
 - 已实现的等价优化：qkv 切片投影（只算 full-Q 与 compressed-KV，smoke 等价误差
-  <1e-6），并新增 `analyse/casaa_router_diagnostic.py`（Router Audit）。
+  <1e-6），并新增 `tools/archive/casaa_router_diagnostic.py`（Router Audit）。
 
 ## 路径
 

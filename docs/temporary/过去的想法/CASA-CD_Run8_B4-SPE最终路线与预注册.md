@@ -423,7 +423,7 @@ FLOPs <= 2.00G
 - 复用 expansion；
 - 无 attention / 无 gate / 无 auxiliary head。
 
-`analyse/run8_b4_dense_recoverability_audit.py`
+`tools/archive/run8_b4_dense_recoverability_audit.py`
 - B4/B12 pixel PR；
 - boundary-band PR；
 - bucket diagnostics；
@@ -723,7 +723,7 @@ Run4–Run7 的负结果形成一个完整的 budget allocation study：
 
 ## 15. 立即执行顺序
 
-1. **先只新增** `analyse/run8_b4_dense_recoverability_audit.py`。
+1. **先只新增** `tools/archive/run8_b4_dense_recoverability_audit.py`。
 2. GPU1 跑 CDD/LEVIR/SYSU/WHU 完整 test，保存 `audit_report.txt`。
 3. 人工读取：
    ```text

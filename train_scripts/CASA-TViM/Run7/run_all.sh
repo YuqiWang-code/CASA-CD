@@ -38,7 +38,7 @@ conda activate casacd
 export LD_LIBRARY_PATH=/home/yqwang/miniforge3/envs/casacd/lib/python3.10/site-packages/torch/lib:/home/yqwang/miniforge3/envs/casacd/lib:${LD_LIBRARY_PATH:-}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# variant -> (hf_edge, hf_edge_form) ；与 models/run7_dry_run.py::VARIANTS 必须一致
+# variant -> (hf_edge, hf_edge_form) ；与 models/_legacy/run7_dry_run.py::VARIANTS 必须一致
 variant_args() {
   case "$1" in
     M1_R7CTRL)  echo "0 none" ;;

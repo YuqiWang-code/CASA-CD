@@ -1891,10 +1891,10 @@ models/smoke_test.py
 新增分析：
 
 ```text
-analyse/param_breakdown.py
-analyse/vit_pretrain_audit.py
-analyse/vit_health_monitor.py
-analyse/profile_model.py
+tools/param_breakdown.py
+tools/vit_pretrain_audit.py
+tools/archive/vit_health_monitor.py
+tools/archive/profile_model.py
 ```
 
 Run4 脚本：
@@ -2866,8 +2866,8 @@ Run4 全部新目录。
 ## 今天先做
 
 1. 核对 Git SHA 与 Run3 是否真的已在服务器/main；
-2. 写 `analyse/param_breakdown.py`，得到当前 11.754M 的精确组件分解；
-3. 写 `analyse/vit_pretrain_audit.py`，核对本地 DeiT checkpoint 的 patch/pos/block key 和 shape；
+2. 写 `tools/param_breakdown.py`，得到当前 11.754M 的精确组件分解；
+3. 写 `tools/vit_pretrain_audit.py`，核对本地 DeiT checkpoint 的 patch/pos/block key 和 shape；
 4. 实现 `vit_depth=4`，但**暂时不动 detail / FI / decoder**；
 5. 建立 corrected loader；
 6. smoke：block0-3 exact load + pos interpolate；

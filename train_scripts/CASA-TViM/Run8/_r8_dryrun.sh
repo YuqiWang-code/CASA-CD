@@ -24,7 +24,7 @@ for V in CTRL_R8 H1_HYP; do
     D="$OUT/$DS/$V"
     mkdir -p "$D"
     echo "=== dry-run $V / $DS ==="
-    CUDA_VISIBLE_DEVICES="$GPUS" python "$REPO/models/run8_dry_run.py" \
+    CUDA_VISIBLE_DEVICES="$GPUS" python "$REPO/models/_legacy/run8_dry_run.py" \
       --variant "$V" \
       --dataset-root "$DATA/$DS" \
       --train-list "$DATA/$DS/list/train.txt" \

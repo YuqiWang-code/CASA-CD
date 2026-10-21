@@ -3,7 +3,7 @@
 
 **只读语义**：绝不写 `best_F1=*.pth`，不触碰 Run1–Run6 / Diag1 任何产物；只写自己的 log 与 summary。
 
-    python models/run7_dry_run.py --variant E9_HFAE_A \
+    python models/_legacy/run7_dry_run.py --variant E9_HFAE_A \
       --dataset-root /share_datasets/CD/SYSU-CD-256 \
       --train-list /share_datasets/CD/SYSU-CD-256/list/train.txt \
       --tinyvim-pretrained-weight-path .../tinyvim_s_1000e.pth \

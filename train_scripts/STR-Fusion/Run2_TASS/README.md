@@ -42,7 +42,7 @@
 - **裁决**：未训练的 raw 像素差分证据只在 SYSU 与 B4 互补，三个建筑数据集上被
   辐射伪变化主导 → 不实现/不训练 TASS；按方案 §16 锁定 fallback：**不再开 Run12
   救援线，下一轮直接进入分析型论文收尾设计（方向 c）**。
-- 审计工具存档：`analyse/run11_tass_source_gate.py` + `audit_TASS_D0.sh`。
+- 审计工具存档：`tools/archive/run11_tass_source_gate.py` + `audit_TASS_D0.sh`。
 
 ## 方案一句话
 

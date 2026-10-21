@@ -5,7 +5,7 @@ set -uo pipefail
 #   0) 协议审计（训练未结束时拒绝继续，见下方守卫）；
 #   1) 逐 run 用 check_run.py 核对「最后一个完整 TEST 区块 + 硬门」；
 #   2) 逐 run 在**部署图**上跑对象指标 pass（4 连通、原生 256²、p>0.5）；
-#   3) 出 analyse/run4_fet_report.py 的三层裁决 verdict.json。
+#   3) 出 tools/archive/run4_fet_report.py 的三层裁决 verdict.json。
 # 只读 checkpoint 与日志，不覆盖任何训练产物。
 # 退出码：3 = 8 个 run 尚未全部产出完整 TEST 区块；4 = 协议审计未过（除非 FORCE=1）。
 
@@ -73,19 +73,19 @@ echo "########## 2) object metrics on the deploy graph ##########"
 _obj_fail=0
 for v in M1_R4CTRL E6_FET1; do
   for d in ${DATASETS}; do
-    python analyse/run4_fet_report.py --mode object --variant "${v}" --dataset "${d}" --run Run4 \
+    python tools/archive/run4_fet_report.py --mode object --variant "${v}" --dataset "${d}" --run Run4 \
       --device cuda:0 --ckpt-root "${CKPT_ROOT}" --out-dir "${OBJ_DIR}" || _obj_fail=1
   done
 done
 
 echo "########## 3) three-tier verdict ##########"
-python analyse/run4_fet_report.py --mode verdict \
+python tools/archive/run4_fet_report.py --mode verdict \
   --log-root "${LOG_ROOT}" --ckpt-root "${CKPT_ROOT}" \
   --object-dir "${OBJ_DIR}" --out "${LOG_ROOT}/verdict.json"
 _verdict_rc=$?
 
 echo "########## 4) README-ready markdown (rendered from verdict.json, no manual transcription) ##########"
-python analyse/run4_fet_report.py --mode markdown --verdict "${LOG_ROOT}/verdict.json" \
+python tools/archive/run4_fet_report.py --mode markdown --verdict "${LOG_ROOT}/verdict.json" \
   --out "${LOG_ROOT}/README_SNIPPET.md" || echo "[WARN] markdown render failed"
 
 echo "########## SUMMARY ##########"

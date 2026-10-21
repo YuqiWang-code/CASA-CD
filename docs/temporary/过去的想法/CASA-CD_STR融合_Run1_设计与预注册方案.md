@@ -194,7 +194,7 @@ FLOPs 输入 2×3×256×256，fvcore + unsupported_ops 同时上报。
 
 ### 3.2 预算审计工具
 
-新增 `analyse/run1_strfusion_budget.py`：构建 C0/M1 的 train-graph 与 deploy-graph，
+新增 `tools/archive/run1_strfusion_budget.py`：构建 C0/M1 的 train-graph 与 deploy-graph，
 输出 TOTAL / TRAINABLE / EFFECTIVE（train 与 deploy 双口径）+ FLOPs(G) +
 unsupported_ops；硬断言：
 - deploy EFFECTIVE ≤ 3.0M（G4 硬 gate）；
@@ -282,7 +282,7 @@ unsupported_ops；硬断言：
 | `F:\Code_Repositories_2\CursorCode\CASA-CD\models\train.py` | ① 新 CLI：`--arch strfusion`、`--str_dim 160`、`--str_rep_mode plain\|full`；② `ChangeViTTrainer.__init__` 加 `arch=='strfusion'` 分支直接构建 `STRFusionNet`（断言 ViT 冻结）；③ `test_best()` 对 strfusion：加载 best → 固定 batch 记录 train-graph 输出 → `switch_to_deploy()` → 记录 `[REPARAM-MAX-ABS-ERROR]` / `[REPARAM-ARGMAX-DISAGREE]` / `[DEPLOY-PARAMS]` / `[DEPLOY-FLOPS]` / `[STR-REP-MODE]` / `[STR-DIM]` → 在 **deploy 图**上跑正式 test；④ arch.json 增加 `arch/vit_depth/str_dim/str_rep_mode` 键 |
 | `F:\Code_Repositories_2\CursorCode\CASA-CD\models\eval.py` | 加性分支：`--arch strfusion` 构建 + arch.json mismatch 拒绝 + 加载 best 后 `switch_to_deploy()` 再测（TEST 区块字段与 train 一致） |
 | `F:\Code_Repositories_2\CursorCode\CASA-CD\models\smoke_test.py` | 新增 `t_run1_strfusion(...)`（§6.2 清单）+ main 的 `--mode strfusion` 分发；既有 T0–T-R9 函数与分发不动 |
-| `F:\Code_Repositories_2\CursorCode\CASA-CD\.claude\_deploy.py` | **无需改动**（UPLOAD 已整树覆盖 models/ + train_scripts/ + analyse/） |
+| `F:\Code_Repositories_2\CursorCode\CASA-CD\.claude\_deploy.py` | **无需改动**（UPLOAD 已整树覆盖 models/ + train_scripts/ + tools/archive/） |
 
 ### 5.3 新训练脚本与文档
 
@@ -389,8 +389,8 @@ M2 口径）。
 [3]  服务器 GPU1（先 nvidia-smi 确认空闲、单任务）：
        smoke_test.py --mode strfusion（§6.2-4 全项）
        test_str_reparam_equivalence.py（T0/T1/T2）
-       analyse/run1_strfusion_budget.py            → G4 裁决
-       analyse/run1_strfusion_interface_audit.py   → [SF-D0-GATE] 裁决（四数据集）
+       tools/archive/run1_strfusion_budget.py            → G4 裁决
+       tools/archive/run1_strfusion_interface_audit.py   → [SF-D0-GATE] 裁决（四数据集）
 [4]  SF-D0 FAIL → 写终止记录（README/快照/git push），不训练；PASS → [5]
 [5]  生成 train_scripts/STR-Fusion/Run1 全部脚本（LF 行尾字节校验）
 [6]  SYSU dryrun（60 steps，scratch 目录，跑完删除）
@@ -491,6 +491,6 @@ CASA-CD 侧：README.md；docs/temporary/过去的想法/CASA-CD_交接文档_20
 docs/ChatGPT_Project_Settings.md；docs/temporary/CASA-CD_Run9_R9-D0结果与B4-OPRE路线终止.md；
 docs/temporary/CASA-CD_Run8_R8-D0结果与B4-only路线终止.md；
 models/model/{encoder,decoder,trainer,sgdp_head,depth_pyramid_head,b4_spe_head}.py；
-analyse/{run7_depth_source_audit,run8_b4_dense_recoverability_audit}.py；
+tools/archive/{run7_depth_source_audit,run8_b4_dense_recoverability_audit}.py；
 docs/参考文献/文献索引.md；另核实 models/train.py、models/eval.py、models/smoke_test.py、
 .claude/_deploy.py。

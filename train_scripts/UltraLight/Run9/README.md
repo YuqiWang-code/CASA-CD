@@ -48,7 +48,7 @@ nohup bash train_scripts/UltraLight/Run9/train_R9_1_B4_OPRE_SYSU.sh > /dev/null 
 代码入口：
 - `models/model/opre_head.py`（OPREHead：pair 36,960 + 语义 expansion + O-PRE
   local_proj 6,208 + gate 33 + 重建 = 60,113；总 2,036,945）
-- `analyse/run9_overlap_reembedding_audit.py`（R9-D0）
+- `tools/archive/run9_overlap_reembedding_audit.py`（R9-D0）
 - CLI：`--vit_depth 4 --detail_mode opre --head_mode opre_spe [--opre_gate 1|0]`
 - smoke：`python smoke_test.py --mode run9_opre`（T-R9-0..9）
 

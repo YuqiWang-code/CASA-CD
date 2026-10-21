@@ -1234,7 +1234,7 @@ seed == 16
 
 旧 smoke 全部保留。
 
-## 13.8 新增：`analyse/run11_tass_source_gate.py`
+## 13.8 新增：`tools/archive/run11_tass_source_gate.py`
 
 复用：
 
@@ -1254,7 +1254,7 @@ seed == 16
 
 并保存四数据集 CSV/JSON 明细。
 
-## 13.9 新增：`analyse/run11_tass_budget.py`
+## 13.9 新增：`tools/archive/run11_tass_budget.py`
 
 输出：
 
@@ -1354,7 +1354,7 @@ resume_source
 ```text
 [0] 冻结本文档：阈值不再改
 
-[1] 只写 analyse/run11_tass_source_gate.py
+[1] 只写 tools/archive/run11_tass_source_gate.py
     不实现 TASS 模型
     → GPU1 跑四数据集 TASS-D0
 

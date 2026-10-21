@@ -47,7 +47,7 @@ nohup bash train_scripts/UltraLight/Run8/train_R8_1_B4_SPE_SYSU.sh > /dev/null 2
 代码入口：
 - `models/model/b4_spe_head.py`（B4SPEHead：pair 36,960 + expansion 16,912 = 53,872；
   总 2,030,704）
-- `analyse/run8_b4_dense_recoverability_audit.py`（R8-D0）
+- `tools/archive/run8_b4_dense_recoverability_audit.py`（R8-D0）
 - CLI：`--vit_depth 4 --detail_mode none_b4 --head_mode b4_spe`
 - smoke：`python smoke_test.py --mode run8_b4_spe`（T-R8）
 

@@ -835,7 +835,7 @@ SYSU 必须同时：
 - 32→64→128→256 PixelShuffle；
 - sigmoid output。
 
-### `analyse/run9_overlap_reembedding_audit.py`
+### `tools/archive/run9_overlap_reembedding_audit.py`
 
 由 Run8 audit 改：
 - 加 canonical P0；
@@ -1473,7 +1473,7 @@ Run9 明确引入一个新的、可审计的 32×32 overlap observation。
 # 16. 立即执行顺序
 
 1. **先提交/保存本预注册，不改 gate。**
-2. 新建 `analyse/run9_overlap_reembedding_audit.py`，只做零训练四数据集 audit。
+2. 新建 `tools/archive/run9_overlap_reembedding_audit.py`，只做零训练四数据集 audit。
 3. 跑 SYSU R4-1 control；不在 ±0.005 → `AUDIT_INVALID`，先修口径。
 4. 跑四数据集 P0 / B4 / O-PRE / proxy。
 5. 打印 `[R9-D0-GATE] PASS/FAIL`。

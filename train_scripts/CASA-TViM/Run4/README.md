@@ -78,15 +78,15 @@ python test_run4_fine_tap.py --tinyvim-pretrained-weight-path ../pretrained_weig
 cd /home/yqwang/projects/CASA-CD
 DIAG=/home/yqwang/outputs/CASA-CD/diagnostics/TViM-TinyLoss-Diag1
 OUT=/home/yqwang/outputs/CASA-CD/diagnostics/TViM-Run4-Preflight-20261010
-python analyse/tvim_run4_tap_preflight.py --device cuda:0 --dataset SYSU-CD-256 \
+python tools/archive/tvim_run4_tap_preflight.py --device cuda:0 --dataset SYSU-CD-256 \
   --run Run1 --variant M1_FULL --probe-dir "$DIAG/D3_concat/M1_FULL" --out-dir "$OUT"
 python -m json.tool "$OUT/gate.json" | head -80
 
 # ④ 真实数据 3-step dry-run（T7/T8）
-CUDA_VISIBLE_DEVICES=0 python models/run4_dry_run.py --variant E6_FET1 --device cuda:0 --steps 3 \
+CUDA_VISIBLE_DEVICES=0 python models/_legacy/run4_dry_run.py --variant E6_FET1 --device cuda:0 --steps 3 \
   --dataset-root /share_datasets/CD/SYSU-CD-256 --train-list /share_datasets/CD/SYSU-CD-256/list/train.txt \
   --output-dir /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_DRY/E6_FET1
-python models/test_run4_fine_tap.py --device cuda:0 \
+python models/_legacy/test_run4_fine_tap.py --device cuda:0 \
   --tinyvim-pretrained-weight-path pretrained_weight/tinyvim_s_1000e.pth \
   --dry-run-json /home/yqwang/outputs/CASA-CD/CASA-TViM/Run4_DRY/E6_FET1/dry_run.json  # T8 复核
 
@@ -113,7 +113,7 @@ python train_scripts/CASA-TViM/Run4/audit_protocol.py \
 
 ## 5. 训练后测量口径预校验（在任何 Run4 结果出现之前完成）
 
-`analyse/run4_fet_report.py --mode object` 是第 ⑦ 步的**唯一**对象指标口径。用 Run1 `M1_FULL` 四库历史
+`tools/archive/run4_fet_report.py --mode object` 是第 ⑦ 步的**唯一**对象指标口径。用 Run1 `M1_FULL` 四库历史
 best 的**只读软链**（临时目录，不写任何历史目录）跑一遍该口径，逐项对齐 Diag1 §14 D5：
 
 | 数据集 | small 对象数 | small pooled Recall | Hit@25 | ObjPrecision | ObjRecall | F1 / IoU |
@@ -204,7 +204,7 @@ T11 用小规模可控实验验收（SYSU 前 320 张 train / 128 张 test，bat
 
 **触发澄清的实测事实**：第 1 波 `M1_R4CTRL` 四库均跑满 80,000 步并产出完整 TEST 区块；
 LEVIR/SYSU/WHU 在**随机与真实两个 batch 上分歧均为 0**；CDD 真实 batch 分歧 0、但
-**合成随机 batch 上恰好 1/524,288 像素翻转**（1.907e-06）。刀锋定位（`analyse/run4_fold_knife_edge.py`，
+**合成随机 batch 上恰好 1/524,288 像素翻转**（1.907e-06）。刀锋定位（`tools/archive/run4_fold_knife_edge.py`，
 即 §7-T5 明文要求的"记录两份概率与阈值附近最小 margin 以定位刀锋像素"）：
 
 | 量 | 值 |

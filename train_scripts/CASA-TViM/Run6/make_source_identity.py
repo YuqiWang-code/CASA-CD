@@ -56,19 +56,19 @@ CORE_12 = [
 RUN4_FROZEN = [
     "models/model/str_fine_tap.py",
     "models/model/str_fine_head.py",
-    "models/test_run4_fine_tap.py",
-    "models/run4_dry_run.py",
-    "analyse/run4_fet_report.py",
-    "analyse/tvim_run4_tap_preflight.py",
-    "analyse/run4_fold_knife_edge.py",
+    "models/_legacy/test_run4_fine_tap.py",
+    "models/_legacy/run4_dry_run.py",
+    "tools/archive/run4_fet_report.py",
+    "tools/archive/tvim_run4_tap_preflight.py",
+    "tools/archive/run4_fold_knife_edge.py",
 ]
 
 # Run5 冻结文件（Run6 只读复用 tvim_run5_fp_profile.py 的 edge_field/dilate1，不得修改）
 RUN5_FROZEN = [
-    "analyse/tvim_run5_hf_pair_preflight.py",
-    "analyse/tvim_run5_fp_profile.py",
-    "analyse/tests/test_tvim_run5_preflight.py",
-    "analyse/tests/test_tvim_run5_fp_profile.py",
+    "tools/archive/tvim_run5_hf_pair_preflight.py",
+    "tools/archive/tvim_run5_fp_profile.py",
+    "tools/archive/tests/test_tvim_run5_preflight.py",
+    "tools/archive/tests/test_tvim_run5_fp_profile.py",
     "train_scripts/CASA-TViM/Run5/make_source_identity.py",
     "train_scripts/CASA-TViM/Run5/README.md",
     "train_scripts/CASA-TViM/Run5/SELECTION_LOCK.json",
@@ -76,8 +76,8 @@ RUN5_FROZEN = [
 
 # Run6 新增源码
 RUN6_NEW = [
-    "analyse/tvim_run6_discriminability.py",
-    "analyse/tests/test_tvim_run6_discriminability.py",
+    "tools/archive/tvim_run6_discriminability.py",
+    "tools/archive/tests/test_tvim_run6_discriminability.py",
     "train_scripts/CASA-TViM/Run6/make_source_identity.py",
     "train_scripts/CASA-TViM/Run6/README.md",
     "train_scripts/CASA-TViM/Run6/SELECTION_LOCK.json",
@@ -85,10 +85,10 @@ RUN6_NEW = [
 
 # Run6 前测直接依赖的共享只读模块（身份必须可核验，否则"复现"无意义）
 SHARED_DEPS = [
-    "analyse/tvim_diag_common.py",
-    "analyse/tvim_object_metrics.py",
-    "analyse/tvim_linear_probe.py",
-    "analyse/tvim_stage_recoverability.py",
+    "tools/tvim_diag_common.py",
+    "tools/tvim_object_metrics.py",
+    "tools/tvim_linear_probe.py",
+    "tools/tvim_stage_recoverability.py",
 ]
 
 ASSETS = [
@@ -193,7 +193,7 @@ def main():
         "group": group_of,
         "dataset_lists": lists,
         "missing": missing,
-        "note": ("Run6 S1 只新增 analyse/tvim_run6_discriminability.py + 单测 + Run6 目录文档；"
+        "note": ("Run6 S1 只新增 tools/archive/tvim_run6_discriminability.py + 单测 + Run6 目录文档；"
                  "models/ 在 gate.json PASS 之前**逐字节不变**。core12 / run4_frozen / "
                  "run5_frozen 三组的 SHA 是\"未改动 models/ 与未改动 Run5\"的证据。"),
     }

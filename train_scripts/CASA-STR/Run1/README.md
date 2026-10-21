@@ -69,7 +69,7 @@ GPU0：CDD → LEVIR；GPU1：SYSU → WHU。
 折叠等价性测量必须 **TF32 off + cudnn deterministic**（train.py TEST 区块 / eval.py /
 smoke 均已内建）。初版在默认 TF32-on 下测得 CDD A0 max_abs=1.5e-2、disagree=1.1e-4
 （GPU TF32 卷积舍入经 BN 因子放大），协议口径下实测 **1.6e-5 / disagree=0**。
-已完成的 run 用 `analyse/remeasure_casa_str.py` 复测（其输出为正式数值）：
+已完成的 run 用 `tools/archive/remeasure_casa_str.py` 复测（其输出为正式数值）：
 A0 CDD F1 0.9467 / IoU 0.8987、A0 LEVIR 0.8990 / 0.8166、A0 SYSU 0.8246 / 0.7016、
 A0 WHU 0.9370 / 0.8815——全部 disagree=0、max_abs ≤1.6e-5。
 

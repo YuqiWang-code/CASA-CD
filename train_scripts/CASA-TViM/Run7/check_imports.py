@@ -3,7 +3,7 @@
 
 存在的理由（真实事故）：`models/train.py` 曾漏 import `HF_EDGE_FORM`，而该名字只在
 **写 sidecar**（arch.json / run_manifest.json / last.pth）时才被求值 —— 因此
-`models/test_run7_hf_edge.py`（直接构造模型）与 `models/run7_dry_run.py`（不走 manifest）
+`models/_legacy/test_run7_hf_edge.py`（直接构造模型）与 `models/_legacy/run7_dry_run.py`（不走 manifest）
 **都测不到**，只有在真实的 `train.py` 上跑一步才会暴露。
 波一（CTRL, hf_edge=0）同样不走该分支，所以本检查必须在开波二之前跑。
 
@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 MOD = os.path.join(ROOT, "models", "model", "str_hf_edge.py")
 TARGETS = ["models/train.py", "models/eval.py", "models/model/casa_tvim_str_net.py",
-           "models/run7_dry_run.py", "models/test_run7_hf_edge.py"]
+           "models/_legacy/run7_dry_run.py", "models/_legacy/test_run7_hf_edge.py"]
 
 
 def module_constants(path):

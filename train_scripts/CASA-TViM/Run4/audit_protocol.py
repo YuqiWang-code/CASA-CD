@@ -122,7 +122,7 @@ def main():
     ap.add_argument("--log-root", required=True)
     ap.add_argument("--ckpt-root", required=True,
                     help="CASA-TViM checkpoint root (the tool appends --run); same convention "
-                         "as analyse/run4_fet_report.py --ckpt-root")
+                         "as tools/archive/run4_fet_report.py --ckpt-root")
     ap.add_argument("--run", default="Run4")
     ap.add_argument("--variant", default=None, choices=[None] + VARIANTS)
     ap.add_argument("--require-finished", type=int, default=0,

@@ -46,17 +46,17 @@ CORE_12 = [
 RUN4_FROZEN = [
     "models/model/str_fine_tap.py",
     "models/model/str_fine_head.py",
-    "models/test_run4_fine_tap.py",
-    "models/run4_dry_run.py",
-    "analyse/run4_fet_report.py",
-    "analyse/tvim_run4_tap_preflight.py",
-    "analyse/run4_fold_knife_edge.py",
+    "models/_legacy/test_run4_fine_tap.py",
+    "models/_legacy/run4_dry_run.py",
+    "tools/archive/run4_fet_report.py",
+    "tools/archive/tvim_run4_tap_preflight.py",
+    "tools/archive/run4_fold_knife_edge.py",
 ]
 
 # Run5 新增源码
 RUN5_NEW = [
-    "analyse/tvim_run5_hf_pair_preflight.py",
-    "analyse/tests/test_tvim_run5_preflight.py",
+    "tools/archive/tvim_run5_hf_pair_preflight.py",
+    "tools/archive/tests/test_tvim_run5_preflight.py",
     "train_scripts/CASA-TViM/Run5/make_source_identity.py",
 ]
 
@@ -144,7 +144,7 @@ def main():
         "group": group_of,
         "dataset_lists": lists,
         "missing": missing,
-        "note": ("Run5 在 S1 阶段只新增 analyse/tvim_run5_hf_pair_preflight.py 与单测；"
+        "note": ("Run5 在 S1 阶段只新增 tools/archive/tvim_run5_hf_pair_preflight.py 与单测；"
                  "models/ 在门 PASS 之前不改。12 文件基线中，Run5 实装阶段只允许改 "
                  "casa_tvim_str_net.py / str_tar.py / train.py / eval.py（§6.7），"
                  "ss2d.py / caacp_ss2d.py / str_dcr.py / str_reparam.py / str_fine_tap.py "

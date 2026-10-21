@@ -33,7 +33,7 @@
     "detail_radius": "q = clip((1 - cos(u_i, mean_{3x3}(u_i)))/2, 0, 1)  -- local dispersion of the same timestep",
     "global_radius": "q = clip(||x_i - mean_HW(x_t)|| / (||x_i|| + eps), 0, 1)  -- deviation from the same timestep's global mean",
     "distance": "cosh d = cosh(rA)cosh(rB) - sinh(rA)sinh(rB)<uA,uB>; d = acosh(max(1, cosh d)); s = 1 - exp(-d)",
-    "non_degeneracy": "the fixed-radius case reduces to a strictly monotone function of 1-cos (rank-identical, provable); variable radius is what breaks it. Verified numerically in models/test_run8_cpu_precheck.py C2/C3.",
+    "non_degeneracy": "the fixed-radius case reduces to a strictly monotone function of 1-cos (rank-identical, provable); variable radius is what breaks it. Verified numerically in models/_legacy/test_run8_cpu_precheck.py C2/C3.",
     "k_v_compression": "detail branch: change-score weighted pooling inside a fixed 2x2 grid (k=1/4); global branch: deviation-weighted pooling on a fixed 4x4 grid (k=1/16). Both are REGULAR GRIDS - no TopK, no clustering, no random sampling.",
     "q_full": "Q keeps the native token count N at every stage; Q/K/V are split-check: V uses a per-channel depthwise 1x1 (groups=rank) so the branch parameter cost is dim*rank*3 instead of 2*dim^2",
     "no_rank": "CRITICAL: rank_normalize_2d is NOT used. rank() discards all magnitude information, so ANY order-preserving transform (including hyperbolic distance) yields bit-identical weights after it. Run8 consumes raw numeric scores through softmax instead.",

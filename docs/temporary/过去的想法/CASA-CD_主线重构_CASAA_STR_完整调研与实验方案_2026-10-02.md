@@ -1301,7 +1301,7 @@ new_params      -> lr=2e-4
 
 ---
 
-## 12.8 新增 `analyse/audit_casa_str.py`
+## 12.8 新增 `tools/archive/audit_casa_str.py`
 
 只做正确性与复杂度审计，不做“raw F1 gate”。
 

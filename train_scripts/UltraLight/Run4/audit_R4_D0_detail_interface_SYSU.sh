@@ -16,7 +16,7 @@ LOG_DIR=/home/yqwang/outputs/CASA-CD/UltraLight/Run4/R4_D0_DETAIL_AUDIT
 mkdir -p "${LOG_DIR}"
 cd "${PROJ}"
 
-python analyse/run4_detail_interface_audit.py \
+python tools/archive/run4_detail_interface_audit.py \
     --dataset_root /share_datasets/CD/SYSU-CD-256 \
     --pretrained_weight_path "${PROJ}/pretrained_weight/deit_tiny_patch16_224-a1311bcf.pth" \
     --ckpt_r41_dir /share_datasets/yqwang/checkpoints/CASA-CD/UltraLight/Run4/R4_1_VIT4_OLDHEAD/SYSU-CD-256 \
