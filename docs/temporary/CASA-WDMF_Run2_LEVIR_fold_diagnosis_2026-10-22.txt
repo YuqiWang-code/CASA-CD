@@ -1,0 +1,55 @@
+CASA-WDMF / Run2 — LEVIR deployment verification
+2026-10-22 CST
+Protocol: wdmf_str_40k_modulewd0_v2
+
+Queue
+The queue stopped at 07:28:15 after M2_CA_QKV failed deployment equivalence
+verification. The recorded maximum probability difference was
+0.0003954768180847168, above the 0.0002 threshold. No LEVIR experiment has a
+complete TEST RESULTS block. The metric table retains 105 formal records.
+
+Preserved training state
+M2_CA_QKV: all 40,182 optimizer steps completed; last.pth records epoch 181.
+M1_HYPER_QKV: interrupted by the supervisor; the last complete checkpoint
+records epoch 177 and step 39,294, leaving 888 optimizer steps in the budget.
+Its text log continues to step 39,400. Both variants retain best_model.pth,
+last.pth, run_manifest.json and arch.json in their checkpoint directories:
+/share_datasets/yqwang/checkpoints/CASA-CD/CASA-WDMF/Run2/<variant>/LEVIR-CD-256/
+
+M1's final stage1 diagnostic: gamma=-0.371622, radius CV=0.133633,
+normalized attention entropy=0.817068. M2's final stage1 diagnostic:
+gamma=-0.374954, normalized attention entropy=0.867650. Four-stage outputs
+were finite in both final diagnostics.
+
+Read-only verification
+The same M2 validation-selected checkpoint and first validation image were
+compared before and after folding. No optimizer step or test-set evaluation
+was performed. All comparisons returned finite probabilities and zero binary
+prediction disagreements on this image.
+
+Path                                 Finest-output maximum difference
+CPU FP32                             1.7881393432617188e-6
+CPU FP64, stored FP32 folded kernels  1.3062080950199118e-7
+CPU FP64, exact FP64 folded kernels   3.6637359812630166e-15
+GPU, fresh process/training settings 5.781650543212891e-6
+GPU, strict FP32/benchmark disabled  2.8014183044433594e-6
+
+The exact FP64 composition covers all 23 foldable blocks. These measurements
+support algebraic equivalence of the folding formulas. The original GPU
+failure was not reproduced in a fresh process; the evidence points to
+sensitivity to the GPU numerical execution path. A specific CUDA/cuDNN
+kernel has not been identified.
+
+Recovery proposal
+Keep the 0.0002 threshold and use an explicit strict FP32 path for deployment
+verification. Finalize M2 testing from its saved validation-selected model.
+Resume M1 from the step-39,294 model/optimizer checkpoint for the remaining
+888 steps, then complete its selection, folding verification and test.
+Continue the remaining queue in the registered dataset order.
+
+Limitations
+The verification above covers one validation image. The checkpoint format
+stores model, optimizer, epoch, step and selection state, but does not store
+random-generator state. Resuming M1 preserves its optimizer state and total
+step budget, with a training trajectory that differs from an uninterrupted
+run. No LEVIR performance claim is supported until formal tests complete.
