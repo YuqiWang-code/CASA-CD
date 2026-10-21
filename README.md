@@ -110,41 +110,49 @@ CASA-STR/SHViT）已全部归档，见 git 历史、`docs/temporary/过去的想
 
 
 
-## 方法
+## 当前方法：CASA-VMamba-STRNet
 
-**CASA-TViM-STRNet**（deploy 4,880,190 参数 / FLOPs 2.93G / 256² 输入）：
+共享 VMamba-Tiny（`vssm_tiny_0230`）编码双时相图像，四级特征经 TAR 融合与 DCR 解码后输出变化概率图。当前配置 `str_dim=192`、`rep_mode=full`，总参数 **31,977,044**：主干 **29,938,176**、TAR **1,351,688**、DCR **686,987**、预测头 **193**；HSAM 为零参数。
 
+```text
+[A;B] (2B) → shared VMamba-Tiny
+    → F1(1/4,96), F2(1/8,192), F3(1/16,384), F4(1/32,768)
+    → HSAM on pre-outnorm F3/F4（实验臂）→ outnorm
+per-time [F1,F2,F3,F4]
+    → MultiScaleTAR(D=192) → DCRDecoder(D=192)
+    → head Conv1x1 → bilinear → sigmoid
 ```
-[A;B] (2B) → TinyViM-S-Slim shared
-    stem → F1(1/4,48) → F2(1/8,64) → stage2 prefix(1/16,168)
-    → [CAACP 共享 score] → stage2 final TViM → F3(1/16,168)
-    → slim stage4 → F4(1/32,224)
-per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
-    → DCRDecoder(D=96) → head Conv1x1 → bilinear → sigmoid
-```
 
-- **主干 TinyViM-S-Slim**（ICCV 2025，1000e ImageNet EMA 权重，744 键逐位继承）：
-  Stage4 深度裁剪（Local×3 + final TViM）+ key 重映射；1/4–1/32 四级特征；
-  Laplace 频率解耦（低频下采样进 SS2D + 高频 RepDW dense 路径完整保留）。
-- **创新一 CAACP-SS2D**：Stage3 末个 TViM 的低频 2×2 AvgPool 替换为
-  **双时相变化分数加权的 2×2 cell 聚合**（A/B 共享权重、规则网格、dense 路径不变）：
-  `c = c_avg + β·(c_ca − c_avg)`，β=0 初始化 → epoch-0 精确恢复官方预训练。
-  变体：`score_mode=rank`（Run1 公式 `w∝ε+rank`）/ `cp`（Run2 公式 `w∝1+s·r`）；
-  `residual_mode=current` / `avg_anchor`（Run3 E4）。
-- **创新二 STR（TAR/DCR）**：TAR = 每尺度双时相代数重参数化
-  （concat + sum + signed-diff 三分支，aux 零初始化，deploy 折叠为单 1×1；
-  Run3 E5 提供 stage1 专用 `TemporalRepFine3x3` 折叠为单 3×3）；
-  DCR = 可折叠解码器（RepLocalBlock/RepPW1x1，deploy 无 BN 残留）。
-  可选 `frh=1` 时 head 换 STRFineHead（128² 重参数化头，deploy 折叠单 3×3，+768）。
-- **SS2D kernel 后端**：`selective_scan_cuda_oflex`（自建 .so，需 LD_LIBRARY_PATH 指向
-  torch/lib；已对拍 torch 参考 <2e-5）；官方 kernel 在 torch 2.14/CUDA 13.2/sm_120
-  无可用 wheel。兜底 mamba-ssm / vendored Triton。
-- 模型入口：`models/train.py`（训练，`--arch casa_tvim_str`）、`models/eval.py`（独立测试）、
-  `models/smoke_test.py`（冒烟，`--mode casa_tvim_str`，T-CA-1..10）
-- 损失 BCE + Dice；`max_steps=80000`、batch 32、256×256、seed 16、lr 2e-4（poly）
-- 日志：开头全部配置 + 参数/FLOPs；每 epoch 一行六项指标（test 集）；
-  结尾 `=== TEST RESULTS ===` 正式测试区块（含 deploy 折叠等价性、
-  [CAACP-BETA]/[CAACP-WEIGHT-ENTROPY]/[PRETRAIN-DRIFT] 等诊断行）
+- **HSAM**：在编码器 stage2/stage3（从 0 编号）的 `outnorm` 之前，用双曲距离构造跨时相注意力，双向聚合后残差增强特征，再通过原 `outnorm`。对照臂关闭 HSAM；本轮 `hqkv=0`、`hgsl=0`、`fs_tar=0`。
+- **TAR/DCR 结构重参数化**：训练时使用多分支融合，部署时将可重参数化分支折叠到对应卷积；HSAM 保留为推理算子。
+- **训练入口**：`models/train.py --arch casa_vmamba_str_v2`。主损失 BCE+Dice，80,000 optimizer step，batch 32，256×256，seed 16，Adam lr=2e-4、poly 调度，主干学习率比例 0.1。
+- **预训练加载**：VMamba 权重保留 212/222 键，`worst_diff=0.0`。旧 TinyViM 主线的结构、4.88M 参数口径与实验结果见历史版本文档。
+
+## Run10 当前训练：局部离散度半径
+
+协议 **`run10_hsam_local_dispersion_exact80k_v1`**，代码基线 `d3e250e`。2026-10-21 **17:19 CST** 在 GPU0 启动，顺序为 **SYSU CTRL → SYSU HSAM → LEVIR CTRL → LEVIR HSAM**，共 4 项，每项从同一预训练权重与 seed 开始训练 80K step。
+
+| 顺序 | 数据集 / 变体 | 状态（2026-10-21 17:35 CST） | 已记录 optimizer step |
+|---|---|---|---:|
+| 1 | SYSU / `S0_CTRL` | 训练中，已完成 epoch 6 | 2,625 / 80,000（3.28%） |
+| 2 | SYSU / `S1_HSAM_LD` | 待启动 | — |
+| 3 | LEVIR / `S0_CTRL` | 待启动 | — |
+| 4 | LEVIR / `S1_HSAM_LD` | 待启动 | — |
+
+**半径定义**：HSAM 实验臂使用 `local_dispersion`：计算每个 token 的 3×3 邻域方差，在通道上取均值再开方，以总体均值归一化得到 `rho`，映射后的球内半径为 `tanh(rho)`。半径由局部离散度决定，方向来自原特征。
+
+**数值与退化检查**：局部方差采用 replicate padding 和正下界；双曲距离在重合点附近使用 float32 数值保护。每个验证 epoch 都检查有限输出、聚合贡献、半径 CV、注意力熵及 `rank_corr(HD,1−cos)<0.999`。任一训练报错或退化触发即停止队列，保留日志与检查点供分析。
+
+**验证结果**：HSAM CPU 回归 **32/32 PASS**；后期硬门、重合点反向梯度、常量特征局部方差的新增回归通过。两库各做了 batch 8、2 step 的真实数据短测，HSAM 读数如下：
+
+| 数据集 | stage2 / stage3 半径 CV | stage2 / stage3 秩相关 | 有限输出 |
+|---|---:|---:|---|
+| SYSU | 0.1546 / 0.2407 | 0.667442 / 0.654187 | 是 |
+| LEVIR | 0.1164 / 0.2435 | 0.562803 / 0.711559 | 是 |
+
+协议、冻结参数与执行脚本见 [`train_scripts/CASA-TViM/Run10/README.md`](train_scripts/CASA-TViM/Run10/README.md) 和 [`SELECTION_LOCK.json`](train_scripts/CASA-TViM/Run10/SELECTION_LOCK.json)。Feature Clipping 的论文公式及简化参考源码见 [`others/Tree-Changes-Detection-with-Siamese-Hyperbolic-network/README.md`](others/Tree-Changes-Detection-with-Siamese-Hyperbolic-network/README.md)：其上限裁剪用于限制嵌入靠近球边界，不能恢复 Run9 LEVIR 已消失的半径差异。
+
+**已知限制**：短测只确认链路与初始机制可用，后期稳定性和性能提升由本轮完整训练判定。目前尚无 Run10 正式 TEST 结果。
 
 # Run9 已停训结果：HSAM（Poincaré 球双曲相似度注意力，**零参数**，已停训）
 
@@ -175,12 +183,12 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 > **修法 ① 的关键性质**：HSAM 在 `outnorm` **之前**混合、之后照常归一化
 > ⇒ **CTRL 路径一个字节都不变**（`hsam=0` 时走的还是原来的 `forward_features`）。
 
-**② 预注册硬门（当前实现仅在首次诊断时检查，后期缺陷见下文）**
+**② Run9 预注册硬门（当时实现仅在首次诊断时检查）**
 
 `finite` · `agg_over_feat>1e-6` · `radius_cv>1e-3` · `attn_entropy_norm<0.995` ·
 **`rank_corr_hd_vs_cos<0.999`**（本轮的核心门：挡住"以为在测双曲、其实在测余弦"）
 
-> 实现偏差：`models/train.py::_log_and_check_hsam()` 在首次通过后由 `_hsam_ff_done` 提前返回，后续 epoch 仅记录读数，未执行硬门。LEVIR epoch 154 的 stage3 `rank_corr=0.999206` 因而没有中止 run；服务器同步未修改这 18 个代码身份文件。
+> Run9 的 `_log_and_check_hsam()` 在首次通过后由 `_hsam_ff_done` 提前返回，后续 epoch 仅记录读数。LEVIR epoch 154 的 stage3 `rank_corr=0.999206` 因而没有触发中止。Run10 已改为每个验证 epoch 执行硬门。
 
 **③ 开跑前实测（服务器，CDD 真实特征）**
 
@@ -337,6 +345,7 @@ train_scripts/
   Exploration/Exp1/            #   探索线 Exp1 执行索引
 others/                        #   参考实现（非本仓库模型代码）
   TinyViM-main/ VMamba/ STR-RepNet/ SAT/
+  Tree-Changes-Detection-with-Siamese-Hyperbolic-network/  # Feature Clipping 参考
 outputs/                       #   训练日志（训练结束后下载到这里）
 docs/                          #   文档：temporary/（历史舱 + 过去的想法）、参考文献/、服务器说明
 .claude/                       #   部署与 SSH 辅助脚本（不进 git）
@@ -350,7 +359,7 @@ docs/                          #   文档：temporary/（历史舱 + 过去的�
 - 关键路径：
   - 代码 `/home/yqwang/projects/CASA-CD/`
   - 数据集 `/share_datasets/CD/{CDD,LEVIR,SYSU,WHU}-CD-256/`
-  - 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/tinyvim_s_1000e.pth`
+  - 当前 VMamba 预训练权重 `/home/yqwang/projects/CASA-CD/pretrained_weight/vssm_tiny_0230_ckpt_epoch_262.pth`
   - checkpoint `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/<Run>/<variant>/<dataset>/`
   - 训练日志 `/home/yqwang/outputs/CASA-CD/CASA-TViM/<Run>/<variant>/<dataset>/train_log.txt`
 
@@ -369,21 +378,16 @@ docs/                          #   文档：temporary/（历史舱 + 过去的�
 
 ## 训练 / 测试
 
-1. 本地改代码 → `python .claude/_deploy.py` 同步到服务器（models/ + models_v1/ + train_scripts/ + tools/）。
-2. 服务器启动（`nohup`，每脚本带断点续训重试循环），脚本在 `train_scripts/CASA-TViM/<Run>/`：
+1. 在没有本项目训练进程时同步模型与训练脚本：`python .claude/_deploy.py`。训练期间保持当前代码版本固定。
+2. Run10 启动入口：
    ```bash
-   cd /home/yqwang/projects/CASA-CD/train_scripts/CASA-TViM/Run3
-   nohup bash run_all.sh > /home/yqwang/outputs/CASA-CD/CASA-TViM/Run3/run_all.log 2>&1 &
+   cd /home/yqwang/projects/CASA-CD
+   bash train_scripts/CASA-TViM/Run10/_r10_launch.sh
    ```
-   run_all.sh 串行多波、每波 4 数据集并行（GPU0=CDD+LEVIR、GPU1=SYSU+WHU，每卡 2 并发
-   batch 32，~19GB/卡）；任一 run 3 次 retry 失败 → WAVE-ABORT。
-3. 训练日志格式：
-   - 开头：全部配置 + 参数量 + FLOPs(G)。
-   - 每个 epoch 一行：Loss + Recall / Precision / OA / F1 / IoU / Kappa（test 集）。
-   - 结尾：`=== TEST RESULTS ===`（含 deploy 折叠等价性、β/熵/drift 诊断行）。
-4. checkpoint：每 run 一个文件夹，只放 `last.pth`（断点续训，含优化器）与
-   `best_F1=xxx.pth`（测试用）。
-5. 训练结束后把 `train_log.txt` 下载回本地 `outputs/CASA-TViM/<Run>/`（权重不下载）。
+   队列在 GPU0 串行执行四项训练；每项使用独立的 `Run10/<variant>/<dataset>/` 日志与检查点目录。任一项失败即停止队列。
+3. 日志开头记录全部配置、参数量和 FLOPs；每个 epoch 记录 Loss 与六项指标；完整正式测试区块以 `=== TEST RESULTS ===` 开始、`=== END TEST RESULTS ===` 结束。
+4. checkpoint 包括 `last.pth`（含优化器）与 `best_F1=xxx.pth`。正式实验从预训练权重开始；Run10 启动脚本拒绝复用已有训练目录。
+5. 训练完成后把 `train_log.txt` 下载到本地 `outputs/CASA-TViM/Run10/<variant>/<dataset>/`，提取完整 TEST 区块更新指标表，再生成代码与指标快照。
 
 ## 运行监控 / 分析
 
@@ -396,7 +400,7 @@ bash train_scripts/CASA-TViM/Run10/_r10_stop.sh    # 停止 Run10 进程组
 # ---- 通用工具 ----
 python .claude/_ssh.py '<cmd>'                     # 通用 SSH 执行（远端命令请写成 .sh 再上传）
 python tools/extract_metrics_to_excel.py           # outputs → docs/experiment_metrics.xlsx
-python tools/models_to_txt.py --tag CASA-TViM --run Run9   # models 代码快照 + 指标
+python tools/models_to_txt.py --tag CASA-TViM --run Run10  # 本轮完成后生成 models 代码快照 + 指标
 python tools/tvim_object_metrics.py ...            # 对象级小目标复算（4 连通 / native 256²）
 ```
 
@@ -415,18 +419,18 @@ python tools/tvim_object_metrics.py ...            # 对象级小目标复算（
 - `run_all.sh` 的 `wait` 必须传 `$pid`（数值），直接传变量名会被 bash 当作 job 名。
 - **`setsid nohup bash <script>` 拉起的脚本不继承 conda 激活** ⇒ 脚本内必须显式
   `source conda.sh && conda activate casacd` + `export PATH/PYTHONPATH/LD_LIBRARY_PATH`
-  （Run8 首启即因此四库各失败 3 次）。开跑前先跑 `_r9_preflight.sh`。
-- **停训必须先杀"重试宿主"**：`_r9_run_one_ds.sh` 内有重试循环，只杀 `python train.py`
+  （Run8 首启即因此四库各失败 3 次）。Run10 开跑前预检入口为 `train_scripts/CASA-TViM/Run10/_r10_preflight.sh`。
+- **历史重试队列的停训顺序**：`_r9_run_one_ds.sh` 内有重试循环，只杀 `python train.py`
   会让它在 10 s 后**自动复活**（Run8b 实测踩到）。`_r9_stop.sh` 的顺序是
-  「督导 → run_one_ds → train.py → 观察 20 s」。
+  「督导 → run_one_ds → train.py → 观察 20 s」。Run10 使用 `_r10_stop.sh` 终止自己的进程组。
 - **`nvidia-smi --query-compute-apps --format=csv,noheader` 的输出是 `pid, mem`（带逗号）**；
   用 `read -r pid _rest` 会把整行读进第一个字段，导致进程归属判断永远失配
   （Run8 曾因此把自己正在跑的 run 判成"别人的作业"）⇒ 必须显式 `IFS=,`。
 - **`pgrep -f 'xxx.sh'` 是子串匹配**：`_r8_supervisor.sh` 会同时匹配
   `_r8_pipeline_supervisor.sh`（Run8 曾因此误杀刚拉起的督导）⇒ 要用锚定正则并在脚本内显式排除。
-- **"ckpt 目录非空即拒绝启动"的守卫必须忽略封存残留**（`*SUPERSEDED*`）：
-  否则按纪律"只改名不删除"的产物反而会把后续自动重启全部挡死。
+- **历史轮次的目录复用规则**：允许同轮恢复的脚本需要区分真实检查点与封存残留（`*SUPERSEDED*`）；
+  Run10 的四项实验使用全新目录，不自动续训。
 - **几何模块必须先验"非退化"**：LayerNorm 之后的特征范数恒为 `√C`，会让 Poincaré 半径恒定、
   双曲距离退化成余弦距离的单调变换（Run9 实测秩相关 = **1.000000**）。
-  预注册硬门是 `rank_corr(HD,1−cos) < 0.999`；当前 `train.py` 只在首次诊断时检查，后期退化未被拦住。
+  当前硬门为 `rank_corr(HD,1−cos) < 0.999`，Run10 在每个验证 epoch 执行检查。
 
