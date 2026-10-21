@@ -3,7 +3,7 @@
 用法：
     python tools/models_to_txt.py --tag baseline --run Run1
 
-输出：docs/temporary/models_and_metrics_<tag>_<run>.txt（每次运行新建，不覆盖旧文件）。
+输出：docs/temporary/models_and_metrics_<tag>_<run>.txt（同名文件会覆盖）。
 """
 import os
 import re
@@ -49,6 +49,21 @@ def collect_metrics():
     return rows
 
 
+def collect_incomplete_logs(tag, run):
+    """列出选中轮次没有正式 TEST 区块的日志，避免把停训当成零分。"""
+    base = os.path.join(OUTPUTS, tag, run)
+    rows = []
+    for log in sorted(glob.glob(os.path.join(base, "**", "train_log.txt"), recursive=True)):
+        with open(log, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        if extract_test_block(text) is not None:
+            continue
+        steps = re.findall(r"^\[ACTUAL-OPT-STEPS\].*cumulative=(\d+/\d+)", text, re.M)
+        rel = os.path.relpath(os.path.dirname(log), OUTPUTS).replace("\\", "/")
+        rows.append((rel, steps[-1] if steps else "unknown"))
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", type=str, default="baseline")
@@ -62,9 +77,11 @@ def main():
     os.makedirs(DOCS_TMP, exist_ok=True)
     out_path = os.path.join(DOCS_TMP, f"models_and_metrics_{args.tag}_{args.run}.txt")
 
-    with open(out_path, "w", encoding="utf-8") as out:
+    with open(out_path, "w", encoding="utf-8", newline="\n") as out:
         out.write(f"# CASA-CD models snapshot + metrics\n")
         out.write(f"# tag={args.tag}  run={args.run}  models_dir={args.models_dir}\n")
+        out.write("# CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。\n")
+        out.write("# 二者是否与远端训练时的代码身份一致，须核对各 run 的 source_code_sha256。\n")
 
         files = collect_code(models_dir)
         out.write(f"\n{'=' * 80}\n## MODELS CODE ({len(files)} files)\n{'=' * 80}\n")
@@ -85,6 +102,11 @@ def main():
                 info.get("Mode") or "-",
             ]
             out.write(" | ".join(line) + "\n")
+
+        incomplete = collect_incomplete_logs(args.tag, args.run)
+        out.write(f"\n{'=' * 80}\n## SELECTED RUN LOGS WITHOUT FINAL TEST ({len(incomplete)})\n{'=' * 80}\n")
+        for rel, steps in incomplete:
+            out.write(f"{rel} | last_logged_steps={steps} | no formal metric\n")
 
     print(f"已写入 {out_path}")
     print(f"  代码文件 {len(files)} 个，指标 {len(metrics)} 行")

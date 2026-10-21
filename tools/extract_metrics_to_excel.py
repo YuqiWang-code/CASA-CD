@@ -18,7 +18,7 @@ import os
 import re
 import glob
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,6 +108,26 @@ def main():
             continue
         rows.append((rel, info))
         print(f"[ok] {rel}: F1={info['F1'] * 100:.2f}")
+
+    # 整表重建前保护历史记录：本地 outputs/ 缺日志时不能静默丢掉旧行。
+    if os.path.isfile(OUT_XLSX):
+        old_wb = load_workbook(OUT_XLSX, read_only=True, data_only=True)
+        try:
+            old_ws = old_wb["metrics"]
+            old_keys = {
+                tuple("" if value is None else value for value in row[:4]) for row in old_ws.iter_rows(min_row=2, values_only=True)
+                if any(value is not None for value in row[:4])
+            }
+        finally:
+            old_wb.close()
+        new_keys = {parse_path(rel) for rel, _ in rows}
+        missing = old_keys - new_keys
+        if missing:
+            preview = ", ".join(map(str, sorted(missing)[:5]))
+            raise SystemExit(
+                f"[abort] outputs/ 缺少 {len(missing)} 条现有工作簿记录对应的正式日志；"
+                f"未覆盖 {OUT_XLSX}。示例: {preview}"
+            )
 
     wb = Workbook()
     ws = wb.active

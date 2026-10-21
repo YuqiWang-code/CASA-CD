@@ -1,6 +1,6 @@
 # tools/ — 通用分析工具
 
-从 `tools/archive/` 改名而来（2026-10-21）。分三层：
+由原 `analyse/` 整理而来（2026-10-21）。分三层：
 
 ```
 tools/
@@ -13,8 +13,8 @@ tools/
 
 | 文件 | 用途 |
 |---|---|
-| `extract_metrics_to_excel.py` | 扫 `outputs/` 的 `train_log.txt` → 写 `docs/experiment_metrics.xlsx`（增量、按 key 去重） |
-| `models_to_txt.py` | `models/` 代码快照 + 指标 → 一个 txt（用于交付/回溯） |
+| `extract_metrics_to_excel.py` | 扫 `outputs/` 的 `train_log.txt` → 写 `docs/experiment_metrics.xlsx`（整表重建；旧行缺失时拒绝覆盖） |
+| `models_to_txt.py` | `models/` 代码快照 + 完整 TEST 指标 → 一个 txt（用于交付/回溯；同名文件会覆盖） |
 | `param_breakdown.py` | 参数量 / FLOPs 分解（主干 / 非主干 / 各模块） |
 | `tvim_object_metrics.py` | **正确口径**的对象级小指标：GT 面积分组 Recall / ObjectHit / 对象级 P-R-F1 / 边界带（4 连通、native 256² mask） |
 | `tvim_diag_common.py` | 诊断基础设施 + D0 对拍审计（`audit` / `protocol` 子命令） |
@@ -38,6 +38,6 @@ python -m unittest discover -s tools/tests -p 'test_tvim_*.py' -v
 `tvim_caacp_counterfactual.py`、`tvim_small_error_audit.py` 等）及其对应单测。
 它们**依赖当时的产物布局与模型结构**，现在多半已经跑不通，只用于复盘。
 
-> 迁移说明：原 `tools/archive/` 下的路径在历史文档里仍写作 `tools/archive/…`。
+> 迁移说明：历史文档中的旧路径可能仍写作 `analyse/…`。
 > 历史叙述已集中在 `../docs/temporary/历史版本结论与指标_2026-10-21.md`，
-> 其中提到的 `tools/archive/xxx.py` → 现为 `tools/xxx.py`（通用）或 `tools/archive/xxx.py`（专用）。
+> 其中提到的 `analyse/xxx.py` → 现为 `tools/xxx.py`（通用）或 `tools/archive/xxx.py`（专用）。
