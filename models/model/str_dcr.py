@@ -64,6 +64,10 @@ class DCRDecoder(nn.Module):
         self.refine = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
 
     def forward(self, feats):
+        return self.forward_pyramid(feats)[0]
+
+    def forward_pyramid(self, feats):
+        """Return the four decoder scales for deep supervision."""
         t1, t2, t3, t4 = feats
 
         d4 = t4
@@ -78,7 +82,7 @@ class DCRDecoder(nn.Module):
         d1 = self.block1(self.act(self.fuse1(t1, u2)))
 
         d1 = self.refine(d1)
-        return d1
+        return [d1, d2, d3, d4]
 
     def switch_to_deploy(self):
         switch_module_to_deploy(self)

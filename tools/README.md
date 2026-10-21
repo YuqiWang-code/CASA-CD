@@ -14,6 +14,7 @@ tools/
 | 文件 | 用途 |
 |---|---|
 | `extract_metrics_to_excel.py` | 扫 `outputs/` 的 `train_log.txt` → 写 `docs/experiment_metrics.xlsx`（整表重建；旧行缺失时拒绝覆盖） |
+| `download_training_results.py` | 按 `--tag / --run` 下载服务器日志与 JSON 到 `outputs/` |
 | `models_to_txt.py` | `models/` 代码快照 + 完整 TEST 指标 → 一个 txt（用于交付/回溯；同名文件会覆盖） |
 | `param_breakdown.py` | 参数量 / FLOPs 分解（主干 / 非主干 / 各模块） |
 | `tvim_object_metrics.py` | **正确口径**的对象级小指标：GT 面积分组 Recall / ObjectHit / 对象级 P-R-F1 / 边界带（4 连通、native 256² mask） |
