@@ -5,7 +5,7 @@ import torch
 
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.layers.change_context_qkv import ChangeContextQKV, compress_pair
-from train_wdmf import learning_rate, loss_function
+from train_wdmf import learning_rate, loss_function, make_optimizer
 
 
 def main():
@@ -27,7 +27,13 @@ def main():
             else:
                 assert torch.equal(reference, outputs[0]), "variant common initialization changed"
         model.train()
-        optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+        optimizer = make_optimizer(model)
+        module_ids = {id(p) for p in model.stage_modules.parameters()}
+        grouped_ids = [id(p) for group in optimizer.param_groups for p in group["params"]]
+        assert len(grouped_ids) == len(set(grouped_ids)) == len(list(model.parameters()))
+        for group in optimizer.param_groups:
+            assert all(group["weight_decay"] == (0.0 if id(p) in module_ids else 1e-4)
+                       for p in group["params"])
         for _ in range(3):
             optimizer.zero_grad()
             loss = loss_function(model(a, b), target)

@@ -4,7 +4,7 @@
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | `CASA-WDMF/Run1`，四库 × 三组，共 12 项 | GPU0，两路并发 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | `CASA-WDMF/Run2`，四库 × 三组，共 12 项 | GPU0，两路并发 |
 
 ## 模型
 
@@ -34,12 +34,12 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 
 ## 训练协议
 
-当前采用 WDMF-Net 的训练策略，协议 **`wdmf_str_40k_epochrounded_v1`**。
+当前采用 WDMF-Net 的训练策略，协议 **`wdmf_str_40k_modulewd0_v2`**。
 
 | 设置 | 值 |
 |---|---|
 | 输入 / batch / seed | 256×256 / 32 / 2333 |
-| 优化器 | Adam，lr=5e-4，betas=(0.9,0.99)，eps=1e-8，weight decay=1e-4 |
+| 优化器 | Adam，lr=5e-4，betas=(0.9,0.99)，eps=1e-8，主体 weight decay=1e-4；四层处理模块的 γ、Q/K/V 与输出投影 weight decay=0 |
 | 学习率 | poly^0.9，沿用上游前 200 step warmup |
 | 增广 | resize、随机裁剪后恢复、水平/垂直翻转、时相交换 |
 | 损失 | 四级输出的 BCE+Dice 等权求和 |
@@ -54,20 +54,20 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA-WDMF/Run1/`](train_scripts/CASA-WDMF/Run1/README.md)。
+CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA-WDMF/Run2/`](train_scripts/CASA-WDMF/Run2/README.md)。
 
 ## 当前进度与结果
 
-同一数据集的三组完成后再推进到下一数据集，顺序为 **SYSU → LEVIR → WHU → CDD**。每个数据集内最多两项并行。
+同一数据集的三组完成后再推进到下一数据集，顺序为 **SYSU → LEVIR → WHU → CDD**。每个数据集内最多两项并行，顺序为模块一、模块二、CTRL。Run1 保留的 SYSU CTRL 仍运行时，Run2 使用一个槽位；该进程结束后自动恢复两路。
 
 <!-- WDMF_RESULTS_START -->
 
-状态更新：2026-10-21 22:24:16 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-21 23:29:42 CST；Run2 队列 `running`；正式结果 **0/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| SYSU | `M0_CTRL` | 训练中：15000/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：16200/40125 | — | — |
+| SYSU | `M0_CTRL` | 待启动 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：200/40125 | — | — |
 | SYSU | `M2_CA_QKV` | 待启动 | — | — |
 | LEVIR | `M0_CTRL` | 待启动 | — | — |
 | LEVIR | `M1_HYPER_QKV` | 待启动 | — | — |
@@ -79,6 +79,8 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 | CDD | `M1_HYPER_QKV` | 待启动 | — | — |
 | CDD | `M2_CA_QKV` | 待启动 | — | — |
 
+Run1 SYSU CTRL 保留运行：**30375/40125**，占用一个 GPU0 训练槽位。
+
 <!-- WDMF_RESULTS_END -->
 
 正式指标来自每条 `train_log.txt` 最后一个完整的 `=== TEST RESULTS ===` 区块。验证行用于选模，不作为最终测试结果。
@@ -86,7 +88,8 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 ## 验证与资源
 
 - MobileNetV2 预训练加载 312 个模型张量，无缺失；分类器权重不参与特征编码。
-- 三个变体的四级接口、公共路径初始化、梯度与残差激活、TAR/DCR 部署折叠测试均通过，最大输出误差约 `1.2e-7`。
+- 三个变体的参数组覆盖、四级接口、公共路径初始化、梯度与残差激活、TAR/DCR 部署折叠测试均通过，最大输出误差约 `6e-8`。
+- 两个模块均通过 SYSU 八个完整 epoch、3,000 step 的健康短训，四层分支输出和全部任务梯度均非零；[逐层诊断](train_scripts/CASA-WDMF/Run2/README.md#sysu-health-results)。
 - 满 batch 单进程峰值显存：CTRL **8,873 MiB**，模块一 **11,931 MiB**，模块二 **10,150 MiB**；相应训练 step 用时约 **0.084 / 0.096 / 0.080 s**。采用两路并发以容纳 GPU 进程开销。
 - 数值非有限时终止当前队列并保留日志；模型不使用旧几何模块的退化硬门。
 
@@ -97,26 +100,26 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 ```bash
 # 服务器启动 / 停止
 cd /home/yqwang/projects/CASA-CD
-bash train_scripts/CASA-WDMF/Run1/launch.sh 2
-bash train_scripts/CASA-WDMF/Run1/stop.sh
+bash train_scripts/CASA-WDMF/Run2/launch.sh 2
+bash train_scripts/CASA-WDMF/Run2/stop.sh
 
 # 服务器进度
-tail -20 /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run1/pipeline.log
-cat /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run1/pipeline_status.json
+tail -20 /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline.log
+cat /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline_status.json
 
 # 本地收集、汇表和快照
-python train_scripts/CASA-WDMF/Run1/collect_results.py
+python train_scripts/CASA-WDMF/Run2/collect_results.py
 ```
 
 | 产物 | 位置 |
 |---|---|
 | 预训练权重 | `/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth` |
 | 数据 | `/share_datasets/CD/<dataset>/{A,B,label,list}/` |
-| 服务器日志 | `/home/yqwang/outputs/CASA-CD/CASA-WDMF/Run1/<variant>/<dataset>/` |
-| 服务器 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-WDMF/Run1/<variant>/<dataset>/` |
-| 本地日志与结果 | `outputs/CASA-WDMF/Run1/` |
+| 服务器日志 | `/home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/<variant>/<dataset>/` |
+| 服务器 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-WDMF/Run2/<variant>/<dataset>/` |
+| 本地日志与结果 | `outputs/CASA-WDMF/Run2/` |
 | 指标表 | [`docs/experiment_metrics.xlsx`](docs/experiment_metrics.xlsx) |
-| 代码与指标快照 | `docs/temporary/models_and_metrics_CASA-WDMF_Run1.txt` |
+| 代码与指标快照 | `docs/temporary/models_and_metrics_CASA-WDMF_Run2.txt` |
 
 `collect_results.py` 使用 [`tools/download_training_results.py`](tools/download_training_results.py) 下载日志和 JSON，出现新正式结果后调用 `tools/extract_metrics_to_excel.py` 和 `tools/models_to_txt.py`。历史指标缺少对应日志时，汇表工具拒绝覆盖现有工作簿。
 
@@ -130,7 +133,7 @@ models/
   model/layers/change_context_qkv.py
   model/str_tar.py / str_dcr.py / str_reparam.py
   dataset/wdmf_transforms.py
-train_scripts/CASA-WDMF/Run1/     三组×四库的训练与收集
+train_scripts/CASA-WDMF/Run2/     三组×四库的训练与收集
 others/WDMF-Net/                 上游参考源码
 tools/                          通用收集、汇表、快照和对象指标工具
 outputs/                        本地实验产物，不进入 Git
@@ -139,9 +142,9 @@ docs/temporary/                 实验记录与 txt 快照
 
 ## 已知限制与历史
 
-**SYSU 模块一的第一层退化（2026-10-21 22:22 CST）**：首个验证 batch 的 stage1 注意力熵从 epoch 2 起为 1，半径 CV 从 epoch 4 至 epoch 41 连续为 0；epoch 41 的全局残差系数 `gamma≈−6.3e-41`。该层残差贡献已接近零。同期 stage2/3/4 半径 CV 为 0.169/0.343/0.394，输出均有限。队列继续执行当前冻结协议，性能结果将同时记录这一机制现象。
+Run1 SYSU 模块一的 stage1 投影权重与 γ 衰减到约 `1e-41`，分支输出和任务梯度均为零；stage2–4 仍有效。该实验已停止，剩余旧队列取消，健康的 SYSU CTRL 保留运行，日志和检查点独立保存。Run1 代码归档于服务器 `code_backups/CASA-WDMF_Run1_20261021_2305.tar.gz`。
 
-HES-Net 原文报告浅层 HSAM 可能放大噪声；本轮检验四层均加入压缩几何 QKV 的结果。满 batch 短测确认初始链路与梯度可用，长期稳定性和准确率由完整训练判定。
+HES-Net 原文报告浅层 HSAM 可能放大噪声；本轮检验四层均加入压缩几何 QKV 的结果。Run2 在正式队列前分别对两个模块运行八个 SYSU epoch 的健康探针，检查四层分支输出和任务梯度。长期稳定性和准确率由完整训练判定。
 
 本轮采用 MobileNet、40K 目标步数和独立验证集选模。此前 VMamba 主线的 80K/test-as-val 结果属于不同协议，应以每轮同期 CTRL 衡量模块贡献。Run10 已于 2026-10-21 停止，SYSU CTRL 最后记录 **39,375/80,000 step**，无正式 TEST 结果。
 

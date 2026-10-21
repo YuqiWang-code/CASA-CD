@@ -17,7 +17,7 @@ from dataset import wdmf_transforms as transforms
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "wdmf_str_40k_epochrounded_v1"
+PROTOCOL = "wdmf_str_40k_modulewd0_v2"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
 
@@ -68,6 +68,16 @@ def learning_rate(base, epoch, step, total):
     return rate
 
 
+def make_optimizer(model):
+    module_params = list(model.stage_modules.parameters())
+    module_ids = {id(p) for p in module_params}
+    groups = [{"params": [p for p in model.parameters() if id(p) not in module_ids],
+               "weight_decay": 1e-4}]
+    if module_params:
+        groups.append({"params": module_params, "weight_decay": 0.0})
+    return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
+
+
 def source_identity():
     root = Path(__file__).resolve().parent.parent
     paths = ["models/train_wdmf.py", "models/model/casa_wdmf_str_net.py",
@@ -107,14 +117,14 @@ def main():
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
     model = CASAWDMFSTRNet(args.pretrained, module=args.module).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.99),
-                                 eps=1e-8, weight_decay=1e-4)
+    optimizer = make_optimizer(model)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_identity()
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=2333,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
-                    lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8,wd=1e-4",
+                    lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8",
+                    weight_decay=1e-4, module_weight_decay=0.0,
                     selection="best validation F1, ties update", deep_supervision=4,
                     label_threshold=128, context_cell=4, qkv_dim=32, source_files=identity,
                     dataset=str(args.dataset_root), pretrained=args.pretrained)
