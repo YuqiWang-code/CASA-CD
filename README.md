@@ -20,7 +20,7 @@ git add -A && git commit -m "<描述性提交信息>" && git push origin main
 
 | 主线 | 骨干 | 状态 | 约束口径 |
 |---|---|---|---|
-| **CASA-VMamba-STRNet**（Run9） | **VMamba-Tiny**（NeurIPS 2024，`vssm_tiny_0230`） | **进行中**（`S0_CTRL` / `S1_HSAM` × 4 库） | 主干 **29.94M** + 非主干 **≈2.04M**（无硬上限） |
+| **CASA-VMamba-STRNet**（Run9） | **VMamba-Tiny**（NeurIPS 2024，`vssm_tiny_0230`） | **已停训**（3 个有效结果、1 个失败、1 个中断、3 个未启动） | 主干 **29.94M** + 非主干 **≈2.04M**（无硬上限） |
 
 硕士课题：遥感二值变化检测。当前一轮（Run9）在 VMamba-Tiny 主干上验证
 **HSAM（Poincaré 球双曲相似度注意力，零可学习参数）** 是否带来增益。
@@ -144,7 +144,7 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
   结尾 `=== TEST RESULTS ===` 正式测试区块（含 deploy 折叠等价性、
   [CAACP-BETA]/[CAACP-WEIGHT-ENTROPY]/[PRETRAIN-DRIFT] 等诊断行）
 
-# 当前结果：Run9 · HSAM（Poincaré 球双曲相似度注意力，**零参数**，进行中）
+# 当前结果：Run9 · HSAM（Poincaré 球双曲相似度注意力，**零参数**，已停训）
 
 > 用户指令（2026-10-20）：按 JSTARS 2024 论文 Fig.2 的 HSAM，把编码器 3、4 层输出映射到双曲空间
 > 算双曲距离、构造注意力矩阵，再经注意力聚合 + 残差增强双时相特征。**就加这个模块。Run9。**
@@ -173,10 +173,12 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 > **修法 ① 的关键性质**：HSAM 在 `outnorm` **之前**混合、之后照常归一化
 > ⇒ **CTRL 路径一个字节都不变**（`hsam=0` 时走的还是原来的 `forward_features`）。
 
-**② 硬门（每个 run 都查，任一不过 ⇒ `SystemExit(4)`，不重试、终止整轮）**
+**② 预注册硬门（当前实现仅在首次诊断时检查，后期缺陷见下文）**
 
 `finite` · `agg_over_feat>1e-6` · `radius_cv>1e-3` · `attn_entropy_norm<0.995` ·
 **`rank_corr_hd_vs_cos<0.999`**（本轮的核心门：挡住"以为在测双曲、其实在测余弦"）
+
+> 实现偏差：`models/train.py::_log_and_check_hsam()` 在首次通过后由 `_hsam_ff_done` 提前返回，后续 epoch 仅记录读数，未执行硬门。LEVIR epoch 154 的 stage3 `rank_corr=0.999206` 因而没有中止 run；服务器同步未修改这 18 个代码身份文件。
 
 **③ 开跑前实测（服务器，CDD 真实特征）**
 
@@ -197,60 +199,34 @@ per-time [F1,F2,F3,F4] → MultiScaleTAR(encoder_dims=(48,64,168,224), D=96)
 CPU 回归门 `models/test_hsam_cpu.py` **32/32 PASS**，其中两条是**固定断言**：
 "论文原式必然均匀（熵>0.9999）"、"post_norm 负对照 rank_corr≈1"。
 
-**④ 进度与结果（2026-10-21 11:25 实测）**
+**④ 进度与结果（2026-10-21 14:41 停训）**
 
-| run | 状态 | 耗时 |
+| run | 状态 | 正式结果 |
 |---|---|---|
-| `S0_CTRL/CDD` | ✅ 封口 | 7h15m |
-| `S1_HSAM/CDD` | ✅ 封口 | 7h24m |
-| `S0_CTRL/LEVIR` | ✅ 封口 | 7h15m |
-| `S1_HSAM/LEVIR` | 🔄 9,143 / 80,000（11.4%，2.95 step/s） | 预计 10-21 ≈18:05 完 |
-| SYSU / WHU 各两臂 | 未开始 | — |
+| `S0_CTRL/CDD` | 完成 80,000 step | 有完整 TEST 区块 |
+| `S1_HSAM/CDD` | 完成 80,000 step | 有完整 TEST 区块 |
+| `S0_CTRL/LEVIR` | 完成 80,000 step | 有完整 TEST 区块 |
+| `S1_HSAM/LEVIR` | 34,565/80,000 后 NaN，3 次尝试均失败 | **无 TEST 区块，不得引用为指标** |
+| `S0_CTRL/SYSU` | 用户停训时 9,375/80,000 | 无 TEST 区块 |
+| `S1_HSAM/SYSU`、WHU 两臂 | 未启动 | — |
 
-**封口进度 3/8**（CDD 两臂 + LEVIR 对照臂）。
+**有效封口 3/8**。正式结果仅取训练日志最后一个完整的 TEST 区块；未完成和失败日志只作取证。
 
 | 库 / 变体 | Recall | Precision | OA | **F1** | IoU | Kappa | best ep |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | CDD `S0_CTRL` | 0.9777 | 0.9777 | 0.9945 | **0.9777** | 0.9565 | 0.9746 | 255 |
 | CDD `S1_HSAM` | 0.9766 | 0.9765 | 0.9942 | **0.9765** | 0.9542 | 0.9732 | 255 |
 | LEVIR `S0_CTRL` | 0.8979 | 0.9253 | 0.9911 | **0.9114** | 0.8372 | 0.9067 | 278 |
-| LEVIR `S1_HSAM` | 在跑 | — | — | — | — | — | — |
 
-**CDD 的 Δ（HSAM − CTRL）**：ΔF1 **−0.0012**、ΔIoU −0.0023、ΔRecall −0.0011、
-ΔPrecision −0.0012、ΔOA −0.0003、ΔKappa −0.0014。
+**CDD 同期差（HSAM − CTRL）**：ΔF1 **−0.0012**、ΔIoU −0.0023。LEVIR HSAM 无有效结果，不能计算同期差，也不能把本轮外推为四库结论。
 
-**判断标尺：跨轮 CTRL 可复现性**（同库同 80K 同 seed，只是协议串不同）
+**失败前最后一次机制读数（LEVIR epoch 154）**：stage3 `r_cv=4.133e-3`、`rank_corr=0.999206`（越过 0.999 退化门）、`agg/feat=2.3953`、`out/in=2.9588`；其后发生 NaN 与 BCE CUDA 断言错误。CDD 完成时 stage2/stage3 `rank_corr=0.7414/0.7588`，不能据此声称 LEVIR 全程非退化。
 
-| 库 | 本轮 `S0_CTRL` | Run8b `CTRL_R8B` | 差 |
-|---|---:|---:|---:|
-| CDD | 0.9777 | 0.9776 | **+0.0001** |
-| LEVIR | 0.9114 | 0.9121 | **−0.0007** |
+**⑤ 预注册早停与停训**
 
-> CDD 的 −0.0012 是 CDD 自身 CTRL 波动的 **12 倍**、是 LEVIR 波动尺度的 1.7 倍
-> ⇒ 不是噪声能解释的量级；但绝对量仍只是**小负**，且**只有一个库**，
-> 按预注册**不下结论**，等 LEVIR 对照臂。
+原早停规则要求 CDD 与 LEVIR 两库的两臂都有效封口，再判断两库 ΔF1 是否均 ≤ 0。LEVIR HSAM 没有正式 TEST 区块，**早停前提未满足**。2026-10-21 用户另行要求停训，督导、重试宿主与当前训练进程均已停止；不自动恢复队列。
 
-**训练后的机制读数**（证明"非退化"贯穿训练，不只在初始化时成立）
-
-| | CDD epoch 255 | LEVIR epoch 40（在跑） |
-|---|---:|---:|
-| `[HSAM-FAILFAST-PASS]` | step=626 | step=446 |
-| stage2 `rank_corr(HD,1−cos)` | **0.7414** | **0.7932** |
-| stage3 `rank_corr` | **0.7588** | **0.7309** |
-| `r_cv` | 6.9e-2 / 1.4e-1 | 1.0e-1 / 2.2e-1 |
-| `at_eps`（半径触底比例） | 0 | 0 |
-| `agg/feat` | 1.04 / 1.37 | 1.26 / 0.96 |
-
-> 两库全程 `rank_corr` 稳定在 **0.73–0.79**（离 0.999 的退化线很远）⇒
-> 双曲成分在整个 80K 里都真实存在，这次不是"以为在测双曲、其实在测余弦"。
-> **但机制成立 ≠ 性能成立**：CDD 上是小负。
-
-**⑤ 预注册早停**
-
-CDD+LEVIR 两臂都封口后（预计 **10-21 ≈18:05**），若两库 `ΔF1` 都 ≤ 0 ⇒ STOP
-（不再跑 SYSU/WHU，省约 28.6 h）；结果按实际完成的报、不挑选。脚本 `_r9_delta.py`。
-当前：CDD 已 −0.0012（≤0），**只等 LEVIR 一个判决**。
-不触发则跑满四库，预计 **10-22 ≈22:40** 全部结束。
+服务器代码受控同步与运行身份记录见 [`docs/temporary/Run9_服务器代码同步_2026-10-21.md`](docs/temporary/Run9_服务器代码同步_2026-10-21.md)。
 
 **⑥ 保留但本轮不跑**：`--hsam_radius local_dispersion`（半径只由 3×3 局部离散度决定、
 与 token 能量解耦；代码已就绪并通过 CPU 检验），留作后续对照臂。
@@ -271,7 +247,7 @@ bash train_scripts/CASA-TViM/Run9/_r9_stop.sh --kill-run
 
 > 全量叙述、逐 run 指标、机制读数与判定理由见
 > [`docs/temporary/历史版本结论与指标_2026-10-21.md`](docs/temporary/历史版本结论与指标_2026-10-21.md)。
-> 全部六指标在 `docs/experiment_metrics.xlsx`（98 行，已合并三个历史副本）。
+> 全部六指标在 `docs/experiment_metrics.xlsx`（101 行：98 条历史结果 + Run9 三条正式结果）。
 
 | 版本 | 做了什么 | 判定 |
 |---|---|---|
@@ -450,5 +426,5 @@ python tools/tvim_object_metrics.py ...            # 对象级小目标复算（
   否则按纪律"只改名不删除"的产物反而会把后续自动重启全部挡死。
 - **几何模块必须先验"非退化"**：LayerNorm 之后的特征范数恒为 `√C`，会让 Poincaré 半径恒定、
   双曲距离退化成余弦距离的单调变换（Run9 实测秩相关 = **1.000000**）。
-  现行硬门是 `rank_corr(HD,1−cos) < 0.999`（`models/test_hsam_cpu.py` + `train.py` 的 fail-fast）。
+  预注册硬门是 `rank_corr(HD,1−cos) < 0.999`；当前 `train.py` 只在首次诊断时检查，后期退化未被拦住。
 
