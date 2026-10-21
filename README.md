@@ -62,13 +62,13 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 <!-- WDMF_RESULTS_START -->
 
-状态更新：2026-10-21 23:29:42 CST；Run2 队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-22 00:31:08 CST；Run2 队列 `running`；正式结果 **0/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
 | SYSU | `M0_CTRL` | 待启动 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：200/40125 | — | — |
-| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：14800/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 训练中：4600/40125 | — | — |
 | LEVIR | `M0_CTRL` | 待启动 | — | — |
 | LEVIR | `M1_HYPER_QKV` | 待启动 | — | — |
 | LEVIR | `M2_CA_QKV` | 待启动 | — | — |
@@ -79,7 +79,7 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 | CDD | `M1_HYPER_QKV` | 待启动 | — | — |
 | CDD | `M2_CA_QKV` | 待启动 | — | — |
 
-Run1 SYSU CTRL 保留运行：**30375/40125**，占用一个 GPU0 训练槽位。
+Run1 SYSU CTRL 已完成：F1 **82.65%**，IoU **70.44%**；作为独立历史对照保留。
 
 <!-- WDMF_RESULTS_END -->
 
@@ -142,7 +142,7 @@ docs/temporary/                 实验记录与 txt 快照
 
 ## 已知限制与历史
 
-Run1 SYSU 模块一的 stage1 投影权重与 γ 衰减到约 `1e-41`，分支输出和任务梯度均为零；stage2–4 仍有效。该实验已停止，剩余旧队列取消，健康的 SYSU CTRL 保留运行，日志和检查点独立保存。Run1 代码归档于服务器 `code_backups/CASA-WDMF_Run1_20261021_2305.tar.gz`。
+Run1 SYSU 模块一的 stage1 投影权重与 γ 衰减到约 `1e-41`，分支输出和任务梯度均为零；stage2–4 仍有效。该实验已停止，剩余旧队列取消，SYSU CTRL 已完成测试，结果作为独立历史对照保留，日志和检查点独立保存。Run1 代码归档于服务器 `code_backups/CASA-WDMF_Run1_20261021_2305.tar.gz`。
 
 HES-Net 原文报告浅层 HSAM 可能放大噪声；本轮检验四层均加入压缩几何 QKV 的结果。Run2 在正式队列前分别对两个模块运行八个 SYSU epoch 的健康探针，检查四层分支输出和任务梯度。长期稳定性和准确率由完整训练判定。
 
