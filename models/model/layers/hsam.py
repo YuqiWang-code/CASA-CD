@@ -77,7 +77,7 @@ HSAM_FORM = "hsam_poincare_v2"
 CURVATURE_C = 1.0              # 论文：c = 1（固定，不搜索）
 EPS_R = 1e-8
 EPS_BALL = 1e-6
-EPS_DELTA = 1e-9
+EPS_DELTA = 1e-6
 EPS_ATANH = 1e-6
 R_MAX = 30.0
 ATTN_STAGES_DEFAULT = (2, 3)   # 0-based：stage2=1/16(384)、stage3=1/32(768) = 论文 (3,4) H-Layer
@@ -132,7 +132,11 @@ def poincare_pairwise_distance(p, q, eps_ball=EPS_BALL, eps_delta=EPS_DELTA):
     d2 = (p2[:, :, None] + q2[:, None, :] - 2.0 * g).clamp_min(0.0)
     denom = (1.0 - p2)[:, :, None].clamp_min(eps_ball) * \
         (1.0 - q2)[:, None, :].clamp_min(eps_ball)
-    return torch.acosh(1.0 + (2.0 * d2 / denom).clamp_min(eps_delta))
+    # Shift the acosh argument away from 1 in float32, then subtract the same
+    # constant so identical points still have zero distance and finite gradients.
+    delta = 2.0 * d2 / denom
+    base = torch.acosh(delta.new_tensor(1.0 + eps_delta))
+    return torch.acosh(1.0 + delta + eps_delta) - base * torch.exp(-delta / 1e-4)
 
 
 def hsam_logits(hd_raw, dim, logit_norm=LOGIT_NORM_DEFAULT):
@@ -156,10 +160,11 @@ def local_sigma(x, k=DISP_WINDOW):
     纹理/边缘区域（离散度大）靠近球面，平坦区域靠近球心。
     """
     pad = k // 2
-    mu = F.avg_pool2d(x, k, 1, pad)
-    m2 = F.avg_pool2d(x * x, k, 1, pad)
+    x = F.pad(x, (pad, pad, pad, pad), mode="replicate")
+    mu = F.avg_pool2d(x, k, 1)
+    m2 = F.avg_pool2d(x * x, k, 1)
     var = (m2 - mu * mu).clamp_min(0.0)
-    return var.mean(dim=1).clamp_min(0.0).sqrt()
+    return var.mean(dim=1).clamp_min(1e-12).sqrt()
 
 
 def _pearson(a, b):

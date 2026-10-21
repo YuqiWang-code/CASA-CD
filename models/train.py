@@ -61,7 +61,7 @@ import dataset.Transforms as myTransforms
 #   作用在编码器最深两层（论文 (3,4) H-Layer），重写双时相特征后再进 TAR/DCR。
 #   与 R8c 拆掉的东西**不是同一个机制**（那是 Lorentz 变化分数→半径分解，这是 Poincaré 相似度注意力）。
 #   再 bump 协议串，使 Run9 的 ckpt 与 R8b/R8c 绝不可互相复用。
-PROTOCOL_VERSION = "run9_hsam_poincare_exact80k_v1"
+PROTOCOL_VERSION = "run10_hsam_local_dispersion_exact80k_v1"
 
 # 抗自锁 fail-fast：step 1000 时若 `contrib_norm` 低于此值，直接中止该 run。
 # 依据：v1 的 contrib_norm 恒为 **0.0**；v2 三支 RMS 归一化后应为 O(1)。
@@ -1254,7 +1254,7 @@ class ChangeViTTrainer(object):
             num_workers=self.args.num_workers, pin_memory=True, drop_last=False)
 
     def _log_and_check_hsam(self, epoch, cur_iter):
-        """打印 Run9 HSAM 的生效读数，并在第一次拿到读数时做 fail-fast 判定。
+        """打印 HSAM 生效读数，并在每个 epoch 验证后执行硬门。
 
         为什么 HSAM 需要 fail-fast：它是**零参数确定算子**，不会有"学不出来"的自锁，
         但有两类会被静默吞掉的失败：
@@ -1284,9 +1284,6 @@ class ChangeViTTrainer(object):
                 f"agg/feat={st['agg_over_feat']:.4e} out/in={st['out_over_in']:.4f} "
                 f"finite={int(st['finite'])}")
 
-        if getattr(self, "_hsam_ff_done", False):
-            return
-        self._hsam_ff_done = True
         bad = []
         for s in d.get("stages", []):
             st = d.get(f"stage{s}") or {}
@@ -1388,7 +1385,7 @@ class ChangeViTTrainer(object):
                 self.model.set_hsam_collect(False)
             torch.cuda.empty_cache()
 
-            # ---- Run9 HSAM 读数 + fail-fast（只在 val 期间打开统计，不拖累训练步）
+            # ---- HSAM 读数 + 每个 epoch 的 fail-fast（只在 val 期间打开统计）
             # HSAM 是**零参数**的确定算子，不存在"学不出来"的自锁；它可能出的问题是
             #   ① 数值：exp 饱和 ⇒ HD 分母为 0 ⇒ NaN；
             #   ② 退化：所有点落在同一球面 ⇒ 双曲距离只是 L2 的单调变换，双曲性失去意义。

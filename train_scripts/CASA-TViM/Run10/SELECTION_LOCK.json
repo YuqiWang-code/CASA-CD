@@ -1,0 +1,34 @@
+{
+  "run": "Run10",
+  "created": "2026-10-21",
+  "protocol_version": "run10_hsam_local_dispersion_exact80k_v1",
+  "question": "Can local-dispersion radius preserve nondegenerate HSAM training on SYSU and LEVIR compared with a concurrent CTRL?",
+  "source_context": "Run9 LEVIR HSAM stage3 radius_cv=0.004133 and rank_corr=0.999206 at epoch 154, followed by NaN. CVPR 2025 Feature Clipping only imposes an upper norm bound and does not address this collapse.",
+  "datasets_in_order": ["SYSU-CD-256", "LEVIR-CD-256"],
+  "variants_in_order": ["S0_CTRL", "S1_HSAM_LD"],
+  "total_runs": 4,
+  "max_steps_each": 80000,
+  "batch_size": 32,
+  "seed": 16,
+  "lr": 0.0002,
+  "lr_mode": "poly",
+  "backbone_lr_ratio": 0.1,
+  "str_dim": 192,
+  "hsam_stages": "2,3",
+  "hsam_logit_norm": "std",
+  "hsam_radius": "local_dispersion",
+  "hsam_feature_source": "pre_norm",
+  "hsam_feature_clipping": false,
+  "hsam_params": 0,
+  "only_comparison_variable": "hsam=0 versus hsam=1",
+  "numerical_corrections_shared_by_both_variants": [
+    "HSAM distance acosh argument is guarded in float32; identical points retain zero distance and finite gradients",
+    "local_sigma uses replicate padding and a positive variance floor",
+    "HSAM fail-fast checks every validation epoch, including rank_corr < 0.999"
+  ],
+  "failure_policy": "Any run failure or HSAM degeneration stops the four-run queue; no automatic retry or checkpoint reuse.",
+  "artifact_roots": [
+    "/home/yqwang/outputs/CASA-CD/CASA-TViM/Run10",
+    "/share_datasets/yqwang/checkpoints/CASA-CD/CASA-TViM/Run10"
+  ]
+}
