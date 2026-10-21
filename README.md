@@ -1043,7 +1043,9 @@ CDD/WHU F1 降幅 ≤0.002」。
 **仍需补充的证据**
 
 - [x] ~~修复 `γ` 自锁后的重跑~~ ⇒ **已由 `Run8b` 执行**（见下一节）；`B1_HYP/CDD` 已实测封口抗自锁
-- [ ] Run8b 的四库结果（**5/16 已完成 + 1 在跑**，ETA ≈ 10-22 下午）
+- [x] ~~Run8b 的四库结果~~ ⇒ **已停训（2026-10-20 11:49），8/16 封口**；
+  `B1_HYP` 四库齐全，ΔF1 均值 −0.00085 ⇒ 双曲 HQKV 无正增益（见 `# Run8b 结果`）
+- [ ] Run9（HSAM）的四库结果（**进行中：CDD 两臂已封口，LEVIR 跑 HSAM 臂**，见 `# Run9`）
 - [ ] 收口链（`finish_run8.sh` / `check_run.py` / `run8_verdict.py` / `independent_audit.py`）尚未移植
 - [ ] `models/eval.py` 补 `--arch casa_vmamba_str_v2`（正式结果不依赖，独立审计前必须补）
 - [ ] 对象级小目标复算（`analyse/tvim_object_metrics.py` 口径：4 连通、native 256² mask、按 GT 面积分组）
@@ -1313,7 +1315,7 @@ lattice 版**没有任何训练结果**。27 项 PASS 只证明「代码对、�
 > 预注册与冻结方案：`train_scripts/CASA-TViM/Run9/README.md` · `…/Run9/SELECTION_LOCK.json`
 > 协议 `run9_hsam_poincare_exact80k_v1` · 变体 `S0_CTRL` / `S1_HSAM` · 8 个 run
 
-**① 开跑前发现并修掉的两个**必然退化**（这是本轮最重要的技术结果）**
+**① 开跑前发现的两个必然退化 + 对应的三处修正（本轮最重要的技术结果）**
 
 `outnorm{i}=LayerNorm2d(dim)` 在通道维把每个空间位置标准化 ⇒ **`‖v‖²=C` 精确成立**
 （实测 `‖v‖/√C=1.0000±5e-7`，`1−‖p‖²` 对所有 token 恒为 `0.4200`）。于是所有点同半径：
@@ -1332,7 +1334,8 @@ lattice 版**没有任何训练结果**。27 项 PASS 只证明「代码对、�
 | ② exp 映射前除以**全局 RMS 标量**（保序、零参数） | 不处理时 stage3 `1−‖p‖²` 触底 8.5e-6、半径压倒角度（rank_corr 掉到 0.0047） | 维持 **0.83 / 0.29** |
 | ③ logit 逐样本标准化 | 论文原式 `tanh(HD/√C)` 注意力熵 = **1.0000**、`agg/feat=1.9e-4`（等于没加） | 熵 0.91 / 0.86 |
 
-> **② 的注**：HSAM 在 `outnorm` **之前**混合、之后照常归一化 ⇒ **CTRL 路径一个字节都不变**。
+> **修法 ① 的关键性质**：HSAM 在 `outnorm` **之前**混合、之后照常归一化
+> ⇒ **CTRL 路径一个字节都不变**（`hsam=0` 时走的还是原来的 `forward_features`）。
 
 **② 硬门（每个 run 都查，任一不过 ⇒ `SystemExit(4)`，不重试、终止整轮）**
 
@@ -1345,24 +1348,82 @@ lattice 版**没有任何训练结果**。27 项 PASS 只证明「代码对、�
 |---|---:|---:|
 | 预训练 | `212/222, worst_diff=0.0` | 同 |
 | 总参数 | 31,977,044 | **31,977,044（HSAM 贡献 0）** |
-| step/s | 3.691 | 3.581（**−3.08%**） |
+| smoke step/s（6 步） | 3.691 | 3.581（−3.08%） |
+| **campaign 实测墙钟（CDD 80K）** | **7h15m** | **7h24m（+2.1%）** |
 | 峰值显存 | 26,798 MiB | 26,941 MiB |
+| FLOPs（TEST 区块） | 14.6841 G | 14.7690 G（+0.58%） |
 | stage2 | — | `r_cv 5.7e-2` `rank_corr 0.829` `ent 0.909` `agg/feat 1.64` |
 | stage3 | — | `r_cv 2.3e-1` `rank_corr 0.290` `ent 0.864` `agg/feat 1.21` |
+
+> 注：smoke 的 −3.08% 与 campaign 的 +2.1% 是**两种不同测量**（6 步 vs 满 80K 含 359 次 val），
+> 两者并列，不要只引一个。真实代价以 **+2.1% 墙钟 / +0.58% FLOPs** 为准。
 
 CPU 回归门 `models/test_hsam_cpu.py` **32/32 PASS**，其中两条是**固定断言**：
 "论文原式必然均匀（熵>0.9999）"、"post_norm 负对照 rank_corr≈1"。
 
-**④ 预注册早停**：CDD+LEVIR 两臂都封口后，若两库 `ΔF1` 都 ≤ 0 ⇒ STOP（不再跑 SYSU/WHU），
-结果按实际完成的报、不挑选。脚本 `_r9_delta.py`。
+**④ 进度与结果（2026-10-21 11:25 实测）**
 
-**⑤ 保留但本轮不跑**：`--hsam_radius local_dispersion`（半径只由 3×3 局部离散度决定、
+| run | 状态 | 耗时 |
+|---|---|---|
+| `S0_CTRL/CDD` | ✅ 封口 | 7h15m |
+| `S1_HSAM/CDD` | ✅ 封口 | 7h24m |
+| `S0_CTRL/LEVIR` | ✅ 封口 | 7h15m |
+| `S1_HSAM/LEVIR` | 🔄 9,143 / 80,000（11.4%，2.95 step/s） | 预计 10-21 ≈18:05 完 |
+| SYSU / WHU 各两臂 | 未开始 | — |
+
+**封口进度 3/8**（CDD 两臂 + LEVIR 对照臂）。
+
+| 库 / 变体 | Recall | Precision | OA | **F1** | IoU | Kappa | best ep |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| CDD `S0_CTRL` | 0.9777 | 0.9777 | 0.9945 | **0.9777** | 0.9565 | 0.9746 | 255 |
+| CDD `S1_HSAM` | 0.9766 | 0.9765 | 0.9942 | **0.9765** | 0.9542 | 0.9732 | 255 |
+| LEVIR `S0_CTRL` | 0.8979 | 0.9253 | 0.9911 | **0.9114** | 0.8372 | 0.9067 | 278 |
+| LEVIR `S1_HSAM` | 在跑 | — | — | — | — | — | — |
+
+**CDD 的 Δ（HSAM − CTRL）**：ΔF1 **−0.0012**、ΔIoU −0.0023、ΔRecall −0.0011、
+ΔPrecision −0.0012、ΔOA −0.0003、ΔKappa −0.0014。
+
+**判断标尺：跨轮 CTRL 可复现性**（同库同 80K 同 seed，只是协议串不同）
+
+| 库 | 本轮 `S0_CTRL` | Run8b `CTRL_R8B` | 差 |
+|---|---:|---:|---:|
+| CDD | 0.9777 | 0.9776 | **+0.0001** |
+| LEVIR | 0.9114 | 0.9121 | **−0.0007** |
+
+> CDD 的 −0.0012 是 CDD 自身 CTRL 波动的 **12 倍**、是 LEVIR 波动尺度的 1.7 倍
+> ⇒ 不是噪声能解释的量级；但绝对量仍只是**小负**，且**只有一个库**，
+> 按预注册**不下结论**，等 LEVIR 对照臂。
+
+**训练后的机制读数**（证明"非退化"贯穿训练，不只在初始化时成立）
+
+| | CDD epoch 255 | LEVIR epoch 40（在跑） |
+|---|---:|---:|
+| `[HSAM-FAILFAST-PASS]` | step=626 | step=446 |
+| stage2 `rank_corr(HD,1−cos)` | **0.7414** | **0.7932** |
+| stage3 `rank_corr` | **0.7588** | **0.7309** |
+| `r_cv` | 6.9e-2 / 1.4e-1 | 1.0e-1 / 2.2e-1 |
+| `at_eps`（半径触底比例） | 0 | 0 |
+| `agg/feat` | 1.04 / 1.37 | 1.26 / 0.96 |
+
+> 两库全程 `rank_corr` 稳定在 **0.73–0.79**（离 0.999 的退化线很远）⇒
+> 双曲成分在整个 80K 里都真实存在，这次不是"以为在测双曲、其实在测余弦"。
+> **但机制成立 ≠ 性能成立**：CDD 上是小负。
+
+**⑤ 预注册早停**
+
+CDD+LEVIR 两臂都封口后（预计 **10-21 ≈18:05**），若两库 `ΔF1` 都 ≤ 0 ⇒ STOP
+（不再跑 SYSU/WHU，省约 28.6 h）；结果按实际完成的报、不挑选。脚本 `_r9_delta.py`。
+当前：CDD 已 −0.0012（≤0），**只等 LEVIR 一个判决**。
+不触发则跑满四库，预计 **10-22 ≈22:40** 全部结束。
+
+**⑥ 保留但本轮不跑**：`--hsam_radius local_dispersion`（半径只由 3×3 局部离散度决定、
 与 token 能量解耦；代码已就绪并通过 CPU 检验），留作后续对照臂。
 
-**⑥ 监控**
+**⑦ 监控**
 
 ```bash
 bash train_scripts/CASA-TViM/Run9/_r9_state.sh      # 进度 + HSAM 读数 + Δ 表
+bash train_scripts/CASA-TViM/Run9/_r9_timeline.sh   # 逐库耗时 + 当前速率 + 不截断读数
 bash train_scripts/CASA-TViM/Run9/_r9_probe.sh      # 当前 stage 日志 + 督导决策
 tail -20 /tmp/run9/pipeline.log
 bash train_scripts/CASA-TViM/Run9/_r9_stop.sh --kill-run
