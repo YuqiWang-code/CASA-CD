@@ -36,3 +36,7 @@ Formal training started at 2026-10-22 12:29 CST with source revision `6776fa2` a
 | 1 | LEVIR M2, LEVIR CTRL, SYSU CTRL | 29.9 GiB | 96% |
 
 Per-process reservations are 14,874 MiB for M1, 11,722 MiB for M2 and 9,534 MiB for CTRL. Runtime GPU budgets are 30,914 / 31,072 MiB. Placement changes as runs finish; consult the live queue state.
+
+## Completion
+
+All 12 formal experiments completed at 2026-10-22 21:08 CST. Full TEST blocks and JSON results are collected in `outputs/CASA/Run3`; the workbook contains 123 formal records including all 111 earlier records. Reproduce this round with its `source_code.tar.gz` archive.
