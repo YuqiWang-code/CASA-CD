@@ -18,7 +18,7 @@ def command(*args):
 
 def metric_rows(path):
     book = load_workbook(path, read_only=True, data_only=True)
-    rows = list(book['metrics'].values())
+    rows = list(book['metrics'].values)
     book.close()
     return rows
 
