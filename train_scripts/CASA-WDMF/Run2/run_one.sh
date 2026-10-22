@@ -2,6 +2,8 @@
 set -euo pipefail
 VARIANT=${1:?variant required}
 DATASET=${2:?dataset required}
+GPU=${3:?physical GPU required}
+case "$GPU" in 0|1) ;; *) exit 2 ;; esac
 REPO=/home/yqwang/projects/CASA-CD
 case "$VARIANT" in
   M0_CTRL) MODULE=none ;;
@@ -25,7 +27,7 @@ source /home/yqwang/miniforge3/etc/profile.d/conda.sh
 conda activate casacd
 export PYTHONPATH="/home/yqwang/miniforge3/envs/mamba_base/lib/python3.10/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export LD_LIBRARY_PATH="/home/yqwang/miniforge3/envs/casacd/lib/python3.10/site-packages/torch/lib:/home/yqwang/miniforge3/envs/casacd/lib:${LD_LIBRARY_PATH:-}"
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES="$GPU"
 export OMP_NUM_THREADS=4
 export OPENBLAS_NUM_THREADS=4
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

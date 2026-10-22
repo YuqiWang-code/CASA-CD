@@ -49,11 +49,13 @@ Reports: `outputs/CASA-WDMF/Run2/probes/{hyperbolic,qkv}/{health_history,health_
 
 ```bash
 cd /home/yqwang/projects/CASA-CD
-bash train_scripts/CASA-WDMF/Run2/launch.sh 2
+bash train_scripts/CASA-WDMF/Run2/launch.sh 4
 bash train_scripts/CASA-WDMF/Run2/stop.sh
 ```
 
-SYSU's three variants complete before LEVIR begins; WHU and CDD follow. Within each dataset the order is M1 → M2 → CTRL. GPU0 has at most two total training processes. While the retained Run1 SYSU CTRL is alive, Run2 uses one slot; it automatically uses both slots after that process exits.
+GPU0 and GPU1 each have two training slots, for four concurrent runs. Dataset priority is SYSU → LEVIR → WHU → CDD; within a dataset the pending order is M1 → M2 → CTRL. A free slot starts the next pending run without a dataset completion barrier. The scheduler adopts an already running training PID during handover and records physical GPU placement in `placement.json` and `pipeline_status.json`.
+
+The four-slot schedule started at 2026-10-22 08:53 CST: the existing LEVIR CTRL and WHU M1 run on GPU0, while WHU M2 and CTRL run on GPU1. CDD fills subsequent free slots.
 
 | Artifact | Directory |
 |---|---|

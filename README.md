@@ -4,7 +4,7 @@
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | `CASA-WDMF/Run2`，四库 × 三组，共 12 项 | GPU0，最多两路 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | `CASA-WDMF/Run2`，四库 × 三组，共 12 项 | GPU0/1，各两路，共四路 |
 
 ## 模型
 
@@ -58,23 +58,23 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 ## 当前进度与结果
 
-同一数据集的三组完成后再推进到下一数据集，顺序为 **SYSU → LEVIR → WHU → CDD**。每个数据集内最多两项并行，顺序为模块一、模块二、CTRL。Run1 保留的 SYSU CTRL 仍运行时，Run2 使用一个槽位；该进程结束后自动恢复两路。
+自 **2026-10-22 08:53 CST** 起采用 **GPU0/1 各两路，共四路**。按 SYSU → LEVIR → WHU → CDD 的优先级补充空闲槽位，允许跨数据集并行。LEVIR CTRL 原进程继续运行，当前加入 WHU 三组，随后自动补入 CDD。
 
 <!-- WDMF_RESULTS_START -->
 
-状态更新：2026-10-22 08:04:12 CST；Run2 队列 `running`；正式结果 **5/12**。
+状态更新：2026-10-22 08:55:09 CST；Run2 队列 `running`；正式结果 **5/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
 | SYSU | `M0_CTRL` | 完成 | 81.62 | 68.95 |
 | SYSU | `M1_HYPER_QKV` | 完成 | 81.75 | 69.13 |
 | SYSU | `M2_CA_QKV` | 完成 | 82.85 | 70.72 |
-| LEVIR | `M0_CTRL` | 训练中：1000/40182 | — | — |
+| LEVIR | `M0_CTRL` | 训练中：15700/40182 | — | — |
 | LEVIR | `M1_HYPER_QKV` | 完成 | 91.28 | 83.96 |
 | LEVIR | `M2_CA_QKV` | 完成 | 91.39 | 84.14 |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 训练中：300/40145 | — | — |
+| WHU | `M1_HYPER_QKV` | 训练中：300/40145 | — | — |
+| WHU | `M2_CA_QKV` | 训练中：300/40145 | — | — |
 | CDD | `M0_CTRL` | 待启动 | — | — |
 | CDD | `M1_HYPER_QKV` | 待启动 | — | — |
 | CDD | `M2_CA_QKV` | 待启动 | — | — |
@@ -93,14 +93,14 @@ Run1 SYSU CTRL 已完成：F1 **82.65%**，IoU **70.44%**；作为独立历史�
 
 部署等价校验采用 **`strict_fp32_fold_v1`**：关闭 cuDNN benchmark 和 TF32，主输出最大绝对误差阈值为 **2e-4**，记录四尺度误差与二值预测差异，随后恢复原后端设置用于正式测试。
 
-LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；模块一从 **39,294 step** 的模型、优化器及选模状态补完剩余 **888 step**，达到 **40,182 step**，也已完成测试。两项折叠误差分别为 **2.80e-6 / 7.15e-7**，二值预测均无差异。队列当前训练 LEVIR CTRL，随后继续 WHU、CDD。恢复前产物保留于日志 `archive/20261022_075845` 和 checkpoint `recovery_backups/20261022_075845` 目录。[折叠诊断记录](docs/temporary/CASA-WDMF_Run2_LEVIR_fold_diagnosis_2026-10-22.txt)。
+LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；模块一从 **39,294 step** 的模型、优化器及选模状态补完剩余 **888 step**，达到 **40,182 step**，也已完成测试。两项折叠误差分别为 **2.80e-6 / 7.15e-7**，二值预测均无差异。LEVIR CTRL 与 WHU 三组现并行，后续空位补入 CDD。恢复前产物保留于日志 `archive/20261022_075845` 和 checkpoint `recovery_backups/20261022_075845` 目录。[折叠诊断记录](docs/temporary/CASA-WDMF_Run2_LEVIR_fold_diagnosis_2026-10-22.txt)。
 
 ## 验证与资源
 
 - MobileNetV2 预训练加载 312 个模型张量，无缺失；分类器权重不参与特征编码。
 - 三个变体的参数组覆盖、四级接口、公共路径初始化、梯度与残差激活、TAR/DCR 部署折叠测试均通过，最大输出误差约 `6e-8`。
 - 两个模块均通过 SYSU 八个完整 epoch、3,000 step 的健康短训，四层分支输出和全部任务梯度均非零；[逐层诊断](train_scripts/CASA-WDMF/Run2/README.md#sysu-health-results)。
-- 满 batch 单进程峰值显存：CTRL **8,873 MiB**，模块一 **11,931 MiB**，模块二 **10,150 MiB**；相应训练 step 用时约 **0.084 / 0.096 / 0.080 s**。采用两路并发以容纳 GPU 进程开销。
+- 满 batch 单进程峰值显存：CTRL **8,873 MiB**，模块一 **11,931 MiB**，模块二 **10,150 MiB**；相应训练 step 用时约 **0.084 / 0.096 / 0.080 s**。每张 32 GB 卡并发两项，两张卡合计四项。
 - 数值非有限时终止当前队列并保留日志；模型不使用旧几何模块的退化硬门。
 
 ## 运行与收集
@@ -110,7 +110,7 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 ```bash
 # 服务器启动 / 停止
 cd /home/yqwang/projects/CASA-CD
-bash train_scripts/CASA-WDMF/Run2/launch.sh 2
+bash train_scripts/CASA-WDMF/Run2/launch.sh 4
 bash train_scripts/CASA-WDMF/Run2/stop.sh
 
 # 服务器进度

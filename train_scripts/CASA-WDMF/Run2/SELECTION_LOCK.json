@@ -14,14 +14,7 @@
     "M1_HYPER_QKV": "hyperbolic",
     "M2_CA_QKV": "qkv"
   },
-  "dataset_order": [
-    "SYSU-CD-256",
-    "LEVIR-CD-256",
-    "WHU-CD-256",
-    "CDD-CD-256"
-  ],
-  "parallel_jobs": 2,
-  "gpu": 0,
+  "parallel_jobs": 4,
   "batch_size": 32,
   "target_steps": 40000,
   "round_to_full_epochs": true,
@@ -51,10 +44,24 @@
   "deploy_verification": "strict_fp32_fold_v1",
   "deploy_max_abs_tolerance": 0.0002,
   "checkpoint_rng_state": true,
-  "retained_run1_ctrl": "independent historical control; reserves one GPU0 slot until exit",
   "variant_order": [
     "M1_HYPER_QKV",
     "M2_CA_QKV",
     "M0_CTRL"
-  ]
+  ],
+  "gpus": [
+    0,
+    1
+  ],
+  "slots_per_gpu": {
+    "0": 2,
+    "1": 2
+  },
+  "dataset_priority": [
+    "SYSU-CD-256",
+    "LEVIR-CD-256",
+    "WHU-CD-256",
+    "CDD-CD-256"
+  ],
+  "scheduling": "ordered pending runs; refill free slots across datasets"
 }
