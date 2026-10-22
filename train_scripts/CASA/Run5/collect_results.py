@@ -60,7 +60,7 @@ def main():
     section += '\n'.join(rows)
     path = ROOT / 'README.md'
     text = path.read_text(encoding='utf-8')
-    begin, end = '<!-- CASA_RUN4_RESULTS_START -->', '<!-- CASA_RUN4_RESULTS_END -->'
+    begin, end = '<!-- CASA_RUN5_RESULTS_START -->', '<!-- CASA_RUN5_RESULTS_END -->'
     start, stop = text.index(begin) + len(begin), text.index(end)
     path.write_text(text[:start] + '\n\n' + section + '\n\n' + text[stop:], encoding='utf-8', newline='\n')
     if set(formal) - set(prior['formal_runs']):

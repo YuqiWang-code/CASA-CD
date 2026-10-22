@@ -54,3 +54,25 @@ Only complete TEST RESULTS blocks enter `docs/experiment_metrics.xlsx`. All 123 
 Server checks passed for shared-date centering, feature/metric scale invariance, retained relative radii, the clipping bound, temporal symmetry, identical-pair residual identity, geometry gradients, auxiliary gradient routing and all three deployment graphs. Four-scale folding differences were5.96e-8 with zero binary disagreement.
 
 Full-batch peak allocated memory was8873/14448/10924MiB for CTRL/hyperbolic/ordinary QKV; single-process step time was approximately0.076/0.138/0.085s. Measurements are in validation.log and profile.json under the round's output directory.
+
+## Completed health training
+
+SYSU hyperbolic health training completed16 full epochs (6,000 steps) with live task/auxiliary gradients and residuals at all four stages. Both LEVIR probes completed444 steps.
+
+| SYSU stage | Radius mean | Radius CV | Query clipping | Direction resultant | Attention entropy |
+|---|---:|---:|---:|---:|---:|
+| stage1 | 0.6217 | 0.3608 | 1.87% | 0.1743 | 0.9323 |
+| stage2 | 0.6284 | 0.3667 | 0.59% | 0.1035 | 0.9117 |
+| stage3 | 0.6824 | 0.2335 | 1.27% | 0.0672 | 0.9699 |
+| stage4 | 0.6559 | 0.2855 | 2.34% | 0.0990 | 0.9483 |
+
+The6,000-step probe checkpoint reached80.02% F1 on the full4,000-image SYSU validation split. This validation result is separate from formal test metrics.
+
+## Formal launch
+
+Started2026-10-23 00:28:16 CST, source revision `2675fd9`. Initial memory budgets: {'0': 30914, '1': 31072}. Variant reservations: {'M1_HYPER_QKV': 15260, 'M2_CA_QKV': 11976, 'M0_CTRL': 9534}.
+
+| Physical GPU | Initial jobs |
+|---|---|
+| 0 | M1_HYPER_QKV/LEVIR-CD-256, M1_HYPER_QKV/SYSU-CD-256 |
+| 1 | M2_CA_QKV/LEVIR-CD-256, M0_CTRL/LEVIR-CD-256, M0_CTRL/SYSU-CD-256 |
