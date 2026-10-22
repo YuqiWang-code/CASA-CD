@@ -25,3 +25,14 @@ Code archive: `source_code.tar.gz` alongside the round logs. Source file paths a
 Collect on the local workstation with `python train_scripts/CASA/Run3/collect_results.py`. Only complete TEST RESULTS blocks are formal. Existing metrics are retained, with a TXT snapshot in `docs/temporary/models_and_metrics_CASA_Run3.txt`.
 
 Backbone, HFEA and training-recipe provenance is documented in `models/SOURCES.md`. Prior Run1/Run2 scripts are archived under `docs/temporary/CASA_Run1_Run2_scripts`.
+
+## Launch record
+
+Formal training started at 2026-10-22 12:29 CST with source revision `6776fa2` and supervisor PID `1038347`. Both two-epoch LEVIR probes passed. Four-stage branch outputs, residuals and task gradients were nonzero; hyperbolic radius CV ranged from 0.263 to 0.282.
+
+| GPU | Initial experiments | Memory used | Utilization sample |
+|---|---|---:|---:|
+| 0 | LEVIR M1, SYSU M1 | 29.2 GiB | 95% |
+| 1 | LEVIR M2, LEVIR CTRL, SYSU CTRL | 29.9 GiB | 96% |
+
+Per-process reservations are 14,874 MiB for M1, 11,722 MiB for M2 and 9,534 MiB for CTRL. Runtime GPU budgets are 30,914 / 31,072 MiB. Placement changes as runs finish; consult the live queue state.

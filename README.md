@@ -2,7 +2,7 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**当前实验：CASA/Run3，启动验证中。** 普通压缩 QKV 与双曲压缩 QKV 已独立设计，使用两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD；[结构、ASCII 图和验证记录](docs/temporary/CASA-WDMF_QKV_redesign_2026-10-22.md)。
+**当前实验：CASA/Run3，已于 2026-10-22 12:29 CST 正式启动，当前五路并发。** 普通压缩 QKV 与双曲压缩 QKV 已独立设计，使用两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD；[结构、ASCII 图和验证记录](docs/temporary/CASA-WDMF_QKV_redesign_2026-10-22.md)。
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
@@ -62,11 +62,28 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 ## Run3 当前进度
 
-普通与双曲模块各进行两轮 LEVIR 真实数据短训，正式训练使用全新初始化和完整 40K 预算。三组实验为 CTRL、双曲 QKV、普通压缩 QKV。
+普通与双曲模块均已通过两轮 LEVIR 真实数据短训（各 444 step），四层分支与任务梯度均非零。正式训练使用全新初始化和完整 40K 预算。三组实验为 CTRL、双曲 QKV、普通压缩 QKV。
+
+启动时 GPU0 运行 LEVIR/SYSU 双曲模块，GPU1 运行 LEVIR 普通模块与 LEVIR/SYSU CTRL。两卡显存分别约 **29.2 / 29.9 GiB**，利用率采样为 **95% / 96%**；空闲容量按 LEVIR → SYSU → WHU → CDD 优先级自动补充。
 
 <!-- CASA_RESULTS_START -->
 
-启动验证中；正式结果 **0/12**。
+状态更新：2026-10-22 12:30:46 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：300/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：222/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：300/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：200/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：200/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- CASA_RESULTS_END -->
 
