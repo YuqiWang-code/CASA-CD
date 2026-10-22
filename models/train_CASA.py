@@ -1,7 +1,6 @@
-"""WDMF-Net training protocol for the CASA MobileNet/HFEA + TAR/DCR models."""
+"""CASA training with MobileNetV2/HFEA, TAR temporal skips and DCR."""
 import argparse
 import copy
-import hashlib
 import json
 import math
 import random
@@ -14,11 +13,11 @@ import torch
 from torch.nn import functional as F
 
 from dataset.dataset import Dataset
-from dataset import wdmf_transforms as transforms
-from model.casa_wdmf_str_net import CASAWDMFSTRNet
+from dataset import casa_transforms as transforms
+from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "wdmf_str_40k_separateqkv_v3"
+PROTOCOL = "casa_40k_separateqkv_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
@@ -148,15 +147,9 @@ def verify_deployment(model, image):
     return deploy, report
 
 
-def source_identity():
+def source_files():
     root = Path(__file__).resolve().parent.parent
-    paths = ["models/train_wdmf.py", "models/model/casa_wdmf_str_net.py",
-             "models/model/wdmf_mobilenet_v2.py", "models/model/wdmf_encoder.py",
-             "models/model/layers/change_context_qkv.py", "models/model/str_tar.py",
-             "models/model/str_dcr.py", "models/model/str_reparam.py",
-             "models/dataset/dataset.py", "models/dataset/wdmf_transforms.py",
-             "models/model/metric_tool.py"]
-    return {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths}
+    return sorted(p.relative_to(root).as_posix() for p in (root / "models").rglob("*.py"))
 
 
 def main():
@@ -188,17 +181,19 @@ def main():
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
-    model = CASAWDMFSTRNet(args.pretrained, module=args.module).to(device)
+    model = CASANet(args.pretrained, module=args.module).to(device)
     optimizer = make_optimizer(model)
     params = sum(p.numel() for p in model.parameters()) / 1e6
-    identity = source_identity()
+    identity = source_files()
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=2333,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8",
                     weight_decay=1e-4, module_weight_decay=0.0,
                     selection="best validation F1, ties update", deep_supervision=4,
-                    label_threshold=128, context_cell=4, qkv_dim=32, source_files=identity,
+                    label_threshold=128, context_cell=4, context_prototypes=2,
+                    qkv_dim=32, source_files=identity,
+                    source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
     start_epoch, step, best_f1, best_epoch = 0, 0, -1.0, -1
@@ -222,7 +217,7 @@ def main():
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
             (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            (parent / "arch.json").write_text(json.dumps(dict(arch="casa_wdmf_str", module=args.module,
+            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
                                                               str_dim=64), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
@@ -292,7 +287,7 @@ def main():
                   deploy_max_diff=difference, deploy_binary_disagreement=disagreement)
     (args.output_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print("=== TEST RESULTS ===", flush=True)
-    print(f"[MODE] casa_wdmf_str_{args.module}", flush=True)
+    print(f"[MODE] casa_{args.module}", flush=True)
     print(f"[TOTAL-PARAMS] {deploy_params:.6f} M", flush=True)
     print(f"[TRAINABLE-PARAMS] {params:.6f} M", flush=True)
     print(f"Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f}", flush=True)

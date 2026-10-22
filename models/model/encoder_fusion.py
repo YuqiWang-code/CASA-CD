@@ -1,4 +1,4 @@
-"""WDMF-Net hierarchical feature extraction and aggregation (HFEA)."""
+"""Hierarchical feature extraction and aggregation (HFEA); see models/SOURCES.md."""
 import torch
 from torch import nn
 

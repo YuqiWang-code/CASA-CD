@@ -1,14 +1,16 @@
-"""Measure full-batch training memory and throughput for CASA-WDMF variants."""
+"""Measure full-batch training memory and throughput for CASA variants."""
 import argparse
 import gc
 import json
+import os
+import subprocess
 import time
 from pathlib import Path
 
 import torch
 
-from model.casa_wdmf_str_net import CASAWDMFSTRNet
-from train_wdmf import make_loader, loss_function, make_optimizer
+from model.casa_net import CASANet
+from train_CASA import make_loader, loss_function, make_optimizer
 
 
 def main():
@@ -24,7 +26,7 @@ def main():
     results = {}
     for variant in ["none", "hyperbolic", "qkv"]:
         torch.manual_seed(2333)
-        model = CASAWDMFSTRNet(args.pretrained, variant).cuda().train()
+        model = CASANet(args.pretrained, variant).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -43,8 +45,15 @@ def main():
             op.collect_diag = True
         with torch.no_grad():
             model(image[:, :3], image[:, 3:])
+        used = subprocess.check_output(
+            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+            text=True)
+        process_mib = next(float(row.split(",")[1]) for row in used.splitlines()
+                           if int(row.split(",")[0]) == os.getpid())
+        context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
+                      context_overhead_mib=context_mib, process_memory_mib=process_mib,
                       seconds_per_step=sum(times[2:]) / len(times[2:]), loss=float(loss.detach()),
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result

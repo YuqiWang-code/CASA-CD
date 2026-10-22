@@ -1,17 +1,17 @@
-"""WDMF-Net MobileNetV2/HFEA encoder with TAR skips and DCR decoder."""
+"""CASA: MobileNetV2/HFEA with independent context modules, TAR and DCR."""
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from model.wdmf_mobilenet_v2 import mobilenet_v2
-from model.wdmf_encoder import EncoderFusion
+from model.mobilenet_v2 import mobilenet_v2
+from model.encoder_fusion import EncoderFusion
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.layers.change_context_qkv import ChangeAwareCompressedQKV
 from model.layers.hyperbolic_context_qkv import HyperbolicCompressedQKV
 
 
-class CASAWDMFSTRNet(nn.Module):
+class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none"):
         super().__init__()
         if module not in ("none", "hyperbolic", "qkv"):

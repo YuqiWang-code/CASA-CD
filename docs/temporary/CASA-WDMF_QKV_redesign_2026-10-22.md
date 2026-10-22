@@ -10,7 +10,7 @@
 | 双曲 QKV | 94.07 | 88.80 |
 | 普通压缩 QKV | 94.53 | 89.63 |
 
-当前 `models/` 为独立模块设计，入口协议 `wdmf_str_40k_separateqkv_v3`。Run2 使用 `wdmf_str_40k_modulewd0_v2`，其代码与模型快照见 `models_and_metrics_CASA-WDMF_Run2.txt`。新版尚无数据集训练结果。
+当前 `models/` 为独立模块设计，入口协议 `casa_40k_separateqkv_v3`。Run2 使用 `wdmf_str_40k_modulewd0_v2`，其代码与模型快照见 `models_and_metrics_CASA-WDMF_Run2.txt`。新版尚无数据集训练结果。
 
 ## 依据与取舍
 
@@ -143,7 +143,7 @@ B branch uses reversed Mobius displacements and Q_B / K_A.
 
 `models/test_change_context_qkv.py` 覆盖四尺度的 Q/KV 数量、时相交换对称性、相同输入零增强、零输入与大幅值输入的有限梯度、非零任务梯度、双曲距离和 Möbius 位移、测地中点以及几何有限差分梯度。
 
-`models/test_wdmf_str.py` 对三个变体检查完整四尺度输出、公共路径初始化、优化器参数覆盖、三步任务优化、残差激活和部署折叠。CPU 实测两个新版模块的四尺度最大折叠误差均为 `5.96e-8`，二值预测无差异。续训状态及后端设置恢复测试通过。
+`models/test_CASA.py` 对三个变体检查完整四尺度输出、公共路径初始化、优化器参数覆盖、三步任务优化、残差激活和部署折叠。CPU 实测两个新版模块的四尺度最大折叠误差均为 `5.96e-8`，二值预测无差异。续训状态及后端设置恢复测试通过。
 
 ## 已知限制
 

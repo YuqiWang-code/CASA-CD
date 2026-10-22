@@ -1,12 +1,12 @@
 # CASA-CD
 
-遥感二值变化检测。当前主线 **CASA-WDMF-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
+遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**2026-10-22：Run2 已停训，自动化已暂停。** 本地 `models/` 已将普通压缩 QKV 与双曲压缩 QKV 拆为独立设计，尚无新版正式训练结果；[结构、ASCII 图和验证记录](docs/temporary/CASA-WDMF_QKV_redesign_2026-10-22.md)。
+**当前实验：CASA/Run3，启动验证中。** 普通压缩 QKV 与双曲压缩 QKV 已独立设计，使用两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD；[结构、ASCII 图和验证记录](docs/temporary/CASA-WDMF_QKV_redesign_2026-10-22.md)。
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | Run2 已停止，9/12 项正式完成；新版模块待实验 | 无训练任务 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run3，四库 × 三组，共 12 项 | GPU0/1，按实测显存并发 |
 
 ## 模型
 
@@ -38,7 +38,7 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 
 ## 训练协议
 
-训练采用 WDMF-Net 的策略。当前本地模型入口协议为 **`wdmf_str_40k_separateqkv_v3`**；本页已完成的正式结果来自旧协议 **`wdmf_str_40k_modulewd0_v2`**。
+训练采用 WDMF-Net 的策略。当前本地模型入口协议为 **`casa_40k_separateqkv_v3`**；本页已完成的正式结果来自旧协议 **`wdmf_str_40k_modulewd0_v2`**。
 
 | 设置 | 值 |
 |---|---|
@@ -58,11 +58,21 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA-WDMF/Run2/`](train_scripts/CASA-WDMF/Run2/README.md)。
+CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA/Run3/`](train_scripts/CASA/Run3/README.md)。
 
-## 当前进度与结果
+## Run3 当前进度
 
-Run2 于 **2026-10-22 11:41 CST** 停止。SYSU、LEVIR、WHU 三组均已完成正式测试，CDD 三项已停训并保留产物。服务器保留 Run2 代码和权重，本地新版模块完成实现与 CPU 验证。
+普通与双曲模块各进行两轮 LEVIR 真实数据短训，正式训练使用全新初始化和完整 40K 预算。三组实验为 CTRL、双曲 QKV、普通压缩 QKV。
+
+<!-- CASA_RESULTS_START -->
+
+启动验证中；正式结果 **0/12**。
+
+<!-- CASA_RESULTS_END -->
+
+## Run2 历史结果
+
+Run2 于 **2026-10-22 11:41 CST** 停止。SYSU、LEVIR、WHU 三组均已完成正式测试，CDD 三项已停训并保留产物。Run2 代码和权重已归档保留；新版模块使用独立的 Run3 目录。
 
 <!-- WDMF_RESULTS_START -->
 
@@ -111,7 +121,7 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 
 - MobileNetV2 预训练加载 312 个模型张量，无缺失；分类器权重不参与特征编码。
 - 三个变体的参数组覆盖、四级接口、公共路径初始化、梯度与残差激活、TAR/DCR 部署折叠测试均通过，最大输出误差约 `6e-8`。
-- 两个模块均通过 SYSU 八个完整 epoch、3,000 step 的健康短训，四层分支输出和全部任务梯度均非零；[逐层诊断](train_scripts/CASA-WDMF/Run2/README.md#sysu-health-results)。
+- 两个模块均通过 SYSU 八个完整 epoch、3,000 step 的健康短训，四层分支输出和全部任务梯度均非零；[逐层诊断](docs/temporary/CASA_Run1_Run2_scripts/Run2/README.md#sysu-health-results)。
 - 满 batch 单进程峰值显存：CTRL **8,873 MiB**，模块一 **11,931 MiB**，模块二 **10,150 MiB**；相应训练 step 用时约 **0.084 / 0.096 / 0.080 s**。每张 32 GB 卡并发两项，两张卡合计四项。
 - 数值非有限时终止当前队列并保留日志；模型不使用旧几何模块的退化硬门。
 
@@ -121,22 +131,22 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 
 ```bash
 # 服务器进度
-tail -20 /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline.log
-cat /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline_status.json
+tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run3/pipeline.log
+cat /home/yqwang/outputs/CASA-CD/CASA/Run3/pipeline_status.json
 
 # 本地收集、汇表和快照
-python train_scripts/CASA-WDMF/Run2/collect_results.py
+python train_scripts/CASA/Run3/collect_results.py
 ```
 
 | 产物 | 位置 |
 |---|---|
 | 预训练权重 | `/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth` |
 | 数据 | `/share_datasets/CD/<dataset>/{A,B,label,list}/` |
-| 服务器日志 | `/home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/<variant>/<dataset>/` |
-| 服务器 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA-WDMF/Run2/<variant>/<dataset>/` |
-| 本地日志与结果 | `outputs/CASA-WDMF/Run2/` |
+| 服务器日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run3/<variant>/<dataset>/` |
+| 服务器 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run3/<variant>/<dataset>/` |
+| 本地日志与结果 | `outputs/CASA/Run3/` |
 | 指标表 | [`docs/experiment_metrics.xlsx`](docs/experiment_metrics.xlsx) |
-| 代码与指标快照 | `docs/temporary/models_and_metrics_CASA-WDMF_Run2.txt` |
+| 代码与指标快照 | `docs/temporary/models_and_metrics_CASA_Run3.txt` |
 
 `collect_results.py` 使用 [`tools/download_training_results.py`](tools/download_training_results.py) 下载日志和 JSON，出现新正式结果后调用 `tools/extract_metrics_to_excel.py` 和 `tools/models_to_txt.py`。历史指标缺少对应日志时，汇表工具拒绝覆盖现有工作簿。
 
@@ -144,14 +154,14 @@ python train_scripts/CASA-WDMF/Run2/collect_results.py
 
 ```text
 models/
-  train_wdmf.py / profile_wdmf.py / test_wdmf_str.py
-  model/casa_wdmf_str_net.py
-  model/wdmf_mobilenet_v2.py / wdmf_encoder.py
+  train_CASA.py / profile_CASA.py / test_CASA.py
+  model/casa_net.py
+  model/mobilenet_v2.py / encoder_fusion.py
   model/layers/change_context_qkv.py / hyperbolic_context_qkv.py
   model/layers/context_compression.py / poincare_ops.py
   model/str_tar.py / str_dcr.py / str_reparam.py
-  dataset/wdmf_transforms.py
-train_scripts/CASA-WDMF/Run2/     三组×四库的训练与收集
+  dataset/casa_transforms.py
+train_scripts/CASA/Run3/     三组×四库的训练与收集
 others/WDMF-Net/                 上游参考源码
 tools/                          通用收集、汇表、快照和对象指标工具
 outputs/                        本地实验产物，不进入 Git

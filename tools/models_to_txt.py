@@ -81,7 +81,7 @@ def main():
         out.write(f"# CASA-CD models snapshot + metrics\n")
         out.write(f"# tag={args.tag}  run={args.run}  models_dir={args.models_dir}\n")
         out.write("# CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。\n")
-        out.write("# 二者是否与远端训练时的代码身份一致，须核对各 run 的 source_code_sha256。\n")
+        out.write("# 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。\n")
 
         files = collect_code(models_dir)
         out.write(f"\n{'=' * 80}\n## MODELS CODE ({len(files)} files)\n{'=' * 80}\n")

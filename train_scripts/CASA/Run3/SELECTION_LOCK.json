@@ -1,0 +1,50 @@
+{
+  "protocol": "casa_40k_separateqkv_v3",
+  "model": "CASANet",
+  "backbone": "MobileNetV2",
+  "encoder": "HFEA",
+  "skip": "MultiScaleTAR",
+  "decoder": "DCR",
+  "channels": 64,
+  "qkv_dim": 32,
+  "context_cell": 4,
+  "context_prototypes": 2,
+  "variants": {
+    "M1_HYPER_QKV": "hyperbolic",
+    "M2_CA_QKV": "qkv",
+    "M0_CTRL": "none"
+  },
+  "datasets": [
+    "LEVIR-CD-256",
+    "SYSU-CD-256",
+    "WHU-CD-256",
+    "CDD-CD-256"
+  ],
+  "batch_size": 32,
+  "target_steps": 40000,
+  "round_to_full_epochs": true,
+  "seed": 2333,
+  "optimizer": "Adam",
+  "learning_rate": 0.0005,
+  "betas": [
+    0.9,
+    0.99
+  ],
+  "eps": 1e-08,
+  "weight_decay": 0.0001,
+  "module_weight_decay": 0,
+  "schedule": "poly^0.9; 200-step warmup",
+  "loss": "four BCE+Dice losses",
+  "selection": "best validation F1; ties update",
+  "gpus": [
+    0,
+    1
+  ],
+  "scheduling": "measured memory reservations; ordered fitting-job backfill",
+  "health_dataset": "LEVIR-CD-256",
+  "health_epochs": 2,
+  "health_steps": 444,
+  "deploy_verification": "strict_fp32_fold_v1",
+  "deploy_max_abs_tolerance": 0.0002,
+  "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth"
+}

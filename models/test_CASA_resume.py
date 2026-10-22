@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from train_wdmf import (PROTOCOL, make_optimizer, restore_training_state,
+from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
                         rng_state, strict_fold_precision)
 
 

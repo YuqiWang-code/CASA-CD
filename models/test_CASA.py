@@ -1,8 +1,8 @@
-"""Interface, gradient and deployment checks for the three WDMF-STR variants."""
+"""Interface, gradient and deployment checks for the three CASA variants."""
 import torch
 
-from model.casa_wdmf_str_net import CASAWDMFSTRNet
-from train_wdmf import learning_rate, loss_function, make_optimizer, verify_deployment
+from model.casa_net import CASANet
+from train_CASA import learning_rate, loss_function, make_optimizer, verify_deployment
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
     reference = None
     for variant in ["none", "hyperbolic", "qkv"]:
         torch.manual_seed(2333)
-        model = CASAWDMFSTRNet(module=variant).eval()
+        model = CASANet(module=variant).eval()
         with torch.no_grad():
             features = model.encoder_fusion(*model.encoder(a))
             assert [x.shape for x in features] == [torch.Size([1, 64, n, n]) for n in [64, 32, 16, 8]]
