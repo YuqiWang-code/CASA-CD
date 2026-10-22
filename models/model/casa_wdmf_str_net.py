@@ -7,7 +7,8 @@ from model.wdmf_mobilenet_v2 import mobilenet_v2
 from model.wdmf_encoder import EncoderFusion
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
-from model.layers.change_context_qkv import ChangeContextQKV
+from model.layers.change_context_qkv import ChangeAwareCompressedQKV
+from model.layers.hyperbolic_context_qkv import HyperbolicCompressedQKV
 
 
 class CASAWDMFSTRNet(nn.Module):
@@ -26,9 +27,9 @@ class CASAWDMFSTRNet(nn.Module):
         # Construct after the common path so all variants share its initialization.
         with torch.random.fork_rng():
             torch.manual_seed(2333)
-            self.stage_modules = nn.ModuleList(
-                [ChangeContextQKV(64, 32, geometry=module) for _ in range(4)]
-                if module != "none" else [])
+            block = {"hyperbolic": HyperbolicCompressedQKV,
+                     "qkv": ChangeAwareCompressedQKV}.get(module)
+            self.stage_modules = nn.ModuleList([block(64, 32) for _ in range(4)] if block else [])
 
     def forward(self, a, b):
         features_a = self.encoder_fusion(*self.encoder(a))

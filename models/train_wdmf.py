@@ -18,7 +18,7 @@ from dataset import wdmf_transforms as transforms
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "wdmf_str_40k_modulewd0_v2"
+PROTOCOL = "wdmf_str_40k_separateqkv_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2

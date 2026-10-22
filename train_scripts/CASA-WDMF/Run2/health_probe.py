@@ -15,7 +15,6 @@ sys.path.insert(0, str(ROOT / "models"))
 from train_wdmf import (PROTOCOL, learning_rate, loss_function, make_loader,
                         make_optimizer, source_identity)
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
-from model.layers.change_context_qkv import compress_pair
 
 
 def rms(tensor):
@@ -29,10 +28,13 @@ def inspect(model, image, target):
         a = model.encoder_fusion(*model.encoder(image[:, :3]))
         b = model.encoder_fusion(*model.encoder(image[:, 3:]))
         for i, (op, x, y) in enumerate(zip(model.stage_modules, a, b), 1):
-            _, context = compress_pair(x, y)
+            branches = []
+            hook = op.out.register_forward_hook(lambda layer, inputs, output: branches.append(output))
             op.collect_diag = True
-            branch = op._attention(x, context)
+            op(x, y)
             op.collect_diag = False
+            hook.remove()
+            branch = torch.cat(branches)
             report[f"stage{i}"] = dict(op.last_diag,
                 branch_rms=rms(branch), residual_rms=rms(op.gamma * branch),
                 weight_rms={n: rms(p) for n, p in op.named_parameters()})

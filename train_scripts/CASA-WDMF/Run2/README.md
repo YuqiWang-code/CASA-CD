@@ -1,5 +1,7 @@
 # CASA-WDMF / Run2
 
+Run2 stopped at 2026-10-22 11:41 CST with 9/12 formal tests completed. CDD artifacts are retained. The formal model uses protocol `wdmf_str_40k_modulewd0_v2` and code baseline `c9f621d`; the archived source and 111 metrics are in `docs/temporary/models_and_metrics_CASA-WDMF_Run2.txt`. Current local models use separate QKV protocol v3; the following architecture, probes and execution describe Run2. The health inspection utility follows the current module forward interface.
+
 MobileNetV2 + HFEA → optional four-level change-context modules → TAR temporal skips → DCR decoder. Architecture, initialization, data augmentation, loss and selection follow Run1.
 
 ## Protocol

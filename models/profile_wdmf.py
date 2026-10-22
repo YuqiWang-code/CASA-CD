@@ -1,4 +1,4 @@
-"""Measure full-batch training memory and throughput before scheduling GPU0."""
+"""Measure full-batch training memory and throughput for CASA-WDMF variants."""
 import argparse
 import gc
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
-from train_wdmf import make_loader, loss_function
+from train_wdmf import make_loader, loss_function, make_optimizer
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     for variant in ["none", "hyperbolic", "qkv"]:
         torch.manual_seed(2333)
         model = CASAWDMFSTRNet(args.pretrained, variant).cuda().train()
-        optimizer = torch.optim.Adam(model.parameters(), 5e-4, (0.9, 0.99), weight_decay=1e-4)
+        optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
         for step in range(6):

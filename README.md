@@ -2,9 +2,11 @@
 
 遥感二值变化检测。当前主线 **CASA-WDMF-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
+**2026-10-22：Run2 已停训，自动化已暂停。** 本地 `models/` 已将普通压缩 QKV 与双曲压缩 QKV 拆为独立设计，尚无新版正式训练结果；[结构、ASCII 图和验证记录](docs/temporary/CASA-WDMF_QKV_redesign_2026-10-22.md)。
+
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | `CASA-WDMF/Run2`，四库 × 三组，共 12 项 | GPU0/1，各两路，共四路 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | Run2 已停止，9/12 项正式完成；新版模块待实验 | 无训练任务 |
 
 ## 模型
 
@@ -12,7 +14,7 @@
 A / B → shared MobileNetV2
     → 五级特征 [16,24,32,96,320]
     → shared HFEA → 四级双时相特征 [64,64,64,64]，分辨率 64/32/16/8
-    → 每层：无模块 / 双曲距离压缩 QKV / 普通压缩 QKV
+    → 每层：无模块 / 双曲原型 QKV / 普通变化感知原型 QKV
     → MultiScaleTAR 时空重参数化跳层融合
     → DCR 自顶向下解码，输出四级特征
     → 共享 1×1 预测头，上采样到 256×256，四级 BCE+Dice 深监督
@@ -23,23 +25,25 @@ A / B → shared MobileNetV2
 | 实验 | 四级处理模块 | 训练参数量 |
 |---|---|---:|
 | `M0_CTRL` | 两个模块都关闭 | 3,100,404 |
-| `M1_HYPER_QKV` | 模块一：双曲距离＋变化感知压缩 QKV | 3,133,176 |
-| `M2_CA_QKV` | 模块二：变化感知压缩 QKV | 3,133,176 |
+| `M1_HYPER_QKV` | 模块一：双曲 Q/K/V、几何原型压缩与变化位移聚合 | 3,134,332 |
+| `M2_CA_QKV` | 模块二：欧氏双原型压缩、差分 Value 与局部差分 | 3,143,036 |
 
-**共享压缩与残差路径**：由同位置双时相绝对差构造变化分数，在每个规则 4×4 cell 内经 softmax 得到共享权重，压缩为一个上下文 token。全分辨率 Q 查询另一时相的压缩 K/V；Q/K/V 均为 32 维。注意力 logits 标准化后聚合 V，投影回 64 通道，再乘零初始化的可学习残差系数并加回原特征。
+**普通压缩 QKV**：逐 token LayerNorm 后计算时相差异，每个 4×4 cell 产生变化、稳定两个对齐原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K；Value 使用对齐时相的投影差值。全局差分与全分辨率深度卷积的局部差分拼接，经输出投影和零初始化 γ 加回输入。
 
-**模块一**将 Q/K 经指数映射送入 c=1 的庞加莱球，以双曲距离替换 QK 点积。采用 HSAM 的正距离约定来强调跨时相差异，切空间范数上限为 2.3，距离用稳定的 `2 asinh(sqrt(·))` 形式。**模块二**使用普通 QK 点积。两者均在编码器四层输出上独立应用。
+**双曲压缩 QKV**：32 维嵌入经裁剪和指数映射进入 c=1 的庞加莱球。Q/K 使用共享的 Möbius 度量投影，Value 使用独立的 Möbius 投影；压缩权重由同位置双曲距离产生，K/V 均通过双曲质心聚合。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，在流形内加权聚合，再经 Log 映射与局部几何差分融合后回接残差。
 
-MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.com/LYT-Works/WDMF-Net)，版本 `453c5493b2aab88c908ced9135b677285059ec70`；参考源码在 [`others/WDMF-Net/`](others/WDMF-Net/REFERENCE.md)。几何模块依据 HES-Net 的 HSAM 进行压缩 QKV 改造。旧 VMamba HSAM/HQKV 不参与当前模型前向。
+两者均保持 Q 的 `N=HW` 个位置；每个区域两个原型使 KV 为 `N/8`。四层模块参数互不共享，同层双时相共享参数。正式历史指标表使用 Run2 的旧设计，其 KV 为 `N/16`，两个模块的训练参数均为 3,133,176。
+
+MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.com/LYT-Works/WDMF-Net)，版本 `453c5493b2aab88c908ced9135b677285059ec70`；参考源码在 [`others/WDMF-Net/`](others/WDMF-Net/REFERENCE.md)。新版普通模块保留 SAT 的完整 Q / 压缩 KV 结构；双曲模块结合 Deep Change Monitoring 的流形表征与裁剪方法，采用几何原型压缩和变化位移聚合。旧 VMamba HSAM/HQKV 不参与当前模型前向。
 
 ## 训练协议
 
-当前采用 WDMF-Net 的训练策略，协议 **`wdmf_str_40k_modulewd0_v2`**。
+训练采用 WDMF-Net 的策略。当前本地模型入口协议为 **`wdmf_str_40k_separateqkv_v3`**；本页已完成的正式结果来自旧协议 **`wdmf_str_40k_modulewd0_v2`**。
 
 | 设置 | 值 |
 |---|---|
 | 输入 / batch / seed | 256×256 / 32 / 2333 |
-| 优化器 | Adam，lr=5e-4，betas=(0.9,0.99)，eps=1e-8，主体 weight decay=1e-4；四层处理模块的 γ、Q/K/V 与输出投影 weight decay=0 |
+| 优化器 | Adam，lr=5e-4，betas=(0.9,0.99)，eps=1e-8，主体 weight decay=1e-4；四层处理模块的全部参数 weight decay=0 |
 | 学习率 | poly^0.9，沿用上游前 200 step warmup |
 | 增广 | resize、随机裁剪后恢复、水平/垂直翻转、时相交换 |
 | 损失 | 四级输出的 BCE+Dice 等权求和 |
@@ -58,11 +62,11 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 ## 当前进度与结果
 
-自 **2026-10-22 08:53 CST** 起采用 **GPU0/1 各两路，共四路**。按 SYSU → LEVIR → WHU → CDD 的优先级补充空闲槽位，允许跨数据集并行。SYSU、LEVIR 三组均已完成，当前并行运行 WHU 三组与 CDD 模块一，后续自动补入 CDD 其余两组。
+Run2 于 **2026-10-22 11:41 CST** 停止。SYSU、LEVIR、WHU 三组均已完成正式测试，CDD 三项已停训并保留产物。服务器保留 Run2 代码和权重，本地新版模块完成实现与 CPU 验证。
 
 <!-- WDMF_RESULTS_START -->
 
-状态更新：2026-10-22 10:52:03 CST；Run2 队列 `running`；正式结果 **6/12**。
+状态更新：2026-10-22 11:46:54 CST；Run2 队列 `stopped`；正式结果 **9/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
@@ -72,12 +76,12 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 | LEVIR | `M0_CTRL` | 完成 | 91.46 | 84.26 |
 | LEVIR | `M1_HYPER_QKV` | 完成 | 91.28 | 83.96 |
 | LEVIR | `M2_CA_QKV` | 完成 | 91.39 | 84.14 |
-| WHU | `M0_CTRL` | 训练中：31100/40145 | — | — |
-| WHU | `M1_HYPER_QKV` | 训练中：29800/40145 | — | — |
-| WHU | `M2_CA_QKV` | 训练中：31100/40145 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 训练中：4700/40248 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 完成 | 93.92 | 88.53 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.07 | 88.80 |
+| WHU | `M2_CA_QKV` | 完成 | 94.53 | 89.63 |
+| CDD | `M0_CTRL` | 已停止 | — | — |
+| CDD | `M1_HYPER_QKV` | 已停止 | — | — |
+| CDD | `M2_CA_QKV` | 已停止 | — | — |
 
 Run1 SYSU CTRL 已完成：F1 **82.65%**，IoU **70.44%**；作为独立历史对照保留。
 
@@ -97,7 +101,13 @@ LEVIR 三组均完成 **40,182 step**。CTRL 的 F1 **91.46%**、IoU **84.26%**�
 
 LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；模块一从 **39,294 step** 的模型、优化器及选模状态补完剩余 **888 step**，达到 **40,182 step**，也已完成测试。两项折叠误差分别为 **2.80e-6 / 7.15e-7**，二值预测均无差异。CTRL 的折叠误差为 **1.28e-6**，二值预测无差异。恢复前产物保留于日志 `archive/20261022_075845` 和 checkpoint `recovery_backups/20261022_075845` 目录。[折叠诊断记录](docs/temporary/CASA-WDMF_Run2_LEVIR_fold_diagnosis_2026-10-22.txt)。
 
+### WHU 三组结果
+
+普通压缩 QKV 的 F1 **94.53%**、IoU **89.63%**，相对同期 CTRL 提升 **0.62 / 1.10 个百分点**；双曲 QKV 为 **94.07% / 88.80%**，相对 CTRL 提升 **0.15 / 0.27 个百分点**。
+
 ## 验证与资源
+
+新版的几何运算、四层接口、相同输入零增强、时相交换对称性、全部任务梯度、公共路径初始化和部署折叠检查通过。两个新版模块的 CPU 四尺度最大折叠误差均为 `5.96e-8`。以下满 batch 资源与 SYSU 八轮探针数据属于旧 Run2。
 
 - MobileNetV2 预训练加载 312 个模型张量，无缺失；分类器权重不参与特征编码。
 - 三个变体的参数组覆盖、四级接口、公共路径初始化、梯度与残差激活、TAR/DCR 部署折叠测试均通过，最大输出误差约 `6e-8`。
@@ -105,16 +115,11 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 - 满 batch 单进程峰值显存：CTRL **8,873 MiB**，模块一 **11,931 MiB**，模块二 **10,150 MiB**；相应训练 step 用时约 **0.084 / 0.096 / 0.080 s**。每张 32 GB 卡并发两项，两张卡合计四项。
 - 数值非有限时终止当前队列并保留日志；模型不使用旧几何模块的退化硬门。
 
-## 运行与收集
+## 产物与结果收集
 
 服务器代码：`/home/yqwang/projects/CASA-CD/`。环境：`casacd`，使用已配置的 PyTorch 2.14/CUDA 13.2 运行时。
 
 ```bash
-# 服务器启动 / 停止
-cd /home/yqwang/projects/CASA-CD
-bash train_scripts/CASA-WDMF/Run2/launch.sh 4
-bash train_scripts/CASA-WDMF/Run2/stop.sh
-
 # 服务器进度
 tail -20 /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline.log
 cat /home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/pipeline_status.json
@@ -142,7 +147,8 @@ models/
   train_wdmf.py / profile_wdmf.py / test_wdmf_str.py
   model/casa_wdmf_str_net.py
   model/wdmf_mobilenet_v2.py / wdmf_encoder.py
-  model/layers/change_context_qkv.py
+  model/layers/change_context_qkv.py / hyperbolic_context_qkv.py
+  model/layers/context_compression.py / poincare_ops.py
   model/str_tar.py / str_dcr.py / str_reparam.py
   dataset/wdmf_transforms.py
 train_scripts/CASA-WDMF/Run2/     三组×四库的训练与收集
@@ -170,4 +176,4 @@ SYSU 的 Run1 CTRL F1 为 **82.65%**，Run2 CTRL 为 **81.62%**，两次相差 *
 - [Run1–Run8c 历史结论与指标](docs/temporary/历史版本结论与指标_2026-10-21.md)
 - [服务器与数据统一说明](docs/RSML-3_服务器环境与变化检测数据统一说明.md)
 
-代码、协议与文档更新后提交并推送到 GitHub。训练运行期间保持所用模型代码固定。原始日志和检查点保留，正式实验各自使用独立目录。权重与 `outputs/` 不进入 Git；参考论文随 `docs/` 保存。
+Run2 的原始日志和检查点保留，正式实验各自使用独立目录。权重与 `outputs/` 不进入 Git；参考论文随 `docs/` 保存。

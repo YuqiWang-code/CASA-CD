@@ -2,7 +2,6 @@
 import torch
 
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
-from model.layers.change_context_qkv import ChangeContextQKV, compress_pair
 from train_wdmf import learning_rate, loss_function, make_optimizer, verify_deployment
 
 
@@ -41,25 +40,16 @@ def main():
             optimizer.step()
         if model.stage_modules:
             assert all(abs(float(op.gamma)) > 0 for op in model.stage_modules)
-            assert all(float(op.q.weight.grad.abs().sum()) > 0 for op in model.stage_modules)
+            for op in model.stage_modules:
+                projection = op.metric if hasattr(op, "metric") else op.q
+                assert float(projection.weight.grad.abs().sum()) > 0
         model.eval()
         _, report = verify_deployment(model, torch.cat([a, b], 1))
         delta = max(report["per_scale_max_diff"])
         assert delta < 2e-4, delta
         print(f"{variant}: four-level shapes, common initialization, finite gradients, active residual and folding PASS ({delta:.2e})")
-    a = torch.randn(1, 64, 8, 8)
-    ca, cb = compress_pair(a, a)
-    assert torch.allclose(ca, torch.nn.functional.avg_pool2d(a, 4), atol=1e-6)
-    assert torch.equal(ca, cb)
-    for variant in ["hyperbolic", "qkv"]:
-        module = ChangeContextQKV(geometry=variant)
-        with torch.no_grad():
-            module.gamma.fill_(1)
-        zero = torch.zeros(1, 64, 8, 8, requires_grad=True)
-        sum(x.sum() for x in module(zero, zero)).backward()
-        assert torch.isfinite(zero.grad).all()
     assert abs(learning_rate(5e-4, 0, 0, 40125)-5.225e-5) < 1e-12
-    print("uniform context, zero-feature gradient and upstream warmup PASS")
+    print("upstream warmup PASS")
 
 
 if __name__ == "__main__":
