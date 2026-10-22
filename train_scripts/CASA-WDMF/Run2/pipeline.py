@@ -63,12 +63,17 @@ def main():
         result = json.loads((ROOT / "probes" / module / "health_result.json").read_text())
         if not result["passed"] or result["protocol"] != PROTOCOL or result["steps"] < 3000:
             raise RuntimeError(f"health probe incomplete: {module}")
+    state["completed"] = [f"{variant}/{dataset}" for dataset in DATASETS for variant in VARIANTS
+                          if (ROOT / variant / dataset / "train_log.txt").exists() and
+                          "=== END TEST RESULTS ===" in
+                          (ROOT / variant / dataset / "train_log.txt").read_text(errors="replace")]
     (ROOT / "pipeline.pid").write_text(str(os.getpid()), encoding="utf-8")
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
         for dataset in DATASETS:
-            pending = list(VARIANTS)
+            pending = [variant for variant in VARIANTS
+                       if f"{variant}/{dataset}" not in state["completed"]]
             while pending or active:
                 for process in list(active):
                     code = process.poll()

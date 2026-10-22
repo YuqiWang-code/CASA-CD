@@ -5,8 +5,8 @@ Protocol: wdmf_str_40k_modulewd0_v2
 Queue
 The queue stopped at 07:28:15 after M2_CA_QKV failed deployment equivalence
 verification. The recorded maximum probability difference was
-0.0003954768180847168, above the 0.0002 threshold. No LEVIR experiment has a
-complete TEST RESULTS block. The metric table retains 105 formal records.
+0.0003954768180847168, above the 0.0002 threshold. At that point, neither LEVIR experiment had a
+complete TEST RESULTS block and the metric table held 105 formal records.
 
 Preserved training state
 M2_CA_QKV: all 40,182 optimizer steps completed; last.pth records epoch 181.
@@ -40,16 +40,28 @@ failure was not reproduced in a fresh process; the evidence points to
 sensitivity to the GPU numerical execution path. A specific CUDA/cuDNN
 kernel has not been identified.
 
-Recovery proposal
-Keep the 0.0002 threshold and use an explicit strict FP32 path for deployment
-verification. Finalize M2 testing from its saved validation-selected model.
-Resume M1 from the step-39,294 model/optimizer checkpoint for the remaining
-888 steps, then complete its selection, folding verification and test.
-Continue the remaining queue in the registered dataset order.
+Recovery execution
+The queue resumed at 08:00:03 CST with deployment policy strict_fp32_fold_v1
+and the original 0.0002 threshold. M2 completed deployment verification with
+maximum difference 2.8014183044433594e-6 and zero binary disagreements, then
+completed its formal test without additional optimizer updates. M1 completed
+the remaining 888 steps from its step-39,294 model/optimizer checkpoint and
+finished deployment verification and formal testing. Its maximum deployment
+difference was 7.152557373046875e-7, with zero binary disagreements.
+
+Formal LEVIR results:
+M1_HYPER_QKV: F1=91.28%, IoU=83.96%; best epoch 92.
+M2_CA_QKV: F1=91.39%, IoU=84.14%; best epoch 146.
+The metric table holds 107 formal records with all 105 prior records intact.
+The queue continues through LEVIR CTRL, WHU and CDD.
+
+Pre-continuation copies:
+Logs/code: Run2/archive/20261022_075845/
+Checkpoints: Run2/recovery_backups/20261022_075845/
 
 Limitations
 The verification above covers one validation image. The checkpoint format
 stores model, optimizer, epoch, step and selection state, but does not store
 random-generator state. Resuming M1 preserves its optimizer state and total
 step budget, with a training trajectory that differs from an uninterrupted
-run. No LEVIR performance claim is supported until formal tests complete.
+run. Only complete TEST RESULTS blocks are included in the metric table.

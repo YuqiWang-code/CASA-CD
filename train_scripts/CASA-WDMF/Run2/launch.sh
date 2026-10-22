@@ -10,7 +10,7 @@ mkdir -p "$OUT"
 source /home/yqwang/miniforge3/etc/profile.d/conda.sh
 conda activate casacd
 setsid nohup python "$REPO/train_scripts/CASA-WDMF/Run2/pipeline.py" --parallel "${1:?parallel count required}" \
-  > "$OUT/pipeline.log" 2>&1 < /dev/null &
+  >> "$OUT/pipeline.log" 2>&1 < /dev/null &
 PID=$!
 sleep 5
 kill -0 "$PID"

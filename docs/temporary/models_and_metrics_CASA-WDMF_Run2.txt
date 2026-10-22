@@ -4,7 +4,7 @@
 # 二者是否与远端训练时的代码身份一致，须核对各 run 的 source_code_sha256。
 
 ================================================================================
-## MODELS CODE (74 files)
+## MODELS CODE (75 files)
 ================================================================================
 
 ================================================================================
@@ -4157,16 +4157,92 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
+# FILE: models/test_wdmf_resume.py
+================================================================================
+"""Optimizer/RNG continuation and deployment backend-state checks."""
+import copy
+import random
+
+import numpy as np
+import torch
+from torch import nn
+
+from train_wdmf import (PROTOCOL, make_optimizer, restore_training_state,
+                        rng_state, strict_fold_precision)
+
+
+class SmallModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.module = "qkv"
+        self.body = nn.Linear(3, 3)
+        self.stage_modules = nn.ModuleList([nn.Linear(3, 3)])
+
+    def forward(self, x):
+        return self.stage_modules[0](self.body(x))
+
+
+def step(model, optimizer):
+    x = torch.randn(4, 3) + random.random() + float(np.random.random())
+    optimizer.zero_grad(set_to_none=True)
+    model(x).square().mean().backward()
+    optimizer.step()
+
+
+def backend_state():
+    return (torch.backends.cudnn.benchmark, torch.backends.cudnn.allow_tf32,
+            torch.backends.cuda.matmul.allow_tf32, torch.get_float32_matmul_precision())
+
+
+def main():
+    torch.manual_seed(2333)
+    np.random.seed(2333)
+    random.seed(2333)
+    model = SmallModel()
+    optimizer = make_optimizer(model)
+    for _ in range(4):
+        step(model, optimizer)
+    checkpoint = copy.deepcopy(dict(
+        epoch=2, step=4, state_dict=model.state_dict(), optimizer=optimizer.state_dict(),
+        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6), rng_state=rng_state()))
+    for _ in range(2):
+        step(model, optimizer)
+    restored = SmallModel()
+    restored_optimizer = make_optimizer(restored)
+    epoch, count, exact_rng = restore_training_state(checkpoint, restored, restored_optimizer, 6, 2)
+    assert (epoch, count, exact_rng) == (2, 4, True)
+    for _ in range(2):
+        step(restored, restored_optimizer)
+    assert all(torch.equal(a, b) for a, b in zip(model.parameters(), restored.parameters()))
+    assert all(int(state["step"]) == 6 for state in restored_optimizer.state.values())
+    checkpoint.pop("rng_state")
+    epoch, count, exact_rng = restore_training_state(checkpoint, restored, restored_optimizer, 6, 2)
+    assert (epoch, count, exact_rng) == (2, 4, False)
+    assert all(torch.equal(restored.state_dict()[key], value)
+               for key, value in checkpoint["state_dict"].items())
+    before = backend_state()
+    try:
+        with strict_fold_precision():
+            assert backend_state() == (False, False, False, "highest")
+            raise ValueError("exercise context exit")
+    except ValueError:
+        pass
+    assert backend_state() == before
+    print("Optimizer/RNG continuation, legacy checkpoint reseeding and backend restoration PASS")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
 # FILE: models/test_wdmf_str.py
 ================================================================================
 """Interface, gradient and deployment checks for the three WDMF-STR variants."""
-import copy
-
 import torch
 
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.layers.change_context_qkv import ChangeContextQKV, compress_pair
-from train_wdmf import learning_rate, loss_function, make_optimizer
+from train_wdmf import learning_rate, loss_function, make_optimizer, verify_deployment
 
 
 def main():
@@ -4206,11 +4282,9 @@ def main():
             assert all(abs(float(op.gamma)) > 0 for op in model.stage_modules)
             assert all(float(op.q.weight.grad.abs().sum()) > 0 for op in model.stage_modules)
         model.eval()
-        deploy = copy.deepcopy(model).switch_to_deploy().eval()
-        with torch.no_grad():
-            before, after = model(a, b), deploy(a, b)
-            delta = max(float((x-y).abs().max()) for x, y in zip(before, after))
-            assert delta < 2e-4, delta
+        _, report = verify_deployment(model, torch.cat([a, b], 1))
+        delta = max(report["per_scale_max_diff"])
+        assert delta < 2e-4, delta
         print(f"{variant}: four-level shapes, common initialization, finite gradients, active residual and folding PASS ({delta:.2e})")
     a = torch.randn(1, 64, 8, 8)
     ca, cb = compress_pair(a, a)
@@ -6259,6 +6333,7 @@ import json
 import math
 import random
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -6271,6 +6346,7 @@ from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.metric_tool import ConfuseMatrixMeter
 
 PROTOCOL = "wdmf_str_40k_modulewd0_v2"
+DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
 
@@ -6331,6 +6407,74 @@ def make_optimizer(model):
     return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
 
 
+def rng_state():
+    return dict(python=random.getstate(), numpy=np.random.get_state(),
+                torch=torch.get_rng_state(),
+                cuda=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+
+
+def restore_training_state(checkpoint, model, optimizer, actual_steps, train_batches):
+    manifest = checkpoint["manifest"]
+    epoch, step = checkpoint["epoch"], checkpoint["step"]
+    if (manifest["protocol"] != PROTOCOL or manifest["module"] != model.module or
+            manifest["actual_steps"] != actual_steps or step != epoch * train_batches or
+            not 0 <= step <= actual_steps):
+        raise RuntimeError("checkpoint does not match the requested training budget/module")
+    model.load_state_dict(checkpoint["state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    state = checkpoint.get("rng_state")
+    if state is not None:
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        torch.set_rng_state(state["torch"])
+        if state["cuda"] is not None:
+            torch.cuda.set_rng_state_all(state["cuda"])
+    else:
+        random.seed(2333)
+        np.random.seed(2333)
+        torch.manual_seed(2333)
+        torch.cuda.manual_seed_all(2333)
+    return epoch, step, state is not None
+
+
+@contextmanager
+def strict_fold_precision():
+    benchmark = torch.backends.cudnn.benchmark
+    cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    precision = torch.get_float32_matmul_precision()
+    try:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.set_float32_matmul_precision("highest")
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        torch.set_float32_matmul_precision(precision)
+        torch.backends.cudnn.allow_tf32 = cudnn_tf32
+        torch.backends.cudnn.benchmark = benchmark
+
+
+@torch.no_grad()
+def verify_deployment(model, image):
+    model.eval()
+    deploy = copy.deepcopy(model).switch_to_deploy().eval()
+    with strict_fold_precision():
+        original = model(image[:, :3], image[:, 3:])
+        folded = deploy(image[:, :3], image[:, 3:])
+        if not all(torch.isfinite(x).all() for x in (*original, *folded)):
+            raise FloatingPointError("non-finite deployment verification output")
+        differences = [float((a-b).abs().max()) for a, b in zip(original, folded)]
+        disagreement = int(((original[0] > 0.5) != (folded[0] > 0.5)).sum())
+    report = dict(policy=DEPLOY_POLICY, tolerance=2e-4, max_diff=differences[0],
+                  per_scale_max_diff=differences, binary_disagreement=disagreement)
+    print(f"[DEPLOY-VERIFICATION] {json.dumps(report)}", flush=True)
+    if differences[0] > 2e-4:
+        raise RuntimeError(f"deploy folding mismatch: {differences[0]}")
+    return deploy, report
+
+
 def source_identity():
     root = Path(__file__).resolve().parent.parent
     paths = ["models/train_wdmf.py", "models/model/casa_wdmf_str_net.py",
@@ -6352,6 +6496,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(4)
     random.seed(2333)
@@ -6362,7 +6507,8 @@ def main():
     device = torch.device("cuda:0")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    if (args.checkpoint_dir / "last.pth").exists():
+    checkpoint_path = args.checkpoint_dir / "last.pth"
+    if checkpoint_path.exists() and not args.resume:
         raise RuntimeError("training directory already contains a checkpoint")
     train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
     validation_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
@@ -6380,19 +6526,44 @@ def main():
                     weight_decay=1e-4, module_weight_decay=0.0,
                     selection="best validation F1, ties update", deep_supervision=4,
                     label_threshold=128, context_cell=4, qkv_dim=32, source_files=identity,
-                    dataset=str(args.dataset_root), pretrained=args.pretrained)
-    for parent in [args.output_dir, args.checkpoint_dir]:
-        (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        (parent / "arch.json").write_text(json.dumps(dict(arch="casa_wdmf_str", module=args.module,
-                                                          str_dim=64), indent=2), encoding="utf-8")
+                    dataset=str(args.dataset_root), pretrained=args.pretrained,
+                    deploy_verification=DEPLOY_POLICY)
+    start_epoch, step, best_f1, best_epoch = 0, 0, -1.0, -1
+    continuation = None
+    if args.resume:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        start_epoch, step, restored_rng = restore_training_state(
+            checkpoint, model, optimizer, actual_steps, len(train_loader))
+        best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
+        manifest = dict(checkpoint["manifest"])
+        continuation = dict(start_epoch=start_epoch, start_step=step,
+                            remaining_steps=actual_steps-step, source_files=identity,
+                            rng_state="restored" if restored_rng else "reseeded_2333",
+                            session_started=time.strftime("%Y-%m-%d %H:%M:%S"))
+        manifest["continuations"] = [*manifest.get("continuations", []), continuation]
+        for parent in [args.output_dir, args.checkpoint_dir]:
+            (parent / "continuations.json").write_text(
+                json.dumps(manifest["continuations"], indent=2), encoding="utf-8")
+        print(f"[RESUME] {json.dumps(continuation)}", flush=True)
+        del checkpoint
+    else:
+        for parent in [args.output_dir, args.checkpoint_dir]:
+            (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            (parent / "arch.json").write_text(json.dumps(dict(arch="casa_wdmf_str", module=args.module,
+                                                              str_dim=64), indent=2), encoding="utf-8")
+    evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
+                               tolerance=2e-4, source_files=identity, continuation=continuation,
+                               test_backend="training settings restored after fold verification")
+    (args.output_dir / "evaluation_manifest.json").write_text(
+        json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
     print(f"[PROTOCOL-VERSION] {PROTOCOL}", flush=True)
     print(f"[CONFIG] {json.dumps(manifest)}", flush=True)
     print(f"[TOTAL-PARAMS] {params:.6f} M", flush=True)
     print(f"[MAX-STEPS] requested={args.max_steps} actual={actual_steps} epochs={epochs} train_batches={len(train_loader)}", flush=True)
-    step, best_f1, best_epoch = 0, -1.0, -1
+    session_start_step = step
     started = time.time()
     torch.cuda.reset_peak_memory_stats()
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         epoch_loss, tick = 0.0, time.time()
         for image, target in train_loader:
@@ -6430,24 +6601,21 @@ def main():
                 torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
         torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
                         optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
-                        manifest=manifest), args.checkpoint_dir / "last.pth")
+                        manifest=manifest, rng_state=rng_state()), args.checkpoint_dir / "last.pth")
     model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
-    model.eval()
-    deploy = copy.deepcopy(model).switch_to_deploy().eval()
     image, _ = next(iter(validation_loader))
     image = image[:1].to(device).float()
-    with torch.no_grad():
-        original = model(image[:, :3], image[:, 3:])[0]
-        folded = deploy(image[:, :3], image[:, 3:])[0]
-        difference = float((original - folded).abs().max())
-        disagreement = int(((original > 0.5) != (folded > 0.5)).sum())
-    if difference > 2e-4:
-        raise RuntimeError(f"deploy folding mismatch: {difference}")
+    deploy, deployment = verify_deployment(model, image)
+    difference, disagreement = deployment["max_diff"], deployment["binary_disagreement"]
+    (args.output_dir / "deploy_check.json").write_text(json.dumps(deployment, indent=2), encoding="utf-8")
     test_loss, score = evaluate(deploy, test_loader, device)
     deploy_params = sum(p.numel() for p in deploy.parameters()) / 1e6
     result = dict(protocol=PROTOCOL, module=args.module, metrics=score, best_epoch=best_epoch,
                   optimizer_steps=step, test_loss=test_loss, total_params_m=params,
                   deploy_params_m=deploy_params, elapsed_seconds=time.time()-started,
+                  elapsed_scope="current_session" if args.resume else "complete_run",
+                  session_optimizer_steps=step-session_start_step, continuation=continuation,
+                  deploy_verification=DEPLOY_POLICY,
                   deploy_max_diff=difference, deploy_binary_disagreement=disagreement)
     (args.output_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print("=== TEST RESULTS ===", flush=True)
@@ -6457,6 +6625,7 @@ def main():
     print(f"Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f}", flush=True)
     print(f"[BEST-EPOCH] {best_epoch}", flush=True)
     print(f"[DEPLOY-CHECK] maxdiff={difference:.3e} binary_disagreement={disagreement}", flush=True)
+    print(f"[TIME-SCOPE] {result['elapsed_scope']}", flush=True)
     print(f"[TIME] {time.time()-started:.1f}s [PEAK-MEMORY] {torch.cuda.max_memory_allocated()/1024**2:.0f} MiB", flush=True)
     print("=== END TEST RESULTS ===", flush=True)
 
@@ -18501,7 +18670,7 @@ print("=" * 78)
 sys.exit(1 if FAILS else 0)
 
 ================================================================================
-## METRICS (105 results)
+## METRICS (107 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
@@ -18581,7 +18750,9 @@ CASA-TViM/Run9/S0_CTRL/LEVIR-CD-256 | 0.8979 | 0.9253 | 0.9911 | 0.9114 | 0.8372
 CASA-TViM/Run9/S1_HSAM/CDD-CD-256 | 0.9766 | 0.9765 | 0.9942 | 0.9765 | 0.9542 | 0.9732 | 31.977 | 31.977 | 14.7690 | baseline
 CASA-WDMF/Run1/M0_CTRL/SYSU-CD-256 | 0.8027 | 0.8519 | 0.9206 | 0.8265 | 0.7044 | 0.7751 | 3.017 | 3.100 | - | casa_wdmf_str_none
 CASA-WDMF/Run2/M0_CTRL/SYSU-CD-256 | 0.8039 | 0.8289 | 0.9146 | 0.8162 | 0.6895 | 0.7607 | 3.017 | 3.100 | - | casa_wdmf_str_none
+CASA-WDMF/Run2/M1_HYPER_QKV/LEVIR-CD-256 | 0.9055 | 0.9203 | 0.9912 | 0.9128 | 0.8396 | 0.9082 | 3.050 | 3.133 | - | casa_wdmf_str_hyperbolic
 CASA-WDMF/Run2/M1_HYPER_QKV/SYSU-CD-256 | 0.7867 | 0.8508 | 0.9172 | 0.8175 | 0.6913 | 0.7640 | 3.050 | 3.133 | - | casa_wdmf_str_hyperbolic
+CASA-WDMF/Run2/M2_CA_QKV/LEVIR-CD-256 | 0.8972 | 0.9312 | 0.9914 | 0.9139 | 0.8414 | 0.9093 | 3.050 | 3.133 | - | casa_wdmf_str_qkv
 CASA-WDMF/Run2/M2_CA_QKV/SYSU-CD-256 | 0.8283 | 0.8286 | 0.9191 | 0.8285 | 0.7072 | 0.7756 | 3.050 | 3.133 | - | casa_wdmf_str_qkv
 CASAA/Run1/A1_SAA/LEVIR-CD-256 | 0.9109 | 0.9280 | 0.9919 | 0.9194 | 0.8508 | 0.9151 | 11.754 | 20.661 | 26.3183 | saa
 CASAA/Run1/A1_SAA/SYSU-CD-256 | 0.8030 | 0.8481 | 0.9196 | 0.8250 | 0.7021 | 0.7729 | 11.754 | 20.661 | 26.3183 | saa
@@ -18611,7 +18782,8 @@ baseline/Run1/SYSU-CD-256 | 0.8077 | 0.8427 | 0.9191 | 0.8248 | 0.7019 | 0.7723 
 baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 | 11.754 | 20.661 | 26.3246 | baseline
 
 ================================================================================
-## SELECTED RUN LOGS WITHOUT FINAL TEST (2)
+## SELECTED RUN LOGS WITHOUT FINAL TEST (3)
 ================================================================================
-CASA-WDMF/Run2/M1_HYPER_QKV/LEVIR-CD-256 | last_logged_steps=39294/40182 | no formal metric
-CASA-WDMF/Run2/M2_CA_QKV/LEVIR-CD-256 | last_logged_steps=40182/40182 | no formal metric
+CASA-WDMF/Run2/M0_CTRL/LEVIR-CD-256 | last_logged_steps=888/40182 | no formal metric
+CASA-WDMF/Run2/archive/20261022_075845/M1_HYPER_QKV | last_logged_steps=39294/40182 | no formal metric
+CASA-WDMF/Run2/archive/20261022_075845/M2_CA_QKV | last_logged_steps=40182/40182 | no formal metric

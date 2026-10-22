@@ -70,6 +70,16 @@ python train_scripts/CASA-WDMF/Run2/collect_results.py
 
 The collector downloads Run1/Run2 text and JSON artifacts, updates README, and runs the existing spreadsheet and TXT tools on new complete TEST blocks. It also collects the retained Run1 CTRL as an independent historical result. A completed Run2 contributes 12 formal records; the retained Run1 CTRL contributes one additional record.
 
+## Deployment verification and continuation
+
+`strict_fp32_fold_v1` checks the original and folded models with cuDNN benchmarking and TF32 disabled. The main-output maximum absolute difference must remain at most `2e-4`. Four-scale differences and binary prediction disagreements are recorded in `deploy_check.json`. The original backend settings are restored before the formal test.
+
+Launching the queue skips runs with complete TEST blocks. An incomplete run with `last.pth` uses `--resume`, restoring its model, optimizer, epoch, step and validation-selected checkpoint. A fully trained run proceeds directly to deployment verification and testing. Logs append to their existing files.
+
+New checkpoints include Python, NumPy, CPU Torch and visible-device CUDA random states. `continuations.json` records each continuation's starting budget, source identity and random-state policy; `evaluation_manifest.json` records the evaluation source and precision policy. The original training manifest is retained. Timing for resumed invocations is labeled `current_session`; the reported peak memory also covers only that invocation.
+
 ## Limitations
 
 Eight-epoch probes establish early optimization health. Long-term stability and accuracy require the full experiments. Shallow HSAM may amplify noise, and the compressed QKV geometry differs from HES-Net's dense attention. Compare the three variants within Run2 for module effects.
+
+The original LEVIR checkpoints contain no random-generator state. M1 continues from step 39,294 with its saved optimizer and seed 2333 for the remaining 888 steps; its trajectory differs from an uninterrupted run. M2 has all 40,182 steps and requires no additional optimizer update. Pre-continuation artifacts are retained in the log `archive/20261022_075845` and checkpoint `recovery_backups/20261022_075845` directories.

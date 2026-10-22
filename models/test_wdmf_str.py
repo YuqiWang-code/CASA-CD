@@ -1,11 +1,9 @@
 """Interface, gradient and deployment checks for the three WDMF-STR variants."""
-import copy
-
 import torch
 
 from model.casa_wdmf_str_net import CASAWDMFSTRNet
 from model.layers.change_context_qkv import ChangeContextQKV, compress_pair
-from train_wdmf import learning_rate, loss_function, make_optimizer
+from train_wdmf import learning_rate, loss_function, make_optimizer, verify_deployment
 
 
 def main():
@@ -45,11 +43,9 @@ def main():
             assert all(abs(float(op.gamma)) > 0 for op in model.stage_modules)
             assert all(float(op.q.weight.grad.abs().sum()) > 0 for op in model.stage_modules)
         model.eval()
-        deploy = copy.deepcopy(model).switch_to_deploy().eval()
-        with torch.no_grad():
-            before, after = model(a, b), deploy(a, b)
-            delta = max(float((x-y).abs().max()) for x, y in zip(before, after))
-            assert delta < 2e-4, delta
+        _, report = verify_deployment(model, torch.cat([a, b], 1))
+        delta = max(report["per_scale_max_diff"])
+        assert delta < 2e-4, delta
         print(f"{variant}: four-level shapes, common initialization, finite gradients, active residual and folding PASS ({delta:.2e})")
     a = torch.randn(1, 64, 8, 8)
     ca, cb = compress_pair(a, a)

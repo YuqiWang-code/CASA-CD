@@ -12,8 +12,13 @@ esac
 LOG=/home/yqwang/outputs/CASA-CD/CASA-WDMF/Run2/$VARIANT/$DATASET
 CKPT=/share_datasets/yqwang/checkpoints/CASA-CD/CASA-WDMF/Run2/$VARIANT/$DATASET
 mkdir -p "$LOG" "$CKPT"
-if [ -s "$LOG/train_log.txt" ] || [ -e "$CKPT/last.pth" ]; then
-  echo "existing artifacts for $VARIANT/$DATASET" >&2
+EXTRA=()
+if grep -q '=== END TEST RESULTS ===' "$LOG/train_log.txt" 2>/dev/null; then
+  exit 0
+elif [ -e "$CKPT/last.pth" ]; then
+  EXTRA=(--resume)
+elif [ -s "$LOG/train_log.txt" ]; then
+  echo "log exists without a resumable checkpoint for $VARIANT/$DATASET" >&2
   exit 3
 fi
 source /home/yqwang/miniforge3/etc/profile.d/conda.sh
@@ -30,5 +35,5 @@ exec python train_wdmf.py \
   --dataset-root "/share_datasets/CD/$DATASET" \
   --output-dir "$LOG" --checkpoint-dir "$CKPT" \
   --pretrained "$REPO/pretrained_weight/mobilenet_v2-b0353104.pth" \
-  --module "$MODULE" --batch-size 32 --max-steps 40000 --num-workers 1 \
-  > "$LOG/train_log.txt" 2>&1
+  --module "$MODULE" --batch-size 32 --max-steps 40000 --num-workers 1 "${EXTRA[@]}" \
+  >> "$LOG/train_log.txt" 2>&1
