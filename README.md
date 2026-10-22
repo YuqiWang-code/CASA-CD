@@ -2,7 +2,7 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**当前实验：CASA/Run4，受变化标签监督的 KV 压缩权重。** 四库各 CTRL、双曲 QKV、普通 QKV，共 12 项；两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD。Run3 已完成并收集全部正式结果。
+**当前实验：CASA/Run4，受变化标签监督的 KV 压缩权重，已于 2026-10-22 23:09 CST 正式启动。** 四库各 CTRL、双曲 QKV、普通 QKV，共 12 项；两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD。Run3 已完成并收集全部正式结果。
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
@@ -64,11 +64,28 @@ CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二�
 
 ## Run4 当前进度
 
+运行源码基线为 `2a1346f`，初始 supervisor PID 为 1117533。启动时五路并发，GPU0 两项、GPU1 三项；启动占用约 29.7 / 30.1 GiB，利用率采样为 99% / 98%。
+
 两个模块均已通过两轮 LEVIR 真实数据探针（各 444 step），四层主任务与辅助梯度均非零，双曲半径 CV 为 0.238–0.266。协议、逐层分配概率、两卡调度与执行入口见 [`train_scripts/CASA/Run4`](train_scripts/CASA/Run4/README.md)。
 
 <!-- CASA_RUN4_RESULTS_START -->
 
-正在进行接口、辅助监督梯度、部署折叠和满 batch 资源验证，尚无正式测试指标。
+状态更新：2026-10-22 23:13:24 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：1000/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：800/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：900/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：900/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：750/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- CASA_RUN4_RESULTS_END -->
 

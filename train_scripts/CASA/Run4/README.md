@@ -61,3 +61,14 @@ Both modules completed two full LEVIR epochs (444 steps) with the full 40,182-st
 | qkv / stage4 | 0.0729 | 0.0244 | — |
 
 Probability means describe the fixed validation probe batch at each feature scale, weighted by area occupancy. They are not final segmentation accuracy or dataset-wide calibration.
+
+## Formal launch
+
+The formal queue started at 2026-10-22 23:09 CST with source revision `2a1346f` and supervisor PID1117533. It uses fresh initialization, and each run performs formal testing after completing its full training budget. Five jobs run concurrently at launch, with two on GPU0 and three on GPU1. Measured memory budgets are30914/31072MiB; reservations are15132MiB for M1,11974MiB for M2 and9534MiB for CTRL.
+
+| Physical GPU | Initial jobs |
+|---|---|
+| 0 | M1_HYPER_QKV/LEVIR-CD-256, M1_HYPER_QKV/SYSU-CD-256 |
+| 1 | M2_CA_QKV/LEVIR-CD-256, M0_CTRL/LEVIR-CD-256, M0_CTRL/SYSU-CD-256 |
+
+Initial utilization sample was99%/98%, with29.7/30.1GiB in use. Capacity is refilled automatically with the highest-priority pending run that fits.
