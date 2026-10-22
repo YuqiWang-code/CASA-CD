@@ -42,12 +42,14 @@ def modules():
         for size in (8, 16, 32, 64):
             a, b = torch.randn(1, 64, size, size), torch.randn(1, 64, size, size)
             with torch.no_grad():
-                ya, yb = module(a, b)
-                reverse_b, reverse_a = module(b, a)
-                same_a, same_b = module(a, a)
+                ya, yb, logits = module(a, b)
+                reverse_b, reverse_a, reverse_logits = module(b, a)
+                same_a, same_b, _ = module(a, a)
             assert ya.shape == a.shape and yb.shape == b.shape
             assert torch.allclose(ya, reverse_a, atol=1e-6)
             assert torch.allclose(yb, reverse_b, atol=1e-6)
+            assert logits.shape == (1, 1, size, size)
+            assert torch.allclose(logits, reverse_logits, atol=1e-6)
             assert torch.equal(same_a, a) and torch.equal(same_b, a)
             assert module.last_diag['queries'] == size * size
             assert module.last_diag['contexts'] == size * size // 8
@@ -56,7 +58,7 @@ def modules():
             a = (torch.randn(2, 64, 8, 8) * scale).requires_grad_()
             b = (torch.randn_like(a) * scale).requires_grad_()
             module.zero_grad()
-            ya, yb = module(a, b)
+            ya, yb, _ = module(a, b)
             (ya.square().mean() + yb.square().mean()).backward()
             assert torch.isfinite(a.grad).all() and torch.isfinite(b.grad).all()
             assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in module.parameters())

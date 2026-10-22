@@ -6,6 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from model.layers.context_compression import cell_tokens, prototype_weights, token_map
+from model.layers.change_assignment import ChangeAssignmentHead
 from model.layers.poincare_ops import (
     aligned_distance, displacement, expmap0, from_lorentz_sum, logmap0,
     pairwise_distance, to_lorentz, weighted_centroid,
@@ -25,6 +26,7 @@ class HyperbolicCompressedQKV(nn.Module):
         nn.init.eye_(self.value.weight)
         self.local = nn.Conv2d(dim, dim, 3, padding=1, groups=dim, bias=False)
         self.out = nn.Conv2d(2 * dim, channels, 1, bias=False)
+        self.assignment = ChangeAssignmentHead(2 * dim + 1, dim)
         self.raw_temperature = nn.Parameter(torch.tensor(math.log(math.expm1(0.95))))
         self.gamma = nn.Parameter(torch.zeros(()))
         self.collect_diag = False
@@ -48,13 +50,19 @@ class HyperbolicCompressedQKV(nn.Module):
         temperature = F.softplus(self.raw_temperature) + 0.05
         return (-pairwise_distance(q, k) / temperature).softmax(-1)
 
-    def forward(self, a, b):
+    def forward(self, a, b, return_aux=False):
         _, _, height, width = a.shape
         xa, xb = self.encode(a), self.encode(b)
         qa, qb = (self.mobius_linear(x, self.metric) for x in (xa, xb))
         distance = aligned_distance(qa, qb)
-        change = (distance / (1 + distance)).reshape(a.shape[0], 1, height, width)
-        weights = prototype_weights(change)
+        tangent_a, tangent_b = logmap0(qa), logmap0(qb)
+        semantics = token_map((tangent_a + tangent_b) * 0.5, height, width)
+        difference = token_map((tangent_a - tangent_b).abs(), height, width)
+        distance_map = distance.reshape(a.shape[0], 1, height, width)
+        assignment_features = torch.cat((semantics, difference, distance_map), dim=1)
+        logits = self.assignment(assignment_features)
+        probability = logits.sigmoid()
+        weights = prototype_weights(probability)
         ka, kb = (self.compress(x, weights, height, width) for x in (qa, qb))
         va, vb = (self.mobius_linear(x, self.value) for x in (xa, xb))
         cva, cvb = (self.compress(x, weights, height, width) for x in (va, vb))
@@ -79,5 +87,8 @@ class HyperbolicCompressedQKV(nn.Module):
                     radius_max=float(radii.max()),
                     radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
                     change_mean=float(distance.mean()),
+                    assignment_mean=float(probability.mean()),
+                    assignment_std=float(probability.std(unbiased=False)),
                     finite=bool(torch.isfinite(update_a).all() & torch.isfinite(update_b).all()))
-        return a + self.gamma * update_a, b + self.gamma * update_b
+        auxiliary_logits = self.assignment(assignment_features.detach()) if return_aux else logits
+        return a + self.gamma * update_a, b + self.gamma * update_b, auxiliary_logits

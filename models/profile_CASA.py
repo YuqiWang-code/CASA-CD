@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import make_loader, loss_function, make_optimizer
+from train_CASA import make_loader, training_objective, make_optimizer
 
 
 def main():
@@ -34,8 +34,8 @@ def main():
             torch.cuda.synchronize()
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
-            outputs = model(image[:, :3], image[:, 3:])
-            loss = loss_function(outputs, target)
+            outputs, assignments = model(image[:, :3], image[:, 3:], return_aux=True)
+            loss, main_loss, auxiliary_loss = training_objective(outputs, assignments, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -58,7 +58,7 @@ def main():
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, outputs, loss
+        del model, optimizer, outputs, assignments, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)

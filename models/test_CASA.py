@@ -2,7 +2,7 @@
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import learning_rate, loss_function, make_optimizer, verify_deployment
+from train_CASA import learning_rate, training_objective, make_optimizer, verify_deployment
 
 
 def main():
@@ -19,6 +19,9 @@ def main():
             assert [x.shape for x in features] == [torch.Size([1, 64, n, n]) for n in [64, 32, 16, 8]]
             outputs = model(a, b)
             assert len(outputs) == 4 and all(x.shape == target.shape for x in outputs)
+            auxiliary_outputs, assignments = model(a, b, return_aux=True)
+            assert all(torch.equal(x, y) for x, y in zip(outputs, auxiliary_outputs))
+            assert [x.shape[-1] for x in assignments] == ([64, 32, 16, 8] if variant != 'none' else [])
             if reference is None:
                 reference = outputs[0]
             else:
@@ -33,16 +36,22 @@ def main():
                        for p in group["params"])
         for _ in range(3):
             optimizer.zero_grad()
-            loss = loss_function(model(a, b), target)
+            outputs, assignments = model(a, b, return_aux=True)
+            loss, main_loss, auxiliary_loss = training_objective(outputs, assignments, target)
+            if variant == 'none':
+                assert auxiliary_loss == 0 and torch.equal(loss, main_loss)
+            else:
+                assert auxiliary_loss > 0
             loss.backward()
             gradients = [p.grad for p in model.parameters() if p.grad is not None]
             assert all(torch.isfinite(x).all() for x in gradients)
             optimizer.step()
         if model.stage_modules:
-            assert all(abs(float(op.gamma)) > 0 for op in model.stage_modules)
+            assert all(abs(float(op.gamma.detach())) > 0 for op in model.stage_modules)
             for op in model.stage_modules:
                 projection = op.metric if hasattr(op, "metric") else op.q
                 assert float(projection.weight.grad.abs().sum()) > 0
+                assert all(p.grad is not None and p.grad.abs().sum() > 0 for p in op.assignment.parameters())
         model.eval()
         _, report = verify_deployment(model, torch.cat([a, b], 1))
         delta = max(report["per_scale_max_diff"])

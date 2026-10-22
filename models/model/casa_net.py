@@ -31,17 +31,20 @@ class CASANet(nn.Module):
                      "qkv": ChangeAwareCompressedQKV}.get(module)
             self.stage_modules = nn.ModuleList([block(64, 32) for _ in range(4)] if block else [])
 
-    def forward(self, a, b):
+    def forward(self, a, b, return_aux=False):
         features_a = self.encoder_fusion(*self.encoder(a))
         features_b = self.encoder_fusion(*self.encoder(b))
+        assignments = ()
         if self.stage_modules:
-            pairs = [op(x, y) for op, x, y in zip(self.stage_modules, features_a, features_b)]
-            features_a, features_b = zip(*pairs)
+            pairs = [op(x, y, return_aux=return_aux)
+                     for op, x, y in zip(self.stage_modules, features_a, features_b)]
+            features_a, features_b, assignments = zip(*pairs)
         fused = self.tar(features_a, features_b)
         pyramid = self.decoder.forward_pyramid(fused)
-        return tuple(torch.sigmoid(F.interpolate(self.head(x), size=a.shape[-2:],
-                                                mode="bilinear", align_corners=False))
-                     for x in pyramid)
+        outputs = tuple(torch.sigmoid(F.interpolate(self.head(x), size=a.shape[-2:],
+                                                   mode="bilinear", align_corners=False))
+                        for x in pyramid)
+        return (outputs, assignments) if return_aux else outputs
 
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()
