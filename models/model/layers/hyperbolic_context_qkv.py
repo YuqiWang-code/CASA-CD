@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from model.layers.context_compression import cell_tokens, prototype_weights, token_map
 from model.layers.change_assignment import ChangeAssignmentHead
 from model.layers.poincare_ops import (
-    aligned_distance, displacement, expmap0, from_lorentz_sum, logmap0,
+    RADIUS, aligned_distance, displacement, expmap0, from_lorentz_sum, logmap0,
     pairwise_distance, to_lorentz, weighted_centroid,
 )
 
@@ -32,13 +32,25 @@ class HyperbolicCompressedQKV(nn.Module):
         self.collect_diag = False
         self.last_diag = {}
 
-    def encode(self, x):
-        tangent = self.embed(x).flatten(2).transpose(1, 2) / math.sqrt(self.dim)
-        return expmap0(tangent)
+    @staticmethod
+    def normalize_pair(a, b):
+        """Center both dates together and set their joint mean squared norm to one."""
+        center = (a.mean(1, keepdim=True) + b.mean(1, keepdim=True)) * 0.5
+        a, b = a - center, b - center
+        energy = (a.square().sum(-1).mean(1, keepdim=True)
+                  + b.square().sum(-1).mean(1, keepdim=True)) * 0.5
+        scale = energy.clamp_min(1e-6).sqrt().unsqueeze(-1)
+        return a / scale, b / scale
+
+    def encode_pair(self, a, b):
+        a, b = (self.embed(x).flatten(2).transpose(1, 2) for x in (a, b))
+        a, b = self.normalize_pair(a, b)
+        return expmap0(a), expmap0(b)
 
     @staticmethod
-    def mobius_linear(x, layer):
-        return expmap0(layer(logmap0(x)))
+    def mobius_linear_pair(a, b, layer):
+        a, b = HyperbolicCompressedQKV.normalize_pair(layer(logmap0(a)), layer(logmap0(b)))
+        return expmap0(a), expmap0(b)
 
     @staticmethod
     def compress(x, weights, height, width):
@@ -52,8 +64,8 @@ class HyperbolicCompressedQKV(nn.Module):
 
     def forward(self, a, b, return_aux=False):
         _, _, height, width = a.shape
-        xa, xb = self.encode(a), self.encode(b)
-        qa, qb = (self.mobius_linear(x, self.metric) for x in (xa, xb))
+        xa, xb = self.encode_pair(a, b)
+        qa, qb = self.mobius_linear_pair(xa, xb, self.metric)
         distance = aligned_distance(qa, qb)
         tangent_a, tangent_b = logmap0(qa), logmap0(qb)
         semantics = token_map((tangent_a + tangent_b) * 0.5, height, width)
@@ -64,7 +76,7 @@ class HyperbolicCompressedQKV(nn.Module):
         probability = logits.sigmoid()
         weights = prototype_weights(probability)
         ka, kb = (self.compress(x, weights, height, width) for x in (qa, qb))
-        va, vb = (self.mobius_linear(x, self.value) for x in (xa, xb))
+        va, vb = self.mobius_linear_pair(xa, xb, self.value)
         cva, cvb = (self.compress(x, weights, height, width) for x in (va, vb))
         delta_a, delta_b = displacement(cva, cvb), displacement(cvb, cva)
         pab, pba = self.attention(qa, kb), self.attention(qb, ka)
@@ -86,6 +98,9 @@ class HyperbolicCompressedQKV(nn.Module):
                     gamma=float(self.gamma), radius_mean=float(radii.mean()),
                     radius_max=float(radii.max()),
                     radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
+                    query_clip_fraction=float((radii >= RADIUS - 1e-6).float().mean()),
+                    direction_resultant=float(F.normalize(torch.cat((qa, qb), dim=1), dim=-1)
+                                              .mean(1).norm(dim=-1).mean()),
                     change_mean=float(distance.mean()),
                     assignment_mean=float(probability.mean()),
                     assignment_std=float(probability.std(unbiased=False)),

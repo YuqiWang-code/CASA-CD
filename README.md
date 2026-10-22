@@ -2,11 +2,11 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**当前实验：CASA/Run4，受变化标签监督的 KV 压缩权重，已于 2026-10-22 23:09 CST 正式启动。** 四库各 CTRL、双曲 QKV、普通 QKV，共 12 项；两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD。Run3 已完成并收集全部正式结果。
+**当前实验：CASA/Run5，双曲 Q/K/V 采用双时相共同中心与联合 RMS 归一化，保留变化标签监督的 KV 压缩。** 四库各 CTRL、双曲 QKV、普通 QKV，共 12 项；两卡按实测显存并发，优先级 LEVIR → SYSU → WHU → CDD。
 
 | 编码器 | 跳层与解码器 | 当前实验 | GPU |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run4，四库 × 三组，共 12 项 | GPU0/1，按实测显存并发 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run5，四库 × 三组，共 12 项 | GPU0/1，按实测显存并发 |
 
 ## 模型
 
@@ -30,7 +30,7 @@ A / B → shared MobileNetV2
 
 **普通压缩 QKV**：归一化双时相特征的均值与绝对差分进入轻量变化预测头。预测概率在每个 4×4 cell 内产生变化、稳定两个软分配原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K；Value 使用对齐时相的投影差值。全局差分与局部差分拼接，经输出投影和零初始化 γ 加回输入。
 
-**双曲压缩 QKV**：Q/K/V 经裁剪和指数映射进入 c=1 的庞加莱球。变化预测头读取 Q 的切空间均值、绝对差分与同位置双曲距离；其概率用于 K/V 的几何原型压缩。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，通过几何加权中心聚合，再经 Log 映射与局部几何差分融合后回接残差。
+**双曲压缩 QKV**：嵌入、Q/K 和 V 的切空间向量均先减去两时相共同的空间均值，再按联合 RMS 归一化，使平均平方范数为 1；随后经指数映射进入 c=1 的庞加莱球。该处理保留位置间相对幅度和时相差异，去除共同偏置与整体尺度增长，不增加参数。切向范数上限 2.3 保留用于个别离群位置。变化预测头读取 Q 的切空间均值、绝对差分与同位置双曲距离；其概率用于 K/V 的几何原型压缩。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，通过几何加权中心聚合，再经 Log 映射与局部几何差分融合后回接残差。
 
 **变化权重监督**：预测头为 1×1 Conv → SiLU → 3×3 深度卷积 → SiLU → 1×1 logits。每层标签按面积平均到对应分辨率，BCE-with-logits＋soft Dice 的四层平均乘 0.1，加入原有四级预测损失。辅助监督仅更新变化预测头，主变化损失通过原有分配计算端到端训练编码器和几何分支。CTRL 无变化预测头，辅助项为零。推理仅使用影像特征。
 
@@ -40,7 +40,7 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 
 ## 训练协议
 
-训练采用 WDMF-Net 的策略。Run4 协议为 **`casa_40k_supervisedkv_v4`**；Run3 为 **`casa_40k_separateqkv_v3`**，Run2 为 **`wdmf_str_40k_modulewd0_v2`**。
+训练采用 WDMF-Net 的策略。Run5 协议为 **`casa_40k_pairnorm_v5`**；Run4 为 **`casa_40k_supervisedkv_v4`**；Run3 为 **`casa_40k_separateqkv_v3`**，Run2 为 **`wdmf_str_40k_modulewd0_v2`**。
 
 | 设置 | 值 |
 |---|---|
@@ -60,25 +60,33 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA/Run4/`](train_scripts/CASA/Run4/README.md)。
+CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA/Run5/`](train_scripts/CASA/Run5/README.md)。
 
-## Run4 当前进度
+## Run5 当前进度
 
-运行源码基线为 `2a1346f`，初始 supervisor PID 为 1117533。启动时五路并发，GPU0 两项、GPU1 三项；启动占用约 29.7 / 30.1 GiB，利用率采样为 99% / 98%。
+正式训练前要求双曲模块完成 16 个完整 SYSU epoch（6,000 step），两个模块分别完成 2 个完整 LEVIR epoch（各 444 step）。检查四层分支、主任务与辅助梯度、半径 CV、裁剪比例及方向集中程度。正式训练使用全新初始化，探针不计入指标。
 
-两个模块均已通过两轮 LEVIR 真实数据探针（各 444 step），四层主任务与辅助梯度均非零，双曲半径 CV 为 0.238–0.266。协议、逐层分配概率、两卡调度与执行入口见 [`train_scripts/CASA/Run4`](train_scripts/CASA/Run4/README.md)。
+<!-- CASA_RUN5_RESULTS_START -->
+
+正式结果 **0/12**；正在进行训练前验证。
+
+<!-- CASA_RUN5_RESULTS_END -->
+
+## Run4 历史记录
+
+Run4 于 **2026-10-23 00:01 CST** 停止，未产生完整正式测试结果。日志和 JSON 已下载至 `outputs/CASA/Run4`，服务器 checkpoint 全部保留；代码和指标快照为 `docs/temporary/models_and_metrics_CASA_Run4.txt`。指标表仍保留 **123 条**正式记录。
 
 <!-- CASA_RUN4_RESULTS_START -->
 
-状态更新：2026-10-22 23:13:24 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-23 00:03:55 CST；队列 `stopped`；正式结果 **0/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：1000/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：800/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：900/40182 | — | — |
-| SYSU | `M0_CTRL` | 训练中：900/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：750/40125 | — | — |
+| LEVIR | `M0_CTRL` | 已停止 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 已停止 | — | — |
+| LEVIR | `M2_CA_QKV` | 已停止 | — | — |
+| SYSU | `M0_CTRL` | 已停止 | — | — |
+| SYSU | `M1_HYPER_QKV` | 已停止 | — | — |
 | SYSU | `M2_CA_QKV` | 待启动 | — | — |
 | WHU | `M0_CTRL` | 待启动 | — | — |
 | WHU | `M1_HYPER_QKV` | 待启动 | — | — |

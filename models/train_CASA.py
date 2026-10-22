@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_40k_supervisedkv_v4"
+PROTOCOL = "casa_40k_pairnorm_v5"
 ASSIGNMENT_WEIGHT = 0.1
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
@@ -215,6 +215,7 @@ def main():
                         target="area-averaged change occupancy",
                         gradient="auxiliary loss updates assignment heads; main loss is end-to-end",
                         inputs="symmetric temporal semantics and difference; hyperbolic distance for M1"),
+                    hyperbolic_tangent_normalization="shared temporal center and joint RMS at embed/QK/V",
                     qkv_dim=32, source_files=identity,
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
