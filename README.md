@@ -2,11 +2,11 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**最新完成：CASA/Run5，四库各 CTRL、双曲 QKV、普通 QKV，共 12 项正式训练与测试，已于 2026-10-23 09:21 CST 全部结束。** 双曲 Q/K/V 使用双时相共同中心与联合 RMS 归一化，两个模块保留变化标签监督的 KV 压缩。正式指标共 135 条。
+**当前代码基线：CASA/Run3 的双曲 QKV 与普通变化感知压缩 QKV，协议 `casa_40k_separateqkv_v3`。** 最近完成的 Run5 共 12 项，全部正式结果已归档，指标表保留 135 条记录。当前没有活动训练。
 
-| 编码器 | 跳层与解码器 | 当前实验 | GPU |
+| 编码器 | 跳层与解码器 | 当前代码基线 | 状态 |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run5，四库 × 三组，共 12 项 | GPU0/1，按实测显存并发 |
+| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run3 结构 | 无活动训练 |
 
 ## 模型
 
@@ -25,14 +25,12 @@ A / B → shared MobileNetV2
 | 实验 | 四级处理模块 | 训练参数量 |
 |---|---|---:|
 | `M0_CTRL` | 两个模块都关闭 | 3,100,404 |
-| `M1_HYPER_QKV` | 模块一：双曲 Q/K/V、几何原型压缩与变化位移聚合 | 3,144,192 |
-| `M2_CA_QKV` | 模块二：欧氏双原型压缩、差分 Value 与局部差分 | 3,160,960 |
+| `M1_HYPER_QKV` | 模块一：双曲 Q/K/V、几何原型压缩与变化位移聚合 | 3,134,332 |
+| `M2_CA_QKV` | 模块二：欧氏双原型压缩、差分 Value 与局部差分 | 3,143,036 |
 
-**普通压缩 QKV**：归一化双时相特征的均值与绝对差分进入轻量变化预测头。预测概率在每个 4×4 cell 内产生变化、稳定两个软分配原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K；Value 使用对齐时相的投影差值。全局差分与局部差分拼接，经输出投影和零初始化 γ 加回输入。
+**普通压缩 QKV**：逐 token LayerNorm 后计算时相差异，每个 4×4 cell 产生变化、稳定两个对齐原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K；Value 使用对齐时相的投影差值。全局差分与全分辨率深度卷积的局部差分拼接，经输出投影和零初始化 γ 加回输入。
 
-**双曲压缩 QKV**：嵌入、Q/K 和 V 的切空间向量均先减去两时相共同的空间均值，再按联合 RMS 归一化，使平均平方范数为 1；随后经指数映射进入 c=1 的庞加莱球。该处理保留位置间相对幅度和时相差异，去除共同偏置与整体尺度增长，不增加参数。切向范数上限 2.3 保留用于个别离群位置。变化预测头读取 Q 的切空间均值、绝对差分与同位置双曲距离；其概率用于 K/V 的几何原型压缩。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，通过几何加权中心聚合，再经 Log 映射与局部几何差分融合后回接残差。
-
-**变化权重监督**：预测头为 1×1 Conv → SiLU → 3×3 深度卷积 → SiLU → 1×1 logits。每层标签按面积平均到对应分辨率，BCE-with-logits＋soft Dice 的四层平均乘 0.1，加入原有四级预测损失。辅助监督仅更新变化预测头，主变化损失通过原有分配计算端到端训练编码器和几何分支。CTRL 无变化预测头，辅助项为零。推理仅使用影像特征。
+**双曲压缩 QKV**：32 维嵌入经裁剪和指数映射进入 c=1 的庞加莱球。Q/K 使用共享的 Möbius 度量投影，Value 使用独立的 Möbius 投影；压缩权重由同位置双曲距离产生，K/V 均通过双曲质心聚合。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，在流形内加权聚合，再经 Log 映射与局部几何差分融合后回接残差。
 
 两者均保持 Q 的 `N=HW` 个位置；每个区域两个原型使 KV 为 `N/8`。四层模块参数互不共享，同层双时相共享参数。Run2 使用旧设计，其 KV 为 `N/16`，两个模块的训练参数均为 3,133,176。
 
@@ -40,7 +38,7 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 
 ## 训练协议
 
-训练采用 WDMF-Net 的策略。Run5 协议为 **`casa_40k_pairnorm_v5`**；Run4 为 **`casa_40k_supervisedkv_v4`**；Run3 为 **`casa_40k_separateqkv_v3`**，Run2 为 **`wdmf_str_40k_modulewd0_v2`**。
+训练采用 WDMF-Net 的策略。当前模型与训练入口使用 **`casa_40k_separateqkv_v3`**。Run4 的 **`casa_40k_supervisedkv_v4`**、Run5 的 **`casa_40k_pairnorm_v5`** 属于历史实验协议，复现时使用相应轮次的源码归档。
 
 | 设置 | 值 |
 |---|---|
@@ -48,7 +46,7 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | 优化器 | Adam，lr=5e-4，betas=(0.9,0.99)，eps=1e-8，主体 weight decay=1e-4；四层处理模块的全部参数 weight decay=0 |
 | 学习率 | poly^0.9，沿用上游前 200 step warmup |
 | 增广 | resize、随机裁剪后恢复、水平/垂直翻转、时相交换 |
-| 损失 | 四级输出 BCE+Dice 等权求和；两个模块另加 0.1 × 四层变化分配 BCE+Dice 的平均值 |
+| 损失 | 四级输出 BCE+Dice 等权求和 |
 | 选模与测试 | epoch 0 后逐 epoch 验证，以验证集最高 F1 选模，训练结束测试该模型 |
 | 预算 | 目标 40,000 step，按上游实现向上取整到完整 epoch |
 | 标签 / 预测阈值 | `gray>=128` / `prob>0.5` |
@@ -60,9 +58,11 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。完整参数和执行说明见 [`train_scripts/CASA/Run5/`](train_scripts/CASA/Run5/README.md)。
+CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。结构与训练设置见 [`train_scripts/CASA/Run3/`](train_scripts/CASA/Run3/README.md)。后续实验使用独立输出目录。
 
-## Run5 正式结果
+当前两个模块的实现、模型接口和训练入口与 Run3 源码一致。最新模型及全部历史指标快照为 `docs/temporary/models_and_metrics_CASA_current.txt`。Run3 与 Run5 的对照分析见 [模块分析](docs/temporary/CASA_Run3_Run5_analysis.md)。
+
+## Run5 历史结果
 
 Run5 于 **2026-10-23 09:21 CST** 完成全部 **12/12** 项训练与正式测试。运行源码基线为 `2675fd9`，十二项均达到完整 40K 预算并通过部署折叠检查，最大误差 **3.13e-06**，二值预测差异均为 0。
 
@@ -220,6 +220,10 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 
 ## 验证与资源
 
+### 当前基线验证
+
+当前 Run3 结构已通过几何运算、四尺度接口、主任务梯度、公共路径初始化、部署折叠和续训检查。双曲、普通模块均能严格加载 Run3 checkpoint；CPU 四尺度最大折叠误差为 `5.96e-8`，二值预测差异为 0。
+
 ### Run4 验证
 
 受监督分配头通过单像素变化占比保留、BCE/Dice 数值、四层损失平均、零残差系数下辅助梯度、时相交换对称性和三变体完整网络检查。CPU 四尺度部署折叠误差均为 `5.96e-8`，二值预测差异为 0。
@@ -241,25 +245,27 @@ LEVIR 模块二从已完成 40,182 step 的权重通过校验并完成测试；�
 服务器代码：`/home/yqwang/projects/CASA-CD/`。环境：`casacd`，使用已配置的 PyTorch 2.14/CUDA 13.2 运行时。
 
 ```bash
-# 服务器进度
-tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run4/pipeline.log
-cat /home/yqwang/outputs/CASA-CD/CASA/Run4/pipeline_status.json
+# 最新完成轮次的记录
+tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run5/pipeline.log
+cat /home/yqwang/outputs/CASA-CD/CASA/Run5/pipeline_status.json
 
-# 本地收集、汇表和快照
-python train_scripts/CASA/Run4/collect_results.py
+# 本地下载历史日志，以及保存当前模型快照
+python tools/download_training_results.py --tag CASA --run Run5
+python tools/models_to_txt.py --tag CASA --run current
 ```
 
 | 产物 | 位置 |
 |---|---|
 | 预训练权重 | `/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth` |
 | 数据 | `/share_datasets/CD/<dataset>/{A,B,label,list}/` |
-| 服务器日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run4/<variant>/<dataset>/` |
-| 服务器 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run4/<variant>/<dataset>/` |
-| 本地日志与结果 | `outputs/CASA/Run4/` |
+| 最新完成轮次日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run5/<variant>/<dataset>/` |
+| 最新完成轮次 checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run5/<variant>/<dataset>/` |
+| 本地日志与结果 | `outputs/CASA/Run5/` |
 | 指标表 | [`docs/experiment_metrics.xlsx`](docs/experiment_metrics.xlsx) |
-| 代码与指标快照 | `docs/temporary/models_and_metrics_CASA_Run4.txt` |
+| 当前模型与指标快照 | `docs/temporary/models_and_metrics_CASA_current.txt` |
+| Run5 冻结快照 | `docs/temporary/models_and_metrics_CASA_Run5.txt` |
 
-`collect_results.py` 使用 [`tools/download_training_results.py`](tools/download_training_results.py) 下载日志和 JSON，出现新正式结果后调用 `tools/extract_metrics_to_excel.py` 和 `tools/models_to_txt.py`。历史指标缺少对应日志时，汇表工具拒绝覆盖现有工作簿。
+历史实验使用对应轮次的源码归档与冻结快照；`current` 快照记录当前 `models/` 与全部历史正式指标。汇表使用 `tools/extract_metrics_to_excel.py`，历史指标缺少对应日志时拒绝覆盖现有工作簿。
 
 ## 目录
 
@@ -269,7 +275,7 @@ models/
   model/casa_net.py
   model/mobilenet_v2.py / encoder_fusion.py
   model/layers/change_context_qkv.py / hyperbolic_context_qkv.py
-  model/layers/context_compression.py / change_assignment.py / poincare_ops.py
+  model/layers/context_compression.py / poincare_ops.py
   model/str_tar.py / str_dcr.py / str_reparam.py
   dataset/casa_transforms.py
 train_scripts/CASA/Run3/     三组×四库的训练与收集

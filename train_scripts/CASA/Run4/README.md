@@ -1,5 +1,7 @@
 # CASA Run4
 
+This directory records the completed Run4 protocol. Reproduce it with that round's `source_code.tar.gz`; the current `models/` directory implements the Run3 protocol. Historical logs, checkpoints and snapshots are retained separately.
+
 Protocol: `casa_40k_supervisedkv_v4`. MobileNetV2/HFEA, TAR and DCR with independent Euclidean and hyperbolic context modules. Four datasets each run M1_HYPER_QKV, M2_CA_QKV and M0_CTRL from fresh initialization.
 
 ## Supervised context assignment

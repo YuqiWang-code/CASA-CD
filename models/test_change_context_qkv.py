@@ -42,14 +42,12 @@ def modules():
         for size in (8, 16, 32, 64):
             a, b = torch.randn(1, 64, size, size), torch.randn(1, 64, size, size)
             with torch.no_grad():
-                ya, yb, logits = module(a, b)
-                reverse_b, reverse_a, reverse_logits = module(b, a)
-                same_a, same_b, _ = module(a, a)
+                ya, yb = module(a, b)
+                reverse_b, reverse_a = module(b, a)
+                same_a, same_b = module(a, a)
             assert ya.shape == a.shape and yb.shape == b.shape
             assert torch.allclose(ya, reverse_a, atol=1e-6)
             assert torch.allclose(yb, reverse_b, atol=1e-6)
-            assert logits.shape == (1, 1, size, size)
-            assert torch.allclose(logits, reverse_logits, atol=1e-6)
             assert torch.equal(same_a, a) and torch.equal(same_b, a)
             assert module.last_diag['queries'] == size * size
             assert module.last_diag['contexts'] == size * size // 8
@@ -58,7 +56,7 @@ def modules():
             a = (torch.randn(2, 64, 8, 8) * scale).requires_grad_()
             b = (torch.randn_like(a) * scale).requires_grad_()
             module.zero_grad()
-            ya, yb, _ = module(a, b)
+            ya, yb = module(a, b)
             (ya.square().mean() + yb.square().mean()).backward()
             assert torch.isfinite(a.grad).all() and torch.isfinite(b.grad).all()
             assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in module.parameters())
@@ -68,38 +66,10 @@ def modules():
             q = torch.tensor([[[0.1, 0.0]]])
             probability = module.attention(q, torch.tensor([[[0.1, 0.0], [-0.2, 0.0]]]))
             assert probability[0, 0, 0] > probability[0, 0, 1]
+            a = torch.randn(1, 64, 8, 8) * 0.1
+            small, large = module.encode(a), module.encode(2*a)
+            assert torch.linalg.vector_norm(large, dim=-1).mean() > torch.linalg.vector_norm(small, dim=-1).mean()
         print(cls.__name__, "four-scale N-to-N queries, compressed KV, exchange symmetry, identical-pair identity and finite task gradients PASS")
-
-
-def paired_geometry():
-    module = HyperbolicCompressedQKV().double()
-    a, b = torch.randn(2, 64, 8, 8, dtype=torch.float64), torch.randn(2, 64, 8, 8, dtype=torch.float64)
-    qa, qb = module.encode_pair(a, b)
-    # Common offsets and feature/metric gain cannot drive all points to the boundary.
-    offset = torch.randn(2, 64, 1, 1, dtype=torch.float64) * 50
-    shifted_a, shifted_b = module.encode_pair(100 * a + offset, 100 * b + offset)
-    assert torch.allclose(qa, shifted_a, atol=1e-12)
-    assert torch.allclose(qb, shifted_b, atol=1e-12)
-    before = module.mobius_linear_pair(qa, qb, module.metric)
-    with torch.no_grad():
-        module.metric.weight.mul_(100)
-    after = module.mobius_linear_pair(qa, qb, module.metric)
-    assert all(torch.allclose(x, y, atol=1e-12) for x, y in zip(before, after))
-    raw_a, raw_b = torch.randn(2, 128, 32, dtype=torch.float64), torch.randn(2, 128, 32, dtype=torch.float64)
-    raw_a[:, :16] *= 10
-    raw_a, raw_b = module.normalize_pair(raw_a, raw_b)
-    joined = torch.cat((raw_a, raw_b), dim=1)
-    assert torch.allclose(joined.mean(1), torch.zeros(2,32,dtype=torch.float64), atol=1e-12)
-    assert torch.allclose(joined.square().sum(-1).mean(1), torch.ones(2,dtype=torch.float64), atol=1e-12)
-    assert float((joined.norm(dim=-1) >= 2.3).double().mean()) <= 1 / 2.3**2
-    radii = expmap0(joined).norm(dim=-1)
-    assert float(radii.std()/radii.mean()) > 0.05
-    constant_a = torch.zeros(1, 16, 4, dtype=torch.float64)
-    constant_b = torch.ones_like(constant_a)
-    constant_a, constant_b = module.normalize_pair(constant_a, constant_b)
-    assert torch.allclose((constant_a - constant_b).norm(dim=-1),
-                          torch.full((1,16), 2.0, dtype=torch.float64))
-    print("Shared-date centering, feature/metric scale invariance, retained relative radii and clipping bound PASS")
 
 
 def main():
@@ -112,7 +82,6 @@ def main():
     assert torch.allclose(pooled[:, :, 0], average, atol=1e-6)
     assert torch.equal(pooled[:, :, 0], pooled[:, :, 1])
     geometry()
-    paired_geometry()
     modules()
 
 

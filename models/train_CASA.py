@@ -17,8 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_40k_pairnorm_v5"
-ASSIGNMENT_WEIGHT = 0.1
+PROTOCOL = "casa_40k_separateqkv_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
@@ -31,23 +30,6 @@ def loss_function(outputs, target):
         dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
         loss = loss + F.binary_cross_entropy(output, target) + 1 - dice
     return loss
-
-
-def assignment_loss(logits, target):
-    losses = []
-    for output in logits:
-        occupancy = F.adaptive_avg_pool2d(target, output.shape[-2:])
-        probability = output.sigmoid()
-        intersection = (probability * occupancy).sum()
-        dice = (2 * intersection + 1e-5) / (probability.sum() + occupancy.sum() + 1e-5)
-        losses.append(F.binary_cross_entropy_with_logits(output, occupancy) + 1 - dice)
-    return torch.stack(losses).mean() if losses else target.new_zeros(())
-
-
-def training_objective(outputs, logits, target):
-    main = loss_function(outputs, target)
-    auxiliary = assignment_loss(logits, target)
-    return main + ASSIGNMENT_WEIGHT * auxiliary, main, auxiliary
 
 
 def make_loader(root, split, batch_size=32, workers=1):
@@ -210,12 +192,6 @@ def main():
                     weight_decay=1e-4, module_weight_decay=0.0,
                     selection="best validation F1, ties update", deep_supervision=4,
                     label_threshold=128, context_cell=4, context_prototypes=2,
-                    assignment_supervision=dict(weight=ASSIGNMENT_WEIGHT if model.stage_modules else 0.0,
-                        loss="mean of four BCE-with-logits plus soft Dice losses",
-                        target="area-averaged change occupancy",
-                        gradient="auxiliary loss updates assignment heads; main loss is end-to-end",
-                        inputs="symmetric temporal semantics and difference; hyperbolic distance for M1"),
-                    hyperbolic_tangent_normalization="shared temporal center and joint RMS at embed/QK/V",
                     qkv_dim=32, source_files=identity,
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
@@ -264,10 +240,10 @@ def main():
             for group in optimizer.param_groups:
                 group["lr"] = lr
             optimizer.zero_grad(set_to_none=True)
-            outputs, logits = model(image[:, :3], image[:, 3:], return_aux=True)
+            outputs = model(image[:, :3], image[:, 3:])
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss = training_objective(outputs, logits, target)
+            loss = loss_function(outputs, target)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -277,7 +253,7 @@ def main():
             epoch_loss += float(loss.detach())
             step += 1
             if step % 100 == 0:
-                print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} main={float(main_loss.detach()):.5f} assignment={float(auxiliary_loss.detach()):.5f} lr={lr:.8f}", flush=True)
+                print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
         if epoch > 0:
             for op in model.stage_modules:
