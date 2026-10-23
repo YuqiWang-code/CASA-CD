@@ -1,5 +1,5 @@
 # CASA-CD models snapshot + metrics
-# tag=CASA  run=Run6  models_dir=models
+# tag=CASA  run=Run6  models_dir=outputs/CASA/Run6/runtime_source/models
 # CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
@@ -8,7 +8,7 @@
 ================================================================================
 
 ================================================================================
-# FILE: models/eval.py
+# FILE: outputs/CASA/Run6/runtime_source/models/eval.py
 ================================================================================
 """Standalone evaluation of a trained ChangeViT checkpoint.
 
@@ -600,7 +600,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/main.py
+# FILE: outputs/CASA/Run6/runtime_source/models/main.py
 ================================================================================
 import sys
 
@@ -921,7 +921,7 @@ if __name__ == '__main__':
     trainValidateSegmentation(args)
 
 ================================================================================
-# FILE: models/profile_CASA.py
+# FILE: outputs/CASA/Run6/runtime_source/models/profile_CASA.py
 ================================================================================
 """Measure full-batch training memory and throughput for CASA variants."""
 import argparse
@@ -994,7 +994,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/run9_degeneracy_cert.py
+# FILE: outputs/CASA/Run6/runtime_source/models/run9_degeneracy_cert.py
 ================================================================================
 """非退化证书：HSAM 的双曲距离矩阵到底是不是"余弦距离的单调变换"？
 
@@ -1128,7 +1128,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/run9_radius_probe.py
+# FILE: outputs/CASA/Run6/runtime_source/models/run9_radius_probe.py
 ================================================================================
 """HSAM 半径诊断 v2：分别看 `outnorm` **之前**（`o`）与**之后**（`outnorm(o)`）的激活。
 
@@ -1223,7 +1223,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/run9_smoke.py
+# FILE: outputs/CASA/Run6/runtime_source/models/run9_smoke.py
 ================================================================================
 ﻿#!/usr/bin/env python
 """Run9 HSAM 真实数据 smoke：在**真实 VMamba 特征**上回答 4 个开跑前必须回答的问题。
@@ -1422,7 +1422,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/smoke_test.py
+# FILE: outputs/CASA/Run6/runtime_source/models/smoke_test.py
 ================================================================================
 """Smoke test for CASA-CD (baseline / CASAA / SAA / ORACLE modes, no real data needed).
 
@@ -3109,7 +3109,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_CASA.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_CASA.py
 ================================================================================
 """Interface, gradient and deployment checks for the three CASA variants."""
 import torch
@@ -3169,7 +3169,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_CASA_resume.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_CASA_resume.py
 ================================================================================
 """Optimizer/RNG continuation and deployment backend-state checks."""
 import copy
@@ -3247,7 +3247,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_change_context_qkv.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_change_context_qkv.py
 ================================================================================
 """Geometry, aligned change evidence and dense-query interface tests."""
 import math
@@ -3381,7 +3381,7 @@ if __name__ == '__main__':
     main()
 
 ================================================================================
-# FILE: models/test_hqkv_lattice_cpu.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_hqkv_lattice_cpu.py
 ================================================================================
 #!/usr/bin/env python
 """拆除双曲几何后的 CPU 自检：`CAACPHQKVLattice` 必须**无几何、无半径分解、能跑通、有梯度**。
@@ -3682,7 +3682,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/test_hsam_cpu.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_hsam_cpu.py
 ================================================================================
 #!/usr/bin/env python
 """Run9 HSAM CPU 回归门：数学正确性 + **退化性** + 反静默 + fail-closed。
@@ -3948,7 +3948,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/test_run10_cpu.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_run10_cpu.py
 ================================================================================
 """Run10 regressions for the late HSAM failure path (CPU only)."""
 from types import SimpleNamespace
@@ -4011,7 +4011,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_str_reparam_equivalence.py
+# FILE: outputs/CASA/Run6/runtime_source/models/test_str_reparam_equivalence.py
 ================================================================================
 """STRFusion Run1 structural re-parameterization equivalence tests (T0/T1/T2).
 
@@ -4438,7 +4438,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/train.py
+# FILE: outputs/CASA/Run6/runtime_source/models/train.py
 ================================================================================
 """Train ChangeViT (Tiny/Small) baseline for binary remote-sensing change detection.
 
@@ -6456,7 +6456,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/train_CASA.py
+# FILE: outputs/CASA/Run6/runtime_source/models/train_CASA.py
 ================================================================================
 """CASA training with MobileNetV2/HFEA, TAR temporal skips and DCR."""
 import argparse
@@ -6765,7 +6765,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/dataset\Transforms.py
+# FILE: outputs/CASA/Run6/runtime_source/models/dataset\Transforms.py
 ================================================================================
 import numpy
 import numpy as np
@@ -6988,7 +6988,7 @@ class Compose(object):
         return args
 
 ================================================================================
-# FILE: models/dataset\casa_transforms.py
+# FILE: outputs/CASA/Run6/runtime_source/models/dataset\casa_transforms.py
 ================================================================================
 import numpy as np
 import torch
@@ -7167,7 +7167,7 @@ class Compose(object):
         return args
 
 ================================================================================
-# FILE: models/dataset\dataset.py
+# FILE: outputs/CASA/Run6/runtime_source/models/dataset\dataset.py
 ================================================================================
 import cv2
 import os
@@ -7232,7 +7232,7 @@ class Dataset(torch.utils.data.Dataset):
         return {"height": img.shape[0], "width": img.shape[1]}
 
 ================================================================================
-# FILE: models/model\b4_spe_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\b4_spe_head.py
 ================================================================================
 """Run8 B4-SPE head：B4 Semantic Pair Evidence + Sub-patch Expansion。
 
@@ -7296,7 +7296,7 @@ class B4SPEHead(nn.Module):
         return torch.sigmoid(self.out(x))
 
 ================================================================================
-# FILE: models/model\casa_net.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\casa_net.py
 ================================================================================
 """CASA: MobileNetV2/HFEA with independent context modules, TAR and DCR."""
 import torch
@@ -7352,7 +7352,7 @@ class CASANet(nn.Module):
         return {f"stage{i + 1}": dict(op.last_diag) for i, op in enumerate(self.stage_modules)}
 
 ================================================================================
-# FILE: models/model\casa_tvim_str_net.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\casa_tvim_str_net.py
 ================================================================================
 """CASA-TViM-STRNet：CAACP-SS2D 主线架构（TinyViM-S-Slim + CAACP + TAR/DCR）。
 
@@ -7716,7 +7716,7 @@ class CASATViMSTRNet(nn.Module):
         return None
 
 ================================================================================
-# FILE: models/model\casa_vmamba_net.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\casa_vmamba_net.py
 ================================================================================
 """CASA-VMamba-STRNet：Run8 主线（VMamba-Tiny 骨干 + CAACP-HQKV + TAR/DCR）。
 
@@ -7934,7 +7934,7 @@ class CASAVMambaSTRNet(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\casa_vmamba_net_v2.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\casa_vmamba_net_v2.py
 ================================================================================
 """CASA-VMamba-STRNet v2（Run8b 血统）：**拆除双曲几何后**的 CASA-VMamba 网络。
 
@@ -8224,7 +8224,7 @@ class CASAVMambaSTRNetV2(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\decoder.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\decoder.py
 ================================================================================
 import torch
 import torch.nn as nn
@@ -8446,7 +8446,7 @@ class Decoder(nn.Module):
         return pred_mask
 
 ================================================================================
-# FILE: models/model\depth_pyramid_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\depth_pyramid_head.py
 ================================================================================
 """Run7 CSDP head：Cross-Depth Symmetric Difference + Sub-patch Expansion。
 
@@ -8513,7 +8513,7 @@ class DepthPyramidHead(nn.Module):
         return torch.sigmoid(self.out(x))
 
 ================================================================================
-# FILE: models/model\encoder.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\encoder.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -9174,7 +9174,7 @@ class Encoder(nn.Module):
         return c_x + [v_x], c_y + [v_y]
 
 ================================================================================
-# FILE: models/model\encoder_fusion.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\encoder_fusion.py
 ================================================================================
 """Hierarchical feature extraction and aggregation (HFEA); see models/SOURCES.md."""
 import torch
@@ -9311,7 +9311,7 @@ class AggregationModule(nn.Module):
         return c_out
 
 ================================================================================
-# FILE: models/model\hgsl_loss.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\hgsl_loss.py
 ================================================================================
 """Run8：HGSL — Hyperbolic Geometric Supervision Loss（本轮**唯一**新增损失，需用户审核）。
 
@@ -9411,7 +9411,7 @@ def hgsl_loss(score_maps, label, weight=HGSL_LAMBDA_DEFAULT,
     return out
 
 ================================================================================
-# FILE: models/model\light_detail.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\light_detail.py
 ================================================================================
 """Run4 模块 B：Ultra-Light Multi-Scale Detail Branch（LightDetail 32/64/128）。
 
@@ -9485,7 +9485,7 @@ class LightDetail(nn.Module):
         return d2, d4, d8
 
 ================================================================================
-# FILE: models/model\metric_tool.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\metric_tool.py
 ================================================================================
 import numpy as np
 
@@ -9620,7 +9620,7 @@ def get_confuse_matrix(num_classes, label_gts, label_preds):
     return confusion_matrix
 
 ================================================================================
-# FILE: models/model\mobile_detail.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\mobile_detail.py
 ================================================================================
 """Run5 模块：MobileDetail-P3 —— MobileNetV3-Small 极浅 ImageNet 预训练 prefix。
 
@@ -9674,7 +9674,7 @@ class MobileDetail(nn.Module):
         return d2, d4, d8
 
 ================================================================================
-# FILE: models/model\mobilenet_v2.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\mobilenet_v2.py
 ================================================================================
 import torch.nn as nn
 import torch
@@ -9789,7 +9789,7 @@ def mobilenet_v2(pretrained_path=None):
     return model
 
 ================================================================================
-# FILE: models/model\opre_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\opre_head.py
 ================================================================================
 """Run9 B4-OPRE head：Frozen B4 Semantic + Overlap Patch Re-Embedding + 语义门控。
 
@@ -9863,7 +9863,7 @@ class OPREHead(nn.Module):
         return torch.sigmoid(self.classifier(x))
 
 ================================================================================
-# FILE: models/model\psd_detail.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\psd_detail.py
 ================================================================================
 """Run4 R4-2d：PSD-Detail —— Pretrained Stem + Residual Depthwise Detail Pyramid。
 
@@ -9965,7 +9965,7 @@ class PSDDetail(nn.Module):
         return d2, d4, d8
 
 ================================================================================
-# FILE: models/model\resnet.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\resnet.py
 ================================================================================
 import torch.nn as nn
 import math
@@ -10184,7 +10184,7 @@ if __name__ == '__main__':
     x2, x3, x4 = m(x, vit)
     print(x2.shape, x3.shape, x4.shape)
 ================================================================================
-# FILE: models/model\sgdp_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\sgdp_head.py
 ================================================================================
 """Run5 模块：SGDP —— Semantic-Guided Difference Pyramid（语义门控差分金字塔）。
 
@@ -10302,7 +10302,7 @@ class SGDPHead(nn.Module):
         return torch.sigmoid(out)
 
 ================================================================================
-# FILE: models/model\str_dcr.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_dcr.py
 ================================================================================
 """DCR decoder for STRFusion (Run1): RepLocalBlock + top-down DCRDecoder.
 
@@ -10395,7 +10395,7 @@ class DCRDecoder(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\str_encoder.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_encoder.py
 ================================================================================
 """STRFusion Run1 encoder: frozen ViT4 depth-as-scale token pyramid.
 
@@ -10465,7 +10465,7 @@ class STRViT4Encoder(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\str_fine_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_fine_head.py
 ================================================================================
 """STRFineHead（FRH，Run2 首选二）：128² 重参数化细粒度预测头。
 
@@ -10546,7 +10546,7 @@ class STRFineHead(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\str_fine_tap.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_fine_tap.py
 ================================================================================
 """R4-FET1：FineEvidenceTap1x1 —— 细尺度变化证据直达式 DCR 残差接入（1×1 可折叠版）。
 
@@ -10664,7 +10664,7 @@ class FineEvidenceTap1x1(nn.Module):
                 "gamma_value": float(self.gamma.detach().cpu().item())}
 
 ================================================================================
-# FILE: models/model\str_fusion.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_fusion.py
 ================================================================================
 """STRFusion Run1 top-level model.
 
@@ -10743,7 +10743,7 @@ class STRFusionNet(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\str_hf_edge.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_hf_edge.py
 ================================================================================
 """Run7 HFAE：编码器前两层「频率分解高频分支」→ 中高频增强边缘检测辅助模块。
 
@@ -10944,7 +10944,7 @@ def build_hf_edge_head(taps="1_4_1_8", form="aux_only", inject_dim=96, mid=32,
                       local_seed=local_seed)
 
 ================================================================================
-# FILE: models/model\str_reparam.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_reparam.py
 ================================================================================
 """Structural re-parameterization primitives for STRFusion (Run1).
 
@@ -11257,7 +11257,7 @@ def switch_module_to_deploy(module):
     return module
 
 ================================================================================
-# FILE: models/model\str_tar.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_tar.py
 ================================================================================
 """TAR bridge for STRFusion (Run1): Temporal Algebraic Re-parameterization.
 
@@ -11491,7 +11491,7 @@ class MultiScaleTAR(nn.Module):
         return self
 
 ================================================================================
-# FILE: models/model\str_tass_fusion.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\str_tass_fusion.py
 ================================================================================
 """Run11 STRTASSNet: Frozen ViT4 + TAR/DCR + optional TASS spatial residual.
 
@@ -11576,7 +11576,7 @@ class STRTASSNet(nn.Module):
                 if not k.startswith("tass.") and k != "alpha"}
 
 ================================================================================
-# FILE: models/model\tass_stem.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\tass_stem.py
 ================================================================================
 """Run11 TASS: Task-Adaptive Spatial Stem（任务适配空间残差 Stem）。
 
@@ -11662,7 +11662,7 @@ class TASSStem(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 ================================================================================
-# FILE: models/model\tinyvim_s_slim.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\tinyvim_s_slim.py
 ================================================================================
 """TinyViM-S-Slim：CAACP-SS2D 主线的预训练骨干（无 timm / 无 einops / 无分类头）。
 
@@ -11884,7 +11884,7 @@ if __name__ == "__main__":
     print("taps:", [tuple(t.shape) for t in outs])
 
 ================================================================================
-# FILE: models/model\trainer.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\trainer.py
 ================================================================================
 import torch
 import torch.nn as nn
@@ -11960,7 +11960,7 @@ class Trainer(nn.Module):
         return pred
         
 ================================================================================
-# FILE: models/model\utils.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\utils.py
 ================================================================================
 import torch
 import torch.nn.functional as F
@@ -12053,7 +12053,7 @@ def adjust_learning_rate(args, optimizer, epoch, iter, max_batches, lr_factor=1)
     return lr
 
 ================================================================================
-# FILE: models/model\vmamba_tiny.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\vmamba_tiny.py
 ================================================================================
 """VMamba-Tiny 自包含主干（Run8 换骨干主线）。
 
@@ -12789,7 +12789,7 @@ if __name__ == "__main__":
     print("taps:", [tuple(t.shape) for t in outs])
 
 ================================================================================
-# FILE: models/model\layers\__init__.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\__init__.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -12811,7 +12811,7 @@ from .casaa import (
 )
 
 ================================================================================
-# FILE: models/model\layers\attention.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\attention.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -12904,7 +12904,7 @@ class MemEffAttention(Attention):
         return x
 
 ================================================================================
-# FILE: models/model\layers\block.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\block.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -13185,7 +13185,7 @@ class NestedTensorBlock(Block):
             raise AssertionError
 
 ================================================================================
-# FILE: models/model\layers\caacp_hqkv.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\caacp_hqkv.py
 ================================================================================
 """Run8 核心创新：CAACP-HQKV（Hyperbolic dual-branch SAT-style QKV change aggregation）。
 
@@ -13557,7 +13557,7 @@ def build_caacp_hqkv(stage_dims=(96, 192, 384, 768), **kwargs):
     return CAACPHQKV(stage_dims=stage_dims, **kwargs)
 
 ================================================================================
-# FILE: models/model\layers\caacp_hqkv_lattice.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\caacp_hqkv_lattice.py
 ================================================================================
 """CAACP-HQKV-Lattice：**拆除双曲几何与半径分解之后**的跨层 QKV 注入。
 
@@ -13898,7 +13898,7 @@ def build_caacp_hqkv_lattice(stage_dims=(96, 192, 384, 768), **kwargs):
     return CAACPHQKVLattice(stage_dims=stage_dims, **kwargs)
 
 ================================================================================
-# FILE: models/model\layers\caacp_ss2d.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\caacp_ss2d.py
 ================================================================================
 """CAACP-SS2D：Change-Aware Asymmetric Context Pooling for SS2D（创新一）。
 
@@ -14096,7 +14096,7 @@ class CAACPSS2D(SS2D):
         return x
 
 ================================================================================
-# FILE: models/model\layers\casaa.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\casaa.py
 ================================================================================
 """CASAA (Change-Aware Selective Aggregation Attention) — CASA-CD 创新主线一。
 
@@ -14604,7 +14604,7 @@ if __name__ == "__main__":
     print("CASAA mechanics smoke ALL OK")
 
 ================================================================================
-# FILE: models/model\layers\change_context_qkv.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\change_context_qkv.py
 ================================================================================
 """Euclidean compressed QKV with signed and magnitude change values."""
 import math
@@ -14673,7 +14673,7 @@ class ChangeAwareCompressedQKV(nn.Module):
         return a + self.gamma * update_a, b + self.gamma * update_b
 
 ================================================================================
-# FILE: models/model\layers\context_compression.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\context_compression.py
 ================================================================================
 """Aligned change/stable prototypes with full-resolution queries."""
 import torch
@@ -14702,7 +14702,7 @@ def token_map(tokens, height, width):
     return tokens.transpose(1, 2).reshape(tokens.shape[0], -1, height, width)
 
 ================================================================================
-# FILE: models/model\layers\dino_head.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\dino_head.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -14764,7 +14764,7 @@ def _build_mlp(nlayers, in_dim, bottleneck_dim, hidden_dim=None, use_bn=False, b
         return nn.Sequential(*layers)
 
 ================================================================================
-# FILE: models/model\layers\drop_path.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\drop_path.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -14802,7 +14802,7 @@ class DropPath(nn.Module):
         return drop_path(x, self.drop_prob, self.training)
 
 ================================================================================
-# FILE: models/model\layers\hsam.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\hsam.py
 ================================================================================
 """Run9 核心：HSAM —— Hyperbolic Similarity Attention Module（**零参数**）。
 
@@ -15149,7 +15149,7 @@ def build_hsam(stage_dims=(96, 192, 384, 768), stages=ATTN_STAGES_DEFAULT, **kw)
     return HSAM(stage_dims=stage_dims, stages=stages, **kw)
 
 ================================================================================
-# FILE: models/model\layers\hyperbolic.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\hyperbolic.py
 ================================================================================
 """Run8：双曲流形空间的变化证据算子（Lorentz 模型，参数自由）。
 
@@ -15358,7 +15358,7 @@ def branch_rank_disagreement(s_a, s_b):
     return {"frac_rank_diff": frac, "kendall_tau": tau}
 
 ================================================================================
-# FILE: models/model\layers\hyperbolic_context_qkv.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\hyperbolic_context_qkv.py
 ================================================================================
 """Dense hyperbolic queries with compressed aligned displacement values."""
 import math
@@ -15451,7 +15451,7 @@ class HyperbolicCompressedQKV(nn.Module):
         return a + self.gamma * update_a, b + self.gamma * update_b
 
 ================================================================================
-# FILE: models/model\layers\layer_scale.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\layer_scale.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -15482,7 +15482,7 @@ class LayerScale(nn.Module):
         return x.mul_(self.gamma) if self.inplace else x * self.gamma
 
 ================================================================================
-# FILE: models/model\layers\mamba_scan_triton.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\mamba_scan_triton.py
 ================================================================================
 """Triton selective scan kernel（vendored from mamba-ssm 2.3.2，Apache-2.0）。
 
@@ -15796,7 +15796,7 @@ def selective_state_update_ref(state, x, dt, A, B, C, D=None, z=None, dt_bias=No
     return out
 
 ================================================================================
-# FILE: models/model\layers\mlp.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\mlp.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -15840,7 +15840,7 @@ class Mlp(nn.Module):
         return x
 
 ================================================================================
-# FILE: models/model\layers\patch_embed.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\patch_embed.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -15932,7 +15932,7 @@ class PatchEmbed(nn.Module):
         return flops
 
 ================================================================================
-# FILE: models/model\layers\poincare_ops.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\poincare_ops.py
 ================================================================================
 """Curvature-one Poincare operations with tangent clipping at radius 2.3."""
 import math
@@ -15998,7 +15998,7 @@ def weighted_centroid(weights, values):
     return from_lorentz_sum(weights @ to_lorentz(values))
 
 ================================================================================
-# FILE: models/model\layers\ss2d.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\ss2d.py
 ================================================================================
 """SS2D：TinyViM/VMamba 四向交叉扫描 SSM 的自包含移植（无 timm / 无 einops）。
 
@@ -16587,7 +16587,7 @@ class TViMBlock(nn.Module):
         return self._forward(inp)
 
 ================================================================================
-# FILE: models/model\layers\swiglu_ffn.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\swiglu_ffn.py
 ================================================================================
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -16663,7 +16663,7 @@ class SwiGLUFFNFused(SwiGLU):
         )
 
 ================================================================================
-# FILE: models/model\layers\vmamba_kernel.py
+# FILE: outputs/CASA/Run6/runtime_source/models/model\layers\vmamba_kernel.py
 ================================================================================
 """Run8 selective-scan 后端适配层（VMamba v2 四向扫描用）。
 
@@ -16799,7 +16799,7 @@ def backend_report():
     return " | ".join(out)
 
 ================================================================================
-# FILE: models/_legacy\run4_dry_run.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\run4_dry_run.py
 ================================================================================
 """R4 真实数据 3-step dry-run（方案 §7 T7/T8）。
 
@@ -17122,7 +17122,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/_legacy\run7_dry_run.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\run7_dry_run.py
 ================================================================================
 #!/usr/bin/env python
 """Run7 HFAE 真实数据 dry-run（3 步 + 机制自检 + 折叠等价 + batch32 显存探针）。
@@ -17393,7 +17393,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/_legacy\run8_dry_run.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\run8_dry_run.py
 ================================================================================
 #!/usr/bin/env python
 """Run8 真实数据 dry-run（3 步 + 机制自检 + epoch-0 恒等 + 折叠等价 + batch32 显存探针）。
@@ -17711,7 +17711,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/_legacy\test_run4_fine_tap.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\test_run4_fine_tap.py
 ================================================================================
 """R4-FET1 验收测试 T0–T9（方案 §7）：逐项硬断言，不接受“基本一致”。
 
@@ -18333,7 +18333,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/_legacy\test_run7_hf_edge.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\test_run7_hf_edge.py
 ================================================================================
 #!/usr/bin/env python
 """Run7 HFAE（高频边缘辅助监督）T0–T12 验收测试。
@@ -18753,7 +18753,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 ================================================================================
-# FILE: models/_legacy\test_run8_cpu_precheck.py
+# FILE: outputs/CASA/Run6/runtime_source/models/_legacy\test_run8_cpu_precheck.py
 ================================================================================
 """Run8 CPU 侧预检（**本机可跑**，不依赖 CUDA / selective_scan）。
 
@@ -18958,7 +18958,7 @@ print("=" * 78)
 sys.exit(1 if FAILS else 0)
 
 ================================================================================
-## METRICS (135 results)
+## METRICS (147 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
@@ -19079,6 +19079,18 @@ CASA/Run5/M2_CA_QKV/CDD-CD-256 | 0.9743 | 0.9751 | 0.9938 | 0.9747 | 0.9506 | 0.
 CASA/Run5/M2_CA_QKV/LEVIR-CD-256 | 0.9045 | 0.9268 | 0.9915 | 0.9155 | 0.8442 | 0.9111 | 3.077 | 3.161 | - | casa_qkv
 CASA/Run5/M2_CA_QKV/SYSU-CD-256 | 0.7850 | 0.8620 | 0.9197 | 0.8217 | 0.6974 | 0.7700 | 3.077 | 3.161 | - | casa_qkv
 CASA/Run5/M2_CA_QKV/WHU-CD-256 | 0.9188 | 0.9499 | 0.9949 | 0.9341 | 0.8763 | 0.9314 | 3.077 | 3.161 | - | casa_qkv
+CASA/Run6/M0_CTRL/CDD-CD-256 | 0.9750 | 0.9735 | 0.9936 | 0.9743 | 0.9499 | 0.9707 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/LEVIR-CD-256 | 0.9069 | 0.9243 | 0.9915 | 0.9155 | 0.8442 | 0.9110 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/SYSU-CD-256 | 0.8258 | 0.8225 | 0.9169 | 0.8242 | 0.7009 | 0.7698 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/WHU-CD-256 | 0.9231 | 0.9460 | 0.9949 | 0.9344 | 0.8769 | 0.9317 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M1_HYPER_QKV/CDD-CD-256 | 0.9753 | 0.9738 | 0.9937 | 0.9745 | 0.9503 | 0.9709 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/LEVIR-CD-256 | 0.9035 | 0.9177 | 0.9910 | 0.9105 | 0.8357 | 0.9058 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/SYSU-CD-256 | 0.7632 | 0.8591 | 0.9146 | 0.8083 | 0.6783 | 0.7537 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/WHU-CD-256 | 0.9355 | 0.9595 | 0.9959 | 0.9473 | 0.8999 | 0.9452 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M2_CA_QKV/CDD-CD-256 | 0.9745 | 0.9749 | 0.9938 | 0.9747 | 0.9507 | 0.9712 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/LEVIR-CD-256 | 0.9067 | 0.9258 | 0.9915 | 0.9162 | 0.8453 | 0.9117 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/SYSU-CD-256 | 0.7790 | 0.8742 | 0.9215 | 0.8239 | 0.7005 | 0.7736 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/WHU-CD-256 | 0.9261 | 0.9577 | 0.9954 | 0.9416 | 0.8897 | 0.9393 | 3.068 | 3.151 | - | casa_qkv
 STR-Fusion/Run2_TASS/C0_TOKEN/CDD-CD-256 | 0.9313 | 0.9516 | 0.9857 | 0.9413 | 0.8891 | 0.9332 | 2.596 | 0.620 | 2.2136 | str_tass
 STR-Fusion/Run2_TASS/C0_TOKEN/LEVIR-CD-256 | 0.8637 | 0.8925 | 0.9878 | 0.8779 | 0.7824 | 0.8714 | 2.596 | 0.620 | 2.2136 | str_tass
 STR-Fusion/Run2_TASS/C0_TOKEN/SYSU-CD-256 | 0.7993 | 0.8450 | 0.9181 | 0.8215 | 0.6971 | 0.7684 | 2.596 | 0.620 | 2.2136 | str_tass
@@ -19098,10 +19110,5 @@ baseline/Run1/SYSU-CD-256 | 0.8077 | 0.8427 | 0.9191 | 0.8248 | 0.7019 | 0.7723 
 baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 | 11.754 | 20.661 | 26.3246 | baseline
 
 ================================================================================
-## SELECTED RUN LOGS WITHOUT FINAL TEST (5)
+## SELECTED RUN LOGS WITHOUT FINAL TEST (0)
 ================================================================================
-CASA/Run6/M0_CTRL/LEVIR-CD-256 | last_logged_steps=1998/40182 | no formal metric
-CASA/Run6/M0_CTRL/SYSU-CD-256 | last_logged_steps=1875/40125 | no formal metric
-CASA/Run6/M1_HYPER_QKV/LEVIR-CD-256 | last_logged_steps=1776/40182 | no formal metric
-CASA/Run6/M1_HYPER_QKV/SYSU-CD-256 | last_logged_steps=1500/40125 | no formal metric
-CASA/Run6/M2_CA_QKV/LEVIR-CD-256 | last_logged_steps=1998/40182 | no formal metric

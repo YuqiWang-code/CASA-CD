@@ -66,22 +66,22 @@
 
 <!-- CASA_RUN6_RESULTS_START -->
 
-状态更新：2026-10-23 19:22:30 CST；队列 `running`；正式结果 **10/12**。
+状态更新：2026-10-24 02:02:52 CST；队列 `complete`；正式结果 **12/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 91.552 | 84.420 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 91.052 | 83.573 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.616 | 84.529 |
-| SYSU | `M0_CTRL` | 完成 | 82.417 | 70.092 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 80.832 | 67.831 |
-| SYSU | `M2_CA_QKV` | 完成 | 82.388 | 70.051 |
-| WHU | `M0_CTRL` | 完成 | 93.439 | 87.687 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.731 | 89.990 |
-| WHU | `M2_CA_QKV` | 完成 | 94.163 | 88.969 |
-| CDD | `M0_CTRL` | 完成 | 97.428 | 94.986 |
-| CDD | `M1_HYPER_QKV` | 训练中：24400/40248 | — | — |
-| CDD | `M2_CA_QKV` | 训练中：22776/40248 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 91.55 | 84.42 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 91.05 | 83.57 |
+| LEVIR | `M2_CA_QKV` | 完成 | 91.62 | 84.53 |
+| SYSU | `M0_CTRL` | 完成 | 82.42 | 70.09 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 80.83 | 67.83 |
+| SYSU | `M2_CA_QKV` | 完成 | 82.39 | 70.05 |
+| WHU | `M0_CTRL` | 完成 | 93.44 | 87.69 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.73 | 89.99 |
+| WHU | `M2_CA_QKV` | 完成 | 94.16 | 88.97 |
+| CDD | `M0_CTRL` | 完成 | 97.43 | 94.99 |
+| CDD | `M1_HYPER_QKV` | 完成 | 97.45 | 95.03 |
+| CDD | `M2_CA_QKV` | 完成 | 97.47 | 95.07 |
 
 <!-- CASA_RUN6_RESULTS_END -->
 
@@ -127,7 +127,7 @@ docs/temporary/过去的想法/    历史方案、复盘与诊断资料
 
 桌面工作目录说明见 [`.codex/README.md`](.codex/README.md)。
 
-正式指标只采纳完整TEST RESULTS区块。指标表目前保留全部135条历史记录，Run6十二项完成后统一汇表；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照对应本轮训练源码。权重与outputs不进入Git。
+正式指标只采纳完整TEST RESULTS区块。指标表保留全部147条正式记录；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照对应本轮训练源码。权重与outputs不进入Git。
 
 ## 已知限制
 
