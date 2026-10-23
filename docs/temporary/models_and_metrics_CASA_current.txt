@@ -227,7 +227,7 @@ import math
 import torch
 
 from model.layers.change_context_qkv import ChangeAwareCompressedQKV
-from model.layers.context_compression import pool_tokens, prototype_weights
+from model.layers.context_compression import pool_tokens, prototype_weights, relative_prototype_weights
 from model.layers.hyperbolic_context_qkv import HyperbolicCompressedQKV
 from model.layers.poincare_ops import (
     RADIUS, aligned_distance, displacement, expmap0, logmap0,
@@ -320,7 +320,9 @@ def change_values():
         hyperbolic.gamma.fill_(1)
         hyperbolic.embed.weight.copy_(torch.eye(2).reshape(2, 2, 1, 1) * math.sqrt(2))
         hyperbolic.out.weight.zero_()
-        hyperbolic.out.weight[:, :2, 0, 0].copy_(torch.eye(2))
+        hyperbolic.out.weight[:, 2:, 0, 0].copy_(torch.eye(2))
+        hyperbolic.local.weight.zero_()
+        hyperbolic.local.weight[:, 0, 1, 1] = 1
     a = torch.zeros(1, 2, 8, 8)
     a[:, 0, :, ::2] = 0.5
     a[:, 1, :, 1::2] = 0.5
@@ -332,7 +334,28 @@ def change_values():
     assert torch.allclose(ca, cb, atol=1e-6)
     assert float((ya - a).abs().max()) > 1e-3
     assert float((yb - b).abs().max()) > 1e-3
-    print("Spatially rearranged pairs retain aligned hyperbolic changes despite identical regional centroids PASS")
+    print("Spatially rearranged pairs retain local manifold displacement despite identical regional centroids PASS")
+
+
+def relative_contexts():
+    uniform = relative_prototype_weights(torch.ones(1, 1, 8, 8))
+    assert torch.allclose(uniform, torch.full_like(uniform, 1 / 16))
+    evidence = torch.zeros(1, 1, 8, 8)
+    evidence[:, :, :, ::2] = 1
+    assignments = relative_prototype_weights(evidence)
+    separation = (assignments[:, :, 0] - assignments[:, :, 1]).abs().sum(-1).mean() / 2
+    assert float(separation) > .7
+    assert torch.allclose(assignments.sum(-1), torch.ones_like(assignments.sum(-1)))
+    values = expmap0(torch.randn(1, 8, 4) * .1)
+    probability = torch.full((1, 5, 8), 1 / 8)
+    result = HyperbolicCompressedQKV.context_residual(probability, values)
+    assert float(result.abs().max()) < 1e-6
+    fixed = values[:, :1].expand_as(values)
+    selective = torch.randn_like(probability).softmax(-1)
+    assert float(HyperbolicCompressedQKV.context_residual(selective, fixed).abs().max()) < 1e-6
+    inputs = (torch.randn(1, 8, 4, dtype=torch.float64) * .03).requires_grad_()
+    assert torch.autograd.gradcheck(lambda z: HyperbolicCompressedQKV.context_residual(selective.double(), z), (inputs,))
+    print("Opposite contrast assignments, uniform-cell pooling and common-manifold context rejection PASS")
 
 
 def main():
@@ -344,6 +367,7 @@ def main():
     average = torch.nn.functional.avg_pool2d(x, 4).flatten(2).transpose(1, 2)
     assert torch.allclose(pooled[:, :, 0], average, atol=1e-6)
     assert torch.equal(pooled[:, :, 0], pooled[:, :, 1])
+    relative_contexts()
     geometry()
     modules()
     change_values()
@@ -374,7 +398,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_40k_changevalues_v6"
+PROTOCOL = "casa_40k_relativecontext_v7"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
@@ -550,8 +574,8 @@ def main():
                     selection="best validation F1, ties update", deep_supervision=4,
                     label_threshold=128, context_cell=4, context_prototypes=2,
                     qkv_dim=32, source_files=identity,
-                    context_values={"none": "disabled", "qkv": "signed_and_magnitude",
-                                    "hyperbolic": "aligned_displacement_before_compression"}[args.module],
+                    context_values={"none": "disabled", "qkv": "relative_contrast_signed_and_magnitude",
+                                    "hyperbolic": "common_centroid_relative_displacement"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -1803,11 +1827,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from model.layers.context_compression import pool_tokens, prototype_weights, token_map
+from model.layers.context_compression import pool_tokens, relative_prototype_weights, token_map
 
 
 class ChangeAwareCompressedQKV(nn.Module):
-    """Dense queries retrieve compressed change direction and magnitude."""
+    """Dense queries retrieve signed/magnitude values from local contrast prototypes."""
 
     def __init__(self, channels=64, dim=32):
         super().__init__()
@@ -1834,7 +1858,7 @@ class ChangeAwareCompressedQKV(nn.Module):
         _, _, height, width = a.shape
         na, nb = self.normalize(a), self.normalize(b)
         difference = (na - nb).abs().mean(1, keepdim=True)
-        weights = prototype_weights(difference / (1 + difference))
+        weights = relative_prototype_weights(difference)
         qa, qb = (self.q(x).flatten(2).transpose(1, 2) for x in (na, nb))
         ka, kb = (pool_tokens(self.k(x), weights) for x in (na, nb))
         va, vb = self.v(a), self.v(b)
@@ -1857,6 +1881,9 @@ class ChangeAwareCompressedQKV(nn.Module):
                     entropy=float(entropy / math.log(ka.shape[1])),
                     temperature=float(F.softplus(self.raw_temperature) + 0.05),
                     gamma=float(self.gamma),
+                    assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
+                    global_value_rms=float(global_a.square().mean().sqrt()),
+                    local_value_rms=float(local_a.square().mean().sqrt()),
                     signed_value_rms=float(signed.square().mean().sqrt()),
                     magnitude_value_rms=float(magnitude.square().mean().sqrt()),
                     finite=bool(torch.isfinite(update_a).all() & torch.isfinite(update_b).all()))
@@ -1884,6 +1911,15 @@ def prototype_weights(change):
     return membership / membership.sum(-1, keepdim=True)
 
 
+def relative_prototype_weights(change):
+    """Pool high/low local change contrast with opposite softmax assignments."""
+    scores = cell_tokens(change).squeeze(-1)
+    centered = scores - scores.mean(-1, keepdim=True)
+    scale = (centered.square().mean(-1, keepdim=True) + 1e-4).sqrt()
+    contrast = centered / scale
+    return torch.stack((contrast, -contrast), dim=2).softmax(-1)
+
+
 def pool_tokens(x, weights):
     return torch.einsum("bltp,blpc->bltc", weights, cell_tokens(x)).flatten(1, 2)
 
@@ -1909,7 +1945,7 @@ from model.layers.poincare_ops import (
 
 
 class HyperbolicCompressedQKV(nn.Module):
-    """Full manifold queries retrieve compressed manifold change displacements."""
+    """Dense manifold queries retrieve context relative to its common centroid."""
 
     def __init__(self, channels=64, dim=32):
         super().__init__()
@@ -1944,6 +1980,14 @@ class HyperbolicCompressedQKV(nn.Module):
         temperature = F.softplus(self.raw_temperature) + 0.05
         return (-pairwise_distance(q, k) / temperature).softmax(-1)
 
+    @staticmethod
+    def context_residual(probabilities, values):
+        context = weighted_centroid(probabilities, values)
+        uniform = probabilities.new_full(
+            (probabilities.shape[0], 1, probabilities.shape[-1]), 1 / probabilities.shape[-1])
+        reference = weighted_centroid(uniform, values)
+        return logmap0(displacement(context, reference))
+
     def forward(self, a, b):
         _, _, height, width = a.shape
         xa, xb = self.encode(a), self.encode(b)
@@ -1956,8 +2000,8 @@ class HyperbolicCompressedQKV(nn.Module):
         aligned_a, aligned_b = displacement(va, vb), displacement(vb, va)
         delta_a, delta_b = (self.compress(x, weights, height, width) for x in (aligned_a, aligned_b))
         pab, pba = self.attention(qa, kb), self.attention(qb, ka)
-        global_a = token_map(logmap0(weighted_centroid(pab, delta_a)), height, width)
-        global_b = token_map(logmap0(weighted_centroid(pba, delta_b)), height, width)
+        global_a = token_map(self.context_residual(pab, delta_a), height, width)
+        global_b = token_map(self.context_residual(pba, delta_b), height, width)
         local_a = token_map(logmap0(aligned_a), height, width)
         local_b = token_map(logmap0(aligned_b), height, width)
         update_a = self.out(torch.cat((global_a, F.silu(self.local(local_a))), dim=1))
@@ -1974,6 +2018,8 @@ class HyperbolicCompressedQKV(nn.Module):
                     entropy=float(entropy / math.log(ka.shape[1])),
                     temperature=float(F.softplus(self.raw_temperature) + 0.05),
                     gamma=float(self.gamma), radius_mean=float(radii.mean()),
+                    global_value_rms=float(global_a.square().mean().sqrt()),
+                    local_value_rms=float(local_a.square().mean().sqrt()),
                     radius_max=float(radii.max()),
                     radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
                     query_clip_fraction=float((radii >= RADIUS - 1e-5).float().mean()),

@@ -17,6 +17,15 @@ def prototype_weights(change):
     return membership / membership.sum(-1, keepdim=True)
 
 
+def relative_prototype_weights(change):
+    """Pool high/low local change contrast with opposite softmax assignments."""
+    scores = cell_tokens(change).squeeze(-1)
+    centered = scores - scores.mean(-1, keepdim=True)
+    scale = (centered.square().mean(-1, keepdim=True) + 1e-4).sqrt()
+    contrast = centered / scale
+    return torch.stack((contrast, -contrast), dim=2).softmax(-1)
+
+
 def pool_tokens(x, weights):
     return torch.einsum("bltp,blpc->bltc", weights, cell_tokens(x)).flatten(1, 2)
 

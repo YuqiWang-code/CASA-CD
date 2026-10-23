@@ -5,11 +5,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from model.layers.context_compression import pool_tokens, prototype_weights, token_map
+from model.layers.context_compression import pool_tokens, relative_prototype_weights, token_map
 
 
 class ChangeAwareCompressedQKV(nn.Module):
-    """Dense queries retrieve compressed change direction and magnitude."""
+    """Dense queries retrieve signed/magnitude values from local contrast prototypes."""
 
     def __init__(self, channels=64, dim=32):
         super().__init__()
@@ -36,7 +36,7 @@ class ChangeAwareCompressedQKV(nn.Module):
         _, _, height, width = a.shape
         na, nb = self.normalize(a), self.normalize(b)
         difference = (na - nb).abs().mean(1, keepdim=True)
-        weights = prototype_weights(difference / (1 + difference))
+        weights = relative_prototype_weights(difference)
         qa, qb = (self.q(x).flatten(2).transpose(1, 2) for x in (na, nb))
         ka, kb = (pool_tokens(self.k(x), weights) for x in (na, nb))
         va, vb = self.v(a), self.v(b)
@@ -59,6 +59,9 @@ class ChangeAwareCompressedQKV(nn.Module):
                     entropy=float(entropy / math.log(ka.shape[1])),
                     temperature=float(F.softplus(self.raw_temperature) + 0.05),
                     gamma=float(self.gamma),
+                    assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
+                    global_value_rms=float(global_a.square().mean().sqrt()),
+                    local_value_rms=float(local_a.square().mean().sqrt()),
                     signed_value_rms=float(signed.square().mean().sqrt()),
                     magnitude_value_rms=float(magnitude.square().mean().sqrt()),
                     finite=bool(torch.isfinite(update_a).all() & torch.isfinite(update_b).all()))

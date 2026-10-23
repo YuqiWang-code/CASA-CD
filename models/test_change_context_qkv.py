@@ -4,7 +4,7 @@ import math
 import torch
 
 from model.layers.change_context_qkv import ChangeAwareCompressedQKV
-from model.layers.context_compression import pool_tokens, prototype_weights
+from model.layers.context_compression import pool_tokens, prototype_weights, relative_prototype_weights
 from model.layers.hyperbolic_context_qkv import HyperbolicCompressedQKV
 from model.layers.poincare_ops import (
     RADIUS, aligned_distance, displacement, expmap0, logmap0,
@@ -97,7 +97,9 @@ def change_values():
         hyperbolic.gamma.fill_(1)
         hyperbolic.embed.weight.copy_(torch.eye(2).reshape(2, 2, 1, 1) * math.sqrt(2))
         hyperbolic.out.weight.zero_()
-        hyperbolic.out.weight[:, :2, 0, 0].copy_(torch.eye(2))
+        hyperbolic.out.weight[:, 2:, 0, 0].copy_(torch.eye(2))
+        hyperbolic.local.weight.zero_()
+        hyperbolic.local.weight[:, 0, 1, 1] = 1
     a = torch.zeros(1, 2, 8, 8)
     a[:, 0, :, ::2] = 0.5
     a[:, 1, :, 1::2] = 0.5
@@ -109,7 +111,28 @@ def change_values():
     assert torch.allclose(ca, cb, atol=1e-6)
     assert float((ya - a).abs().max()) > 1e-3
     assert float((yb - b).abs().max()) > 1e-3
-    print("Spatially rearranged pairs retain aligned hyperbolic changes despite identical regional centroids PASS")
+    print("Spatially rearranged pairs retain local manifold displacement despite identical regional centroids PASS")
+
+
+def relative_contexts():
+    uniform = relative_prototype_weights(torch.ones(1, 1, 8, 8))
+    assert torch.allclose(uniform, torch.full_like(uniform, 1 / 16))
+    evidence = torch.zeros(1, 1, 8, 8)
+    evidence[:, :, :, ::2] = 1
+    assignments = relative_prototype_weights(evidence)
+    separation = (assignments[:, :, 0] - assignments[:, :, 1]).abs().sum(-1).mean() / 2
+    assert float(separation) > .7
+    assert torch.allclose(assignments.sum(-1), torch.ones_like(assignments.sum(-1)))
+    values = expmap0(torch.randn(1, 8, 4) * .1)
+    probability = torch.full((1, 5, 8), 1 / 8)
+    result = HyperbolicCompressedQKV.context_residual(probability, values)
+    assert float(result.abs().max()) < 1e-6
+    fixed = values[:, :1].expand_as(values)
+    selective = torch.randn_like(probability).softmax(-1)
+    assert float(HyperbolicCompressedQKV.context_residual(selective, fixed).abs().max()) < 1e-6
+    inputs = (torch.randn(1, 8, 4, dtype=torch.float64) * .03).requires_grad_()
+    assert torch.autograd.gradcheck(lambda z: HyperbolicCompressedQKV.context_residual(selective.double(), z), (inputs,))
+    print("Opposite contrast assignments, uniform-cell pooling and common-manifold context rejection PASS")
 
 
 def main():
@@ -121,6 +144,7 @@ def main():
     average = torch.nn.functional.avg_pool2d(x, 4).flatten(2).transpose(1, 2)
     assert torch.allclose(pooled[:, :, 0], average, atol=1e-6)
     assert torch.equal(pooled[:, :, 0], pooled[:, :, 1])
+    relative_contexts()
     geometry()
     modules()
     change_values()

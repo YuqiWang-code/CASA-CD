@@ -13,7 +13,7 @@ from model.layers.poincare_ops import (
 
 
 class HyperbolicCompressedQKV(nn.Module):
-    """Full manifold queries retrieve compressed manifold change displacements."""
+    """Dense manifold queries retrieve context relative to its common centroid."""
 
     def __init__(self, channels=64, dim=32):
         super().__init__()
@@ -48,6 +48,14 @@ class HyperbolicCompressedQKV(nn.Module):
         temperature = F.softplus(self.raw_temperature) + 0.05
         return (-pairwise_distance(q, k) / temperature).softmax(-1)
 
+    @staticmethod
+    def context_residual(probabilities, values):
+        context = weighted_centroid(probabilities, values)
+        uniform = probabilities.new_full(
+            (probabilities.shape[0], 1, probabilities.shape[-1]), 1 / probabilities.shape[-1])
+        reference = weighted_centroid(uniform, values)
+        return logmap0(displacement(context, reference))
+
     def forward(self, a, b):
         _, _, height, width = a.shape
         xa, xb = self.encode(a), self.encode(b)
@@ -60,8 +68,8 @@ class HyperbolicCompressedQKV(nn.Module):
         aligned_a, aligned_b = displacement(va, vb), displacement(vb, va)
         delta_a, delta_b = (self.compress(x, weights, height, width) for x in (aligned_a, aligned_b))
         pab, pba = self.attention(qa, kb), self.attention(qb, ka)
-        global_a = token_map(logmap0(weighted_centroid(pab, delta_a)), height, width)
-        global_b = token_map(logmap0(weighted_centroid(pba, delta_b)), height, width)
+        global_a = token_map(self.context_residual(pab, delta_a), height, width)
+        global_b = token_map(self.context_residual(pba, delta_b), height, width)
         local_a = token_map(logmap0(aligned_a), height, width)
         local_b = token_map(logmap0(aligned_b), height, width)
         update_a = self.out(torch.cat((global_a, F.silu(self.local(local_a))), dim=1))
@@ -78,6 +86,8 @@ class HyperbolicCompressedQKV(nn.Module):
                     entropy=float(entropy / math.log(ka.shape[1])),
                     temperature=float(F.softplus(self.raw_temperature) + 0.05),
                     gamma=float(self.gamma), radius_mean=float(radii.mean()),
+                    global_value_rms=float(global_a.square().mean().sqrt()),
+                    local_value_rms=float(local_a.square().mean().sqrt()),
                     radius_max=float(radii.max()),
                     radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
                     query_clip_fraction=float((radii >= RADIUS - 1e-5).float().mean()),
