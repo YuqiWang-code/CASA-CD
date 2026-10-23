@@ -2,7 +2,7 @@
 """Run3 结果对比报告：outputs/ 下的 Run1(M1_FULL) 与 Run3(E4/E5) TEST RESULTS 自动对比，
 含复盘文档 §13 预注册裁决（E4/E5 各自的成功/失败条件）。
 
-用法（本地，先跑 .claude/_download_tvim_logs_run3.py 下载日志）：
+用法（本地，先跑 tools/download_training_results.py --tag CASA-TViM --run Run3 下载日志）：
     python tools/archive/run3_report.py
 输出：docs/temporary/run3_report.md
 """

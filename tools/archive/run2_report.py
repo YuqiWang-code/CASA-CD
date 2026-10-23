@@ -2,7 +2,7 @@
 """Run2 结果对比报告：outputs/ 下的 Run1(M1_FULL) 与 Run2(E1/E2/E3) TEST RESULTS
 自动对比，输出 markdown 报告 + 达标判定（调研文档 §15 通过标准）。
 
-用法（本地，先跑 .claude/_download_tvim_logs_run2.py 下载日志）：
+用法（本地，先跑 tools/download_training_results.py --tag CASA-TViM --run Run2 下载日志）：
     python tools/archive/run2_report.py
 输出：docs/temporary/run2_report.md
 """

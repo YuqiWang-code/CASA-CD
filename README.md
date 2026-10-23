@@ -2,6 +2,16 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet / Run6**，训练协议 `casa_40k_changevalues_v6`。
 
+## 项目定位与研究原则
+
+面向普通RGB双时相影像的全监督遥感二值变化检测，在LEVIR、SYSU、WHU和CDD上研究有竞争力的检测精度与轻量推理，进一步探索极轻量部署和较少的可学习参数。研究贡献聚焦双曲QKV与变化感知的上下文压缩QKV，形成结构简洁、问题明确、证据充分的方法。
+
+- **模块有明确作用。** 双曲模块需要证明几何表示能改善变化与非变化特征的区分；普通模块需要证明变化感知压缩能保留有效上下文和细节。两者均保持Q的空间位置，仅压缩KV，并分别验证设计依据与实际收益。
+- **复杂度服务于问题。** 优先采用常见、可解释的运算，新增结构应对应已观察到的具体缺陷。不依赖特殊激活函数或无关新元件制造指标增益，使提升能够归因于核心机制。
+- **比较使用一致协议。** 在相同骨干、训练预算、数据划分和选模规则下比较CTRL与两个模块，通过消融确认每项改动的作用；关键结论关注重复实验的稳定性和各数据集的差异。
+- **效率按实际部署衡量。** 分别报告可学习参数量、部署折叠后的参数量与计算量，以及注明输入尺寸、batch和硬件的推理速度、显存占用。准确率与成本共同评价，较少参数本身不等同于更快推理。
+- **设计与评价保持独立。** 使用训练集、验证集及其中的样本和中间特征分析问题、调整结构；测试集用于方案确定后的最终评价，不用于反复选择改动。领先性结论须由相同评价口径的实验支持。
+
 ## 模型
 
 ```text
@@ -56,28 +66,31 @@
 
 <!-- CASA_RUN6_RESULTS_START -->
 
-状态更新：2026-10-23 12:02:42 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-23 19:22:30 CST；队列 `running`；正式结果 **10/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：2100/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：1776/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：1998/40182 | — | — |
-| SYSU | `M0_CTRL` | 训练中：1875/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：1600/40125 | — | — |
-| SYSU | `M2_CA_QKV` | 待启动 | — | — |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 91.552 | 84.420 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 91.052 | 83.573 |
+| LEVIR | `M2_CA_QKV` | 完成 | 91.616 | 84.529 |
+| SYSU | `M0_CTRL` | 完成 | 82.417 | 70.092 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 80.832 | 67.831 |
+| SYSU | `M2_CA_QKV` | 完成 | 82.388 | 70.051 |
+| WHU | `M0_CTRL` | 完成 | 93.439 | 87.687 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.731 | 89.990 |
+| WHU | `M2_CA_QKV` | 完成 | 94.163 | 88.969 |
+| CDD | `M0_CTRL` | 完成 | 97.428 | 94.986 |
+| CDD | `M1_HYPER_QKV` | 训练中：24400/40248 | — | — |
+| CDD | `M2_CA_QKV` | 训练中：22776/40248 | — | — |
 
 <!-- CASA_RUN6_RESULTS_END -->
 
 调度、检查、停止和结果收集说明见 [`train_scripts/CASA/Run6/`](train_scripts/CASA/Run6/README.md)。
 
 ```bash
+# 本地：读取服务器实时状态
+python .codex/status.py --run Run6
+
 # 服务器：查看队列
 cat /home/yqwang/outputs/CASA-CD/CASA/Run6/pipeline_status.json
 tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run6/pipeline.log
@@ -92,6 +105,8 @@ python tools/models_to_txt.py --tag CASA --run current
 ## 目录与产物
 
 ```text
+.codex/                       桌面任务说明、服务器连接和只读状态工具
+AGENTS.md                     项目工作约定
 models/                       当前模型、数据处理、训练与测试
 train_scripts/CASA/Run6/       当前轮次的检查、调度与收集脚本
 tools/                        日志下载、指标汇总、源码快照等工具
@@ -110,8 +125,10 @@ docs/temporary/过去的想法/    历史方案、复盘与诊断资料
 | 本轮日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run6/` |
 | 本轮checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run6/` |
 
-正式指标只采纳完整TEST RESULTS区块。指标表保留全部135条历史记录，探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照对应本轮训练源码。权重与outputs不进入Git。
+桌面工作目录说明见 [`.codex/README.md`](.codex/README.md)。
+
+正式指标只采纳完整TEST RESULTS区块。指标表目前保留全部135条历史记录，Run6十二项完成后统一汇表；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照对应本轮训练源码。权重与outputs不进入Git。
 
 ## 已知限制
 
-Run6初期部分双曲层的注意力偏平均，验证诊断采样中的位移裁剪比例最高28.45%；逐层损失、梯度及几何观察见本轮说明。最终模块收益以完整正式测试衡量，当前为seed2333的单次实验。
+当前为seed2333的单次实验，两个模块在LEVIR、SYSU与WHU的收益存在差异。双曲注意力的选择性、几何裁剪以及训练和验证之间的泛化差异需结合特征、支路贡献与同轮CTRL分析；单项诊断值不足以认定模块失活。
