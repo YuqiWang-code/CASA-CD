@@ -1,5 +1,7 @@
 # CASA / Run3
 
+This directory records the completed Run3 protocol. Reproduce it with that round's `source_code.tar.gz`; current models use the Run6 protocol.
+
 Independent Euclidean and hyperbolic change-context modules with MobileNetV2/HFEA, TAR skips and DCR decoding.
 
 Protocol: `casa_40k_separateqkv_v3`. Batch 32, seed 2333, Adam lr=5e-4, betas=(0.9,0.99), eps=1e-8. Module parameters use weight decay 0; the main network uses 1e-4. The target 40,000 steps rounds to complete epochs. Validation selects the best F1; formal test follows deployment folding verification.

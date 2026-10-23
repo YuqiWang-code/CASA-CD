@@ -1,4 +1,4 @@
-"""Euclidean change-aware compressed QKV with aligned difference values."""
+"""Euclidean compressed QKV with signed and magnitude change values."""
 import math
 
 import torch
@@ -9,7 +9,7 @@ from model.layers.context_compression import pool_tokens, prototype_weights, tok
 
 
 class ChangeAwareCompressedQKV(nn.Module):
-    """Full queries attend to paired change/stable key and difference tokens."""
+    """Dense queries retrieve compressed change direction and magnitude."""
 
     def __init__(self, channels=64, dim=32):
         super().__init__()
@@ -18,7 +18,7 @@ class ChangeAwareCompressedQKV(nn.Module):
         self.k = nn.Conv2d(channels, dim, 1, bias=False)
         self.v = nn.Conv2d(channels, dim, 1, bias=False)
         self.local = nn.Conv2d(dim, dim, 3, padding=1, groups=dim, bias=False)
-        self.out = nn.Conv2d(2 * dim, channels, 1, bias=False)
+        self.out = nn.Conv2d(3 * dim, channels, 1, bias=False)
         self.raw_temperature = nn.Parameter(torch.tensor(math.log(math.expm1(0.15))))
         self.gamma = nn.Parameter(torch.zeros(()))
         self.collect_diag = False
@@ -40,12 +40,14 @@ class ChangeAwareCompressedQKV(nn.Module):
         qa, qb = (self.q(x).flatten(2).transpose(1, 2) for x in (na, nb))
         ka, kb = (pool_tokens(self.k(x), weights) for x in (na, nb))
         va, vb = self.v(a), self.v(b)
-        change_values = pool_tokens(va - vb, weights)
+        difference_values = va - vb
+        change_values = pool_tokens(torch.cat((difference_values, difference_values.abs()), dim=1), weights)
         pab, pba = self.attention(qa, kb), self.attention(qb, ka)
         global_a = token_map(pab @ change_values, height, width)
-        global_b = token_map(pba @ -change_values, height, width)
-        local_a = F.silu(self.local(va - vb))
-        local_b = F.silu(self.local(vb - va))
+        signed, magnitude = change_values.chunk(2, dim=-1)
+        global_b = token_map(pba @ torch.cat((-signed, magnitude), dim=-1), height, width)
+        local_a = F.silu(self.local(difference_values))
+        local_b = F.silu(self.local(-difference_values))
         update_a = self.out(torch.cat((global_a, local_a), dim=1))
         update_b = self.out(torch.cat((global_b, local_b), dim=1))
         if self.collect_diag:
@@ -57,5 +59,7 @@ class ChangeAwareCompressedQKV(nn.Module):
                     entropy=float(entropy / math.log(ka.shape[1])),
                     temperature=float(F.softplus(self.raw_temperature) + 0.05),
                     gamma=float(self.gamma),
+                    signed_value_rms=float(signed.square().mean().sqrt()),
+                    magnitude_value_rms=float(magnitude.square().mean().sqrt()),
                     finite=bool(torch.isfinite(update_a).all() & torch.isfinite(update_b).all()))
         return a + self.gamma * update_a, b + self.gamma * update_b

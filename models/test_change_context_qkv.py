@@ -72,6 +72,46 @@ def modules():
         print(cls.__name__, "four-scale N-to-N queries, compressed KV, exchange symmetry, identical-pair identity and finite task gradients PASS")
 
 
+def change_values():
+    ordinary = ChangeAwareCompressedQKV(channels=2, dim=2).eval()
+    with torch.no_grad():
+        ordinary.gamma.fill_(1)
+        ordinary.q.weight.zero_()
+        ordinary.k.weight.zero_()
+        ordinary.v.weight.zero_()
+        ordinary.v.weight[0, 0, 0, 0] = 1
+        ordinary.out.weight.zero_()
+        ordinary.out.weight[0, 2, 0, 0] = 1
+    a = torch.zeros(1, 2, 8, 8)
+    a[:, 0, :, ::2] = 1
+    a[:, 0, :, 1::2] = -1
+    b = torch.zeros_like(a)
+    with torch.no_grad():
+        ya, yb = ordinary(a, b)
+    assert torch.allclose(ya[:, 0] - a[:, 0], torch.ones_like(a[:, 0]), atol=1e-6)
+    assert torch.allclose(yb[:, 0], torch.ones_like(a[:, 0]), atol=1e-6)
+    print("Opposite signed changes retain magnitude evidence in both temporal branches PASS")
+
+    hyperbolic = HyperbolicCompressedQKV(channels=2, dim=2).eval()
+    with torch.no_grad():
+        hyperbolic.gamma.fill_(1)
+        hyperbolic.embed.weight.copy_(torch.eye(2).reshape(2, 2, 1, 1) * math.sqrt(2))
+        hyperbolic.out.weight.zero_()
+        hyperbolic.out.weight[:, :2, 0, 0].copy_(torch.eye(2))
+    a = torch.zeros(1, 2, 8, 8)
+    a[:, 0, :, ::2] = 0.5
+    a[:, 1, :, 1::2] = 0.5
+    b = a.flip(-1)
+    with torch.no_grad():
+        ya, yb = hyperbolic(a, b)
+        weights = prototype_weights(torch.full((1, 1, 8, 8), 0.5))
+        ca, cb = (hyperbolic.compress(hyperbolic.encode(x), weights, 8, 8) for x in (a, b))
+    assert torch.allclose(ca, cb, atol=1e-6)
+    assert float((ya - a).abs().max()) > 1e-3
+    assert float((yb - b).abs().max()) > 1e-3
+    print("Spatially rearranged pairs retain aligned hyperbolic changes despite identical regional centroids PASS")
+
+
 def main():
     torch.set_num_threads(2)
     torch.manual_seed(2333)
@@ -83,6 +123,7 @@ def main():
     assert torch.equal(pooled[:, :, 0], pooled[:, :, 1])
     geometry()
     modules()
+    change_values()
 
 
 if __name__ == '__main__':

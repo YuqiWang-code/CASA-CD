@@ -1,8 +1,8 @@
 # CASA models
 
-当前模型采用 Run3 结构，协议为 `casa_40k_separateqkv_v3`，训练入口为 `train_CASA.py`。两个模块分别按归一化特征差和双曲距离生成压缩原型权重，保持完整 Q 与 N/8 的 KV。训练损失为四级 BCE+Dice。
+当前模型采用CASA/Run6结构，协议为 `casa_40k_changevalues_v6`，训练入口为 `train_CASA.py`。普通模块的全局Value拼接有符号差和绝对差；双曲模块逐位置计算Möbius变化位移后再做几何压缩。两者保持完整Q与N/8的KV，训练损失为四级BCE+Dice。
 
-Run3、Run4、Run5 均已结束，当前没有活动训练。历史脚本保留在 `train_scripts/CASA/`，复现各轮应使用对应的 `source_code.tar.gz`；后续实验使用独立输出目录。
+Run6脚本位于 `train_scripts/CASA/Run6/`，包含接口检查、真实数据健康训练、实测显存配置、两卡调度、停止和结果收集。历史轮次使用各自的 `source_code.tar.gz` 复现。
 
 | 文件 | 用途 |
 |---|---|

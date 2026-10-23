@@ -2,11 +2,11 @@
 
 遥感二值变化检测。当前主线 **CASA-STRNet**：WDMF-Net 的 MobileNetV2＋HFEA 编码器，接四尺度处理模块、TAR 时空重参数化跳层连接和 DCR 重参数化解码器。
 
-**当前代码基线：CASA/Run3 的双曲 QKV 与普通变化感知压缩 QKV，协议 `casa_40k_separateqkv_v3`。** 最近完成的 Run5 共 12 项，全部正式结果已归档，指标表保留 135 条记录。当前没有活动训练。
+**当前代码基线：CASA/Run6，协议 `casa_40k_changevalues_v6`。** 普通 QKV 同时保留有符号变化与变化幅度；双曲 QKV 先计算逐位置变化位移，再做几何压缩。历史正式结果共135条，Run6正在进行真实数据健康检查。
 
 | 编码器 | 跳层与解码器 | 当前代码基线 | 状态 |
 |---|---|---|---|
-| MobileNetV2 + HFEA，四级各 64 通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run3 结构 | 无活动训练 |
+| MobileNetV2 + HFEA，四级各64通道 | MultiScaleTAR + DCR，dim=64 | CASA/Run6 变化 Value | 训练前健康检查 |
 
 ## 模型
 
@@ -25,12 +25,12 @@ A / B → shared MobileNetV2
 | 实验 | 四级处理模块 | 训练参数量 |
 |---|---|---:|
 | `M0_CTRL` | 两个模块都关闭 | 3,100,404 |
-| `M1_HYPER_QKV` | 模块一：双曲 Q/K/V、几何原型压缩与变化位移聚合 | 3,134,332 |
-| `M2_CA_QKV` | 模块二：欧氏双原型压缩、差分 Value 与局部差分 | 3,143,036 |
+| `M1_HYPER_QKV` | 模块一：完整双曲 Q、压缩 K、逐位置位移后压缩的 V | 3,134,332 |
+| `M2_CA_QKV` | 模块二：欧氏双原型压缩、有符号与绝对差分 Value | 3,151,228 |
 
-**普通压缩 QKV**：逐 token LayerNorm 后计算时相差异，每个 4×4 cell 产生变化、稳定两个对齐原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K；Value 使用对齐时相的投影差值。全局差分与全分辨率深度卷积的局部差分拼接，经输出投影和零初始化 γ 加回输入。
+**普通压缩 QKV**：逐 token LayerNorm 后计算时相差异，每个4×4 cell产生变化、稳定两个对齐原型。完整 Q 以余弦相似度和可学习温度查询另一时相的压缩 K。全局 V 拼接投影后的有符号时相差与绝对差，分别保留方向和幅度；时相交换只对有符号部分取反。全局结果与原有局部有符号差分拼接，经输出投影和零初始化γ加回输入。
 
-**双曲压缩 QKV**：32 维嵌入经裁剪和指数映射进入 c=1 的庞加莱球。Q/K 使用共享的 Möbius 度量投影，Value 使用独立的 Möbius 投影；压缩权重由同位置双曲距离产生，K/V 均通过双曲质心聚合。负双曲距离注意力检索上下文，以 Möbius 位移表示变化 Value，在流形内加权聚合，再经 Log 映射与局部几何差分融合后回接残差。
+**双曲压缩 QKV**：32维嵌入经裁剪和指数映射进入c=1的庞加莱球。Q/K使用共享的Möbius度量投影，K按同位置双曲距离产生的权重做几何压缩。V使用独立的Möbius投影，在全部对应位置计算双向变化位移，再对位移做几何压缩。负双曲距离注意力检索上下文，在流形内聚合变化 V，经Log映射与局部几何差分融合后回接残差。
 
 两者均保持 Q 的 `N=HW` 个位置；每个区域两个原型使 KV 为 `N/8`。四层模块参数互不共享，同层双时相共享参数。Run2 使用旧设计，其 KV 为 `N/16`，两个模块的训练参数均为 3,133,176。
 
@@ -38,7 +38,7 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 
 ## 训练协议
 
-训练采用 WDMF-Net 的策略。当前模型与训练入口使用 **`casa_40k_separateqkv_v3`**。Run4 的 **`casa_40k_supervisedkv_v4`**、Run5 的 **`casa_40k_pairnorm_v5`** 属于历史实验协议，复现时使用相应轮次的源码归档。
+训练采用 WDMF-Net 的策略。当前模型与训练入口使用 **`casa_40k_changevalues_v6`**。Run3的 **`casa_40k_separateqkv_v3`**、Run4 的 **`casa_40k_supervisedkv_v4`**、Run5 的 **`casa_40k_pairnorm_v5`** 属于历史实验协议，复现时使用相应轮次的源码归档。
 
 | 设置 | 值 |
 |---|---|
@@ -58,9 +58,23 @@ MobileNetV2、HFEA 和训练设置来自 [WDMF-Net 官方仓库](https://github.
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。结构与训练设置见 [`train_scripts/CASA/Run3/`](train_scripts/CASA/Run3/README.md)。后续实验使用独立输出目录。
+CDD 按相同预算扩展到本轮；`gray>=128` 保持 JPG 标签的正确二值化。结构、健康检查与两卡调度见 [`train_scripts/CASA/Run6/`](train_scripts/CASA/Run6/README.md)。
 
-当前两个模块的实现、模型接口和训练入口与 Run3 源码一致。最新模型及全部历史指标快照为 `docs/temporary/models_and_metrics_CASA_current.txt`。Run3 与 Run5 的对照分析见 [模块分析](docs/temporary/CASA_Run3_Run5_analysis.md)。
+当前模型及全部历史指标快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照为 `docs/temporary/models_and_metrics_CASA_Run6.txt`。各历史轮次保留匹配的源码归档与冻结快照。Run3与Run5的对照见 [模块分析](docs/temporary/CASA_Run3_Run5_analysis.md)。
+
+## Run6 训练
+
+四个数据集各运行双曲、普通QKV与CTRL，共12项。优先级为LEVIR→SYSU→WHU→CDD，两卡按实测显存预算填充空闲容量。正式训练从全新初始化开始。
+
+训练前，两模块各完成3个LEVIR epoch与4个SYSU epoch，记录逐轮训练损失、梯度范数、分支/残差幅度、几何分布及完整验证结果。健康检查使用完整40K学习率计划，产物与正式实验分开。
+
+<!-- CASA_RUN6_RESULTS_START -->
+
+状态：真实数据健康检查中；正式结果 **0/12**。
+
+<!-- CASA_RUN6_RESULTS_END -->
+
+日志与JSON：`outputs/CASA/Run6`；服务器权重：`/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run6`。完整TEST RESULTS区块进入指标表，原有135条正式记录全部保留。
 
 ## Run5 历史结果
 

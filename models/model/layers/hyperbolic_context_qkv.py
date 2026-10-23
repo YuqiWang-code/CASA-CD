@@ -1,4 +1,4 @@
-"""Manifold Q/K/V compression, displacement values and hyperbolic attention."""
+"""Dense hyperbolic queries with compressed aligned displacement values."""
 import math
 
 import torch
@@ -7,7 +7,7 @@ from torch.nn import functional as F
 
 from model.layers.context_compression import cell_tokens, prototype_weights, token_map
 from model.layers.poincare_ops import (
-    aligned_distance, displacement, expmap0, from_lorentz_sum, logmap0,
+    RADIUS, aligned_distance, displacement, expmap0, from_lorentz_sum, logmap0,
     pairwise_distance, to_lorentz, weighted_centroid,
 )
 
@@ -57,18 +57,20 @@ class HyperbolicCompressedQKV(nn.Module):
         weights = prototype_weights(change)
         ka, kb = (self.compress(x, weights, height, width) for x in (qa, qb))
         va, vb = (self.mobius_linear(x, self.value) for x in (xa, xb))
-        cva, cvb = (self.compress(x, weights, height, width) for x in (va, vb))
-        delta_a, delta_b = displacement(cva, cvb), displacement(cvb, cva)
+        aligned_a, aligned_b = displacement(va, vb), displacement(vb, va)
+        delta_a, delta_b = (self.compress(x, weights, height, width) for x in (aligned_a, aligned_b))
         pab, pba = self.attention(qa, kb), self.attention(qb, ka)
         global_a = token_map(logmap0(weighted_centroid(pab, delta_a)), height, width)
         global_b = token_map(logmap0(weighted_centroid(pba, delta_b)), height, width)
-        local_a = token_map(logmap0(displacement(va, vb)), height, width)
-        local_b = token_map(logmap0(displacement(vb, va)), height, width)
+        local_a = token_map(logmap0(aligned_a), height, width)
+        local_b = token_map(logmap0(aligned_b), height, width)
         update_a = self.out(torch.cat((global_a, F.silu(self.local(local_a))), dim=1))
         update_b = self.out(torch.cat((global_b, F.silu(self.local(local_b))), dim=1))
         if self.collect_diag:
             with torch.no_grad():
                 radii = torch.linalg.vector_norm(torch.cat((qa, qb), dim=1), dim=-1)
+                directions = F.normalize(torch.cat((qa, qb), dim=1), dim=-1, eps=1e-8)
+                displacement_radii = torch.linalg.vector_norm(torch.cat((aligned_a, aligned_b), dim=1), dim=-1)
                 entropy = sum(-(p * p.clamp_min(1e-9).log()).sum(-1).mean()
                               for p in (pab, pba)) / 2
                 self.last_diag = dict(
@@ -78,6 +80,10 @@ class HyperbolicCompressedQKV(nn.Module):
                     gamma=float(self.gamma), radius_mean=float(radii.mean()),
                     radius_max=float(radii.max()),
                     radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
+                    query_clip_fraction=float((radii >= RADIUS - 1e-5).float().mean()),
+                    direction_resultant=float(directions.mean(1).norm(dim=-1).mean()),
+                    displacement_radius_mean=float(displacement_radii.mean()),
+                    displacement_clip_fraction=float((displacement_radii >= RADIUS - 1e-5).float().mean()),
                     change_mean=float(distance.mean()),
                     finite=bool(torch.isfinite(update_a).all() & torch.isfinite(update_b).all()))
         return a + self.gamma * update_a, b + self.gamma * update_b

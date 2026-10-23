@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_40k_separateqkv_v3"
+PROTOCOL = "casa_40k_changevalues_v6"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
@@ -193,6 +193,8 @@ def main():
                     selection="best validation F1, ties update", deep_supervision=4,
                     label_threshold=128, context_cell=4, context_prototypes=2,
                     qkv_dim=32, source_files=identity,
+                    context_values={"none": "disabled", "qkv": "signed_and_magnitude",
+                                    "hyperbolic": "aligned_displacement_before_compression"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -255,6 +257,7 @@ def main():
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} lr={lr:.8f}", flush=True)
         if epoch > 0:
             for op in model.stage_modules:
                 op.collect_diag = True
