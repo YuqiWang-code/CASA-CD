@@ -2,6 +2,19 @@
 
 Protocol: `casa_40k_pairnorm_v5`. MobileNetV2/HFEA, TAR and DCR with independent Euclidean and hyperbolic context modules. Four datasets each run M1_HYPER_QKV, M2_CA_QKV and M0_CTRL from fresh initialization.
 
+## Completed formal results
+
+All12 training/test runs finished2026-10-23 09:21 CST. Deployment checks passed with maximum difference3.13e-06 and zero binary disagreement.
+
+| Dataset | CTRL F1 / IoU (%) | Hyperbolic F1 / IoU (%) | Ordinary QKV F1 / IoU (%) |
+|---|---:|---:|---:|
+| LEVIR | 91.42 / 84.19 | 91.68 / 84.64 | 91.55 / 84.42 |
+| SYSU | 82.73 / 70.55 | 82.06 / 69.58 | 82.17 / 69.74 |
+| WHU | 94.43 / 89.44 | 93.88 / 88.46 | 93.41 / 87.63 |
+| CDD | 97.42 / 94.98 | 97.47 / 95.07 | 97.47 / 95.06 |
+
+The workbook contains135 formal records, preserving all123 earlier records. Logs and JSON are downloaded to outputs/CASA/Run5; model/metric snapshot is docs/temporary/models_and_metrics_CASA_Run5.txt.
+
 ## Hyperbolic paired normalization
 
 For each image pair, subtract the two dates' shared channel-wise spatial mean from their tangent vectors, then divide both by the same root mean squared token norm. Their joint mean squared tangent norm is one. Apply this operation before the embedding exponential map and after the Q/K and V tangent linear projections.
