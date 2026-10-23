@@ -40,6 +40,8 @@ python train_scripts/CASA/Run6/collect_results.py
 
 Only complete TEST RESULTS blocks enter the workbook. Preserve all 135 existing formal records; 12 new results bring the total to 147 unless other records are added. The collector directly compares old cells, updates README and writes `docs/temporary/models_and_metrics_CASA_Run6.txt`. Earlier frozen snapshots and source archives remain separate.
 
+The Run6 snapshot uses the model sources in `source_code.tar.gz`; the `current` snapshot records the working tree.
+
 ## Initial observations
 
 Source revision: `a946963`. Formal queue started 2026-10-23 11:54:12 CST; supervisor PID 1160295.

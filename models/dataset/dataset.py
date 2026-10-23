@@ -1,12 +1,11 @@
 import cv2
-import os
 from os.path import join as osp
 import numpy
 import torch.utils.data
 
 
 def read_list(list_path):
-    """Read a list/*.txt file: one sample name per line (no extension).
+    """Read a list/*.txt file: one image filename per line.
 
     The server-side dataset layout is `<root>/{A,B,label}/` + `<root>/list/*.txt`.
     """
@@ -20,16 +19,11 @@ class Dataset(torch.utils.data.Dataset):
 
     Args:
         file_root: dataset root containing A/ B/ label/ dirs
-        list_path: path to list/*.txt with sample names (no extension)
+        list_path: path to list/*.txt with image filenames
         transform: Compose of Transforms
     """
-    def __init__(self, file_root='data/', list_path=None, mode='train', transform=None):
-        if list_path is not None and os.path.isfile(list_path):
-            self.file_list = read_list(list_path)
-        else:
-            # legacy mode: file_root/<mode>/{A,B,label} with natural order
-            self.file_list = os.listdir(osp(file_root, mode, 'A'))
-            file_root = osp(file_root, mode)
+    def __init__(self, file_root, list_path, transform=None):
+        self.file_list = read_list(list_path)
 
         self.pre_images = [osp(file_root, 'A', x) for x in self.file_list]
         self.post_images = [osp(file_root, 'B', x) for x in self.file_list]
@@ -55,7 +49,3 @@ class Dataset(torch.utils.data.Dataset):
             [img, label] = self.transform(img, label)
 
         return img, label
-
-    def get_img_info(self, idx):
-        img = cv2.imread(self.pre_images[idx])
-        return {"height": img.shape[0], "width": img.shape[1]}

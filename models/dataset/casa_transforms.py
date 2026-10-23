@@ -18,48 +18,6 @@ class Scale(object):
         return [img, label]
 
 
-class Resize(object):
-    """Resize with random short-side scaling and max-size constraint"""
-
-    def __init__(self, min_size, max_size, strict=False):
-        if not isinstance(min_size, (list, tuple)):
-            min_size = (min_size,)
-        self.min_size = min_size
-        self.max_size = max_size
-        self.strict = strict
-
-    def get_size(self, image_size):
-        w, h = image_size
-
-        if not self.strict:
-            size = random.choice(self.min_size)
-
-            if self.max_size is not None:
-                min_org = float(min(w, h))
-                max_org = float(max(w, h))
-                if max_org / min_org * size > self.max_size:
-                    size = int(round(self.max_size * min_org / max_org))
-
-            if (w <= h and w == size) or (h <= w and h == size):
-                return (h, w)
-
-            if w < h:
-                return (int(size * h / w), size)
-            else:
-                return (size, int(size * w / h))
-        else:
-            if w < h:
-                return (self.max_size, self.min_size[0])
-            else:
-                return (self.min_size[0], self.max_size)
-
-    def __call__(self, image, label):
-        size = self.get_size(image.shape[:2])
-        image = cv2.resize(image, size)
-        label = cv2.resize(label, size, interpolation=cv2.INTER_NEAREST)
-        return (image, label)
-
-
 class RandomCropResize(object):
     """Random crop followed by resize back to original size"""
 
@@ -121,18 +79,6 @@ class Normalize(object):
         for i in range(6):
             image[:, :, i] = (image[:, :, i] - self.mean[i]) / self.std[i]
 
-        return [image, label]
-
-
-class GaussianNoise(object):
-    """Add Gaussian noise to image"""
-
-    def __init__(self, std=0.05):
-        self.std = std
-
-    def __call__(self, image, label):
-        noise = np.random.normal(0, self.std, size=image.shape)
-        image = image + noise.astype(np.float32)
         return [image, label]
 
 

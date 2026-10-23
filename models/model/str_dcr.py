@@ -1,18 +1,7 @@
-"""DCR decoder for STRFusion (Run1): RepLocalBlock + top-down DCRDecoder.
+"""Top-down DCR decoder with foldable local refinement.
 
-Ported from STR-RepNet `models/changedetection/models/dcr_decoder.py` (Run2
-generation). Not ported: NSCR (Run6) / MPCR (Run8) / PFDR (Run10) hooks.
-
-Top-down data flow over TAR features [t1, t2, t3, t4] (all dim ch, resolutions
-64/32/16/8 for 256x256 inputs):
-
-    d4 = t4
-    d3 = block3(SiLU(fuse3(t3, up(d4))))          # fuse3 at 8x8
-    d2 = block2(SiLU(fuse2(t2, up(d3))))          # fuse2 at 16x16
-    d1 = block1(SiLU(fuse1(t1, up(d2))))          # fuse1 at 32x32
-    out = refine(d1)                              # at 64x64
-
-All operators fold to single-path deploy convs (FP64, one FP32 cast).
+TAR features at 8/16/32/64 spatial resolution are fused from coarse to fine.
+The four decoder outputs support deep supervision at input resolution.
 """
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,7 +38,7 @@ class RepLocalBlock(nn.Module):
 class DCRDecoder(nn.Module):
     """Top-down multi-scale decoder over TAR features [t1, t2, t3, t4] (dim ch)."""
 
-    def __init__(self, dim=160, use_aux=True, use_residual=True, deploy=False):
+    def __init__(self, dim=64, use_aux=True, use_residual=True, deploy=False):
         super().__init__()
         self.dim = dim
         self.use_aux = use_aux

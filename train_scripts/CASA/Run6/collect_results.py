@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -21,6 +22,17 @@ def metric_rows(path):
     rows = list(book['metrics'].values)
     book.close()
     return rows
+
+
+def training_source_dir(base):
+    destination = base / 'runtime_source'
+    with tarfile.open(base / 'source_code.tar.gz', 'r:gz') as archive:
+        for member in archive.getmembers():
+            if member.isfile() and member.name.startswith('models/'):
+                path = destination / member.name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(archive.extractfile(member).read())
+    return destination / 'models'
 
 
 def main():
@@ -72,7 +84,9 @@ def main():
         if any(after.get(tuple(row[:4])) != row for row in before[1:]):
             workbook.write_bytes(original)
             raise RuntimeError('prior metric cells changed; existing workbook restored')
-        command('tools/models_to_txt.py', '--tag', 'CASA', '--run', 'Run6')
+        models_dir = training_source_dir(base).relative_to(ROOT).as_posix()
+        command('tools/models_to_txt.py', '--tag', 'CASA', '--run', 'Run6',
+                '--models-dir', models_dir)
     prior_path.write_text(json.dumps(dict(formal_runs=formal, pipeline_status=status['status']), indent=2))
     print(f"Run6 formal={len(formal)}/12, status={status['status']}")
 

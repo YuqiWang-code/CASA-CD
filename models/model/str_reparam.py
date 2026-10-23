@@ -1,15 +1,7 @@
-"""Structural re-parameterization primitives for STRFusion (Run1).
+"""Foldable depthwise, pointwise and paired-feature convolution blocks.
 
-Ported from STR-RepNet `models/changedetection/models/reparam.py` (Run2 generation
-only — BN-FR branch-normalized foldable residual). Deliberately NOT ported:
-NSCR (Run6) / PBRUHead (Run7) / MPCR (Run8) / PFDR (Run10) — those parameterization
-families were pre-registered FAIL/WEAK on the STR side and are out of scope here.
-
-Discipline (STR P0 / Run5):
-  - every linear branch has its own BatchNorm + foldable alpha residual (BN-FR);
-  - aux branches are zero-init (BN gamma=beta=0) -> epoch-0 aux output is exactly 0;
-  - all kernel/bias composition in FP64, single FP32 cast at the final deploy conv;
-  - deploy graph: each block folds to a single Conv/DWConv (bias=True).
+Training branches use separate BatchNorm layers and learnable residuals.
+Kernel and bias composition uses FP64 before one FP32 cast for deployment.
 """
 import torch
 import torch.nn as nn
@@ -20,7 +12,7 @@ def fold_conv_bn(weight, bias, bn):
     """Fold one Conv (weight, bias) + BatchNorm into (W', b').
 
     Returns float64 tensors: ALL branch composition must stay in float64 and
-    cast to FP32 once, at the final deploy-conv assignment (STR P0 fix, Run5).
+    cast to FP32 once, at the final deploy-conv assignment.
     """
     C = weight.shape[0]
     eps = bn.eps if bn.eps is not None else 1e-5
@@ -70,8 +62,7 @@ class RepDW3(nn.Module):
             self.bn3 = nn.BatchNorm2d(channels)
             nn.init.kaiming_normal_(self.dw3.weight, mode="fan_out", nonlinearity="relu")
             if self.use_aux:
-                # skip_init: see RepPW1x1 note — aux conv construction consumes
-                # global RNG; skip it to keep C0/M1 shared inits bitwise aligned.
+                # Keep auxiliary construction independent of the shared initialization stream.
                 from torch.nn.utils import skip_init
                 self.dw13 = skip_init(nn.Conv2d, channels, channels, (1, 3), 1, (0, 1), groups=channels, bias=False)
                 self.bn13 = nn.BatchNorm2d(channels)
@@ -146,14 +137,7 @@ class RepPW1x1(nn.Module):
             self.bn_main = nn.BatchNorm2d(channels)
             nn.init.kaiming_normal_(self.pw_main.weight, mode="fan_out", nonlinearity="relu")
             if self.use_aux:
-                # skip_init: build the aux convs WITHOUT consuming the global RNG
-                # stream (STR Run9/10 RNG discipline). Otherwise C0 (use_aux=False)
-                # and M1 (use_aux=True) would draw different global-RNG sequences
-                # for every downstream shared module, breaking the C0/M1 epoch-0
-                # bitwise identity. The weights are then filled from a LOCAL
-                # generator: kaiming + tiny serial init keeps the branch trainable
-                # and keeps x_hat nonzero so bn_lr.gamma receives a gradient at
-                # init (no deadlock; conv grads appear once gamma departs 0).
+                # Keep auxiliary construction independent of the shared initialization stream.
                 from torch.nn.utils import skip_init
                 self.pw1 = skip_init(nn.Conv2d, channels, self.r, 1, bias=False)
                 self.pw2 = skip_init(nn.Conv2d, self.r, channels, 1, bias=False)
@@ -162,11 +146,7 @@ class RepPW1x1(nn.Module):
                 _g = torch.Generator().manual_seed(0x5F1)
                 nn.init.kaiming_normal_(self.pw1.weight, mode="fan_out", nonlinearity="relu", generator=_g)
                 nn.init.normal_(self.pw2.weight, mean=0.0, std=1e-3, generator=_g)
-                # STR Run8 MPCR pattern (STRFusion P0 adaptation): aux BN gamma=beta=0
-                # zero-init guarantees the serial branch output is EXACTLY 0 at epoch 0
-                # (STR Run1/2 kept bn_lr at default gamma=1, which leaks ~1e-4 into
-                # epoch-0 output and breaks the C0/M1 bitwise-identity discipline the
-                # STRFusion pre-registration requires).
+                # Zero-initialized normalization keeps the serial branch inactive at initialization.
                 nn.init.zeros_(self.bn_lr.weight)
                 nn.init.zeros_(self.bn_lr.bias)
             if self.use_residual:
@@ -237,8 +217,7 @@ class RepPairFuse1x1(nn.Module):
             self.bn_c = nn.BatchNorm2d(channels)
             nn.init.kaiming_normal_(self.fuse_c.weight, mode="fan_out", nonlinearity="relu")
             if self.use_aux:
-                # skip_init: see RepPW1x1 note — aux conv construction consumes
-                # global RNG; skip it to keep C0/M1 shared inits bitwise aligned.
+                # Keep auxiliary construction independent of the shared initialization stream.
                 from torch.nn.utils import skip_init
                 self.fuse_s = skip_init(nn.Conv2d, channels, channels, 1, bias=False)
                 self.bn_s = nn.BatchNorm2d(channels)
