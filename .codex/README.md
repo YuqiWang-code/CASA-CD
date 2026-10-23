@@ -9,15 +9,15 @@
 | `server_status.py` | 由 status.py 通过 SSH 执行的只读状态查询 |
 | `SERVER.md` | 服务器路径、环境、部署和结果收集约定 |
 | `STATE.md` | 当前轮次、源码基线及待办任务 |
-| `RUN7_TASK.md` | Run6 收尾、证据分析及 Run7 实验任务 |
+| `RUN7_TASK.md` | Run6 结果与 Run7 分析、设计及启动任务 |
 
 在仓库根目录执行：
 
 ```powershell
-python .codex/status.py --run Run6
+python .codex/status.py --run Run7
 python .codex/ssh.py "nvidia-smi" 60
 python .codex/ssh.py outputs/remote_command.sh 120
-python train_scripts/CASA/Run6/collect_results.py
+python train_scripts/CASA/Run7/collect_results.py
 ```
 
 连接信息保存在未提交的 `.vscode/sftp.json`，Python 需要 `paramiko`。状态查询只读，不会启动、停止或恢复训练。命令文件可放入 `outputs/`；可重复使用的实验启动、停止和检查脚本放在 `train_scripts/CASA/<Run>/`。

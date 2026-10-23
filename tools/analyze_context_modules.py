@@ -1,4 +1,4 @@
-"""Inspect trained context branches on fixed validation samples."""
+"""Inspect Run6 context branches on fixed validation samples."""
 import argparse
 from contextlib import contextmanager
 import json
@@ -131,7 +131,7 @@ def module_statistics(op, a, b, target, mode):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--models-dir',type=Path,required=True)
-    parser.add_argument('--run',default='Run6')
+    parser.add_argument('--run',choices=['Run6'],default='Run6')
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--samples',type=int,default=12)
     args=parser.parse_args()

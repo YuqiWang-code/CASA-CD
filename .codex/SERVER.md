@@ -25,7 +25,7 @@ cd /home/yqwang/projects/CASA-CD
 
 先读取实时队列、进程和 GPU 占用。每轮脚本集中在 `train_scripts/CASA/<Run>/`；`pipeline.py` 为唯一调度器，`pipeline_status.json`、`placement.json` 记录实验和物理 GPU 分配。启动前查看已有状态以避免重复队列。
 
-Run6 使用 `models/train_CASA.py`，协议 `casa_40k_changevalues_v6`。两张 GPU 按实测显存预算补位，数据集优先级 LEVIR→SYSU→WHU→CDD，允许跨库并行。模型、数值几何、梯度和部署折叠检查通过后做真实数据短训，随后从预训练骨干全新初始化正式实验。探针不是正式指标。
+Run7 使用 `models/train_CASA.py`，协议 `casa_40k_relativecontext_v7`。两张 GPU 按实测显存预算补位，数据集优先级 LEVIR→SYSU→WHU→CDD，允许跨库并行。模型、数值几何、梯度和部署折叠检查通过后做真实数据短训，随后从预训练骨干全新初始化正式实验。探针不是正式指标。
 
 在下一轮部署前保存该轮源码、参数与环境。训练运行期间不覆盖其模型或训练代码。按精确 PID / 本轮停止脚本处理本项目队列，保留旧日志和 checkpoint；失败先读具体错误，不循环重启。
 
@@ -34,11 +34,11 @@ Shell 文件使用 LF，修改过的启动脚本执行 `bash -n`；模型改动�
 ## 结果
 
 ```powershell
-python tools/download_training_results.py --tag CASA --run Run6
-python train_scripts/CASA/Run6/collect_results.py
+python tools/download_training_results.py --tag CASA --run Run7
+python train_scripts/CASA/Run7/collect_results.py
 python tools/models_to_txt.py --tag CASA --run current
 ```
 
-Run6 collector 从本地 `outputs/CASA/Run6/source_code.tar.gz` 提取实际训练源码，生成该轮冻结快照。当前 `models/` 的快照使用 `current`，不覆盖历史轮次。
+Run7 collector 从本地 `outputs/CASA/Run7/source_code.tar.gz` 提取实际训练源码，生成该轮冻结快照。当前 `models/` 的快照使用 `current`，不覆盖历史轮次。
 
 完成条件为每项日志具有完整 `TEST RESULTS` 和 `END TEST RESULTS`。训练或验证指标、探针、停止项不写为正式结果。更新指标时逐单元格保留历史记录；新正式结果对应的 README、XLSX、TXT 和说明提交推送，输出、权重与连接配置保持本地。

@@ -1,6 +1,6 @@
 # CASA-CD
 
-遥感二值变化检测。当前主线 **CASA-STRNet / Run6**，训练协议 `casa_40k_changevalues_v6`。
+遥感二值变化检测。当前主线 **CASA-STRNet / Run7**，训练协议 `casa_40k_relativecontext_v7`。
 
 ## 项目定位与研究原则
 
@@ -27,12 +27,12 @@
 | 实验 | 处理模块 | 训练参数量 |
 |---|---|---:|
 | `M0_CTRL` | 无处理模块 | 3,100,404 |
-| `M1_HYPER_QKV` | 双曲距离注意力；逐位置计算变化位移，再几何压缩V | 3,134,332 |
-| `M2_CA_QKV` | 欧氏注意力；全局V保留有符号差和绝对差 | 3,151,228 |
+| `M1_HYPER_QKV` | 双曲距离注意力；读出查询质心相对公共质心的几何偏移 | 3,134,332 |
+| `M2_CA_QKV` | 局部高/低变化对比压缩；V保留有符号差和绝对差 | 3,151,228 |
 
 两个模块都保持完整Q，每个4×4区域压缩成两个对齐原型，使KV位置数为N/8。四层模块独立，同层双时相共享参数；输出进入TAR跳层连接。
 
-普通模块以余弦相似度查询压缩K，将变化方向与变化幅度共同聚合，并融合局部有符号差分。双曲模块在庞加莱球内构建Q/K/V，逐位置计算Möbius位移，经几何压缩、距离注意力和几何聚合后Log映射回欧氏空间，与局部位移分支融合。两者以零初始化γ回接残差。
+普通模块以局部标准化变化对比的正/负softmax构造两类压缩原型，完整Q以余弦相似度检索压缩KV，并融合局部差分。双曲模块在庞加莱球内构建Q/K/V；查询质心与压缩V公共质心的Möbius位移，经Log映射作为全局上下文，与逐位置位移局部分支融合。两者以零初始化γ回接残差，参数量与Run6相同。
 
 实现见 [`models/`](models/README.md)，来源见 [`SOURCES.md`](models/SOURCES.md)。
 
@@ -58,7 +58,34 @@
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-## 当前实验：Run6
+## 当前实验：Run7
+
+协议`casa_40k_relativecontext_v7`，源码基线`2e60998`。四库各双曲/普通/CTRL，共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位。四个健康探针已通过；正式队列于2026-10-24 02:21:37 CST从预训练骨干全新初始化启动，已观察所有首发进程至少3个完整epoch，损失下降、梯度与几何状态有限。
+
+<!-- CASA_RUN7_RESULTS_START -->
+
+状态更新：2026-10-24 02:28:18 CST；队列`running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：1600/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：1332/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：1554/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：1500/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：1200/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
+
+<!-- CASA_RUN7_RESULTS_END -->
+
+启动、健康探针与初期损失见[Run7说明](train_scripts/CASA/Run7/README.md)。Run6四库特征、完整验证支路诊断和Run7机制依据见[分析报告](docs/temporary/CASA_Run6_analysis_Run7_design.md)。
+
+## Run6 已完成结果
 
 四库各运行双曲、普通QKV和CTRL，共12项。优先级为 **LEVIR→SYSU→WHU→CDD**，两张GPU按实测显存预算并行补位。启动时GPU0运行两项双曲实验，GPU1运行普通模块和两项CTRL，共五路。
 
@@ -89,14 +116,14 @@
 
 ```bash
 # 本地：读取服务器实时状态
-python .codex/status.py --run Run6
+python .codex/status.py --run Run7
 
 # 服务器：查看队列
-cat /home/yqwang/outputs/CASA-CD/CASA/Run6/pipeline_status.json
-tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run6/pipeline.log
+cat /home/yqwang/outputs/CASA-CD/CASA/Run7/pipeline_status.json
+tail -20 /home/yqwang/outputs/CASA-CD/CASA/Run7/pipeline.log
 
 # 本地：下载结果、更新指标表及本轮快照
-python train_scripts/CASA/Run6/collect_results.py
+python train_scripts/CASA/Run7/collect_results.py
 
 # 保存当前精简源码与全部正式指标
 python tools/models_to_txt.py --tag CASA --run current
@@ -108,10 +135,10 @@ python tools/models_to_txt.py --tag CASA --run current
 .codex/                       桌面任务说明、服务器连接和只读状态工具
 AGENTS.md                     项目工作约定
 models/                       当前模型、数据处理、训练与测试
-train_scripts/CASA/Run6/       当前轮次的检查、调度与收集脚本
+train_scripts/CASA/Run7/       当前轮次的检查、调度与收集脚本
 tools/                        日志下载、指标汇总、源码快照等工具
 others/                       方法来源的参考代码
-outputs/CASA/Run6/            本地日志、JSON和运行源码归档
+outputs/CASA/Run7/            本地日志、JSON和运行源码归档
 docs/experiment_metrics.xlsx  全部正式实验指标
 docs/temporary/               当前源码快照和各轮冻结快照
 docs/temporary/过去的想法/    历史方案、复盘与诊断资料
@@ -122,12 +149,24 @@ docs/temporary/过去的想法/    历史方案、复盘与诊断资料
 | 项目 / 环境 | `/home/yqwang/projects/CASA-CD` / `casacd` |
 | 数据集 | `/share_datasets/CD/<dataset>/{A,B,label,list}/` |
 | 预训练权重 | `/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth` |
-| 本轮日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run6/` |
-| 本轮checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run6/` |
+| 本轮日志 | `/home/yqwang/outputs/CASA-CD/CASA/Run7/` |
+| 本轮checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/Run7/` |
 
 桌面工作目录说明见 [`.codex/README.md`](.codex/README.md)。
 
-正式指标只采纳完整TEST RESULTS区块。指标表保留全部147条正式记录；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6快照对应本轮训练源码。权重与outputs不进入Git。
+正式指标只采纳完整TEST RESULTS区块。指标表保留全部147条正式记录；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6与Run7冻结快照分别对应各轮运行源码。权重与outputs不进入Git。
+
+## 部署效率
+
+RTX5090，256×256双时相输入、batch1，四级输出，折叠后测量；30次预热、100次同步单图调用。输入和权重为FP32，cuDNN允许TF32，矩阵乘TF32关闭。FLOPs仅统计profiler支持的卷积/矩阵乘，不含双曲逐元素运算：
+
+| 变体 | 训练可学习参数 | 部署参数 | 已统计GFLOPs | 中位延迟(ms) |
+|---|---:|---:|---:|---:|
+| none | 3,100,404 | 3,016,737 | 4.342 | 5.86 |
+| hyperbolic | 3,134,332 | 3,050,665 | 5.130 | 17.35 |
+| qkv | 3,151,228 | 3,067,561 | 5.478 | 9.02 |
+
+Run6→Run7的双曲延迟为15.27→17.35ms，普通模块为8.94→9.02ms。相对几何读出增加推理开销，需结合完整精度结果评价其取舍。
 
 ## 已知限制
 

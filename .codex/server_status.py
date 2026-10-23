@@ -159,7 +159,7 @@ def readable(summary):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tag', default='CASA')
-    parser.add_argument('--run', default='Run6')
+    parser.add_argument('--run', default='Run7')
     parser.add_argument('--json', action='store_true')
     args = parser.parse_args()
     summary = collect(args.tag, args.run)
