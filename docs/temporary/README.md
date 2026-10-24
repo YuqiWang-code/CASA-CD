@@ -3,7 +3,7 @@
 | 内容 | 位置 |
 |---|---|
 | 当前模型源码与全部正式指标 | `models_and_metrics_CASA_current.txt` |
-| Run7训练源码与既有正式指标 | `models_and_metrics_CASA_Run7.txt` |
+| Run7实际训练源码与159条正式指标 | `models_and_metrics_CASA_Run7.txt` |
 | Run6训练源码与指标 | `models_and_metrics_CASA_Run6.txt` |
 | 其他轮次冻结快照 | 对应的 `models_and_metrics_<tag>_<run>.txt` |
 | 历史方案、复盘、诊断与旧说明 | [过去的想法](过去的想法/) |

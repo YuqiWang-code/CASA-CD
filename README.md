@@ -60,28 +60,30 @@
 
 ## 当前实验：Run7
 
-协议`casa_40k_relativecontext_v7`，源码基线`2e60998`。四库各双曲/普通/CTRL，共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位。四个健康探针已通过；正式队列于2026-10-24 02:21:37 CST从预训练骨干全新初始化启动，已观察所有首发进程至少3个完整epoch，损失下降、梯度与几何状态有限。
+协议`casa_40k_relativecontext_v7`，源码基线`2e60998`。四库各双曲/普通/CTRL，共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位。正式队列于2026-10-24 02:21:37 CST从预训练骨干全新初始化启动，11:01:54 CST全部完成，队列总耗时约8小时40分钟。12项均达到完整训练预算并完成正式测试，部署折叠检查全部通过，二值预测差异均为0。日志与JSON已下载，指标表共159条，原147条历史记录保留。
 
 <!-- CASA_RUN7_RESULTS_START -->
 
-状态更新：2026-10-24 02:28:18 CST；队列`running`；正式结果 **0/12**。
+状态更新：2026-10-24 12:45:34 CST；队列 `complete`；正式结果 **12/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：1600/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：1332/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：1554/40182 | — | — |
-| SYSU | `M0_CTRL` | 训练中：1500/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：1200/40125 | — | — |
-| SYSU | `M2_CA_QKV` | 待启动 | — | — |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 91.01 | 83.51 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 91.54 | 84.40 |
+| LEVIR | `M2_CA_QKV` | 完成 | 91.33 | 84.04 |
+| SYSU | `M0_CTRL` | 完成 | 82.29 | 69.91 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 80.79 | 67.77 |
+| SYSU | `M2_CA_QKV` | 完成 | 81.14 | 68.27 |
+| WHU | `M0_CTRL` | 完成 | 93.99 | 88.66 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.57 | 89.70 |
+| WHU | `M2_CA_QKV` | 完成 | 94.55 | 89.67 |
+| CDD | `M0_CTRL` | 完成 | 97.43 | 94.99 |
+| CDD | `M1_HYPER_QKV` | 完成 | 97.47 | 95.06 |
+| CDD | `M2_CA_QKV` | 完成 | 97.47 | 95.06 |
 
 <!-- CASA_RUN7_RESULTS_END -->
+
+本轮相对CTRL，双曲/普通模块在LEVIR分别提高0.527/0.316个百分点，在WHU提高0.581/0.561个百分点；CDD均提高约0.038个百分点。SYSU分别降低1.504/1.151个百分点，仍需解决该数据集上的性能损失。上述为单seed结果，CDD的小幅差异尚需重复实验验证。
 
 启动、健康探针与初期损失见[Run7说明](train_scripts/CASA/Run7/README.md)。Run6四库特征、完整验证支路诊断和Run7机制依据见[分析报告](docs/temporary/CASA_Run6_analysis_Run7_design.md)。
 
@@ -154,7 +156,7 @@ docs/temporary/过去的想法/    历史方案、复盘与诊断资料
 
 桌面工作目录说明见 [`.codex/README.md`](.codex/README.md)。
 
-正式指标只采纳完整TEST RESULTS区块。指标表保留全部147条正式记录；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6与Run7冻结快照分别对应各轮运行源码。权重与outputs不进入Git。
+正式指标只采纳完整TEST RESULTS区块。指标表保留全部159条正式记录；探针与未完成训练不计入。当前源码快照为 `docs/temporary/models_and_metrics_CASA_current.txt`；Run6与Run7冻结快照分别对应各轮运行源码。权重与outputs不进入Git。
 
 ## 部署效率
 
