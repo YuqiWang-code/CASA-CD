@@ -103,6 +103,14 @@ RTX5090，256×256双时相输入、batch1、四级输出；折叠后30次预热
 | hyperbolic | 2,063,581 | 1,952,266 | 2.113 | 7.54 |
 | qkv | 2,063,581 | 1,952,266 | 2.100 | 5.53 |
 
+## 完整训练记录
+
+[CASA-Pyramid/Run1公开记录](docs/experiments/CASA-Pyramid/Run1/README.md)包含12项完整train_log.txt、逐epoch训练/验证CSV、实际最佳epoch、模块诊断CSV/JSONL、四库完整曲线、四项成功探针及运行环境。诊断为当轮验证首个batch的实际数值；epoch从0开始。源码输出语句与实际训练记录分别保留。
+
+```powershell
+python tools/export_training_records.py --tag CASA-Pyramid --run Run1
+```
+
 ## 操作与产物
 
 ```powershell
@@ -123,7 +131,7 @@ python tools/models_to_txt.py --tag CASA-Pyramid --run current
 | 正式指标 | docs/experiment_metrics.xlsx |
 | 当前/冻结快照 | docs/temporary/models_and_metrics_CASA-Pyramid_current.txt、models_and_metrics_CASA-Pyramid_Run1.txt |
 
-指标表目前171条，本轮新增12项，原159条历史记录逐单元格保留。仅完整TEST RESULTS区块可入表，另有新增一并保留。冻结快照使用本轮实际运行源码；历史CASA/Run6与Run7快照不覆盖。Git只提交源码、说明、指标与规定快照。连接和状态见[.codex](.codex/README.md)。
+指标表目前171条，本轮新增12项，原159条历史记录逐单元格保留。仅完整TEST RESULTS区块可入表，另有新增一并保留。冻结快照使用本轮实际运行源码；历史CASA/Run6与Run7快照不覆盖。Git提交源码、说明、指标、规定快照与docs/experiments中的公开训练记录。连接和状态见[.codex](.codex/README.md)。
 
 ## 历史 CASA / Run7
 

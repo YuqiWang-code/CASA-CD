@@ -60,6 +60,10 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 | [experiment_metrics.xlsx](experiment_metrics.xlsx) | 全部正式历史指标 |
 | [本文件](ChatGPT_Project_Settings.md) | 可复制的项目指令 |
 
+## GitHub上的完整训练记录
+
+[CASA-Pyramid/Run1完整记录](experiments/CASA-Pyramid/Run1/README.md)提供12项完整train_log.txt、实际最佳epoch、逐epoch训练/验证表格和曲线、模块诊断CSV/JSONL、成功探针及运行环境。网页研究对话可使用这些实际记录；冻结源码中的打印语句不作为实际数值。模块诊断采样验证集首个batch，epoch从0开始。
+
 ## 具体研究对话按需上传
 
 | 材料 | 用途 |
