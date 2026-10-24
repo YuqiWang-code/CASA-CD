@@ -49,7 +49,6 @@ class MobileNetV2(nn.Module):
         super(MobileNetV2, self).__init__()
         block = InvertedResidual
         input_channel = 32
-        last_channel = 1280
         inverted_residual_setting = [
             # t, c, n, s, d
             [1, 16, 1, 1, 1],
@@ -63,7 +62,6 @@ class MobileNetV2(nn.Module):
 
         # building first layer
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * max(1.0, width_mult))
         features = [ConvBNReLU(3, input_channel, stride=2)]
         # building inverted residual blocks
         for t, c, n, s, d in inverted_residual_setting:
@@ -73,8 +71,6 @@ class MobileNetV2(nn.Module):
                 dilation = d if i == 0 else 1
                 features.append(block(input_channel, output_channel, stride, expand_ratio=t, dilation=d))
                 input_channel = output_channel
-        # building last several layers
-        features.append(ConvBNReLU(input_channel, self.last_channel, kernel_size=1))
         # make it nn.Sequential
         self.features = nn.Sequential(*features)
 

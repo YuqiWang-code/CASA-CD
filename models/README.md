@@ -1,27 +1,13 @@
-# CASA models
+# CASA-Pyramid
 
-当前实现为CASA/Run7，协议 `casa_40k_relativecontext_v7`。
+共享MobileNetV2原生四尺度(24/32/96/320通道) → TAR时相融合至64通道 → 联合跨尺度QKV → DCR → 共享预测头四级输出。骨干结束于320通道，HFEA不参与该模型。
 
-```text
-MobileNetV2 + HFEA → 四尺度处理模块 → TAR跳层融合 → DCR解码 → 四尺度预测
-```
+`model/layers/pyramid_context.py`实现欧氏/双曲/CTRL三种模式。共享LayerNorm与65参数评分头预测变化概率，每尺度划为4×4个区域，每区域构造变化/背景两个原型；四尺度联合128个KV。Q保留5440个位置，四头、每头16维，每个头检索全部尺度。Q/K/V与输出投影跨尺度共享，含每头4×4尺度偏置与每尺度零初始化残差系数。
 
-普通模块以局部标准化变化对比的正/负softmax生成高/低变化原型，全局V保留有符号差和绝对差。双曲模块以查询检索的几何质心相对公共质心的Möbius位移构造全局上下文，局部保留逐位置变化位移。两者保持完整Q与N/8的KV，四层独立，双时相共享参数。训练损失为四级BCE+Dice。
+普通版用负欧氏距离与加权平均。双曲版在各16维庞加莱球内进行距离、Lorentz质心压缩和聚合，再Log映射回切空间。曲率固定为-1，原点附近以双曲距离/2匹配欧氏距离尺度。两个版本均直接读出上下文，没有公共质心相减或额外局部DWConv。
 
-| 文件 | 用途 |
-|---|---|
-| `train_CASA.py` | 训练、验证选模、正式测试、部署检查和续训 |
-| `profile_CASA.py` | 满batch显存与吞吐测量 |
-| `test_CASA.py` | 三变体接口、梯度、公共路径初始化和部署折叠检查 |
-| `test_CASA_resume.py` | 优化器、随机状态及后端设置恢复检查 |
-| `test_change_context_qkv.py` | 压缩上下文、双曲几何和变化V检查 |
-| `model/casa_net.py` | 整体网络 |
-| `model/mobilenet_v2.py` / `encoder_fusion.py` | 骨干与编码器 |
-| `model/layers/change_context_qkv.py` | 普通压缩QKV |
-| `model/layers/hyperbolic_context_qkv.py` | 双曲压缩QKV |
-| `model/layers/context_compression.py` / `poincare_ops.py` | 原型压缩与庞加莱球运算 |
-| `model/str_tar.py` / `str_dcr.py` / `str_reparam.py` | 时空重参数化跳层、解码与折叠 |
-| `model/metric_tool.py` | 分割指标 |
-| `dataset/` | 双时相数据读取、归一化与训练增广 |
+CTRL保留共享归一化、评分头和辅助监督，直接将TAR特征送入DCR。标签面积平均至四个评分分辨率，仅用于BCEWithLogits；原型分配始终用预测概率。总损失为四级BCE+Dice求和，加0.2倍四级评分BCE求和。
 
-依赖见 `requirements.txt`，来源见 [SOURCES.md](SOURCES.md)。训练脚本与说明见 [CASA/Run7](../train_scripts/CASA/Run7/README.md)。本轮运行源码、日志与权重按轮次独立保存。
+入口`train_CASA.py`；`forward(a,b)`返回四级预测，`return_aux=True`额外返回四级评分logits。协议`casa_pyramid_40k_guide02_v1`。优化器将context全部参数设为WD0，其余WD1e-4。骨干预训练、40K预算、seed2333与独立验证选模保持一致。TAR具有有序的时相输入，整网不声称严格时相交换不变或相同输入时输出恒零。
+
+静态预算：CTRL训练2,047,125/部署1,935,810参数；两个QKV均训练2,063,581/部署1,952,266参数。实测结果、来源与运行说明见根README、SOURCES.md和train_scripts/CASA-Pyramid/Run1。

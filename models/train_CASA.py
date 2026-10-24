@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_40k_relativecontext_v7"
+PROTOCOL = "casa_pyramid_40k_guide02_v1"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
@@ -30,6 +30,16 @@ def loss_function(outputs, target):
         dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
         loss = loss + F.binary_cross_entropy(output, target) + 1 - dice
     return loss
+
+
+def guide_loss(logits, target):
+    return sum(F.binary_cross_entropy_with_logits(z, F.adaptive_avg_pool2d(target, z.shape[-2:]))
+               for z in logits)
+
+
+def training_losses(outputs, logits, target):
+    main, guide = loss_function(outputs, target), guide_loss(logits, target)
+    return main + 0.2 * guide, main, guide
 
 
 def make_loader(root, split, batch_size=32, workers=1):
@@ -53,8 +63,7 @@ def evaluate(model, loader, device):
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
         outputs = model(image[:, :3], image[:, 3:])
-        for op in model.stage_modules:
-            op.collect_diag = False
+        model.context.collect_diag = False
         if not all(torch.isfinite(x).all() for x in outputs):
             raise FloatingPointError("non-finite evaluation prediction")
         losses.append(float(loss_function(outputs, target)))
@@ -70,7 +79,7 @@ def learning_rate(base, epoch, step, total):
 
 
 def make_optimizer(model):
-    module_params = list(model.stage_modules.parameters())
+    module_params = list(model.context.parameters())
     module_ids = {id(p) for p in module_params}
     groups = [{"params": [p for p in model.parameters() if id(p) not in module_ids],
                "weight_decay": 1e-4}]
@@ -191,10 +200,10 @@ def main():
                     lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8",
                     weight_decay=1e-4, module_weight_decay=0.0,
                     selection="best validation F1, ties update", deep_supervision=4,
-                    label_threshold=128, context_cell=4, context_prototypes=2,
-                    qkv_dim=32, source_files=identity,
-                    context_values={"none": "disabled", "qkv": "relative_contrast_signed_and_magnitude",
-                                    "hyperbolic": "common_centroid_relative_displacement"}[args.module],
+                    label_threshold=128, context_grid=4, context_prototypes_per_scale=32, joint_contexts=128,
+                    qkv_dim=64, heads=4, guide_weight=0.2, source_files=identity,
+                    context_values={"none": "guide_only", "qkv": "euclidean_pyramid_context",
+                                    "hyperbolic": "hyperbolic_pyramid_context"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -235,17 +244,17 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        epoch_loss, tick = 0.0, time.time()
+        epoch_loss, main_sum, guide_sum, tick = 0.0, 0.0, 0.0, time.time()
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
             for group in optimizer.param_groups:
                 group["lr"] = lr
             optimizer.zero_grad(set_to_none=True)
-            outputs = model(image[:, :3], image[:, 3:])
+            outputs, guide_logits = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss = loss_function(outputs, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, guide_logits, target)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -253,19 +262,19 @@ def main():
                                             error_if_nonfinite=True, foreach=True)
             optimizer.step()
             epoch_loss += float(loss.detach())
+            main_sum += float(main_loss.detach())
+            guide_sum += float(auxiliary_loss.detach())
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} lr={lr:.8f}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f}", flush=True)
         if epoch > 0:
-            for op in model.stage_modules:
-                op.collect_diag = True
+            model.context.collect_diag = True
             val_loss, score = evaluate(model, validation_loader, device)
-            for op in model.stage_modules:
-                op.collect_diag = False
+            model.context.collect_diag = False
             print(f"Epoch {epoch}/{epochs} | Loss={val_loss:.6f} | Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f} | t={time.time()-tick:.1f}s", flush=True)
-            if model.stage_modules:
+            if model.context.geometry != "none":
                 print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
             if score["F1"] >= best_f1:
                 best_f1, best_epoch = float(score["F1"]), epoch
@@ -290,7 +299,7 @@ def main():
                   deploy_max_diff=difference, deploy_binary_disagreement=disagreement)
     (args.output_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print("=== TEST RESULTS ===", flush=True)
-    print(f"[MODE] casa_{args.module}", flush=True)
+    print(f"[MODE] casa_pyramid_{args.module}", flush=True)
     print(f"[TOTAL-PARAMS] {deploy_params:.6f} M", flush=True)
     print(f"[TRAINABLE-PARAMS] {params:.6f} M", flush=True)
     print(f"Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f}", flush=True)

@@ -15,10 +15,10 @@ class SmallModel(nn.Module):
         super().__init__()
         self.module = "qkv"
         self.body = nn.Linear(3, 3)
-        self.stage_modules = nn.ModuleList([nn.Linear(3, 3)])
+        self.context = nn.Linear(3, 3)
 
     def forward(self, x):
-        return self.stage_modules[0](self.body(x))
+        return self.context(self.body(x))
 
 
 def step(model, optimizer):
