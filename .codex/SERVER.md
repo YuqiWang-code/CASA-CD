@@ -5,8 +5,8 @@
 | 本地工作区 | `F:\Code_Repositories_2\CursorCode\CASA-CD` |
 | 服务器项目 | `/home/yqwang/projects/CASA-CD` |
 | 数据集 | `/share_datasets/CD/<dataset>/{A,B,label,list}/` |
-| 日志与运行源码 | `/home/yqwang/outputs/CASA-CD/CASA/<Run>` |
-| checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/CASA/<Run>` |
+| 日志与运行源码 | `/home/yqwang/outputs/CASA-CD/<tag>/<Run>` |
+| checkpoint | `/share_datasets/yqwang/checkpoints/CASA-CD/<tag>/<Run>` |
 | MobileNetV2 预训练 | `/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth` |
 
 ## 环境
@@ -23,7 +23,7 @@ cd /home/yqwang/projects/CASA-CD
 
 ## 训练
 
-先读取实时队列、进程和 GPU 占用。每轮脚本集中在 `train_scripts/CASA/<Run>/`；`pipeline.py` 为唯一调度器，`pipeline_status.json`、`placement.json` 记录实验和物理 GPU 分配。启动前查看已有状态以避免重复队列。
+先读取实时队列、进程和 GPU 占用。每轮脚本集中在 `train_scripts/<tag>/<Run>/`；`pipeline.py` 为唯一调度器，`pipeline_status.json`、`placement.json` 记录实验和物理 GPU 分配。启动前查看已有状态以避免重复队列。
 
 CASA-Pyramid Run1 使用 `models/train_CASA.py`，协议 `casa_pyramid_40k_guide02_v1`。两张 GPU 按实测显存预算补位，数据集优先级 LEVIR→SYSU→WHU→CDD，允许跨库并行。模型、数值几何、梯度和部署折叠检查通过后做真实数据短训，随后从预训练骨干全新初始化正式实验。探针不是正式指标。
 
@@ -34,9 +34,9 @@ Shell 文件使用 LF，修改过的启动脚本执行 `bash -n`；模型改动�
 ## 结果
 
 ```powershell
-python tools/download_training_results.py --tag CASA --tag CASA-Pyramid --run Run1
+python tools/download_training_results.py --tag CASA-Pyramid --run Run1
 python train_scripts/CASA-Pyramid/Run1/collect_results.py
-python tools/models_to_txt.py --tag CASA --run current
+python tools/models_to_txt.py --tag CASA-Pyramid --run current
 ```
 
 CASA-Pyramid Run1 collector 从本地 `outputs/CASA-Pyramid/Run1/source_code.tar.gz` 提取实际训练源码，生成该轮冻结快照。当前 `models/` 的快照使用 `current`，不覆盖历史轮次。
