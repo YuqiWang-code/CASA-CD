@@ -38,7 +38,7 @@ python train_scripts/CASA-Pyramid/Run1/collect_results.py
 python tools/models_to_txt.py --tag CASA-Pyramid --run current
 ```
 
-日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run1`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run1`，本地产物`outputs/CASA-Pyramid/Run1`。实际训练源码使用同目录`source_code.tar.gz`，冻结TXT从该归档提取模型；原159条正式指标保留，本轮收齐后应为171条，另有新增一并保留。
+日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run1`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run1`，本地产物`outputs/CASA-Pyramid/Run1`。实际训练源码使用同目录`source_code.tar.gz`，冻结TXT从该归档提取模型；原159条正式指标逐单元格保留，本轮12项已收齐，指标表171条，另有新增一并保留。
 
 ## 已知限制
 
@@ -74,3 +74,9 @@ RTX5090空闲GPU，256×256双时相输入、batch1、四级输出，折叠后30
 | none | 2,047,125 | 1,935,810 | 1.734 | 3.81 |
 | hyperbolic | 2,063,581 | 1,952,266 | 2.113 | 7.54 |
 | qkv | 2,063,581 | 1,952,266 | 2.100 | 5.53 |
+
+## 正式完成与结果收集
+
+2026-10-24 22:30:52 CST全部完成，总耗时7小时26分53秒。12项完整TEST RESULTS均已下载、入表；部署折叠检查全部通过，二值预测差异为0。冻结TXT从本轮实际源码归档提取，含16个Python文件与171条正式指标；当前TXT同步更新。
+
+本轮相对CTRL，双曲/普通模块在LEVIR分别提高0.031/0.191个百分点，在SYSU提高0.359/0.714个百分点；WHU分别降低0.114/0.297个百分点，CDD降低0.052/0.045个百分点。普通版在LEVIR与SYSU高于双曲版，本轮尚未证明双曲几何具有稳定精度优势。两个模块部署参数均为1.952266M，精度与开销需共同评价。

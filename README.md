@@ -66,28 +66,30 @@
 
 ## 当前实验：CASA-Pyramid / Run1
 
-四库各双曲、普通和CTRL，共12项。LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存与留量补位，允许跨库填空。正式训练于2026-10-24 15:03:59 CST启动，源码基线`5730d13`，首批五路均已完成至少三个epoch。模型和训练脚本见[Run1说明](train_scripts/CASA-Pyramid/Run1/README.md)。
+四库各双曲、普通和CTRL，共12项。LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存与留量补位，允许跨库填空。正式训练于2026-10-24 15:03:59 CST启动，源码基线`5730d13`，全部12项训练与测试于当天22:30:52 CST完成，总耗时7小时26分53秒。模型和训练脚本见[Run1说明](train_scripts/CASA-Pyramid/Run1/README.md)。
 
 <!-- CASA_PYRAMID_RUN1_RESULTS_START -->
 
-状态更新：2026-10-24 15:09:39 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-24 23:37:37 CST；队列 `complete`；正式结果 **12/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：1400/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：1500/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：1400/40182 | — | — |
-| SYSU | `M0_CTRL` | 待启动 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：1200/40125 | — | — |
-| SYSU | `M2_CA_QKV` | 训练中：1200/40125 | — | — |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 90.96 | 83.41 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 90.99 | 83.46 |
+| LEVIR | `M2_CA_QKV` | 完成 | 91.15 | 83.73 |
+| SYSU | `M0_CTRL` | 完成 | 81.22 | 68.37 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 81.58 | 68.88 |
+| SYSU | `M2_CA_QKV` | 完成 | 81.93 | 69.39 |
+| WHU | `M0_CTRL` | 完成 | 94.08 | 88.82 |
+| WHU | `M1_HYPER_QKV` | 完成 | 93.97 | 88.62 |
+| WHU | `M2_CA_QKV` | 完成 | 93.78 | 88.30 |
+| CDD | `M0_CTRL` | 完成 | 96.80 | 93.80 |
+| CDD | `M1_HYPER_QKV` | 完成 | 96.75 | 93.70 |
+| CDD | `M2_CA_QKV` | 完成 | 96.75 | 93.71 |
 
 <!-- CASA_PYRAMID_RUN1_RESULTS_END -->
+
+本轮相对CTRL，双曲/普通模块在LEVIR分别提高0.031/0.191个百分点，在SYSU提高0.359/0.714个百分点；WHU分别降低0.114/0.297个百分点，CDD降低0.052/0.045个百分点。普通版在LEVIR与SYSU高于双曲版，本轮尚未证明双曲几何具有稳定精度优势。两个模块部署参数均为1.952266M，精度与开销需共同评价。全部实验部署折叠检查通过，二值预测差异均为0。日志与JSON已下载至outputs/CASA-Pyramid/Run1，冻结TXT使用实际运行源码归档，当前源码TXT已同步171条正式指标。
 
 三种模型折叠检查的首级误差均约5.96e-8，二值差异为0。探针不计入正式指标。本轮同时改变编码器融合、注意力位置和评分监督，与历史轮次的总体比较不能单独归因于几何；主要机制比较使用本轮三组共同协议。
 
@@ -121,7 +123,7 @@ python tools/models_to_txt.py --tag CASA-Pyramid --run current
 | 正式指标 | docs/experiment_metrics.xlsx |
 | 当前/冻结快照 | docs/temporary/models_and_metrics_CASA-Pyramid_current.txt、models_and_metrics_CASA-Pyramid_Run1.txt |
 
-指标表目前159条，保留全部历史，仅完整TEST RESULTS区块可入表。新一轮收齐后正常为171条，另有新增一并保留。冻结快照使用本轮实际运行源码；历史CASA/Run6与Run7快照不覆盖。Git只提交源码、说明、指标与规定快照。连接和状态见[.codex](.codex/README.md)。
+指标表目前171条，本轮新增12项，原159条历史记录逐单元格保留。仅完整TEST RESULTS区块可入表，另有新增一并保留。冻结快照使用本轮实际运行源码；历史CASA/Run6与Run7快照不覆盖。Git只提交源码、说明、指标与规定快照。连接和状态见[.codex](.codex/README.md)。
 
 ## 历史 CASA / Run7
 
