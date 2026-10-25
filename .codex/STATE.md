@@ -2,13 +2,23 @@
 
 更新：2026-10-24。
 
-## CASA-Pyramid / Run2
+## CASA-Pyramid / Run2 正式训练
 
-协议casa_pyramid_40k_qk_euclideanv224_v2。用户授权启动四库三组共12项，LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存补位。当前224-token代码已部署；结构、梯度、池化等价、衰减分组、折叠和profile检查通过，正在各模块LEVIR3epoch、SYSU4epoch真实探针。正式训练必须四项passed后从MobileNetV2预训练新初始化，不使用探针/旧权重，不重复启动。
+协议`casa_pyramid_40k_qk_euclideanv224_v2`，224-token布局，双曲Q/K+欧式V，投影WD1e-4、其余context WD0。四库各三组共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按profile和探针峰值并行补位，允许跨库填空。
 
-网格(8,4,4,4)、KV(128,32,32,32)，普通K/V先池化再投影，双曲Q/K加欧式V。投影weight WD1e-4，其余context WD0；主体WD1e-4。脚本train_scripts/CASA-Pyramid/Run2，日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2，本地outputs/CASA-Pyramid/Run2。
+正式队列于2026-10-25 11:07:35 CST启动，实际模型与训练源码基线`986fe75`，supervisor PID1320738。观察于2026-10-25T11:13:15+08:00，首发5项均完成至少三个完整epoch，主损失和评分损失下降；日志未见NaN/Inf/OOM或异常退出。正式模型从MobileNetV2预训练重新初始化，不使用探针或Run1权重。
 
-服务器旧Run1模型保存在/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run1/archive/server_models_before_Run2。旧171条指标与所有历史源码、日志、权重保留；Run2收齐后正常183条，其他新增一并保留。没有活动自动化，不自行创建。
+| 实验 | GPU | PID | 完整epoch | step | 首三轮总损失 |
+|---|---:|---:|---:|---:|---|
+| M1_HYPER_QKV/LEVIR-CD-256 | 0 | 1320740 | 6 | 1332 | 2.1786 → 1.3012 → 1.1443 |
+| M2_CA_QKV/LEVIR-CD-256 | 1 | 1320773 | 6 | 1400 | 2.1831 → 1.3028 → 1.1398 |
+| M0_CTRL/LEVIR-CD-256 | 1 | 1320803 | 6 | 1500 | 2.1820 → 1.3040 → 1.1549 |
+| M1_HYPER_QKV/SYSU-CD-256 | 0 | 1320835 | 3 | 1200 | 2.7263 → 2.0737 → 1.8518 |
+| M0_CTRL/SYSU-CD-256 | 1 | 1320865 | 3 | 1400 | 2.7273 → 2.0825 → 1.8697 |
+
+唯一调度器train_scripts/CASA-Pyramid/Run2/pipeline.py，入口models/train_CASA.py。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2，本地outputs/CASA-Pyramid/Run2。source_code.tar.gz冻结实际源码，source_baseline.json和environment.json记录基线与环境。
+
+四项真实探针已通过，LEVIR各3epoch、SYSU各4epoch，不计正式指标。当前正式结果0/12，指标表171条历史保持不变，收齐后正常183条，其他新增保留。不要重复启动，不覆盖运行模型或训练脚本；新失败先读取原因并保留现场，不自动重启。没有活动自动化，不自行创建。旧Run1服务器模型已归档在Run1/archive/server_models_before_Run2。
 
 ## CASA-Pyramid / Run1 已完成
 

@@ -62,11 +62,26 @@
 
 ## 当前实验：CASA-Pyramid / Run2
 
-四库各双曲、普通、CTRL共12项；LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存留量并行，允许跨库填空。新模型的代码检查已通过，真实数据健康探针进行中。配置与脚本见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
+四库各双曲、普通、CTRL共12项；LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存留量并行，允许跨库填空。正式队列于2026-10-25 11:07:35 CST启动，实际模型与训练源码基线`986fe75`，supervisor PID1320738。观察于2026-10-25T11:13:15+08:00，首发5项均完成至少三个完整epoch，主损失和评分损失下降；日志未见NaN/Inf/OOM或异常退出。正式模型从MobileNetV2预训练重新初始化，不使用探针或Run1权重。配置与脚本见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_START -->
 
-正式结果0/12。正式队列在四项健康探针通过后从MobileNetV2预训练重新初始化，不使用探针或旧Run1权重。
+状态更新：2026-10-25 11:13:53 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：1600/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：1500/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：1600/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：1500/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：1400/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_END -->
 
@@ -77,6 +92,16 @@ python tools/export_training_records.py --tag CASA-Pyramid --run Run2
 ```
 
 本轮日志与实际源码归档位于`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint位于`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`，本地为`outputs/CASA-Pyramid/Run2`。正式指标目前171条，本轮十二项收齐后正常为183条，其他新增一并保留。Run2冻结TXT使用本轮实际源码，历史Run1快照保持128-token版本。
+
+## Run2推理开销
+
+RTX5090空闲GPU、256×256双时相输入、batch1、四级输出；折叠后30预热、100次同步测量，随机权重。输入/权重为FP32，cuDNN允许TF32，矩阵乘TF32关闭。FLOPs仅含profiler支持的卷积和矩阵乘，不含双曲逐元素运算。
+
+| 模式 | 训练参数 | 部署参数 | 已统计GFLOPs | 中位延迟(ms) |
+|---|---:|---:|---:|---:|
+| none | 2,047,125 | 1,935,810 | 1.734 | 3.84 |
+| hyperbolic | 2,063,581 | 1,952,266 | 2.206 | 6.80 |
+| qkv | 2,063,581 | 1,952,266 | 2.151 | 5.62 |
 
 ## 历史 CASA-Pyramid / Run1
 
