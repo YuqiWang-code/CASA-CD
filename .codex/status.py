@@ -10,7 +10,7 @@ from ssh import run
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tag', default='CASA-Pyramid')
-    parser.add_argument('--run', default='Run1')
+    parser.add_argument('--run', default='Run2')
     parser.add_argument('--json', action='store_true', help='Return structured JSON')
     parser.add_argument('--timeout', type=int, default=120)
     args = parser.parse_args()

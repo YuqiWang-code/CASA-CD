@@ -1,4 +1,4 @@
-"""CASA training with MobileNetV2/HFEA, TAR temporal skips and DCR."""
+"""CASA training with TAR, 224-token pyramid context and Euclidean values."""
 import argparse
 import copy
 import json
@@ -17,10 +17,11 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_guide02_v1"
+PROTOCOL = "casa_pyramid_40k_qk_euclideanv224_v2"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.406, 0.456, 0.485] * 2
 STD = [0.225, 0.224, 0.229] * 2
+CONTEXT_DECAY_NAMES = {f"context.{name}.weight" for name in ("q", "k", "v", "out")}
 
 
 def loss_function(outputs, target):
@@ -79,12 +80,12 @@ def learning_rate(base, epoch, step, total):
 
 
 def make_optimizer(model):
-    module_params = list(model.context.parameters())
-    module_ids = {id(p) for p in module_params}
-    groups = [{"params": [p for p in model.parameters() if id(p) not in module_ids],
-               "weight_decay": 1e-4}]
-    if module_params:
-        groups.append({"params": module_params, "weight_decay": 0.0})
+    decay, no_decay = [], []
+    for name, parameter in model.named_parameters():
+        group = no_decay if name.startswith("context.") and name not in CONTEXT_DECAY_NAMES else decay
+        group.append(parameter)
+    groups = [{"params": decay, "weight_decay": 1e-4},
+              {"params": no_decay, "weight_decay": 0.0}]
     return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
 
 
@@ -198,12 +199,17 @@ def main():
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8",
-                    weight_decay=1e-4, module_weight_decay=0.0,
+                    weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                    context_projection_decay_parameters=[n for n, _ in model.named_parameters()
+                                                         if n in CONTEXT_DECAY_NAMES],
                     selection="best validation F1, ties update", deep_supervision=4,
-                    label_threshold=128, context_grid=4, context_prototypes_per_scale=32, joint_contexts=128,
+                    label_threshold=128, context_grid_sizes=list(model.context.grid_sizes),
+                    context_prototypes_per_scale=list(model.context.tokens_per_scale),
+                    joint_contexts=sum(model.context.tokens_per_scale),
+                    qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=64, heads=4, guide_weight=0.2, source_files=identity,
-                    context_values={"none": "guide_only", "qkv": "euclidean_pyramid_context",
-                                    "hyperbolic": "hyperbolic_pyramid_context"}[args.module],
+                    context_values={"none": "guide_only", "qkv": "euclidean_kv_pool_before_projection",
+                                    "hyperbolic": "hyperbolic_qk_euclidean_v"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)

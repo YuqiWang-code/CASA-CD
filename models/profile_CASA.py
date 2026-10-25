@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -35,7 +35,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             outputs, guide = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, _, _ = training_losses(outputs, guide, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, guide, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -50,14 +50,20 @@ def main():
         process_mib = next(float(row.split(",")[1]) for row in used.splitlines()
                            if int(row.split(",")[0]) == os.getpid())
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
-        result = dict(peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
+        result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
+                      grid_sizes=list(model.context.grid_sizes),
+                      contexts_per_scale=list(model.context.tokens_per_scale),
+                      joint_contexts=sum(model.context.tokens_per_scale),
+                      qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
+                      context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                      peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
                       context_overhead_mib=context_mib, process_memory_mib=process_mib,
                       seconds_per_step=sum(times[2:]) / len(times[2:]), loss=float(loss.detach()),
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, outputs, guide, loss
+        del model, optimizer, outputs, guide, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)

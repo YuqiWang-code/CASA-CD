@@ -21,7 +21,8 @@ class CASANet(nn.Module):
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(2333)
-            self.context = PyramidContext(geometry=geometry)
+            self.context = PyramidContext(geometry=geometry, grid_sizes=(8, 4, 4, 4),
+                                          value_geometry="euclidean")
 
     def forward(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]

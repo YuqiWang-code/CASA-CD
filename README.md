@@ -1,6 +1,6 @@
 # CASA-CD
 
-遥感二值变化检测。当前主线 **CASA-Pyramid / Run1**，训练协议`casa_pyramid_40k_guide02_v1`。
+遥感二值变化检测。当前主线 **CASA-Pyramid / Run2**，训练协议`casa_pyramid_40k_qk_euclideanv224_v2`。
 
 ## 项目定位与研究原则
 
@@ -17,21 +17,17 @@
 ```text
 双时相RGB A / B
     → 共享MobileNetV2原生四尺度：24/32/96/320通道
-    → 四级TAR时相融合与局部细化：各64通道
-    → 联合跨尺度QKV / CTRL直通
-        各尺度完整Q ───────────────┐
-        预测变化评分 → 每尺度32个KV → 联合128个KV
-                                 ↓
-                       四头检索（欧氏 / 双曲）
-                                 ↓
-                       各尺度输出投影与残差相加
-    → DCR逐级空间融合与细化
-    → 共享预测头，四级变化预测
+    → 四级TAR融合为64通道变化特征
+    → 跨尺度QKV / CTRL直通
+        完整Q：5440个位置，四头16维
+        网格8/4/4/4 → KV数量128/32/32/32 → 联合224个KV
+        欧氏Q/K 或 双曲Q/K；两版均用欧式V
+        logits增加-log(源尺度KV数)，保留可学习尺度偏置
+        四尺度输出投影与零初始化gamma残差相加
+    → DCR逐级空间融合 → 共享预测头四级输出
 ```
 
-去掉HFEA，TAR直接将原生通道投影至64；骨干结束于320通道。QKV位于TAR之后，处理已经融合的变化表征。每尺度划分4×4个区域，每区域产生变化/背景两个原型，四尺度联合128个KV；Q保留64²+32²+16²+8²=5440个位置。四头各16维，共享Q/K/V和输出投影，每个头读取全部尺度。
-
-共享65参数评分头预测变化概率，正/负权重分别按区域归一化。普通版使用负欧氏距离与欧氏加权平均；双曲版逐头映射到庞加莱球，用负双曲距离/2和Lorentz质心压缩、聚合，Log映射后直接读出。两个版本均不含公共质心相减或额外DWConv分支。CTRL保留同样的归一化、评分头及辅助监督，但直接将TAR特征送给DCR。
+普通版先对LayerNorm后的特征按变化/背景概率池化，再投影K/V，保持分配权重梯度。双曲版Q/K仍在各头庞加莱球内匹配，K经Lorentz质心压缩，V改为先池化再欧式投影，直接用注意力加权读出，不对V做Exp/Log或几何质心。双曲曲率-1、切空间截断2.3。CTRL保留相同评分头及辅助监督，直接将TAR特征送入DCR。
 
 | 变体 | 训练参数 | 折叠部署参数 |
 |---|---:|---:|
@@ -39,7 +35,7 @@
 | M1_HYPER_QKV | 2,063,581 | 1,952,266 |
 | M2_CA_QKV | 2,063,581 | 1,952,266 |
 
-参数和接口已通过检查。推理期保留QKV与评分头，TAR/DCR执行折叠；参数量不等同于延迟。实现和来源见[models](models/README.md)、[SOURCES](models/SOURCES.md)。
+不含HFEA和骨干1280通道尾层。推理保留QKV与评分头，仅TAR/DCR折叠。实现和诊断定义见[models](models/README.md)，来源见[SOURCES](models/SOURCES.md)。
 
 ## 训练与测试
 
@@ -48,7 +44,7 @@
 | 输入 / batch / seed | 256×256 / 32 / 2333 |
 | 初始化 | MobileNetV2预训练；三组共同路径初始化一致；不使用探针或旧轮权重 |
 | 优化器 | Adam，lr5e-4，betas(0.9,0.99)，eps1e-8 |
-| Weight decay | context全部参数0，其余1e-4 |
+| Weight decay | context.q/k/v/out四个weight为1e-4，其余context参数0，网络其余参数1e-4 |
 | 学习率 | poly^0.9；首epoch且step<200时warmup |
 | 主损失 | 四级BCE+Dice等权求和 |
 | 评分监督 | 四尺度面积平均标签的BCEWithLogits求和，权重0.2；三组相同 |
@@ -64,7 +60,29 @@
 | WHU-CD-256 | 5,947 / 743 / 744 | 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 40,248 |
 
-## 当前实验：CASA-Pyramid / Run1
+## 当前实验：CASA-Pyramid / Run2
+
+四库各双曲、普通、CTRL共12项；LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存留量并行，允许跨库填空。新模型的代码检查已通过，真实数据健康探针进行中。配置与脚本见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
+
+<!-- CASA_PYRAMID_RUN2_RESULTS_START -->
+
+正式结果0/12。正式队列在四项健康探针通过后从MobileNetV2预训练重新初始化，不使用探针或旧Run1权重。
+
+<!-- CASA_PYRAMID_RUN2_RESULTS_END -->
+
+```powershell
+python .codex/status.py --tag CASA-Pyramid --run Run2
+python train_scripts/CASA-Pyramid/Run2/collect_results.py
+python tools/export_training_records.py --tag CASA-Pyramid --run Run2
+```
+
+本轮日志与实际源码归档位于`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint位于`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`，本地为`outputs/CASA-Pyramid/Run2`。正式指标目前171条，本轮十二项收齐后正常为183条，其他新增一并保留。Run2冻结TXT使用本轮实际源码，历史Run1快照保持128-token版本。
+
+## 历史 CASA-Pyramid / Run1
+
+原128-token、双曲V版本的完整结果与源码已冻结。
+
+
 
 四库各双曲、普通和CTRL，共12项。LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存与留量补位，允许跨库填空。正式训练于2026-10-24 15:03:59 CST启动，源码基线`5730d13`，全部12项训练与测试于当天22:30:52 CST完成，总耗时7小时26分53秒。模型和训练脚本见[Run1说明](train_scripts/CASA-Pyramid/Run1/README.md)。
 
@@ -93,7 +111,7 @@
 
 三种模型折叠检查的首级误差均约5.96e-8，二值差异为0。探针不计入正式指标。本轮同时改变编码器融合、注意力位置和评分监督，与历史轮次的总体比较不能单独归因于几何；主要机制比较使用本轮三组共同协议。
 
-## 推理开销
+## Run1 推理开销
 
 RTX5090，256×256双时相输入、batch1、四级输出；折叠后30次预热、100次同步测量，随机权重。输入/权重为FP32，cuDNN允许TF32，矩阵乘TF32关闭。FLOPs仅含profiler支持的卷积/矩阵乘，双曲逐元素开销未计入。
 

@@ -29,10 +29,13 @@ def main():
         model.train()
         optimizer = make_optimizer(model)
         context_ids = {id(p) for p in model.context.parameters()}
+        projection_ids = {id(p) for name, p in model.named_parameters()
+                          if name in {f"context.{name}.weight" for name in ("q", "k", "v", "out")}}
         grouped = [id(p) for g in optimizer.param_groups for p in g["params"]]
         assert len(grouped) == len(set(grouped)) == len(list(model.parameters()))
         for group in optimizer.param_groups:
-            assert all(group["weight_decay"] == (0.0 if id(p) in context_ids else 1e-4) for p in group["params"])
+            assert all(group["weight_decay"] == (0.0 if id(p) in context_ids and id(p) not in projection_ids
+                                                 else 1e-4) for p in group["params"])
         for _ in range(3):
             optimizer.zero_grad(set_to_none=True)
             outputs, guide = model(a, b, return_aux=True)
