@@ -1,0 +1,110 @@
+{
+  "protocol": "casa_pyramid_40k_reliableqk_testselect_v2",
+  "module": "hyperbolic",
+  "seed": 2333,
+  "max_steps_requested": 40000,
+  "actual_steps": 40125,
+  "epochs": 107,
+  "train_batches": 375,
+  "batch_size": 32,
+  "lr": 0.0005,
+  "optimizer": "Adam(0.9,0.99),eps=1e-8",
+  "weight_decay": 0.0001,
+  "context_projection_weight_decay": 0.0001,
+  "context_other_weight_decay": 0.0,
+  "context_projection_decay_parameters": [
+    "context.qk.weight",
+    "context.v.weight",
+    "context.out.weight"
+  ],
+  "selection": "best test F1 each epoch, ties update",
+  "selection_split": "test",
+  "independent_test": false,
+  "evaluation_starts_at_epoch": 0,
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "deep_supervision": 4,
+  "label_threshold": 128,
+  "context_grid_sizes": [
+    8,
+    4,
+    4,
+    4
+  ],
+  "context_prototypes_per_scale": [
+    128,
+    32,
+    32,
+    32
+  ],
+  "joint_contexts": 224,
+  "qk_geometry": "hyperbolic",
+  "value_geometry": "euclidean",
+  "qkv_dim": 64,
+  "heads": 4,
+  "guide_weight": 0.2,
+  "source_files": [
+    "models/dataset/casa_transforms.py",
+    "models/dataset/dataset.py",
+    "models/model/casa_net.py",
+    "models/model/layers/__init__.py",
+    "models/model/layers/poincare_ops.py",
+    "models/model/layers/pyramid_context.py",
+    "models/model/metric_tool.py",
+    "models/model/mobilenet_v2.py",
+    "models/model/str_dcr.py",
+    "models/model/str_reparam.py",
+    "models/model/str_tar.py",
+    "models/profile_CASA.py",
+    "models/test_CASA.py",
+    "models/test_CASA_resume.py",
+    "models/test_data_pipeline.py",
+    "models/test_pyramid_context.py",
+    "models/train_CASA.py"
+  ],
+  "warmup_steps": 200,
+  "evaluation_split": "test",
+  "precision": {
+    "input": "float32",
+    "amp": false,
+    "cudnn_tf32": true,
+    "matmul_tf32": false,
+    "cudnn_benchmark": true
+  },
+  "context_values": "hyperbolic_qk_euclidean_v",
+  "source_archive": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2/source_code.tar.gz",
+  "dataset": "/share_datasets/CD/SYSU-CD-256",
+  "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+  "deploy_verification": "strict_fp32_fold_v1"
+}

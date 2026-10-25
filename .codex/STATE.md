@@ -1,29 +1,25 @@
 # 当前状态
 
-更新：2026-10-25。
+更新：2026-10-26。
 
-## CASA-Pyramid / Run2
+## CASA-Pyramid / Run2 已完成
 
-协议`casa_pyramid_40k_reliableqk_testselect_v2`：224-token、可靠度先验、共享Q/K、双曲Q/K+欧式V；qk/v/out权重WD1e-4，其余context WD0。RGB读取与标准化，训练同步裁剪/HV翻转/90度旋转/时相交换；每epoch从0在test以F1选模，明确标注非独立测试。
+Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。
 
-四库各三组共12项，LEVIR→SYSU→WHU→CDD优先，两GPU按实测峰值并行补位。模型与数据检查已通过，LEVIR/SYSU真实短训完成后由唯一调度器`train_scripts/CASA-Pyramid/Run2/pipeline.py`启动；入口`models/train_CASA.py`。正式模型从预训练重新初始化，探针不作为正式指标。
+协议`casa_pyramid_40k_reliableqk_testselect_v2`；224-token、共享Q/K、类别支持度先验、双曲Q/K+欧式V。每epoch使用test F1选模，非独立测试。当前无活动训练或自动化，不恢复已完成队列。
 
-日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`；本地`outputs/CASA-Pyramid/Run2`。实际训练源码归档`source_code.tar.gz`；当前没有活动自动化。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) |
+|---|---:|---:|---:|
+| LEVIR | 90.9779 | 91.1631 | 91.1259 |
+| SYSU | 83.3667 | 82.8377 | 82.5352 |
+| WHU | 94.3527 | 94.5648 | 94.6981 |
+| CDD | 96.9090 | 96.9303 | 96.8654 |
 
-独立val选模的两个完整LEVIR结果保存在Run2_val（CTRL90.8261%、普通90.8842%），日志、源码和checkpoint分别归档；指标表173条，原171条逐单元格保留。当前Run2收齐正常185条，其他新增保留。冻结Run2_val TXT与其运行源码对应；原型支持度分析在Run2/analysis。
+相对同轮CTRL，双曲/普通模块在LEVIR的F1分别提高0.185/0.148个百分点，WHU提高0.212/0.345个百分点；SYSU分别降低0.529/0.832个百分点；CDD双曲提高0.021个百分点、普通降低0.044个百分点。本轮呈现数据集相关的收益，SYSU是共同薄弱项；单seed微小差异不作为稳定提升证据。所有结果均为test参与选模后的复测。
 
-<!-- STARTUP -->
-正式队列于2026-10-25 13:58:47 CST启动，源码基线`9f515ef`，supervisor PID1334437。截至2026-10-25T14:04:46+08:00，首发五项均完成至少3个训练及test评估epoch，主损失和评分损失下降，未见NaN/Inf/OOM或异常退出。两模块四项真实短训均通过，四层分支及qk/v/out任务梯度非零。正式权重从MobileNetV2预训练全新初始化，未使用探针或历史权重。
+日志与JSON已下载至`outputs/CASA-Pyramid/Run2`。指标表185条，原173条历史单元格保留；Run2冻结TXT来自source_code.tar.gz，current TXT来自工作源码。完整训练日志、逐轮曲线、实际best_epoch与诊断见`docs/experiments/CASA-Pyramid/Run2`。旧Run2_val两项完整结果保留，历史冻结TXT保持对应源码。
 
-| 实验 | GPU | PID | 已完成epoch | 首三轮总损失 |
-|---|---:|---:|---:|---|
-| M1_HYPER_QKV/LEVIR-CD-256 | 0 | 1334439 | 5 | 2.2231 → 1.3654 → 1.1898 |
-| M2_CA_QKV/LEVIR-CD-256 | 1 | 1334470 | 6 | 2.2181 → 1.3658 → 1.1979 |
-| M0_CTRL/LEVIR-CD-256 | 1 | 1334499 | 6 | 2.2215 → 1.3699 → 1.2030 |
-| M1_HYPER_QKV/SYSU-CD-256 | 0 | 1334531 | 3 | 2.7216 → 2.1003 → 1.8660 |
-| M0_CTRL/SYSU-CD-256 | 1 | 1334561 | 3 | 2.7246 → 2.1221 → 1.8952 |
-
-<!-- END_STARTUP -->
+服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。
 
 ## CASA-Pyramid / Run1 已完成
 

@@ -76,26 +76,28 @@
 
 ## 当前实验：CASA-Pyramid / Run2
 
-四库各双曲、普通、CTRL共12项，优先LEVIR→SYSU→WHU→CDD；两张GPU按实测显存留量并行补位。正式队列于2026-10-25 13:58:47 CST启动，源码基线`9f515ef`，supervisor PID1334437。截至2026-10-25T14:04:46+08:00，首发五项均完成至少3个训练及test评估epoch，主损失和评分损失下降，未见NaN/Inf/OOM或异常退出。两模块四项真实短训均通过，四层分支及qk/v/out任务梯度非零。正式权重从MobileNetV2预训练全新初始化，未使用探针或历史权重。配置、检查与启动信息见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
+Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。 配置与初期观察见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
+
+相对同轮CTRL，双曲/普通模块在LEVIR的F1分别提高0.185/0.148个百分点，WHU提高0.212/0.345个百分点；SYSU分别降低0.529/0.832个百分点；CDD双曲提高0.021个百分点、普通降低0.044个百分点。本轮呈现数据集相关的收益，SYSU是共同薄弱项；单seed微小差异不作为稳定提升证据。所有结果均为test参与选模后的复测。
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_START -->
 
-状态更新：2026-10-25 14:05:04 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-26 00:19:21 CST；队列 `complete`；正式结果 **12/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：1400/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：1332/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：1400/40182 | — | — |
-| SYSU | `M0_CTRL` | 训练中：1500/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 训练中：1300/40125 | — | — |
-| SYSU | `M2_CA_QKV` | 待启动 | — | — |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 90.98 | 83.45 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 91.16 | 83.76 |
+| LEVIR | `M2_CA_QKV` | 完成 | 91.13 | 83.70 |
+| SYSU | `M0_CTRL` | 完成 | 83.37 | 71.48 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 82.84 | 70.70 |
+| SYSU | `M2_CA_QKV` | 完成 | 82.54 | 70.26 |
+| WHU | `M0_CTRL` | 完成 | 94.35 | 89.31 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.56 | 89.69 |
+| WHU | `M2_CA_QKV` | 完成 | 94.70 | 89.93 |
+| CDD | `M0_CTRL` | 完成 | 96.91 | 94.00 |
+| CDD | `M1_HYPER_QKV` | 完成 | 96.93 | 94.04 |
+| CDD | `M2_CA_QKV` | 完成 | 96.87 | 93.92 |
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_END -->
 
@@ -105,7 +107,7 @@ python train_scripts/CASA-Pyramid/Run2/collect_results.py
 python tools/export_training_records.py --tag CASA-Pyramid --run Run2
 ```
 
-源码、日志和JSON：`outputs/CASA-Pyramid/Run2`；服务器日志根`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint根`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。指标表保留173条完整历史记录，本轮收齐后正常185条。独立val选模的两项LEVIR结果另存`Run2_val`（CTRL F1 90.8261%、普通90.8842%）；历史冻结TXT与其运行源码对应。
+源码、日志和JSON：`outputs/CASA-Pyramid/Run2`；服务器日志根`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint根`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。指标表共185条正式记录，原173条逐单元格保留，本轮新增12条。独立val选模的两项LEVIR结果另存`Run2_val`（CTRL F1 90.8261%、普通90.8842%）；历史冻结TXT与其运行源码对应。
 
 ## 当前推理开销
 
@@ -165,6 +167,8 @@ RTX5090，256×256双时相输入、batch1、四级输出；折叠后30次预热
 | qkv | 2,063,581 | 1,952,266 | 2.100 | 5.53 |
 
 ## 完整训练记录
+
+[CASA-Pyramid/Run2公开记录](docs/experiments/CASA-Pyramid/Run2/README.md)包含12项完整日志、逐epoch训练/test选模曲线、实际最佳epoch、模块诊断、正式结果、探针及环境。Run2冻结TXT来自实际训练源码归档；current TXT对应当前models。
 
 [CASA-Pyramid/Run1公开记录](docs/experiments/CASA-Pyramid/Run1/README.md)包含12项完整train_log.txt、逐epoch训练/验证CSV、实际最佳epoch、模块诊断CSV/JSONL、四库完整曲线、四项成功探针及运行环境。诊断为当轮验证首个batch的实际数值；epoch从0开始。源码输出语句与实际训练记录分别保留。
 

@@ -1,0 +1,960 @@
+[PRETRAIN-LOAD] MobileNetV2 tensors=306 missing=0 unexpected=['classifier.1.weight', 'classifier.1.bias', 'features.18.0.weight', 'features.18.1.weight', 'features.18.1.bias', 'features.18.1.running_mean', 'features.18.1.running_var', 'features.18.1.num_batches_tracked']
+[PROTOCOL-VERSION] casa_pyramid_40k_reliableqk_testselect_v2
+[CONFIG] {"protocol": "casa_pyramid_40k_reliableqk_testselect_v2", "module": "none", "seed": 2333, "max_steps_requested": 40000, "actual_steps": 40182, "epochs": 181, "train_batches": 222, "batch_size": 32, "lr": 0.0005, "optimizer": "Adam(0.9,0.99),eps=1e-8", "weight_decay": 0.0001, "context_projection_weight_decay": 0.0001, "context_other_weight_decay": 0.0, "context_projection_decay_parameters": [], "selection": "best test F1 each epoch, ties update", "selection_split": "test", "independent_test": false, "evaluation_starts_at_epoch": 0, "preprocessing": {"color_order": "RGB", "input_size": [256, 256], "image_interpolation": "bilinear", "mask_interpolation": "nearest", "normalization_mean": [0.485, 0.456, 0.406], "normalization_std": [0.229, 0.224, 0.225], "label_threshold": 128, "train_crop_probability": 0.5, "train_crop_max_margin": 8, "horizontal_flip_probability": 0.5, "vertical_flip_probability": 0.5, "quarter_turns": [0, 1, 2, 3], "temporal_exchange_probability": 0.5, "independent_photometric_augmentation": false, "evaluation_augmentation": false}, "deep_supervision": 4, "label_threshold": 128, "context_grid_sizes": [8, 4, 4, 4], "context_prototypes_per_scale": [128, 32, 32, 32], "joint_contexts": 224, "qk_geometry": "none", "value_geometry": "euclidean", "qkv_dim": 64, "heads": 4, "guide_weight": 0.2, "source_files": ["models/dataset/casa_transforms.py", "models/dataset/dataset.py", "models/model/casa_net.py", "models/model/layers/__init__.py", "models/model/layers/poincare_ops.py", "models/model/layers/pyramid_context.py", "models/model/metric_tool.py", "models/model/mobilenet_v2.py", "models/model/str_dcr.py", "models/model/str_reparam.py", "models/model/str_tar.py", "models/profile_CASA.py", "models/test_CASA.py", "models/test_CASA_resume.py", "models/test_data_pipeline.py", "models/test_pyramid_context.py", "models/train_CASA.py"], "warmup_steps": 200, "evaluation_split": "test", "precision": {"input": "float32", "amp": false, "cudnn_tf32": true, "matmul_tf32": false, "cudnn_benchmark": true}, "context_values": "guide_only", "source_archive": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2/source_code.tar.gz", "dataset": "/share_datasets/CD/LEVIR-CD-256", "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth", "deploy_verification": "strict_fp32_fold_v1"}
+[TOTAL-PARAMS] 2.047125 M
+[MAX-STEPS] requested=40000 actual=40182 epochs=181 train_batches=222
+[TRAIN] step=100/40182 loss=2.25748 lr=0.00027500
+[TRAIN] step=200/40182 loss=1.28823 lr=0.00050000
+[ACTUAL-OPT-STEPS] epoch=0 executed=222 cumulative=222/40182
+[TRAIN-EPOCH] epoch=0 loss=2.221453 main=1.960434 guide=1.305095 lr=0.00049752
+Epoch 0/181 | Loss=1.581975 | Recall=0.825399 | Precision=0.828561 | OA=0.982405 | F1=0.826977 | IoU=0.704996 | Kappa=0.817708 | t=61.6s
+[TRAIN] step=300/40182 loss=1.23090 lr=0.00049665
+[TRAIN] step=400/40182 loss=1.92670 lr=0.00049553
+[ACTUAL-OPT-STEPS] epoch=1 executed=222 cumulative=444/40182
+[TRAIN-EPOCH] epoch=1 loss=1.369940 main=1.272772 guide=0.485835 lr=0.00049504
+Epoch 1/181 | Loss=1.400542 | Recall=0.874737 | Precision=0.828723 | OA=0.984409 | F1=0.851109 | IoU=0.740809 | Kappa=0.842889 | t=55.9s
+[TRAIN] step=500/40182 loss=1.22565 lr=0.00049441
+[TRAIN] step=600/40182 loss=1.16441 lr=0.00049329
+[ACTUAL-OPT-STEPS] epoch=2 executed=222 cumulative=666/40182
+[TRAIN-EPOCH] epoch=2 loss=1.202955 main=1.128620 guide=0.371674 lr=0.00049255
+Epoch 2/181 | Loss=1.317319 | Recall=0.831489 | Precision=0.894565 | OA=0.986423 | F1=0.861874 | IoU=0.757275 | Kappa=0.854745 | t=56.7s
+[TRAIN] step=700/40182 loss=1.06150 lr=0.00049217
+[TRAIN] step=800/40182 loss=1.22969 lr=0.00049104
+[ACTUAL-OPT-STEPS] epoch=3 executed=222 cumulative=888/40182
+[TRAIN-EPOCH] epoch=3 loss=1.099663 main=1.032339 guide=0.336619 lr=0.00049006
+Epoch 3/181 | Loss=1.329019 | Recall=0.824955 | Precision=0.909494 | OA=0.986901 | F1=0.865164 | IoU=0.762370 | Kappa=0.858298 | t=56.8s
+[TRAIN] step=900/40182 loss=1.18891 lr=0.00048992
+[TRAIN] step=1000/40182 loss=1.10282 lr=0.00048880
+[TRAIN] step=1100/40182 loss=1.03096 lr=0.00048768
+[ACTUAL-OPT-STEPS] epoch=4 executed=222 cumulative=1110/40182
+[TRAIN-EPOCH] epoch=4 loss=1.073584 main=1.009644 guide=0.319696 lr=0.00048756
+Epoch 4/181 | Loss=1.248177 | Recall=0.856267 | Precision=0.900700 | OA=0.987869 | F1=0.877922 | IoU=0.782407 | Kappa=0.871543 | t=56.9s
+[TRAIN] step=1200/40182 loss=1.52711 lr=0.00048655
+[TRAIN] step=1300/40182 loss=0.90992 lr=0.00048543
+[ACTUAL-OPT-STEPS] epoch=5 executed=222 cumulative=1332/40182
+[TRAIN-EPOCH] epoch=5 loss=1.032446 main=0.970845 guide=0.308004 lr=0.00048507
+Epoch 5/181 | Loss=1.289356 | Recall=0.888680 | Precision=0.853354 | OA=0.986549 | F1=0.870659 | IoU=0.770944 | Kappa=0.863567 | t=57.1s
+[TRAIN] step=1400/40182 loss=0.98480 lr=0.00048430
+[TRAIN] step=1500/40182 loss=0.99734 lr=0.00048318
+[ACTUAL-OPT-STEPS] epoch=6 executed=222 cumulative=1554/40182
+[TRAIN-EPOCH] epoch=6 loss=1.029491 main=0.969067 guide=0.302117 lr=0.00048257
+Epoch 6/181 | Loss=1.242906 | Recall=0.858731 | Precision=0.900009 | OA=0.987943 | F1=0.878885 | IoU=0.783939 | Kappa=0.872545 | t=56.4s
+[TRAIN] step=1600/40182 loss=0.90566 lr=0.00048206
+[TRAIN] step=1700/40182 loss=1.11187 lr=0.00048093
+[ACTUAL-OPT-STEPS] epoch=7 executed=222 cumulative=1776/40182
+[TRAIN-EPOCH] epoch=7 loss=0.983314 main=0.924929 guide=0.291924 lr=0.00048008
+Epoch 7/181 | Loss=1.247620 | Recall=0.910186 | Precision=0.841470 | OA=0.986689 | F1=0.874480 | IoU=0.776957 | Kappa=0.867464 | t=56.9s
+[TRAIN] step=1800/40182 loss=1.22281 lr=0.00047981
+[TRAIN] step=1900/40182 loss=1.09367 lr=0.00047868
+[ACTUAL-OPT-STEPS] epoch=8 executed=222 cumulative=1998/40182
+[TRAIN-EPOCH] epoch=8 loss=0.993303 main=0.935491 guide=0.289057 lr=0.00047758
+Epoch 8/181 | Loss=1.228048 | Recall=0.880549 | Precision=0.886943 | OA=0.988197 | F1=0.883734 | IoU=0.791689 | Kappa=0.877518 | t=57.1s
+[TRAIN] step=2000/40182 loss=0.87303 lr=0.00047756
+[TRAIN] step=2100/40182 loss=1.02767 lr=0.00047643
+[TRAIN] step=2200/40182 loss=1.04397 lr=0.00047530
+[ACTUAL-OPT-STEPS] epoch=9 executed=222 cumulative=2220/40182
+[TRAIN-EPOCH] epoch=9 loss=0.963161 main=0.906564 guide=0.282988 lr=0.00047508
+Epoch 9/181 | Loss=1.249897 | Recall=0.867335 | Precision=0.883377 | OA=0.987409 | F1=0.875283 | IoU=0.778225 | Kappa=0.868653 | t=57.0s
+[TRAIN] step=2300/40182 loss=0.56758 lr=0.00047418
+[TRAIN] step=2400/40182 loss=0.89645 lr=0.00047305
+[ACTUAL-OPT-STEPS] epoch=10 executed=222 cumulative=2442/40182
+[TRAIN-EPOCH] epoch=10 loss=0.948215 main=0.892683 guide=0.277659 lr=0.00047258
+Epoch 10/181 | Loss=1.150631 | Recall=0.878929 | Precision=0.901337 | OA=0.988931 | F1=0.889992 | IoU=0.801789 | Kappa=0.884166 | t=57.5s
+[TRAIN] step=2500/40182 loss=0.97720 lr=0.00047192
+[TRAIN] step=2600/40182 loss=0.85393 lr=0.00047080
+[ACTUAL-OPT-STEPS] epoch=11 executed=222 cumulative=2664/40182
+[TRAIN-EPOCH] epoch=11 loss=0.934739 main=0.880231 guide=0.272538 lr=0.00047008
+Epoch 11/181 | Loss=1.238964 | Recall=0.873642 | Precision=0.888048 | OA=0.987952 | F1=0.880786 | IoU=0.786969 | Kappa=0.874442 | t=56.6s
+[TRAIN] step=2700/40182 loss=0.94146 lr=0.00046967
+[TRAIN] step=2800/40182 loss=0.90159 lr=0.00046854
+[ACTUAL-OPT-STEPS] epoch=12 executed=222 cumulative=2886/40182
+[TRAIN-EPOCH] epoch=12 loss=0.942658 main=0.887869 guide=0.273946 lr=0.00046757
+Epoch 12/181 | Loss=1.181570 | Recall=0.860046 | Precision=0.918109 | OA=0.988962 | F1=0.888130 | IoU=0.798771 | Kappa=0.882331 | t=56.9s
+[TRAIN] step=2900/40182 loss=1.01929 lr=0.00046741
+[TRAIN] step=3000/40182 loss=0.93491 lr=0.00046629
+[TRAIN] step=3100/40182 loss=0.93054 lr=0.00046516
+[ACTUAL-OPT-STEPS] epoch=13 executed=222 cumulative=3108/40182
+[TRAIN-EPOCH] epoch=13 loss=0.919379 main=0.865603 guide=0.268880 lr=0.00046507
+Epoch 13/181 | Loss=1.142930 | Recall=0.892041 | Precision=0.886605 | OA=0.988688 | F1=0.889315 | IoU=0.800690 | Kappa=0.883354 | t=56.8s
+[TRAIN] step=3200/40182 loss=0.80562 lr=0.00046403
+[TRAIN] step=3300/40182 loss=0.82952 lr=0.00046290
+[ACTUAL-OPT-STEPS] epoch=14 executed=222 cumulative=3330/40182
+[TRAIN-EPOCH] epoch=14 loss=0.942884 main=0.889183 guide=0.268502 lr=0.00046256
+Epoch 14/181 | Loss=1.150192 | Recall=0.887911 | Precision=0.890790 | OA=0.988744 | F1=0.889348 | IoU=0.800744 | Kappa=0.883419 | t=57.2s
+[TRAIN] step=3400/40182 loss=1.09761 lr=0.00046177
+[TRAIN] step=3500/40182 loss=0.83252 lr=0.00046064
+[ACTUAL-OPT-STEPS] epoch=15 executed=222 cumulative=3552/40182
+[TRAIN-EPOCH] epoch=15 loss=0.897436 main=0.845152 guide=0.261420 lr=0.00046005
+Epoch 15/181 | Loss=1.128171 | Recall=0.871674 | Precision=0.912881 | OA=0.989225 | F1=0.891802 | IoU=0.804731 | Kappa=0.886135 | t=57.2s
+[TRAIN] step=3600/40182 loss=0.74835 lr=0.00045951
+[TRAIN] step=3700/40182 loss=0.86116 lr=0.00045838
+[ACTUAL-OPT-STEPS] epoch=16 executed=222 cumulative=3774/40182
+[TRAIN-EPOCH] epoch=16 loss=0.885245 main=0.833351 guide=0.259471 lr=0.00045754
+Epoch 16/181 | Loss=1.132012 | Recall=0.879717 | Precision=0.904584 | OA=0.989145 | F1=0.891977 | IoU=0.805017 | Kappa=0.886264 | t=57.3s
+[TRAIN] step=3800/40182 loss=1.02965 lr=0.00045725
+[TRAIN] step=3900/40182 loss=0.89731 lr=0.00045612
+[ACTUAL-OPT-STEPS] epoch=17 executed=222 cumulative=3996/40182
+[TRAIN-EPOCH] epoch=17 loss=0.896821 main=0.845025 guide=0.258984 lr=0.00045503
+Epoch 17/181 | Loss=1.104016 | Recall=0.879366 | Precision=0.908148 | OA=0.989324 | F1=0.893525 | IoU=0.807542 | Kappa=0.887907 | t=57.1s
+[TRAIN] step=4000/40182 loss=0.80247 lr=0.00045498
+[TRAIN] step=4100/40182 loss=0.87692 lr=0.00045385
+[TRAIN] step=4200/40182 loss=0.75565 lr=0.00045272
+[ACTUAL-OPT-STEPS] epoch=18 executed=222 cumulative=4218/40182
+[TRAIN-EPOCH] epoch=18 loss=0.885729 main=0.834480 guide=0.256247 lr=0.00045252
+Epoch 18/181 | Loss=1.096184 | Recall=0.890760 | Precision=0.895542 | OA=0.989142 | F1=0.893145 | IoU=0.806921 | Kappa=0.887425 | t=57.4s
+[TRAIN] step=4300/40182 loss=0.95572 lr=0.00045159
+[TRAIN] step=4400/40182 loss=0.95157 lr=0.00045045
+[ACTUAL-OPT-STEPS] epoch=19 executed=222 cumulative=4440/40182
+[TRAIN-EPOCH] epoch=19 loss=0.902507 main=0.851207 guide=0.256496 lr=0.00045000
+Epoch 19/181 | Loss=1.107795 | Recall=0.887292 | Precision=0.905652 | OA=0.989549 | F1=0.896378 | IoU=0.812215 | Kappa=0.890876 | t=56.9s
+[TRAIN] step=4500/40182 loss=0.91746 lr=0.00044932
+[TRAIN] step=4600/40182 loss=0.86840 lr=0.00044819
+[ACTUAL-OPT-STEPS] epoch=20 executed=222 cumulative=4662/40182
+[TRAIN-EPOCH] epoch=20 loss=0.865115 main=0.814841 guide=0.251372 lr=0.00044748
+Epoch 20/181 | Loss=1.103856 | Recall=0.880089 | Precision=0.906152 | OA=0.989248 | F1=0.892930 | IoU=0.806571 | Kappa=0.887271 | t=57.2s
+[TRAIN] step=4700/40182 loss=0.80765 lr=0.00044705
+[TRAIN] step=4800/40182 loss=0.73987 lr=0.00044592
+[ACTUAL-OPT-STEPS] epoch=21 executed=222 cumulative=4884/40182
+[TRAIN-EPOCH] epoch=21 loss=0.885750 main=0.834980 guide=0.253851 lr=0.00044497
+Epoch 21/181 | Loss=1.124781 | Recall=0.886261 | Precision=0.898879 | OA=0.989127 | F1=0.892525 | IoU=0.805910 | Kappa=0.886799 | t=57.3s
+[TRAIN] step=4900/40182 loss=1.04015 lr=0.00044479
+[TRAIN] step=5000/40182 loss=0.85926 lr=0.00044365
+[TRAIN] step=5100/40182 loss=0.89451 lr=0.00044252
+[ACTUAL-OPT-STEPS] epoch=22 executed=222 cumulative=5106/40182
+[TRAIN-EPOCH] epoch=22 loss=0.859976 main=0.810109 guide=0.249337 lr=0.00044245
+Epoch 22/181 | Loss=1.101882 | Recall=0.883242 | Precision=0.893752 | OA=0.988703 | F1=0.888466 | IoU=0.799315 | Kappa=0.882517 | t=57.2s
+[TRAIN] step=5200/40182 loss=0.70883 lr=0.00044138
+[TRAIN] step=5300/40182 loss=0.94576 lr=0.00044024
+[ACTUAL-OPT-STEPS] epoch=23 executed=222 cumulative=5328/40182
+[TRAIN-EPOCH] epoch=23 loss=0.879461 main=0.829495 guide=0.249829 lr=0.00043993
+Epoch 23/181 | Loss=1.112786 | Recall=0.905378 | Precision=0.883922 | OA=0.989123 | F1=0.894522 | IoU=0.809172 | Kappa=0.888788 | t=57.5s
+[TRAIN] step=5400/40182 loss=0.88969 lr=0.00043911
+[TRAIN] step=5500/40182 loss=0.78885 lr=0.00043797
+[ACTUAL-OPT-STEPS] epoch=24 executed=222 cumulative=5550/40182
+[TRAIN-EPOCH] epoch=24 loss=0.860657 main=0.811259 guide=0.246994 lr=0.00043740
+Epoch 24/181 | Loss=1.097020 | Recall=0.899202 | Precision=0.890467 | OA=0.989230 | F1=0.894813 | IoU=0.809649 | Kappa=0.889138 | t=57.0s
+[TRAIN] step=5600/40182 loss=0.76302 lr=0.00043684
+[TRAIN] step=5700/40182 loss=0.82752 lr=0.00043570
+[ACTUAL-OPT-STEPS] epoch=25 executed=222 cumulative=5772/40182
+[TRAIN-EPOCH] epoch=25 loss=0.866325 main=0.816713 guide=0.248060 lr=0.00043488
+Epoch 25/181 | Loss=1.177386 | Recall=0.872158 | Precision=0.900120 | OA=0.988557 | F1=0.885918 | IoU=0.795201 | Kappa=0.879897 | t=57.2s
+[TRAIN] step=5800/40182 loss=0.86168 lr=0.00043456
+[TRAIN] step=5900/40182 loss=0.76116 lr=0.00043342
+[ACTUAL-OPT-STEPS] epoch=26 executed=222 cumulative=5994/40182
+[TRAIN-EPOCH] epoch=26 loss=0.856375 main=0.807075 guide=0.246499 lr=0.00043235
+Epoch 26/181 | Loss=1.092365 | Recall=0.898530 | Precision=0.890698 | OA=0.989214 | F1=0.894597 | IoU=0.809295 | Kappa=0.888913 | t=57.3s
+[TRAIN] step=6000/40182 loss=0.93069 lr=0.00043229
+[TRAIN] step=6100/40182 loss=0.75460 lr=0.00043115
+[TRAIN] step=6200/40182 loss=0.93814 lr=0.00043001
+[ACTUAL-OPT-STEPS] epoch=27 executed=222 cumulative=6216/40182
+[TRAIN-EPOCH] epoch=27 loss=0.861697 main=0.812459 guide=0.246188 lr=0.00042983
+Epoch 27/181 | Loss=1.108232 | Recall=0.865563 | Precision=0.924004 | OA=0.989525 | F1=0.893829 | IoU=0.808039 | Kappa=0.888326 | t=57.0s
+[TRAIN] step=6300/40182 loss=0.92258 lr=0.00042887
+[TRAIN] step=6400/40182 loss=0.93905 lr=0.00042773
+[ACTUAL-OPT-STEPS] epoch=28 executed=222 cumulative=6438/40182
+[TRAIN-EPOCH] epoch=28 loss=0.852116 main=0.803373 guide=0.243716 lr=0.00042730
+Epoch 28/181 | Loss=1.083993 | Recall=0.898463 | Precision=0.897687 | OA=0.989611 | F1=0.898075 | IoU=0.815006 | Kappa=0.892602 | t=56.5s
+[TRAIN] step=6500/40182 loss=0.78740 lr=0.00042659
+[TRAIN] step=6600/40182 loss=0.90905 lr=0.00042545
+[ACTUAL-OPT-STEPS] epoch=29 executed=222 cumulative=6660/40182
+[TRAIN-EPOCH] epoch=29 loss=0.836514 main=0.788346 guide=0.240842 lr=0.00042477
+Epoch 29/181 | Loss=1.080144 | Recall=0.886823 | Precision=0.910513 | OA=0.989794 | F1=0.898512 | IoU=0.815726 | Kappa=0.893140 | t=57.5s
+[TRAIN] step=6700/40182 loss=0.79295 lr=0.00042431
+[TRAIN] step=6800/40182 loss=0.86424 lr=0.00042317
+[ACTUAL-OPT-STEPS] epoch=30 executed=222 cumulative=6882/40182
+[TRAIN-EPOCH] epoch=30 loss=0.839631 main=0.791673 guide=0.239793 lr=0.00042223
+Epoch 30/181 | Loss=1.092826 | Recall=0.882153 | Precision=0.913351 | OA=0.989733 | F1=0.897481 | IoU=0.814027 | Kappa=0.892078 | t=57.1s
+[TRAIN] step=6900/40182 loss=0.80886 lr=0.00042203
+[TRAIN] step=7000/40182 loss=0.87483 lr=0.00042089
+[TRAIN] step=7100/40182 loss=0.81731 lr=0.00041975
+[ACTUAL-OPT-STEPS] epoch=31 executed=222 cumulative=7104/40182
+[TRAIN-EPOCH] epoch=31 loss=0.865011 main=0.816177 guide=0.244166 lr=0.00041970
+Epoch 31/181 | Loss=1.101452 | Recall=0.886635 | Precision=0.900705 | OA=0.989246 | F1=0.893615 | IoU=0.807689 | Kappa=0.887952 | t=56.5s
+[TRAIN] step=7200/40182 loss=0.81551 lr=0.00041860
+[TRAIN] step=7300/40182 loss=0.88505 lr=0.00041746
+[ACTUAL-OPT-STEPS] epoch=32 executed=222 cumulative=7326/40182
+[TRAIN-EPOCH] epoch=32 loss=0.824436 main=0.776674 guide=0.238812 lr=0.00041716
+Epoch 32/181 | Loss=1.051774 | Recall=0.870711 | Precision=0.927048 | OA=0.989923 | F1=0.897997 | IoU=0.814877 | Kappa=0.892703 | t=57.5s
+[TRAIN] step=7400/40182 loss=0.94185 lr=0.00041632
+[TRAIN] step=7500/40182 loss=0.99646 lr=0.00041518
+[ACTUAL-OPT-STEPS] epoch=33 executed=222 cumulative=7548/40182
+[TRAIN-EPOCH] epoch=33 loss=0.839380 main=0.791500 guide=0.239400 lr=0.00041463
+Epoch 33/181 | Loss=1.053576 | Recall=0.892603 | Precision=0.908834 | OA=0.989968 | F1=0.900645 | IoU=0.819249 | Kappa=0.895363 | t=57.2s
+[TRAIN] step=7600/40182 loss=0.86269 lr=0.00041403
+[TRAIN] step=7700/40182 loss=0.89740 lr=0.00041289
+[ACTUAL-OPT-STEPS] epoch=34 executed=222 cumulative=7770/40182
+[TRAIN-EPOCH] epoch=34 loss=0.827785 main=0.780474 guide=0.236555 lr=0.00041209
+Epoch 34/181 | Loss=1.117546 | Recall=0.900969 | Precision=0.891577 | OA=0.989374 | F1=0.896248 | IoU=0.812002 | Kappa=0.890648 | t=57.4s
+[TRAIN] step=7800/40182 loss=0.93038 lr=0.00041174
+[TRAIN] step=7900/40182 loss=0.78651 lr=0.00041060
+[ACTUAL-OPT-STEPS] epoch=35 executed=222 cumulative=7992/40182
+[TRAIN-EPOCH] epoch=35 loss=0.829190 main=0.781846 guide=0.236720 lr=0.00040955
+Epoch 35/181 | Loss=1.100428 | Recall=0.881489 | Precision=0.910425 | OA=0.989545 | F1=0.895723 | IoU=0.811140 | Kappa=0.890221 | t=57.4s
+[TRAIN] step=8000/40182 loss=0.81730 lr=0.00040945
+[TRAIN] step=8100/40182 loss=0.86009 lr=0.00040831
+[TRAIN] step=8200/40182 loss=0.64266 lr=0.00040716
+[ACTUAL-OPT-STEPS] epoch=36 executed=222 cumulative=8214/40182
+[TRAIN-EPOCH] epoch=36 loss=0.840489 main=0.793195 guide=0.236470 lr=0.00040700
+Epoch 36/181 | Loss=1.093690 | Recall=0.911704 | Precision=0.887831 | OA=0.989634 | F1=0.899609 | IoU=0.817537 | Kappa=0.894145 | t=57.1s
+[TRAIN] step=8300/40182 loss=1.02011 lr=0.00040602
+[TRAIN] step=8400/40182 loss=0.89218 lr=0.00040487
+[ACTUAL-OPT-STEPS] epoch=37 executed=222 cumulative=8436/40182
+[TRAIN-EPOCH] epoch=37 loss=0.834140 main=0.786894 guide=0.236230 lr=0.00040446
+Epoch 37/181 | Loss=1.078920 | Recall=0.891297 | Precision=0.904639 | OA=0.989676 | F1=0.897918 | IoU=0.814748 | Kappa=0.892482 | t=57.4s
+[TRAIN] step=8500/40182 loss=0.77836 lr=0.00040372
+[TRAIN] step=8600/40182 loss=0.83956 lr=0.00040258
+[ACTUAL-OPT-STEPS] epoch=38 executed=222 cumulative=8658/40182
+[TRAIN-EPOCH] epoch=38 loss=0.817495 main=0.770853 guide=0.233206 lr=0.00040191
+Epoch 38/181 | Loss=1.102625 | Recall=0.872538 | Precision=0.921131 | OA=0.989701 | F1=0.896176 | IoU=0.811883 | Kappa=0.890762 | t=56.0s
+[TRAIN] step=8700/40182 loss=0.82006 lr=0.00040143
+[TRAIN] step=8800/40182 loss=0.81429 lr=0.00040028
+[ACTUAL-OPT-STEPS] epoch=39 executed=222 cumulative=8880/40182
+[TRAIN-EPOCH] epoch=39 loss=0.827225 main=0.780295 guide=0.234649 lr=0.00039936
+Epoch 39/181 | Loss=1.087873 | Recall=0.888431 | Precision=0.906961 | OA=0.989674 | F1=0.897600 | IoU=0.814224 | Kappa=0.892164 | t=57.2s
+[TRAIN] step=8900/40182 loss=0.89936 lr=0.00039913
+[TRAIN] step=9000/40182 loss=0.77663 lr=0.00039799
+[TRAIN] step=9100/40182 loss=0.83584 lr=0.00039684
+[ACTUAL-OPT-STEPS] epoch=40 executed=222 cumulative=9102/40182
+[TRAIN-EPOCH] epoch=40 loss=0.819559 main=0.772830 guide=0.233646 lr=0.00039681
+Epoch 40/181 | Loss=1.119933 | Recall=0.875151 | Precision=0.912417 | OA=0.989360 | F1=0.893395 | IoU=0.807331 | Kappa=0.887799 | t=56.8s
+[TRAIN] step=9200/40182 loss=0.81185 lr=0.00039569
+[TRAIN] step=9300/40182 loss=0.75490 lr=0.00039454
+[ACTUAL-OPT-STEPS] epoch=41 executed=222 cumulative=9324/40182
+[TRAIN-EPOCH] epoch=41 loss=0.815934 main=0.769325 guide=0.233042 lr=0.00039426
+Epoch 41/181 | Loss=1.050511 | Recall=0.900881 | Precision=0.900921 | OA=0.989904 | F1=0.900901 | IoU=0.819672 | Kappa=0.895582 | t=57.2s
+[TRAIN] step=9400/40182 loss=0.69823 lr=0.00039339
+[TRAIN] step=9500/40182 loss=0.80946 lr=0.00039224
+[ACTUAL-OPT-STEPS] epoch=42 executed=222 cumulative=9546/40182
+[TRAIN-EPOCH] epoch=42 loss=0.819020 main=0.772263 guide=0.233785 lr=0.00039171
+Epoch 42/181 | Loss=1.091003 | Recall=0.878385 | Precision=0.915825 | OA=0.989692 | F1=0.896715 | IoU=0.812768 | Kappa=0.891292 | t=57.4s
+[TRAIN] step=9600/40182 loss=0.82433 lr=0.00039109
+[TRAIN] step=9700/40182 loss=0.70254 lr=0.00038994
+[ACTUAL-OPT-STEPS] epoch=43 executed=222 cumulative=9768/40182
+[TRAIN-EPOCH] epoch=43 loss=0.815604 main=0.769273 guide=0.231655 lr=0.00038915
+Epoch 43/181 | Loss=1.048655 | Recall=0.910508 | Precision=0.890027 | OA=0.989710 | F1=0.900151 | IoU=0.818432 | Kappa=0.894727 | t=56.9s
+[TRAIN] step=9800/40182 loss=0.91208 lr=0.00038878
+[TRAIN] step=9900/40182 loss=0.73170 lr=0.00038763
+[ACTUAL-OPT-STEPS] epoch=44 executed=222 cumulative=9990/40182
+[TRAIN-EPOCH] epoch=44 loss=0.836179 main=0.789209 guide=0.234851 lr=0.00038660
+Epoch 44/181 | Loss=1.027630 | Recall=0.907747 | Precision=0.898316 | OA=0.990066 | F1=0.903007 | IoU=0.823165 | Kappa=0.897772 | t=56.9s
+[TRAIN] step=10000/40182 loss=0.80170 lr=0.00038648
+[TRAIN] step=10100/40182 loss=1.20208 lr=0.00038533
+[TRAIN] step=10200/40182 loss=0.91375 lr=0.00038418
+[ACTUAL-OPT-STEPS] epoch=45 executed=222 cumulative=10212/40182
+[TRAIN-EPOCH] epoch=45 loss=0.812233 main=0.766025 guide=0.231042 lr=0.00038404
+Epoch 45/181 | Loss=1.045300 | Recall=0.898467 | Precision=0.905223 | OA=0.990035 | F1=0.901832 | IoU=0.821216 | Kappa=0.896584 | t=57.4s
+[TRAIN] step=10300/40182 loss=0.79937 lr=0.00038302
+[TRAIN] step=10400/40182 loss=0.86777 lr=0.00038187
+[ACTUAL-OPT-STEPS] epoch=46 executed=222 cumulative=10434/40182
+[TRAIN-EPOCH] epoch=46 loss=0.819314 main=0.772805 guide=0.232542 lr=0.00038148
+Epoch 46/181 | Loss=1.159890 | Recall=0.867315 | Precision=0.912034 | OA=0.988979 | F1=0.889112 | IoU=0.800362 | Kappa=0.883318 | t=57.4s
+[TRAIN] step=10500/40182 loss=0.66529 lr=0.00038071
+[TRAIN] step=10600/40182 loss=0.94961 lr=0.00037956
+[ACTUAL-OPT-STEPS] epoch=47 executed=222 cumulative=10656/40182
+[TRAIN-EPOCH] epoch=47 loss=0.809698 main=0.763522 guide=0.230880 lr=0.00037891
+Epoch 47/181 | Loss=1.099802 | Recall=0.905772 | Precision=0.888723 | OA=0.989422 | F1=0.897167 | IoU=0.813511 | Kappa=0.891592 | t=57.6s
+[TRAIN] step=10700/40182 loss=0.91236 lr=0.00037840
+[TRAIN] step=10800/40182 loss=0.88762 lr=0.00037725
+[ACTUAL-OPT-STEPS] epoch=48 executed=222 cumulative=10878/40182
+[TRAIN-EPOCH] epoch=48 loss=0.808045 main=0.762048 guide=0.229980 lr=0.00037635
+Epoch 48/181 | Loss=1.062109 | Recall=0.904011 | Precision=0.896995 | OA=0.989822 | F1=0.900489 | IoU=0.818991 | Kappa=0.895126 | t=57.0s
+[TRAIN] step=10900/40182 loss=0.66687 lr=0.00037609
+[TRAIN] step=11000/40182 loss=0.85860 lr=0.00037494
+[TRAIN] step=11100/40182 loss=0.84550 lr=0.00037378
+[ACTUAL-OPT-STEPS] epoch=49 executed=222 cumulative=11100/40182
+[TRAIN-EPOCH] epoch=49 loss=0.811151 main=0.765035 guide=0.230582 lr=0.00037378
+Epoch 49/181 | Loss=1.048797 | Recall=0.894076 | Precision=0.911399 | OA=0.990176 | F1=0.902654 | IoU=0.822579 | Kappa=0.897482 | t=56.9s
+[TRAIN] step=11200/40182 loss=0.85072 lr=0.00037262
+[TRAIN] step=11300/40182 loss=0.86850 lr=0.00037147
+[ACTUAL-OPT-STEPS] epoch=50 executed=222 cumulative=11322/40182
+[TRAIN-EPOCH] epoch=50 loss=0.802999 main=0.757305 guide=0.228468 lr=0.00037121
+Epoch 50/181 | Loss=1.059320 | Recall=0.890129 | Precision=0.912248 | OA=0.990041 | F1=0.901053 | IoU=0.819924 | Kappa=0.895811 | t=57.2s
+[TRAIN] step=11400/40182 loss=0.80986 lr=0.00037031
+[TRAIN] step=11500/40182 loss=0.55047 lr=0.00036915
+[ACTUAL-OPT-STEPS] epoch=51 executed=222 cumulative=11544/40182
+[TRAIN-EPOCH] epoch=51 loss=0.811889 main=0.766030 guide=0.229292 lr=0.00036864
+Epoch 51/181 | Loss=1.047139 | Recall=0.903406 | Precision=0.900772 | OA=0.990010 | F1=0.902087 | IoU=0.821639 | Kappa=0.896824 | t=57.1s
+[TRAIN] step=11600/40182 loss=0.74954 lr=0.00036799
+[TRAIN] step=11700/40182 loss=0.81020 lr=0.00036683
+[ACTUAL-OPT-STEPS] epoch=52 executed=222 cumulative=11766/40182
+[TRAIN-EPOCH] epoch=52 loss=0.807835 main=0.762001 guide=0.229173 lr=0.00036607
+Epoch 52/181 | Loss=1.075123 | Recall=0.909622 | Precision=0.890481 | OA=0.989697 | F1=0.899950 | IoU=0.818099 | Kappa=0.894519 | t=57.1s
+[TRAIN] step=11800/40182 loss=0.73711 lr=0.00036567
+[TRAIN] step=11900/40182 loss=0.83863 lr=0.00036451
+[ACTUAL-OPT-STEPS] epoch=53 executed=222 cumulative=11988/40182
+[TRAIN-EPOCH] epoch=53 loss=0.792998 main=0.747755 guide=0.226215 lr=0.00036349
+Epoch 53/181 | Loss=1.043205 | Recall=0.884100 | Precision=0.916731 | OA=0.990005 | F1=0.900120 | IoU=0.818380 | Kappa=0.894861 | t=57.1s
+[TRAIN] step=12000/40182 loss=0.81068 lr=0.00036335
+[TRAIN] step=12100/40182 loss=0.89010 lr=0.00036219
+[TRAIN] step=12200/40182 loss=0.66879 lr=0.00036103
+[ACTUAL-OPT-STEPS] epoch=54 executed=222 cumulative=12210/40182
+[TRAIN-EPOCH] epoch=54 loss=0.806694 main=0.761010 guide=0.228423 lr=0.00036092
+Epoch 54/181 | Loss=1.031351 | Recall=0.880828 | Precision=0.921650 | OA=0.990114 | F1=0.900777 | IoU=0.819467 | Kappa=0.895578 | t=57.1s
+[TRAIN] step=12300/40182 loss=0.88586 lr=0.00035987
+[TRAIN] step=12400/40182 loss=0.89761 lr=0.00035871
+[ACTUAL-OPT-STEPS] epoch=55 executed=222 cumulative=12432/40182
+[TRAIN-EPOCH] epoch=55 loss=0.801277 main=0.755944 guide=0.226665 lr=0.00035834
+Epoch 55/181 | Loss=1.085809 | Recall=0.906727 | Precision=0.891682 | OA=0.989637 | F1=0.899141 | IoU=0.816764 | Kappa=0.893680 | t=56.8s
+[TRAIN] step=12500/40182 loss=0.64791 lr=0.00035755
+[TRAIN] step=12600/40182 loss=0.77357 lr=0.00035638
+[ACTUAL-OPT-STEPS] epoch=56 executed=222 cumulative=12654/40182
+[TRAIN-EPOCH] epoch=56 loss=0.808133 main=0.762514 guide=0.228096 lr=0.00035576
+Epoch 56/181 | Loss=1.089179 | Recall=0.928791 | Precision=0.859870 | OA=0.988662 | F1=0.893003 | IoU=0.806689 | Kappa=0.887026 | t=57.3s
+[TRAIN] step=12700/40182 loss=0.80395 lr=0.00035522
+[TRAIN] step=12800/40182 loss=0.83975 lr=0.00035406
+[ACTUAL-OPT-STEPS] epoch=57 executed=222 cumulative=12876/40182
+[TRAIN-EPOCH] epoch=57 loss=0.792734 main=0.747570 guide=0.225816 lr=0.00035317
+Epoch 57/181 | Loss=1.041525 | Recall=0.890506 | Precision=0.915354 | OA=0.990227 | F1=0.902759 | IoU=0.822754 | Kappa=0.897615 | t=56.5s
+[TRAIN] step=12900/40182 loss=0.88401 lr=0.00035289
+[TRAIN] step=13000/40182 loss=0.86996 lr=0.00035173
+[ACTUAL-OPT-STEPS] epoch=58 executed=222 cumulative=13098/40182
+[TRAIN-EPOCH] epoch=58 loss=0.797696 main=0.752477 guide=0.226096 lr=0.00035059
+Epoch 58/181 | Loss=1.056796 | Recall=0.894510 | Precision=0.907725 | OA=0.989994 | F1=0.901069 | IoU=0.819950 | Kappa=0.895800 | t=57.7s
+[TRAIN] step=13100/40182 loss=0.66056 lr=0.00035057
+[TRAIN] step=13200/40182 loss=0.75041 lr=0.00034940
+[TRAIN] step=13300/40182 loss=0.80570 lr=0.00034823
+[ACTUAL-OPT-STEPS] epoch=59 executed=222 cumulative=13320/40182
+[TRAIN-EPOCH] epoch=59 loss=0.792023 main=0.747108 guide=0.224576 lr=0.00034800
+Epoch 59/181 | Loss=1.050157 | Recall=0.904900 | Precision=0.894500 | OA=0.989718 | F1=0.899670 | IoU=0.817637 | Kappa=0.894252 | t=57.4s
+[TRAIN] step=13400/40182 loss=0.84458 lr=0.00034707
+[TRAIN] step=13500/40182 loss=0.76821 lr=0.00034590
+[ACTUAL-OPT-STEPS] epoch=60 executed=222 cumulative=13542/40182
+[TRAIN-EPOCH] epoch=60 loss=0.788544 main=0.743612 guide=0.224659 lr=0.00034541
+Epoch 60/181 | Loss=1.041262 | Recall=0.903776 | Precision=0.901918 | OA=0.990091 | F1=0.902846 | IoU=0.822898 | Kappa=0.897625 | t=57.4s
+[TRAIN] step=13600/40182 loss=0.74683 lr=0.00034473
+[TRAIN] step=13700/40182 loss=0.79940 lr=0.00034357
+[ACTUAL-OPT-STEPS] epoch=61 executed=222 cumulative=13764/40182
+[TRAIN-EPOCH] epoch=61 loss=0.784230 main=0.739612 guide=0.223087 lr=0.00034282
+Epoch 61/181 | Loss=1.034959 | Recall=0.884281 | Precision=0.923637 | OA=0.990381 | F1=0.903530 | IoU=0.824036 | Kappa=0.898471 | t=57.9s
+[TRAIN] step=13800/40182 loss=0.67884 lr=0.00034240
+[TRAIN] step=13900/40182 loss=0.75757 lr=0.00034123
+[ACTUAL-OPT-STEPS] epoch=62 executed=222 cumulative=13986/40182
+[TRAIN-EPOCH] epoch=62 loss=0.793891 main=0.748820 guide=0.225355 lr=0.00034023
+Epoch 62/181 | Loss=1.040805 | Recall=0.891259 | Precision=0.917383 | OA=0.990372 | F1=0.904132 | IoU=0.825038 | Kappa=0.899065 | t=57.7s
+[TRAIN] step=14000/40182 loss=0.84218 lr=0.00034006
+[TRAIN] step=14100/40182 loss=0.81731 lr=0.00033889
+[TRAIN] step=14200/40182 loss=0.80323 lr=0.00033772
+[ACTUAL-OPT-STEPS] epoch=63 executed=222 cumulative=14208/40182
+[TRAIN-EPOCH] epoch=63 loss=0.800405 main=0.755332 guide=0.225365 lr=0.00033763
+Epoch 63/181 | Loss=1.092555 | Recall=0.881480 | Precision=0.917846 | OA=0.989943 | F1=0.899296 | IoU=0.817019 | Kappa=0.894005 | t=57.0s
+[TRAIN] step=14300/40182 loss=0.71992 lr=0.00033655
+[TRAIN] step=14400/40182 loss=0.82766 lr=0.00033538
+[ACTUAL-OPT-STEPS] epoch=64 executed=222 cumulative=14430/40182
+[TRAIN-EPOCH] epoch=64 loss=0.790338 main=0.745640 guide=0.223490 lr=0.00033503
+Epoch 64/181 | Loss=1.046457 | Recall=0.892671 | Precision=0.913247 | OA=0.990213 | F1=0.902842 | IoU=0.822891 | Kappa=0.897689 | t=56.9s
+[TRAIN] step=14500/40182 loss=0.74820 lr=0.00033421
+[TRAIN] step=14600/40182 loss=0.79354 lr=0.00033304
+[ACTUAL-OPT-STEPS] epoch=65 executed=222 cumulative=14652/40182
+[TRAIN-EPOCH] epoch=65 loss=0.780972 main=0.736282 guide=0.223450 lr=0.00033243
+Epoch 65/181 | Loss=1.080894 | Recall=0.889121 | Precision=0.910717 | OA=0.989911 | F1=0.899789 | IoU=0.817833 | Kappa=0.894478 | t=57.4s
+[TRAIN] step=14700/40182 loss=0.77434 lr=0.00033187
+[TRAIN] step=14800/40182 loss=0.79693 lr=0.00033070
+[ACTUAL-OPT-STEPS] epoch=66 executed=222 cumulative=14874/40182
+[TRAIN-EPOCH] epoch=66 loss=0.782862 main=0.738469 guide=0.221968 lr=0.00032983
+Epoch 66/181 | Loss=1.061143 | Recall=0.898198 | Precision=0.904677 | OA=0.989993 | F1=0.901425 | IoU=0.820541 | Kappa=0.896154 | t=56.8s
+[TRAIN] step=14900/40182 loss=0.88488 lr=0.00032952
+[TRAIN] step=15000/40182 loss=0.75182 lr=0.00032835
+[ACTUAL-OPT-STEPS] epoch=67 executed=222 cumulative=15096/40182
+[TRAIN-EPOCH] epoch=67 loss=0.785380 main=0.740984 guide=0.221979 lr=0.00032722
+Epoch 67/181 | Loss=1.055713 | Recall=0.905776 | Precision=0.896680 | OA=0.989883 | F1=0.901205 | IoU=0.820176 | Kappa=0.895874 | t=56.5s
+[TRAIN] step=15100/40182 loss=0.84987 lr=0.00032718
+[TRAIN] step=15200/40182 loss=0.71312 lr=0.00032600
+[TRAIN] step=15300/40182 loss=0.76148 lr=0.00032483
+[ACTUAL-OPT-STEPS] epoch=68 executed=222 cumulative=15318/40182
+[TRAIN-EPOCH] epoch=68 loss=0.794595 main=0.749754 guide=0.224206 lr=0.00032462
+Epoch 68/181 | Loss=1.028577 | Recall=0.895427 | Precision=0.912771 | OA=0.990314 | F1=0.904016 | IoU=0.824844 | Kappa=0.898916 | t=57.5s
+[TRAIN] step=15400/40182 loss=0.93814 lr=0.00032365
+[TRAIN] step=15500/40182 loss=0.75660 lr=0.00032248
+[ACTUAL-OPT-STEPS] epoch=69 executed=222 cumulative=15540/40182
+[TRAIN-EPOCH] epoch=69 loss=0.780806 main=0.736477 guide=0.221647 lr=0.00032201
+Epoch 69/181 | Loss=1.060702 | Recall=0.885436 | Precision=0.919897 | OA=0.990236 | F1=0.902337 | IoU=0.822053 | Kappa=0.897200 | t=57.0s
+[TRAIN] step=15600/40182 loss=0.67081 lr=0.00032130
+[TRAIN] step=15700/40182 loss=0.67032 lr=0.00032013
+[ACTUAL-OPT-STEPS] epoch=70 executed=222 cumulative=15762/40182
+[TRAIN-EPOCH] epoch=70 loss=0.774734 main=0.730580 guide=0.220770 lr=0.00031940
+Epoch 70/181 | Loss=1.035435 | Recall=0.896244 | Precision=0.911455 | OA=0.990279 | F1=0.903785 | IoU=0.824460 | Kappa=0.898666 | t=57.0s
+[TRAIN] step=15800/40182 loss=0.88740 lr=0.00031895
+[TRAIN] step=15900/40182 loss=0.77895 lr=0.00031777
+[ACTUAL-OPT-STEPS] epoch=71 executed=222 cumulative=15984/40182
+[TRAIN-EPOCH] epoch=71 loss=0.782476 main=0.738086 guide=0.221948 lr=0.00031678
+Epoch 71/181 | Loss=1.023640 | Recall=0.912998 | Precision=0.893434 | OA=0.990020 | F1=0.903110 | IoU=0.823336 | Kappa=0.897850 | t=56.9s
+[TRAIN] step=16000/40182 loss=0.77280 lr=0.00031659
+[TRAIN] step=16100/40182 loss=0.74774 lr=0.00031541
+[TRAIN] step=16200/40182 loss=0.77916 lr=0.00031424
+[ACTUAL-OPT-STEPS] epoch=72 executed=222 cumulative=16206/40182
+[TRAIN-EPOCH] epoch=72 loss=0.782638 main=0.738310 guide=0.221641 lr=0.00031416
+Epoch 72/181 | Loss=1.022608 | Recall=0.889765 | Precision=0.917630 | OA=0.990316 | F1=0.903482 | IoU=0.823956 | Kappa=0.898386 | t=57.8s
+[TRAIN] step=16300/40182 loss=0.79689 lr=0.00031306
+[TRAIN] step=16400/40182 loss=0.87678 lr=0.00031188
+[ACTUAL-OPT-STEPS] epoch=73 executed=222 cumulative=16428/40182
+[TRAIN-EPOCH] epoch=73 loss=0.779063 main=0.734801 guide=0.221313 lr=0.00031155
+Epoch 73/181 | Loss=1.028620 | Recall=0.896923 | Precision=0.906816 | OA=0.990054 | F1=0.901842 | IoU=0.821232 | Kappa=0.896604 | t=57.6s
+[TRAIN] step=16500/40182 loss=0.82610 lr=0.00031070
+[TRAIN] step=16600/40182 loss=0.66209 lr=0.00030951
+[ACTUAL-OPT-STEPS] epoch=74 executed=222 cumulative=16650/40182
+[TRAIN-EPOCH] epoch=74 loss=0.770190 main=0.726340 guide=0.219254 lr=0.00030892
+Epoch 74/181 | Loss=1.057304 | Recall=0.898262 | Precision=0.905052 | OA=0.990017 | F1=0.901644 | IoU=0.820904 | Kappa=0.896386 | t=58.2s
+[TRAIN] step=16700/40182 loss=0.84331 lr=0.00030833
+[TRAIN] step=16800/40182 loss=0.80677 lr=0.00030715
+[ACTUAL-OPT-STEPS] epoch=75 executed=222 cumulative=16872/40182
+[TRAIN-EPOCH] epoch=75 loss=0.777943 main=0.733763 guide=0.220900 lr=0.00030630
+Epoch 75/181 | Loss=1.023737 | Recall=0.889401 | Precision=0.919686 | OA=0.990409 | F1=0.904290 | IoU=0.825301 | Kappa=0.899243 | t=57.0s
+[TRAIN] step=16900/40182 loss=0.95254 lr=0.00030597
+[TRAIN] step=17000/40182 loss=0.79852 lr=0.00030479
+[ACTUAL-OPT-STEPS] epoch=76 executed=222 cumulative=17094/40182
+[TRAIN-EPOCH] epoch=76 loss=0.774051 main=0.729998 guide=0.220267 lr=0.00030367
+Epoch 76/181 | Loss=1.006478 | Recall=0.900328 | Precision=0.911856 | OA=0.990489 | F1=0.906055 | IoU=0.828246 | Kappa=0.901047 | t=57.1s
+[TRAIN] step=17100/40182 loss=0.86972 lr=0.00030360
+[TRAIN] step=17200/40182 loss=0.82205 lr=0.00030242
+[TRAIN] step=17300/40182 loss=0.73634 lr=0.00030123
+[ACTUAL-OPT-STEPS] epoch=77 executed=222 cumulative=17316/40182
+[TRAIN-EPOCH] epoch=77 loss=0.770342 main=0.726516 guide=0.219133 lr=0.00030104
+Epoch 77/181 | Loss=1.006261 | Recall=0.897673 | Precision=0.916078 | OA=0.990598 | F1=0.906782 | IoU=0.829462 | Kappa=0.901832 | t=56.4s
+[TRAIN] step=17400/40182 loss=0.77766 lr=0.00030005
+[TRAIN] step=17500/40182 loss=0.89964 lr=0.00029886
+[ACTUAL-OPT-STEPS] epoch=78 executed=222 cumulative=17538/40182
+[TRAIN-EPOCH] epoch=78 loss=0.769221 main=0.725510 guide=0.218558 lr=0.00029841
+Epoch 78/181 | Loss=1.035176 | Recall=0.893629 | Precision=0.914653 | OA=0.990333 | F1=0.904019 | IoU=0.824848 | Kappa=0.898930 | t=57.2s
+[TRAIN] step=17600/40182 loss=0.81894 lr=0.00029768
+[TRAIN] step=17700/40182 loss=0.62683 lr=0.00029649
+[ACTUAL-OPT-STEPS] epoch=79 executed=222 cumulative=17760/40182
+[TRAIN-EPOCH] epoch=79 loss=0.776233 main=0.732215 guide=0.220090 lr=0.00029578
+Epoch 79/181 | Loss=1.030554 | Recall=0.891650 | Precision=0.914047 | OA=0.990209 | F1=0.902710 | IoU=0.822672 | Kappa=0.897556 | t=57.4s
+[TRAIN] step=17800/40182 loss=0.76826 lr=0.00029530
+[TRAIN] step=17900/40182 loss=1.36026 lr=0.00029412
+[ACTUAL-OPT-STEPS] epoch=80 executed=222 cumulative=17982/40182
+[TRAIN-EPOCH] epoch=80 loss=0.779180 main=0.735011 guide=0.220843 lr=0.00029314
+Epoch 80/181 | Loss=1.025250 | Recall=0.889073 | Precision=0.917518 | OA=0.990278 | F1=0.903072 | IoU=0.823273 | Kappa=0.897955 | t=56.9s
+[TRAIN] step=18000/40182 loss=0.76486 lr=0.00029293
+[TRAIN] step=18100/40182 loss=0.79291 lr=0.00029174
+[TRAIN] step=18200/40182 loss=0.78814 lr=0.00029055
+[ACTUAL-OPT-STEPS] epoch=81 executed=222 cumulative=18204/40182
+[TRAIN-EPOCH] epoch=81 loss=0.770602 main=0.726817 guide=0.218924 lr=0.00029050
+Epoch 81/181 | Loss=1.032724 | Recall=0.891860 | Precision=0.913112 | OA=0.990168 | F1=0.902361 | IoU=0.822093 | Kappa=0.897185 | t=57.1s
+[TRAIN] step=18300/40182 loss=0.69079 lr=0.00028936
+[TRAIN] step=18400/40182 loss=0.81211 lr=0.00028817
+[ACTUAL-OPT-STEPS] epoch=82 executed=222 cumulative=18426/40182
+[TRAIN-EPOCH] epoch=82 loss=0.768555 main=0.724948 guide=0.218034 lr=0.00028786
+Epoch 82/181 | Loss=1.044465 | Recall=0.887832 | Precision=0.922034 | OA=0.990461 | F1=0.904610 | IoU=0.825833 | Kappa=0.899591 | t=57.0s
+[TRAIN] step=18500/40182 loss=0.78941 lr=0.00028698
+[TRAIN] step=18600/40182 loss=0.84509 lr=0.00028579
+[ACTUAL-OPT-STEPS] epoch=83 executed=222 cumulative=18648/40182
+[TRAIN-EPOCH] epoch=83 loss=0.773282 main=0.729494 guide=0.218942 lr=0.00028521
+Epoch 83/181 | Loss=1.069526 | Recall=0.881709 | Precision=0.917240 | OA=0.989921 | F1=0.899124 | IoU=0.816735 | Kappa=0.893822 | t=56.8s
+[TRAIN] step=18700/40182 loss=0.95481 lr=0.00028459
+[TRAIN] step=18800/40182 loss=0.68612 lr=0.00028340
+[ACTUAL-OPT-STEPS] epoch=84 executed=222 cumulative=18870/40182
+[TRAIN-EPOCH] epoch=84 loss=0.778505 main=0.734448 guide=0.220284 lr=0.00028257
+Epoch 84/181 | Loss=1.036647 | Recall=0.898318 | Precision=0.908155 | OA=0.990192 | F1=0.903210 | IoU=0.823502 | Kappa=0.898044 | t=57.2s
+[TRAIN] step=18900/40182 loss=0.81826 lr=0.00028221
+[TRAIN] step=19000/40182 loss=0.56301 lr=0.00028102
+[ACTUAL-OPT-STEPS] epoch=85 executed=222 cumulative=19092/40182
+[TRAIN-EPOCH] epoch=85 loss=0.758783 main=0.715524 guide=0.216298 lr=0.00027992
+Epoch 85/181 | Loss=1.021335 | Recall=0.888341 | Precision=0.918838 | OA=0.990314 | F1=0.903332 | IoU=0.823707 | Kappa=0.898236 | t=57.3s
+[TRAIN] step=19100/40182 loss=0.78920 lr=0.00027982
+[TRAIN] step=19200/40182 loss=0.77946 lr=0.00027863
+[TRAIN] step=19300/40182 loss=0.70762 lr=0.00027743
+[ACTUAL-OPT-STEPS] epoch=86 executed=222 cumulative=19314/40182
+[TRAIN-EPOCH] epoch=86 loss=0.764353 main=0.720982 guide=0.216859 lr=0.00027726
+Epoch 86/181 | Loss=1.051251 | Recall=0.882902 | Precision=0.922210 | OA=0.990241 | F1=0.902128 | IoU=0.821706 | Kappa=0.896995 | t=57.3s
+[TRAIN] step=19400/40182 loss=0.72593 lr=0.00027624
+[TRAIN] step=19500/40182 loss=0.78449 lr=0.00027504
+[ACTUAL-OPT-STEPS] epoch=87 executed=222 cumulative=19536/40182
+[TRAIN-EPOCH] epoch=87 loss=0.759300 main=0.716005 guide=0.216472 lr=0.00027461
+Epoch 87/181 | Loss=1.074445 | Recall=0.891994 | Precision=0.903528 | OA=0.989646 | F1=0.897724 | IoU=0.814427 | Kappa=0.892271 | t=57.0s
+[TRAIN] step=19600/40182 loss=0.82695 lr=0.00027384
+[TRAIN] step=19700/40182 loss=0.51242 lr=0.00027264
+[ACTUAL-OPT-STEPS] epoch=88 executed=222 cumulative=19758/40182
+[TRAIN-EPOCH] epoch=88 loss=0.762116 main=0.718745 guide=0.216855 lr=0.00027195
+Epoch 88/181 | Loss=0.998751 | Recall=0.899050 | Precision=0.913739 | OA=0.990534 | F1=0.906335 | IoU=0.828713 | Kappa=0.901350 | t=56.6s
+[TRAIN] step=19800/40182 loss=0.82216 lr=0.00027145
+[TRAIN] step=19900/40182 loss=0.77684 lr=0.00027025
+[ACTUAL-OPT-STEPS] epoch=89 executed=222 cumulative=19980/40182
+[TRAIN-EPOCH] epoch=89 loss=0.761756 main=0.718490 guide=0.216326 lr=0.00026929
+Epoch 89/181 | Loss=1.033908 | Recall=0.878523 | Precision=0.929359 | OA=0.990410 | F1=0.903226 | IoU=0.823530 | Kappa=0.898186 | t=57.6s
+[TRAIN] step=20000/40182 loss=0.71544 lr=0.00026905
+[TRAIN] step=20100/40182 loss=0.57829 lr=0.00026785
+[TRAIN] step=20200/40182 loss=0.71360 lr=0.00026665
+[ACTUAL-OPT-STEPS] epoch=90 executed=222 cumulative=20202/40182
+[TRAIN-EPOCH] epoch=90 loss=0.756100 main=0.712923 guide=0.215885 lr=0.00026662
+Epoch 90/181 | Loss=1.029753 | Recall=0.902359 | Precision=0.906037 | OA=0.990259 | F1=0.904194 | IoU=0.825141 | Kappa=0.899063 | t=57.5s
+[TRAIN] step=20300/40182 loss=0.65027 lr=0.00026545
+[TRAIN] step=20400/40182 loss=0.65145 lr=0.00026424
+[ACTUAL-OPT-STEPS] epoch=91 executed=222 cumulative=20424/40182
+[TRAIN-EPOCH] epoch=91 loss=0.757170 main=0.714038 guide=0.215659 lr=0.00026396
+Epoch 91/181 | Loss=1.045750 | Recall=0.903871 | Precision=0.902699 | OA=0.990140 | F1=0.903285 | IoU=0.823627 | Kappa=0.898090 | t=57.2s
+[TRAIN] step=20500/40182 loss=0.69672 lr=0.00026304
+[TRAIN] step=20600/40182 loss=0.77480 lr=0.00026184
+[ACTUAL-OPT-STEPS] epoch=92 executed=222 cumulative=20646/40182
+[TRAIN-EPOCH] epoch=92 loss=0.760461 main=0.717227 guide=0.216169 lr=0.00026128
+Epoch 92/181 | Loss=1.045318 | Recall=0.899110 | Precision=0.907879 | OA=0.990213 | F1=0.903473 | IoU=0.823940 | Kappa=0.898318 | t=56.9s
+[TRAIN] step=20700/40182 loss=0.84821 lr=0.00026063
+[TRAIN] step=20800/40182 loss=0.74900 lr=0.00025943
+[ACTUAL-OPT-STEPS] epoch=93 executed=222 cumulative=20868/40182
+[TRAIN-EPOCH] epoch=93 loss=0.758203 main=0.715092 guide=0.215559 lr=0.00025861
+Epoch 93/181 | Loss=1.026541 | Recall=0.911442 | Precision=0.899165 | OA=0.990282 | F1=0.905262 | IoU=0.826921 | Kappa=0.900141 | t=56.6s
+[TRAIN] step=20900/40182 loss=0.87782 lr=0.00025823
+[TRAIN] step=21000/40182 loss=0.77079 lr=0.00025702
+[ACTUAL-OPT-STEPS] epoch=94 executed=222 cumulative=21090/40182
+[TRAIN-EPOCH] epoch=94 loss=0.758640 main=0.715521 guide=0.215595 lr=0.00025593
+Epoch 94/181 | Loss=1.036487 | Recall=0.879892 | Precision=0.927597 | OA=0.990383 | F1=0.903115 | IoU=0.823345 | Kappa=0.898059 | t=57.0s
+[TRAIN] step=21100/40182 loss=0.83001 lr=0.00025581
+[TRAIN] step=21200/40182 loss=0.56337 lr=0.00025461
+[TRAIN] step=21300/40182 loss=0.73225 lr=0.00025340
+[ACTUAL-OPT-STEPS] epoch=95 executed=222 cumulative=21312/40182
+[TRAIN-EPOCH] epoch=95 loss=0.756207 main=0.713104 guide=0.215512 lr=0.00025325
+Epoch 95/181 | Loss=1.064989 | Recall=0.877441 | Precision=0.928114 | OA=0.990294 | F1=0.902067 | IoU=0.821605 | Kappa=0.896965 | t=57.1s
+[TRAIN] step=21400/40182 loss=0.77462 lr=0.00025219
+[TRAIN] step=21500/40182 loss=0.64381 lr=0.00025098
+[ACTUAL-OPT-STEPS] epoch=96 executed=222 cumulative=21534/40182
+[TRAIN-EPOCH] epoch=96 loss=0.754086 main=0.711137 guide=0.214744 lr=0.00025057
+Epoch 96/181 | Loss=1.028379 | Recall=0.897538 | Precision=0.915913 | OA=0.990583 | F1=0.906632 | IoU=0.829211 | Kappa=0.901674 | t=56.7s
+[TRAIN] step=21600/40182 loss=0.85256 lr=0.00024977
+[TRAIN] step=21700/40182 loss=0.67088 lr=0.00024856
+[ACTUAL-OPT-STEPS] epoch=97 executed=222 cumulative=21756/40182
+[TRAIN-EPOCH] epoch=97 loss=0.750224 main=0.707302 guide=0.214611 lr=0.00024789
+Epoch 97/181 | Loss=1.042452 | Recall=0.900410 | Precision=0.910367 | OA=0.990410 | F1=0.905361 | IoU=0.827086 | Kappa=0.900310 | t=56.9s
+[TRAIN] step=21800/40182 loss=0.57349 lr=0.00024735
+[TRAIN] step=21900/40182 loss=0.81733 lr=0.00024614
+[ACTUAL-OPT-STEPS] epoch=98 executed=222 cumulative=21978/40182
+[TRAIN-EPOCH] epoch=98 loss=0.751350 main=0.708283 guide=0.215336 lr=0.00024520
+Epoch 98/181 | Loss=1.061711 | Recall=0.878421 | Precision=0.923076 | OA=0.990077 | F1=0.900195 | IoU=0.818504 | Kappa=0.894977 | t=57.4s
+[TRAIN] step=22000/40182 loss=0.76103 lr=0.00024493
+[TRAIN] step=22100/40182 loss=0.87985 lr=0.00024372
+[TRAIN] step=22200/40182 loss=0.74757 lr=0.00024250
+[ACTUAL-OPT-STEPS] epoch=99 executed=222 cumulative=22200/40182
+[TRAIN-EPOCH] epoch=99 loss=0.751431 main=0.708478 guide=0.214766 lr=0.00024250
+Epoch 99/181 | Loss=1.042815 | Recall=0.887881 | Precision=0.920224 | OA=0.990367 | F1=0.903763 | IoU=0.824424 | Kappa=0.898695 | t=57.8s
+[TRAIN] step=22300/40182 loss=0.68939 lr=0.00024129
+[TRAIN] step=22400/40182 loss=0.76203 lr=0.00024007
+[ACTUAL-OPT-STEPS] epoch=100 executed=222 cumulative=22422/40182
+[TRAIN-EPOCH] epoch=100 loss=0.746486 main=0.703749 guide=0.213682 lr=0.00023981
+Epoch 100/181 | Loss=1.032694 | Recall=0.894571 | Precision=0.914087 | OA=0.990346 | F1=0.904224 | IoU=0.825190 | Kappa=0.899141 | t=57.3s
+[TRAIN] step=22500/40182 loss=0.64112 lr=0.00023886
+[TRAIN] step=22600/40182 loss=0.80043 lr=0.00023764
+[ACTUAL-OPT-STEPS] epoch=101 executed=222 cumulative=22644/40182
+[TRAIN-EPOCH] epoch=101 loss=0.747399 main=0.704760 guide=0.213196 lr=0.00023711
+Epoch 101/181 | Loss=1.065855 | Recall=0.900515 | Precision=0.903656 | OA=0.990041 | F1=0.902083 | IoU=0.821631 | Kappa=0.896837 | t=57.3s
+[TRAIN] step=22700/40182 loss=0.63731 lr=0.00023643
+[TRAIN] step=22800/40182 loss=0.65801 lr=0.00023521
+[ACTUAL-OPT-STEPS] epoch=102 executed=222 cumulative=22866/40182
+[TRAIN-EPOCH] epoch=102 loss=0.746802 main=0.704160 guide=0.213213 lr=0.00023441
+Epoch 102/181 | Loss=1.034307 | Recall=0.882008 | Precision=0.925977 | OA=0.990397 | F1=0.903458 | IoU=0.823915 | Kappa=0.898408 | t=57.7s
+[TRAIN] step=22900/40182 loss=0.58565 lr=0.00023399
+[TRAIN] step=23000/40182 loss=0.68331 lr=0.00023277
+[ACTUAL-OPT-STEPS] epoch=103 executed=222 cumulative=23088/40182
+[TRAIN-EPOCH] epoch=103 loss=0.746268 main=0.703589 guide=0.213395 lr=0.00023170
+Epoch 103/181 | Loss=1.015673 | Recall=0.903630 | Precision=0.907457 | OA=0.990396 | F1=0.905540 | IoU=0.827385 | Kappa=0.900481 | t=57.1s
+[TRAIN] step=23100/40182 loss=0.77392 lr=0.00023155
+[TRAIN] step=23200/40182 loss=0.76841 lr=0.00023033
+[TRAIN] step=23300/40182 loss=0.72516 lr=0.00022911
+[ACTUAL-OPT-STEPS] epoch=104 executed=222 cumulative=23310/40182
+[TRAIN-EPOCH] epoch=104 loss=0.742652 main=0.700031 guide=0.213105 lr=0.00022899
+Epoch 104/181 | Loss=1.023602 | Recall=0.906127 | Precision=0.902836 | OA=0.990250 | F1=0.904478 | IoU=0.825615 | Kappa=0.899341 | t=57.4s
+[TRAIN] step=23400/40182 loss=0.72333 lr=0.00022789
+[TRAIN] step=23500/40182 loss=0.79002 lr=0.00022667
+[ACTUAL-OPT-STEPS] epoch=105 executed=222 cumulative=23532/40182
+[TRAIN-EPOCH] epoch=105 loss=0.740872 main=0.698406 guide=0.212327 lr=0.00022628
+Epoch 105/181 | Loss=1.030458 | Recall=0.898583 | Precision=0.905458 | OA=0.990054 | F1=0.902007 | IoU=0.821505 | Kappa=0.896768 | t=57.9s
+[TRAIN] step=23600/40182 loss=0.97216 lr=0.00022544
+[TRAIN] step=23700/40182 loss=0.87495 lr=0.00022422
+[ACTUAL-OPT-STEPS] epoch=106 executed=222 cumulative=23754/40182
+[TRAIN-EPOCH] epoch=106 loss=0.743537 main=0.700878 guide=0.213295 lr=0.00022356
+Epoch 106/181 | Loss=1.009755 | Recall=0.897886 | Precision=0.916500 | OA=0.990631 | F1=0.907097 | IoU=0.829989 | Kappa=0.902164 | t=57.3s
+[TRAIN] step=23800/40182 loss=0.72904 lr=0.00022300
+[TRAIN] step=23900/40182 loss=1.02821 lr=0.00022177
+[ACTUAL-OPT-STEPS] epoch=107 executed=222 cumulative=23976/40182
+[TRAIN-EPOCH] epoch=107 loss=0.753616 main=0.710790 guide=0.214129 lr=0.00022084
+Epoch 107/181 | Loss=1.023677 | Recall=0.900854 | Precision=0.909819 | OA=0.990400 | F1=0.905314 | IoU=0.827008 | Kappa=0.900258 | t=57.0s
+[TRAIN] step=24000/40182 loss=0.77906 lr=0.00022054
+[TRAIN] step=24100/40182 loss=0.74863 lr=0.00021932
+[ACTUAL-OPT-STEPS] epoch=108 executed=222 cumulative=24198/40182
+[TRAIN-EPOCH] epoch=108 loss=0.744955 main=0.702457 guide=0.212488 lr=0.00021811
+Epoch 108/181 | Loss=1.052382 | Recall=0.892592 | Precision=0.915588 | OA=0.990336 | F1=0.903944 | IoU=0.824725 | Kappa=0.898857 | t=57.3s
+[TRAIN] step=24200/40182 loss=0.62156 lr=0.00021809
+[TRAIN] step=24300/40182 loss=0.81413 lr=0.00021686
+[TRAIN] step=24400/40182 loss=0.77538 lr=0.00021563
+[ACTUAL-OPT-STEPS] epoch=109 executed=222 cumulative=24420/40182
+[TRAIN-EPOCH] epoch=109 loss=0.745412 main=0.702857 guide=0.212774 lr=0.00021539
+Epoch 109/181 | Loss=1.026970 | Recall=0.893842 | Precision=0.917256 | OA=0.990484 | F1=0.905397 | IoU=0.827147 | Kappa=0.900389 | t=56.6s
+[TRAIN] step=24500/40182 loss=0.65839 lr=0.00021440
+[TRAIN] step=24600/40182 loss=0.73135 lr=0.00021317
+[ACTUAL-OPT-STEPS] epoch=110 executed=222 cumulative=24642/40182
+[TRAIN-EPOCH] epoch=110 loss=0.740902 main=0.698532 guide=0.211849 lr=0.00021265
+Epoch 110/181 | Loss=1.037815 | Recall=0.907218 | Precision=0.902996 | OA=0.990309 | F1=0.905102 | IoU=0.826655 | Kappa=0.899996 | t=57.4s
+[TRAIN] step=24700/40182 loss=0.68713 lr=0.00021194
+[TRAIN] step=24800/40182 loss=0.79676 lr=0.00021071
+[ACTUAL-OPT-STEPS] epoch=111 executed=222 cumulative=24864/40182
+[TRAIN-EPOCH] epoch=111 loss=0.738771 main=0.696455 guide=0.211579 lr=0.00020992
+Epoch 111/181 | Loss=1.029166 | Recall=0.883180 | Precision=0.929317 | OA=0.990627 | F1=0.905661 | IoU=0.827588 | Kappa=0.900733 | t=57.1s
+[TRAIN] step=24900/40182 loss=0.72419 lr=0.00020947
+[TRAIN] step=25000/40182 loss=0.71000 lr=0.00020824
+[ACTUAL-OPT-STEPS] epoch=112 executed=222 cumulative=25086/40182
+[TRAIN-EPOCH] epoch=112 loss=0.738760 main=0.696536 guide=0.211122 lr=0.00020718
+Epoch 112/181 | Loss=1.021783 | Recall=0.884199 | Precision=0.926903 | OA=0.990549 | F1=0.905047 | IoU=0.826563 | Kappa=0.900077 | t=57.7s
+[TRAIN] step=25100/40182 loss=0.71334 lr=0.00020700
+[TRAIN] step=25200/40182 loss=0.74513 lr=0.00020577
+[TRAIN] step=25300/40182 loss=0.87161 lr=0.00020453
+[ACTUAL-OPT-STEPS] epoch=113 executed=222 cumulative=25308/40182
+[TRAIN-EPOCH] epoch=113 loss=0.739766 main=0.697386 guide=0.211899 lr=0.00020443
+Epoch 113/181 | Loss=1.013082 | Recall=0.899203 | Precision=0.916235 | OA=0.990677 | F1=0.907639 | IoU=0.830897 | Kappa=0.902730 | t=56.9s
+[TRAIN] step=25400/40182 loss=0.80759 lr=0.00020330
+[TRAIN] step=25500/40182 loss=0.92160 lr=0.00020206
+[ACTUAL-OPT-STEPS] epoch=114 executed=222 cumulative=25530/40182
+[TRAIN-EPOCH] epoch=114 loss=0.735761 main=0.693445 guide=0.211579 lr=0.00020169
+Epoch 114/181 | Loss=1.019185 | Recall=0.891601 | Precision=0.922526 | OA=0.990663 | F1=0.906800 | IoU=0.829491 | Kappa=0.901887 | t=57.3s
+[TRAIN] step=25600/40182 loss=0.77102 lr=0.00020082
+[TRAIN] step=25700/40182 loss=0.52175 lr=0.00019958
+[ACTUAL-OPT-STEPS] epoch=115 executed=222 cumulative=25752/40182
+[TRAIN-EPOCH] epoch=115 loss=0.735412 main=0.693157 guide=0.211276 lr=0.00019893
+Epoch 115/181 | Loss=1.046228 | Recall=0.895943 | Precision=0.914827 | OA=0.990450 | F1=0.905286 | IoU=0.826962 | Kappa=0.900258 | t=56.9s
+[TRAIN] step=25800/40182 loss=0.84624 lr=0.00019834
+[TRAIN] step=25900/40182 loss=0.74544 lr=0.00019710
+[ACTUAL-OPT-STEPS] epoch=116 executed=222 cumulative=25974/40182
+[TRAIN-EPOCH] epoch=116 loss=0.741261 main=0.698933 guide=0.211642 lr=0.00019618
+Epoch 116/181 | Loss=1.048157 | Recall=0.890375 | Precision=0.920401 | OA=0.990493 | F1=0.905139 | IoU=0.826716 | Kappa=0.900136 | t=57.4s
+[TRAIN] step=26000/40182 loss=0.78740 lr=0.00019585
+[TRAIN] step=26100/40182 loss=0.98159 lr=0.00019461
+[ACTUAL-OPT-STEPS] epoch=117 executed=222 cumulative=26196/40182
+[TRAIN-EPOCH] epoch=117 loss=0.737016 main=0.694750 guide=0.211331 lr=0.00019342
+Epoch 117/181 | Loss=1.035977 | Recall=0.886747 | Precision=0.922893 | OA=0.990456 | F1=0.904459 | IoU=0.825582 | Kappa=0.899439 | t=57.6s
+[TRAIN] step=26200/40182 loss=0.64276 lr=0.00019337
+[TRAIN] step=26300/40182 loss=0.72753 lr=0.00019212
+[TRAIN] step=26400/40182 loss=0.76236 lr=0.00019088
+[ACTUAL-OPT-STEPS] epoch=118 executed=222 cumulative=26418/40182
+[TRAIN-EPOCH] epoch=118 loss=0.731693 main=0.689658 guide=0.210172 lr=0.00019065
+Epoch 118/181 | Loss=1.025671 | Recall=0.892006 | Precision=0.919346 | OA=0.990512 | F1=0.905469 | IoU=0.827268 | Kappa=0.900476 | t=57.4s
+[TRAIN] step=26500/40182 loss=0.60230 lr=0.00018963
+[TRAIN] step=26600/40182 loss=0.73850 lr=0.00018838
+[ACTUAL-OPT-STEPS] epoch=119 executed=222 cumulative=26640/40182
+[TRAIN-EPOCH] epoch=119 loss=0.733082 main=0.690960 guide=0.210612 lr=0.00018788
+Epoch 119/181 | Loss=1.029453 | Recall=0.891794 | Precision=0.920731 | OA=0.990576 | F1=0.906031 | IoU=0.828206 | Kappa=0.901072 | t=57.3s
+[TRAIN] step=26700/40182 loss=0.82757 lr=0.00018713
+[TRAIN] step=26800/40182 loss=0.77597 lr=0.00018588
+[ACTUAL-OPT-STEPS] epoch=120 executed=222 cumulative=26862/40182
+[TRAIN-EPOCH] epoch=120 loss=0.733422 main=0.691455 guide=0.209834 lr=0.00018511
+Epoch 120/181 | Loss=1.008382 | Recall=0.904589 | Precision=0.907531 | OA=0.990444 | F1=0.906057 | IoU=0.828250 | Kappa=0.901024 | t=57.1s
+[TRAIN] step=26900/40182 loss=0.76132 lr=0.00018463
+[TRAIN] step=27000/40182 loss=0.81795 lr=0.00018338
+[ACTUAL-OPT-STEPS] epoch=121 executed=222 cumulative=27084/40182
+[TRAIN-EPOCH] epoch=121 loss=0.732605 main=0.690535 guide=0.210353 lr=0.00018233
+Epoch 121/181 | Loss=1.034334 | Recall=0.898158 | Precision=0.911366 | OA=0.990362 | F1=0.904714 | IoU=0.826007 | Kappa=0.899638 | t=57.3s
+[TRAIN] step=27100/40182 loss=0.72495 lr=0.00018213
+[TRAIN] step=27200/40182 loss=0.75387 lr=0.00018088
+[TRAIN] step=27300/40182 loss=0.80428 lr=0.00017962
+[ACTUAL-OPT-STEPS] epoch=122 executed=222 cumulative=27306/40182
+[TRAIN-EPOCH] epoch=122 loss=0.729811 main=0.687776 guide=0.210177 lr=0.00017955
+Epoch 122/181 | Loss=1.031517 | Recall=0.896503 | Precision=0.912550 | OA=0.990351 | F1=0.904455 | IoU=0.825576 | Kappa=0.899375 | t=57.3s
+[TRAIN] step=27400/40182 loss=0.73063 lr=0.00017837
+[TRAIN] step=27500/40182 loss=0.70452 lr=0.00017711
+[ACTUAL-OPT-STEPS] epoch=123 executed=222 cumulative=27528/40182
+[TRAIN-EPOCH] epoch=123 loss=0.729343 main=0.687396 guide=0.209736 lr=0.00017676
+Epoch 123/181 | Loss=1.043288 | Recall=0.894614 | Precision=0.917494 | OA=0.990533 | F1=0.905910 | IoU=0.828003 | Kappa=0.900927 | t=56.2s
+[TRAIN] step=27600/40182 loss=0.66563 lr=0.00017585
+[TRAIN] step=27700/40182 loss=0.81872 lr=0.00017459
+[ACTUAL-OPT-STEPS] epoch=124 executed=222 cumulative=27750/40182
+[TRAIN-EPOCH] epoch=124 loss=0.730282 main=0.688228 guide=0.210271 lr=0.00017396
+Epoch 124/181 | Loss=1.033817 | Recall=0.897798 | Precision=0.909820 | OA=0.990260 | F1=0.903769 | IoU=0.824433 | Kappa=0.898640 | t=57.3s
+[TRAIN] step=27800/40182 loss=0.67241 lr=0.00017333
+[TRAIN] step=27900/40182 loss=0.79767 lr=0.00017207
+[ACTUAL-OPT-STEPS] epoch=125 executed=222 cumulative=27972/40182
+[TRAIN-EPOCH] epoch=125 loss=0.736937 main=0.694778 guide=0.210798 lr=0.00017117
+Epoch 125/181 | Loss=1.017011 | Recall=0.905121 | Precision=0.908466 | OA=0.990521 | F1=0.906791 | IoU=0.829476 | Kappa=0.901797 | t=56.6s
+[TRAIN] step=28000/40182 loss=0.59451 lr=0.00017081
+[TRAIN] step=28100/40182 loss=0.59830 lr=0.00016955
+[ACTUAL-OPT-STEPS] epoch=126 executed=222 cumulative=28194/40182
+[TRAIN-EPOCH] epoch=126 loss=0.725737 main=0.683951 guide=0.208927 lr=0.00016836
+Epoch 126/181 | Loss=1.007777 | Recall=0.889640 | Precision=0.923508 | OA=0.990624 | F1=0.906258 | IoU=0.828585 | Kappa=0.901325 | t=57.4s
+[TRAIN] step=28200/40182 loss=0.59564 lr=0.00016829
+[TRAIN] step=28300/40182 loss=0.89808 lr=0.00016702
+[TRAIN] step=28400/40182 loss=0.72084 lr=0.00016576
+[ACTUAL-OPT-STEPS] epoch=127 executed=222 cumulative=28416/40182
+[TRAIN-EPOCH] epoch=127 loss=0.725564 main=0.683829 guide=0.208671 lr=0.00016555
+Epoch 127/181 | Loss=1.011917 | Recall=0.910477 | Precision=0.900400 | OA=0.990309 | F1=0.905411 | IoU=0.827169 | Kappa=0.900304 | t=56.8s
+[TRAIN] step=28500/40182 loss=0.72976 lr=0.00016449
+[TRAIN] step=28600/40182 loss=0.86844 lr=0.00016322
+[ACTUAL-OPT-STEPS] epoch=128 executed=222 cumulative=28638/40182
+[TRAIN-EPOCH] epoch=128 loss=0.727339 main=0.685634 guide=0.208523 lr=0.00016274
+Epoch 128/181 | Loss=1.017187 | Recall=0.893426 | Precision=0.922112 | OA=0.990726 | F1=0.907542 | IoU=0.830734 | Kappa=0.902662 | t=56.8s
+[TRAIN] step=28700/40182 loss=0.82687 lr=0.00016195
+[TRAIN] step=28800/40182 loss=0.63386 lr=0.00016068
+[ACTUAL-OPT-STEPS] epoch=129 executed=222 cumulative=28860/40182
+[TRAIN-EPOCH] epoch=129 loss=0.730112 main=0.688400 guide=0.208560 lr=0.00015992
+Epoch 129/181 | Loss=1.012575 | Recall=0.898338 | Precision=0.915267 | OA=0.990584 | F1=0.906723 | IoU=0.829363 | Kappa=0.901766 | t=57.7s
+[TRAIN] step=28900/40182 loss=0.79953 lr=0.00015941
+[TRAIN] step=29000/40182 loss=0.50610 lr=0.00015814
+[ACTUAL-OPT-STEPS] epoch=130 executed=222 cumulative=29082/40182
+[TRAIN-EPOCH] epoch=130 loss=0.724791 main=0.683053 guide=0.208690 lr=0.00015710
+Epoch 130/181 | Loss=1.021256 | Recall=0.902567 | Precision=0.911705 | OA=0.990584 | F1=0.907113 | IoU=0.830015 | Kappa=0.902153 | t=57.2s
+[TRAIN] step=29100/40182 loss=0.75606 lr=0.00015687
+[TRAIN] step=29200/40182 loss=0.83628 lr=0.00015559
+[TRAIN] step=29300/40182 loss=0.62764 lr=0.00015432
+[ACTUAL-OPT-STEPS] epoch=131 executed=222 cumulative=29304/40182
+[TRAIN-EPOCH] epoch=131 loss=0.726593 main=0.684911 guide=0.208410 lr=0.00015427
+Epoch 131/181 | Loss=1.015277 | Recall=0.903488 | Precision=0.911078 | OA=0.990591 | F1=0.907267 | IoU=0.830274 | Kappa=0.902312 | t=57.1s
+[TRAIN] step=29400/40182 loss=0.76801 lr=0.00015304
+[TRAIN] step=29500/40182 loss=0.88218 lr=0.00015176
+[ACTUAL-OPT-STEPS] epoch=132 executed=222 cumulative=29526/40182
+[TRAIN-EPOCH] epoch=132 loss=0.719390 main=0.678056 guide=0.206670 lr=0.00015143
+Epoch 132/181 | Loss=1.021451 | Recall=0.904472 | Precision=0.905362 | OA=0.990317 | F1=0.904917 | IoU=0.826345 | Kappa=0.899816 | t=57.2s
+[TRAIN] step=29600/40182 loss=0.80616 lr=0.00015048
+[TRAIN] step=29700/40182 loss=0.80462 lr=0.00014920
+[ACTUAL-OPT-STEPS] epoch=133 executed=222 cumulative=29748/40182
+[TRAIN-EPOCH] epoch=133 loss=0.722947 main=0.681389 guide=0.207788 lr=0.00014859
+Epoch 133/181 | Loss=1.030559 | Recall=0.889180 | Precision=0.922503 | OA=0.990549 | F1=0.905535 | IoU=0.827377 | Kappa=0.900563 | t=57.6s
+[TRAIN] step=29800/40182 loss=0.69314 lr=0.00014792
+[TRAIN] step=29900/40182 loss=0.74267 lr=0.00014664
+[ACTUAL-OPT-STEPS] epoch=134 executed=222 cumulative=29970/40182
+[TRAIN-EPOCH] epoch=134 loss=0.719150 main=0.677669 guide=0.207408 lr=0.00014574
+Epoch 134/181 | Loss=1.035257 | Recall=0.907608 | Precision=0.905144 | OA=0.990448 | F1=0.906374 | IoU=0.828779 | Kappa=0.901341 | t=57.5s
+[TRAIN] step=30000/40182 loss=0.70592 lr=0.00014535
+[TRAIN] step=30100/40182 loss=0.84673 lr=0.00014407
+[ACTUAL-OPT-STEPS] epoch=135 executed=222 cumulative=30192/40182
+[TRAIN-EPOCH] epoch=135 loss=0.718920 main=0.677529 guide=0.206955 lr=0.00014289
+Epoch 135/181 | Loss=1.031056 | Recall=0.883858 | Precision=0.924357 | OA=0.990399 | F1=0.903654 | IoU=0.824242 | Kappa=0.898605 | t=57.1s
+[TRAIN] step=30200/40182 loss=0.76062 lr=0.00014278
+[TRAIN] step=30300/40182 loss=0.69033 lr=0.00014150
+[TRAIN] step=30400/40182 loss=0.63716 lr=0.00014021
+[ACTUAL-OPT-STEPS] epoch=136 executed=222 cumulative=30414/40182
+[TRAIN-EPOCH] epoch=136 loss=0.724143 main=0.682492 guide=0.208255 lr=0.00014003
+Epoch 136/181 | Loss=0.986429 | Recall=0.900197 | Precision=0.918318 | OA=0.990837 | F1=0.909167 | IoU=0.833462 | Kappa=0.904343 | t=57.3s
+[TRAIN] step=30500/40182 loss=0.78597 lr=0.00013892
+[TRAIN] step=30600/40182 loss=0.71360 lr=0.00013762
+[ACTUAL-OPT-STEPS] epoch=137 executed=222 cumulative=30636/40182
+[TRAIN-EPOCH] epoch=137 loss=0.721109 main=0.679566 guide=0.207719 lr=0.00013716
+Epoch 137/181 | Loss=1.006368 | Recall=0.891933 | Precision=0.922886 | OA=0.990698 | F1=0.907145 | IoU=0.830070 | Kappa=0.902251 | t=56.9s
+[TRAIN] step=30700/40182 loss=0.58110 lr=0.00013633
+[TRAIN] step=30800/40182 loss=0.93915 lr=0.00013504
+[ACTUAL-OPT-STEPS] epoch=138 executed=222 cumulative=30858/40182
+[TRAIN-EPOCH] epoch=138 loss=0.719349 main=0.678086 guide=0.206311 lr=0.00013428
+Epoch 138/181 | Loss=1.002593 | Recall=0.897745 | Precision=0.919529 | OA=0.990789 | F1=0.908506 | IoU=0.832351 | Kappa=0.903657 | t=57.8s
+[TRAIN] step=30900/40182 loss=0.68152 lr=0.00013374
+[TRAIN] step=31000/40182 loss=0.61367 lr=0.00013244
+[ACTUAL-OPT-STEPS] epoch=139 executed=222 cumulative=31080/40182
+[TRAIN-EPOCH] epoch=139 loss=0.717178 main=0.675736 guide=0.207212 lr=0.00013140
+Epoch 139/181 | Loss=1.018448 | Recall=0.901918 | Precision=0.912711 | OA=0.990609 | F1=0.907282 | IoU=0.830299 | Kappa=0.902337 | t=56.2s
+[TRAIN] step=31100/40182 loss=0.64329 lr=0.00013114
+[TRAIN] step=31200/40182 loss=0.68157 lr=0.00012984
+[TRAIN] step=31300/40182 loss=0.79860 lr=0.00012854
+[ACTUAL-OPT-STEPS] epoch=140 executed=222 cumulative=31302/40182
+[TRAIN-EPOCH] epoch=140 loss=0.720006 main=0.678466 guide=0.207697 lr=0.00012852
+Epoch 140/181 | Loss=1.026594 | Recall=0.897232 | Precision=0.917886 | OA=0.990676 | F1=0.907441 | IoU=0.830565 | Kappa=0.902532 | t=56.7s
+[TRAIN] step=31400/40182 loss=0.71738 lr=0.00012724
+[TRAIN] step=31500/40182 loss=0.71941 lr=0.00012593
+[ACTUAL-OPT-STEPS] epoch=141 executed=222 cumulative=31524/40182
+[TRAIN-EPOCH] epoch=141 loss=0.717037 main=0.675649 guide=0.206943 lr=0.00012562
+Epoch 141/181 | Loss=1.013336 | Recall=0.890837 | Precision=0.923526 | OA=0.990681 | F1=0.906887 | IoU=0.829637 | Kappa=0.901984 | t=57.0s
+[TRAIN] step=31600/40182 loss=0.81986 lr=0.00012463
+[TRAIN] step=31700/40182 loss=0.76920 lr=0.00012332
+[ACTUAL-OPT-STEPS] epoch=142 executed=222 cumulative=31746/40182
+[TRAIN-EPOCH] epoch=142 loss=0.713210 main=0.671940 guide=0.206352 lr=0.00012272
+Epoch 142/181 | Loss=1.074309 | Recall=0.902012 | Precision=0.902115 | OA=0.990022 | F1=0.902063 | IoU=0.821599 | Kappa=0.896807 | t=58.1s
+[TRAIN] step=31800/40182 loss=0.68578 lr=0.00012201
+[TRAIN] step=31900/40182 loss=0.84357 lr=0.00012070
+[ACTUAL-OPT-STEPS] epoch=143 executed=222 cumulative=31968/40182
+[TRAIN-EPOCH] epoch=143 loss=0.713353 main=0.672069 guide=0.206418 lr=0.00011981
+Epoch 143/181 | Loss=1.018798 | Recall=0.901961 | Precision=0.913109 | OA=0.990633 | F1=0.907501 | IoU=0.830665 | Kappa=0.902568 | t=57.5s
+[TRAIN] step=32000/40182 loss=0.75137 lr=0.00011939
+[TRAIN] step=32100/40182 loss=0.71405 lr=0.00011807
+[ACTUAL-OPT-STEPS] epoch=144 executed=222 cumulative=32190/40182
+[TRAIN-EPOCH] epoch=144 loss=0.711615 main=0.670412 guide=0.206015 lr=0.00011689
+Epoch 144/181 | Loss=1.029535 | Recall=0.901415 | Precision=0.914614 | OA=0.990691 | F1=0.907966 | IoU=0.831446 | Kappa=0.903064 | t=57.0s
+[TRAIN] step=32200/40182 loss=0.89023 lr=0.00011676
+[TRAIN] step=32300/40182 loss=0.70510 lr=0.00011544
+[TRAIN] step=32400/40182 loss=0.70090 lr=0.00011412
+[ACTUAL-OPT-STEPS] epoch=145 executed=222 cumulative=32412/40182
+[TRAIN-EPOCH] epoch=145 loss=0.717775 main=0.676426 guide=0.206741 lr=0.00011396
+Epoch 145/181 | Loss=1.015933 | Recall=0.897378 | Precision=0.922520 | OA=0.990933 | F1=0.909775 | IoU=0.834484 | Kappa=0.905003 | t=57.1s
+[TRAIN] step=32500/40182 loss=0.73305 lr=0.00011280
+[TRAIN] step=32600/40182 loss=0.74798 lr=0.00011148
+[ACTUAL-OPT-STEPS] epoch=146 executed=222 cumulative=32634/40182
+[TRAIN-EPOCH] epoch=146 loss=0.709983 main=0.668864 guide=0.205591 lr=0.00011103
+Epoch 146/181 | Loss=1.023192 | Recall=0.892624 | Precision=0.923472 | OA=0.990762 | F1=0.907786 | IoU=0.831143 | Kappa=0.902925 | t=57.2s
+[TRAIN] step=32700/40182 loss=0.67298 lr=0.00011016
+[TRAIN] step=32800/40182 loss=0.77114 lr=0.00010883
+[ACTUAL-OPT-STEPS] epoch=147 executed=222 cumulative=32856/40182
+[TRAIN-EPOCH] epoch=147 loss=0.711767 main=0.670664 guide=0.205516 lr=0.00010809
+Epoch 147/181 | Loss=0.999429 | Recall=0.897143 | Precision=0.920220 | OA=0.990798 | F1=0.908535 | IoU=0.832399 | Kappa=0.903691 | t=57.6s
+[TRAIN] step=32900/40182 loss=0.71143 lr=0.00010750
+[TRAIN] step=33000/40182 loss=0.65919 lr=0.00010617
+[ACTUAL-OPT-STEPS] epoch=148 executed=222 cumulative=33078/40182
+[TRAIN-EPOCH] epoch=148 loss=0.708297 main=0.667297 guide=0.204997 lr=0.00010514
+Epoch 148/181 | Loss=1.021921 | Recall=0.894423 | Precision=0.917484 | OA=0.990524 | F1=0.905807 | IoU=0.827831 | Kappa=0.900819 | t=57.1s
+[TRAIN] step=33100/40182 loss=0.74745 lr=0.00010484
+[TRAIN] step=33200/40182 loss=0.77164 lr=0.00010351
+[TRAIN] step=33300/40182 loss=0.76616 lr=0.00010217
+[ACTUAL-OPT-STEPS] epoch=149 executed=222 cumulative=33300/40182
+[TRAIN-EPOCH] epoch=149 loss=0.710228 main=0.669235 guide=0.204964 lr=0.00010217
+Epoch 149/181 | Loss=1.035645 | Recall=0.896755 | Precision=0.917484 | OA=0.990632 | F1=0.907001 | IoU=0.829828 | Kappa=0.902069 | t=57.2s
+[TRAIN] step=33400/40182 loss=0.76726 lr=0.00010084
+[TRAIN] step=33500/40182 loss=0.61868 lr=0.00009950
+[ACTUAL-OPT-STEPS] epoch=150 executed=222 cumulative=33522/40182
+[TRAIN-EPOCH] epoch=150 loss=0.708468 main=0.667375 guide=0.205466 lr=0.00009920
+Epoch 150/181 | Loss=1.013337 | Recall=0.898807 | Precision=0.917215 | OA=0.990712 | F1=0.907917 | IoU=0.831363 | Kappa=0.903027 | t=57.0s
+[TRAIN] step=33600/40182 loss=0.68514 lr=0.00009816
+[TRAIN] step=33700/40182 loss=0.61911 lr=0.00009681
+[ACTUAL-OPT-STEPS] epoch=151 executed=222 cumulative=33744/40182
+[TRAIN-EPOCH] epoch=151 loss=0.705810 main=0.664783 guide=0.205138 lr=0.00009622
+Epoch 151/181 | Loss=1.008943 | Recall=0.901251 | Precision=0.915635 | OA=0.990739 | F1=0.908386 | IoU=0.832149 | Kappa=0.903509 | t=57.5s
+[TRAIN] step=33800/40182 loss=0.60872 lr=0.00009547
+[TRAIN] step=33900/40182 loss=0.75004 lr=0.00009412
+[ACTUAL-OPT-STEPS] epoch=152 executed=222 cumulative=33966/40182
+[TRAIN-EPOCH] epoch=152 loss=0.707515 main=0.666587 guide=0.204637 lr=0.00009323
+Epoch 152/181 | Loss=1.016728 | Recall=0.894261 | Precision=0.921383 | OA=0.990726 | F1=0.907620 | IoU=0.830864 | Kappa=0.902739 | t=57.1s
+[TRAIN] step=34000/40182 loss=0.72982 lr=0.00009277
+[TRAIN] step=34100/40182 loss=0.82214 lr=0.00009142
+[ACTUAL-OPT-STEPS] epoch=153 executed=222 cumulative=34188/40182
+[TRAIN-EPOCH] epoch=153 loss=0.706127 main=0.665138 guide=0.204943 lr=0.00009023
+Epoch 153/181 | Loss=1.019421 | Recall=0.894031 | Precision=0.920058 | OA=0.990644 | F1=0.906858 | IoU=0.829588 | Kappa=0.901934 | t=56.9s
+[TRAIN] step=34200/40182 loss=0.74927 lr=0.00009007
+[TRAIN] step=34300/40182 loss=0.69212 lr=0.00008871
+[TRAIN] step=34400/40182 loss=0.67218 lr=0.00008735
+[ACTUAL-OPT-STEPS] epoch=154 executed=222 cumulative=34410/40182
+[TRAIN-EPOCH] epoch=154 loss=0.706995 main=0.665925 guide=0.205346 lr=0.00008722
+Epoch 154/181 | Loss=1.010640 | Recall=0.907195 | Precision=0.907665 | OA=0.990571 | F1=0.907430 | IoU=0.830546 | Kappa=0.902462 | t=57.2s
+[TRAIN] step=34500/40182 loss=0.79843 lr=0.00008599
+[TRAIN] step=34600/40182 loss=0.59883 lr=0.00008463
+[ACTUAL-OPT-STEPS] epoch=155 executed=222 cumulative=34632/40182
+[TRAIN-EPOCH] epoch=155 loss=0.702627 main=0.661707 guide=0.204600 lr=0.00008419
+Epoch 155/181 | Loss=1.017604 | Recall=0.884943 | Precision=0.929322 | OA=0.990710 | F1=0.906590 | IoU=0.829140 | Kappa=0.901705 | t=58.1s
+[TRAIN] step=34700/40182 loss=0.76617 lr=0.00008326
+[TRAIN] step=34800/40182 loss=0.65647 lr=0.00008190
+[ACTUAL-OPT-STEPS] epoch=156 executed=222 cumulative=34854/40182
+[TRAIN-EPOCH] epoch=156 loss=0.706103 main=0.665194 guide=0.204546 lr=0.00008116
+Epoch 156/181 | Loss=1.007265 | Recall=0.896143 | Precision=0.920980 | OA=0.990792 | F1=0.908392 | IoU=0.832159 | Kappa=0.903545 | t=57.7s
+[TRAIN] step=34900/40182 loss=0.72933 lr=0.00008053
+[TRAIN] step=35000/40182 loss=0.64360 lr=0.00007915
+[ACTUAL-OPT-STEPS] epoch=157 executed=222 cumulative=35076/40182
+[TRAIN-EPOCH] epoch=157 loss=0.701935 main=0.661026 guide=0.204548 lr=0.00007811
+Epoch 157/181 | Loss=1.017907 | Recall=0.898117 | Precision=0.916850 | OA=0.990660 | F1=0.907387 | IoU=0.830474 | Kappa=0.902470 | t=57.4s
+[TRAIN] step=35100/40182 loss=0.78516 lr=0.00007778
+[TRAIN] step=35200/40182 loss=0.62320 lr=0.00007640
+[ACTUAL-OPT-STEPS] epoch=158 executed=222 cumulative=35298/40182
+[TRAIN-EPOCH] epoch=158 loss=0.701676 main=0.660769 guide=0.204532 lr=0.00007504
+Epoch 158/181 | Loss=1.018033 | Recall=0.898016 | Precision=0.919038 | OA=0.990775 | F1=0.908405 | IoU=0.832182 | Kappa=0.903549 | t=57.1s
+[TRAIN] step=35300/40182 loss=0.74782 lr=0.00007502
+[TRAIN] step=35400/40182 loss=0.75284 lr=0.00007363
+[TRAIN] step=35500/40182 loss=0.73660 lr=0.00007225
+[ACTUAL-OPT-STEPS] epoch=159 executed=222 cumulative=35520/40182
+[TRAIN-EPOCH] epoch=159 loss=0.702941 main=0.662043 guide=0.204490 lr=0.00007197
+Epoch 159/181 | Loss=1.017415 | Recall=0.890734 | Precision=0.924464 | OA=0.990726 | F1=0.907286 | IoU=0.830305 | Kappa=0.902407 | t=57.2s
+[TRAIN] step=35600/40182 loss=0.66841 lr=0.00007086
+[TRAIN] step=35700/40182 loss=0.85291 lr=0.00006946
+[ACTUAL-OPT-STEPS] epoch=160 executed=222 cumulative=35742/40182
+[TRAIN-EPOCH] epoch=160 loss=0.701547 main=0.660791 guide=0.203781 lr=0.00006888
+Epoch 160/181 | Loss=1.009609 | Recall=0.898106 | Precision=0.917398 | OA=0.990690 | F1=0.907649 | IoU=0.830914 | Kappa=0.902748 | t=56.6s
+[TRAIN] step=35800/40182 loss=0.67380 lr=0.00006807
+[TRAIN] step=35900/40182 loss=0.55481 lr=0.00006667
+[ACTUAL-OPT-STEPS] epoch=161 executed=222 cumulative=35964/40182
+[TRAIN-EPOCH] epoch=161 loss=0.701767 main=0.660967 guide=0.203999 lr=0.00006577
+Epoch 161/181 | Loss=0.997609 | Recall=0.898513 | Precision=0.918760 | OA=0.990783 | F1=0.908524 | IoU=0.832380 | Kappa=0.903671 | t=57.1s
+[TRAIN] step=36000/40182 loss=0.68164 lr=0.00006527
+[TRAIN] step=36100/40182 loss=0.58102 lr=0.00006386
+[ACTUAL-OPT-STEPS] epoch=162 executed=222 cumulative=36186/40182
+[TRAIN-EPOCH] epoch=162 loss=0.698609 main=0.657893 guide=0.203579 lr=0.00006265
+Epoch 162/181 | Loss=1.002487 | Recall=0.899928 | Precision=0.917571 | OA=0.990784 | F1=0.908664 | IoU=0.832616 | Kappa=0.903811 | t=57.8s
+[TRAIN] step=36200/40182 loss=0.72877 lr=0.00006245
+[TRAIN] step=36300/40182 loss=0.49744 lr=0.00006104
+[TRAIN] step=36400/40182 loss=0.77924 lr=0.00005962
+[ACTUAL-OPT-STEPS] epoch=163 executed=222 cumulative=36408/40182
+[TRAIN-EPOCH] epoch=163 loss=0.699738 main=0.659025 guide=0.203568 lr=0.00005951
+Epoch 163/181 | Loss=1.006611 | Recall=0.907560 | Precision=0.910791 | OA=0.990762 | F1=0.909173 | IoU=0.833471 | Kappa=0.904306 | t=57.1s
+[TRAIN] step=36500/40182 loss=0.72762 lr=0.00005820
+[TRAIN] step=36600/40182 loss=0.82319 lr=0.00005678
+[ACTUAL-OPT-STEPS] epoch=164 executed=222 cumulative=36630/40182
+[TRAIN-EPOCH] epoch=164 loss=0.699340 main=0.658591 guide=0.203743 lr=0.00005635
+Epoch 164/181 | Loss=1.013876 | Recall=0.905871 | Precision=0.909286 | OA=0.990601 | F1=0.907575 | IoU=0.830790 | Kappa=0.902624 | t=57.2s
+[TRAIN] step=36700/40182 loss=0.56981 lr=0.00005535
+[TRAIN] step=36800/40182 loss=0.73335 lr=0.00005392
+[ACTUAL-OPT-STEPS] epoch=165 executed=222 cumulative=36852/40182
+[TRAIN-EPOCH] epoch=165 loss=0.699848 main=0.659143 guide=0.203524 lr=0.00005317
+Epoch 165/181 | Loss=1.006984 | Recall=0.893950 | Precision=0.922179 | OA=0.990754 | F1=0.907845 | IoU=0.831242 | Kappa=0.902979 | t=57.1s
+[TRAIN] step=36900/40182 loss=0.71397 lr=0.00005248
+[TRAIN] step=37000/40182 loss=0.73689 lr=0.00005104
+[ACTUAL-OPT-STEPS] epoch=166 executed=222 cumulative=37074/40182
+[TRAIN-EPOCH] epoch=166 loss=0.699491 main=0.658691 guide=0.204002 lr=0.00004997
+Epoch 166/181 | Loss=1.005374 | Recall=0.902697 | Precision=0.912967 | OA=0.990659 | F1=0.907803 | IoU=0.831171 | Kappa=0.902884 | t=57.6s
+[TRAIN] step=37100/40182 loss=0.64928 lr=0.00004959
+[TRAIN] step=37200/40182 loss=0.67437 lr=0.00004814
+[ACTUAL-OPT-STEPS] epoch=167 executed=222 cumulative=37296/40182
+[TRAIN-EPOCH] epoch=167 loss=0.699864 main=0.659164 guide=0.203500 lr=0.00004675
+Epoch 167/181 | Loss=1.002691 | Recall=0.901602 | Precision=0.916161 | OA=0.990784 | F1=0.908823 | IoU=0.832884 | Kappa=0.903970 | t=57.2s
+[TRAIN] step=37300/40182 loss=0.71646 lr=0.00004669
+[TRAIN] step=37400/40182 loss=0.65276 lr=0.00004523
+[TRAIN] step=37500/40182 loss=0.76128 lr=0.00004376
+[ACTUAL-OPT-STEPS] epoch=168 executed=222 cumulative=37518/40182
+[TRAIN-EPOCH] epoch=168 loss=0.696446 main=0.655854 guide=0.202960 lr=0.00004350
+Epoch 168/181 | Loss=1.004884 | Recall=0.897866 | Precision=0.917924 | OA=0.990707 | F1=0.907784 | IoU=0.831140 | Kappa=0.902892 | t=57.5s
+[TRAIN] step=37600/40182 loss=0.71018 lr=0.00004229
+[TRAIN] step=37700/40182 loss=0.69743 lr=0.00004082
+[ACTUAL-OPT-STEPS] epoch=169 executed=222 cumulative=37740/40182
+[TRAIN-EPOCH] epoch=169 loss=0.695006 main=0.654454 guide=0.202759 lr=0.00004022
+Epoch 169/181 | Loss=0.995456 | Recall=0.903276 | Precision=0.913948 | OA=0.990740 | F1=0.908580 | IoU=0.832476 | Kappa=0.903704 | t=55.5s
+[TRAIN] step=37800/40182 loss=0.76373 lr=0.00003933
+[TRAIN] step=37900/40182 loss=0.61786 lr=0.00003784
+[ACTUAL-OPT-STEPS] epoch=170 executed=222 cumulative=37962/40182
+[TRAIN-EPOCH] epoch=170 loss=0.693132 main=0.652539 guide=0.202964 lr=0.00003692
+Epoch 170/181 | Loss=1.006215 | Recall=0.900303 | Precision=0.916542 | OA=0.990745 | F1=0.908350 | IoU=0.832089 | Kappa=0.903477 | t=56.8s
+[TRAIN] step=38000/40182 loss=0.71809 lr=0.00003635
+[TRAIN] step=38100/40182 loss=0.73830 lr=0.00003485
+[ACTUAL-OPT-STEPS] epoch=171 executed=222 cumulative=38184/40182
+[TRAIN-EPOCH] epoch=171 loss=0.694535 main=0.653965 guide=0.202852 lr=0.00003358
+Epoch 171/181 | Loss=1.005389 | Recall=0.900150 | Precision=0.917229 | OA=0.990775 | F1=0.908610 | IoU=0.832525 | Kappa=0.903753 | t=57.2s
+[TRAIN] step=38200/40182 loss=0.79791 lr=0.00003334
+[TRAIN] step=38300/40182 loss=0.75038 lr=0.00003182
+[TRAIN] step=38400/40182 loss=0.62798 lr=0.00003030
+[ACTUAL-OPT-STEPS] epoch=172 executed=222 cumulative=38406/40182
+[TRAIN-EPOCH] epoch=172 loss=0.691183 main=0.650722 guide=0.202303 lr=0.00003020
+Epoch 172/181 | Loss=1.003856 | Recall=0.899186 | Precision=0.919142 | OA=0.990835 | F1=0.909054 | IoU=0.833272 | Kappa=0.904229 | t=57.1s
+[TRAIN] step=38500/40182 loss=0.70800 lr=0.00002876
+[TRAIN] step=38600/40182 loss=0.60028 lr=0.00002722
+[ACTUAL-OPT-STEPS] epoch=173 executed=222 cumulative=38628/40182
+[TRAIN-EPOCH] epoch=173 loss=0.694301 main=0.653900 guide=0.202009 lr=0.00002679
+Epoch 173/181 | Loss=1.006932 | Recall=0.894626 | Precision=0.923720 | OA=0.990868 | F1=0.908940 | IoU=0.833080 | Kappa=0.904135 | t=56.2s
+[TRAIN] step=38700/40182 loss=0.80420 lr=0.00002567
+[TRAIN] step=38800/40182 loss=0.67917 lr=0.00002410
+[ACTUAL-OPT-STEPS] epoch=174 executed=222 cumulative=38850/40182
+[TRAIN-EPOCH] epoch=174 loss=0.690683 main=0.650265 guide=0.202089 lr=0.00002332
+Epoch 174/181 | Loss=1.001914 | Recall=0.901278 | Precision=0.916794 | OA=0.990804 | F1=0.908970 | IoU=0.833130 | Kappa=0.904128 | t=56.9s
+[TRAIN] step=38900/40182 loss=0.62948 lr=0.00002253
+[TRAIN] step=39000/40182 loss=0.69113 lr=0.00002094
+[ACTUAL-OPT-STEPS] epoch=175 executed=222 cumulative=39072/40182
+[TRAIN-EPOCH] epoch=175 loss=0.693401 main=0.653065 guide=0.201684 lr=0.00001979
+Epoch 175/181 | Loss=1.019599 | Recall=0.895160 | Precision=0.920559 | OA=0.990724 | F1=0.907682 | IoU=0.830969 | Kappa=0.902800 | t=57.3s
+[TRAIN] step=39100/40182 loss=0.29218 lr=0.00001934
+[TRAIN] step=39200/40182 loss=0.78432 lr=0.00001773
+[ACTUAL-OPT-STEPS] epoch=176 executed=222 cumulative=39294/40182
+[TRAIN-EPOCH] epoch=176 loss=0.691936 main=0.651434 guide=0.202507 lr=0.00001619
+Epoch 176/181 | Loss=1.009930 | Recall=0.891064 | Precision=0.924904 | OA=0.990765 | F1=0.907669 | IoU=0.830946 | Kappa=0.902810 | t=57.4s
+[TRAIN] step=39300/40182 loss=0.70563 lr=0.00001610
+[TRAIN] step=39400/40182 loss=0.70364 lr=0.00001445
+[TRAIN] step=39500/40182 loss=0.75534 lr=0.00001277
+[ACTUAL-OPT-STEPS] epoch=177 executed=222 cumulative=39516/40182
+[TRAIN-EPOCH] epoch=177 loss=0.693785 main=0.653392 guide=0.201967 lr=0.00001250
+Epoch 177/181 | Loss=1.001573 | Recall=0.902387 | Precision=0.916231 | OA=0.990824 | F1=0.909256 | IoU=0.833611 | Kappa=0.904424 | t=57.2s
+[TRAIN] step=39600/40182 loss=0.39277 lr=0.00001108
+[TRAIN] step=39700/40182 loss=0.68143 lr=0.00000935
+[ACTUAL-OPT-STEPS] epoch=178 executed=222 cumulative=39738/40182
+[TRAIN-EPOCH] epoch=178 loss=0.692375 main=0.652066 guide=0.201545 lr=0.00000869
+Epoch 178/181 | Loss=1.002403 | Recall=0.897962 | Precision=0.920019 | OA=0.990825 | F1=0.908856 | IoU=0.832939 | Kappa=0.904027 | t=57.6s
+[TRAIN] step=39800/40182 loss=0.68896 lr=0.00000759
+[TRAIN] step=39900/40182 loss=0.76477 lr=0.00000578
+[ACTUAL-OPT-STEPS] epoch=179 executed=222 cumulative=39960/40182
+[TRAIN-EPOCH] epoch=179 loss=0.689448 main=0.649107 guide=0.201704 lr=0.00000466
+Epoch 179/181 | Loss=1.007384 | Recall=0.896689 | Precision=0.920212 | OA=0.990776 | F1=0.908299 | IoU=0.832003 | Kappa=0.903443 | t=57.2s
+[TRAIN] step=40000/40182 loss=0.58480 lr=0.00000390
+[TRAIN] step=40100/40182 loss=0.61325 lr=0.00000192
+[ACTUAL-OPT-STEPS] epoch=180 executed=222 cumulative=40182/40182
+[TRAIN-EPOCH] epoch=180 loss=0.689615 main=0.649277 guide=0.201690 lr=0.00000004
+Epoch 180/181 | Loss=1.007355 | Recall=0.897783 | Precision=0.919728 | OA=0.990801 | F1=0.908623 | IoU=0.832548 | Kappa=0.903781 | t=57.3s
+[DEPLOY-VERIFICATION] {"policy": "strict_fp32_fold_v1", "tolerance": 0.0002, "max_diff": 1.6689300537109375e-06, "per_scale_max_diff": [1.6689300537109375e-06, 2.1457672119140625e-06, 9.238719940185547e-07, 1.1324882507324219e-06], "binary_disagreement": 0}
+=== TEST RESULTS ===
+[MODE] casa_pyramid_none
+[TOTAL-PARAMS] 1.935810 M
+[TRAINABLE-PARAMS] 2.047125 M
+Recall=0.897372 | Precision=0.922534 | OA=0.990933 | F1=0.909779 | IoU=0.834490 | Kappa=0.905007
+[BEST-EPOCH] 145
+[DEPLOY-CHECK] maxdiff=1.669e-06 binary_disagreement=0
+[TIME-SCOPE] complete_run
+[TIME] 10380.6s [PEAK-MEMORY] 8168 MiB
+=== END TEST RESULTS ===

@@ -1,6 +1,6 @@
 # ChatGPT 项目设置
 
-_CASA-CD 项目指令，更新于 2026-10-25。_
+_CASA-CD 项目指令，更新于 2026-10-26。_
 
 ## 名称
 
@@ -44,11 +44,20 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-当前主线CASA-Pyramid/Run2。正式队列于2026-10-25 13:58:47 CST启动，源码基线`9f515ef`，supervisor PID1334437。截至2026-10-25T14:04:46+08:00，首发五项均完成至少3个训练及test评估epoch，主损失和评分损失下降，未见NaN/Inf/OOM或异常退出。两模块四项真实短训均通过，四层分支及qk/v/out任务梯度非零。正式权重从MobileNetV2预训练全新初始化，未使用探针或历史权重。 实时状态见.codex/STATE.md。
+当前主线CASA-Pyramid/Run2。Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。 当前无活动训练。实时状态见.codex/STATE.md。
+
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) |
+|---|---:|---:|---:|
+| LEVIR | 90.9779 | 91.1631 | 91.1259 |
+| SYSU | 83.3667 | 82.8377 | 82.5352 |
+| WHU | 94.3527 | 94.5648 | 94.6981 |
+| CDD | 96.9090 | 96.9303 | 96.8654 |
+
+相对同轮CTRL，双曲/普通模块在LEVIR的F1分别提高0.185/0.148个百分点，WHU提高0.212/0.345个百分点；SYSU分别降低0.529/0.832个百分点；CDD双曲提高0.021个百分点、普通降低0.044个百分点。本轮呈现数据集相关的收益，SYSU是共同薄弱项；单seed微小差异不作为稳定提升证据。所有结果均为test参与选模后的复测。
 
 网格8/4/4/4、联合224个KV，共享Q/K投影与类别支持度先验，双曲Q/K配欧式V；两个QKV训练2.059485M/部署1.948170M，CTRL训练2.047125M/部署1.935810M。评分辅助监督0.2三组相同。评价采用每epoch测试集F1选模；结构、数据处理与选模协议均有变化，跨轮结果须分清口径。
 
-已完成Run1为128-token结构，12项正式结果、完整日志及源码已归档。指标表现有173条，包含`Run2_val`的两项独立val选模正式结果：LEVIR CTRL F1为90.8261%，普通QKV为90.8842%。当前Run2十二项收齐后正常为185条，其他新增一并保留。各轮冻结TXT保持对应实际源码。
+已完成Run1为128-token结构，12项正式结果、完整日志及源码已归档。指标表现有185条，包含`Run2_val`的两项独立val选模正式结果：LEVIR CTRL F1为90.8261%，普通QKV为90.8842%。当前Run2十二项已全部收集，原173条历史单元格保留。各轮冻结TXT保持对应实际源码。
 
 [ChangeMamba官方2024训练代码](https://github.com/ChenHongruixuan/ChangeMamba/blob/72597fa4a1fde0bffa94c94302a6dc848898be13/changedetection/script/train_MambaBCD.py#L115-L131)的每500步test/Kappa选模是该实现的具体设置；当前每epoch test/F1选模须按自身协议报告，不能称为所有RSCD方法的统一设置。模块与几何来源见[models/SOURCES.md](../models/SOURCES.md)。
 
@@ -65,6 +74,8 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 | [本文件](ChatGPT_Project_Settings.md) | 可复制的项目指令 |
 
 ## GitHub上的完整训练记录
+
+[CASA-Pyramid/Run2完整记录](experiments/CASA-Pyramid/Run2/README.md)提供12项完整日志、训练/test选模逐轮表格与曲线、实际最佳epoch、诊断和环境。本轮test参与选模，诊断取每轮test首个batch。
 
 [CASA-Pyramid/Run1完整记录](experiments/CASA-Pyramid/Run1/README.md)提供12项完整train_log.txt、实际最佳epoch、逐epoch训练/验证表格和曲线、模块诊断CSV/JSONL、成功探针及运行环境。网页研究对话可使用这些实际记录；冻结源码中的打印语句不作为实际数值。模块诊断采样验证集首个batch，epoch从0开始。
 
