@@ -9,7 +9,7 @@ from model.layers.poincare_ops import RADIUS, expmap0, from_lorentz_sum, pairwis
 
 
 class PyramidContext(nn.Module):
-    """Keep dense queries and pool two supervised prototypes per grid region."""
+    """Retrieve reliable class prototypes with dense Q and a shared Q/K metric."""
 
     def __init__(self, channels=64, attention_dim=64, heads=4, grid_sizes=(8, 4, 4, 4),
                  geometry="euclidean", value_geometry="euclidean"):
@@ -27,8 +27,7 @@ class PyramidContext(nn.Module):
         self.norm = nn.LayerNorm(channels)
         self.guide = nn.Conv2d(channels, 1, 1)
         if geometry != "none":
-            self.q = nn.Conv2d(channels, attention_dim, 1, bias=False)
-            self.k = nn.Conv2d(channels, attention_dim, 1, bias=False)
+            self.qk = nn.Conv2d(channels, attention_dim, 1, bias=False)
             self.v = nn.Conv2d(channels, attention_dim, 1, bias=False)
             self.out = nn.Conv2d(attention_dim, channels, 1, bias=False)
             self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
@@ -44,11 +43,14 @@ class PyramidContext(nn.Module):
             0, 1, 2, 4, 3, 5, 6).reshape(batch, heads, grid * grid, -1, dim)
 
     def assignments(self, probability, grid):
+        """Return pixel weights and mean self-class support, ordered change/background."""
         batch, _, height, width = probability.shape
         cells = self.regions(probability.permute(0, 2, 3, 1).reshape(
             batch, 1, height, width, 1), grid).squeeze(1).squeeze(-1)
-        membership = torch.stack((cells, 1 - cells), dim=2) + 1e-6
-        return membership / membership.sum(-1, keepdim=True)
+        membership = torch.stack((cells, 1 - cells), dim=2).clamp_min(1e-6)
+        weights = membership / membership.sum(-1, keepdim=True)
+        reliability = (weights * membership).sum(-1).flatten(1, 2)
+        return weights, reliability
 
     def project_heads(self, layer, x):
         batch, _, height, width = x.shape
@@ -70,13 +72,15 @@ class PyramidContext(nn.Module):
         pooled = torch.einsum("brtp,bhrpd->bhrtd", weights, cells).flatten(2, 3)
         return from_lorentz_sum(pooled)
 
-    def attention(self, query, key, query_scale):
+    def attention(self, query, key, query_scale, reliability):
         counts = torch.tensor(self.tokens_per_scale, device=query.device)
         # Divide each source scale's prior mass equally among its tokens.
         scale_logits = self.scale_bias[:, query_scale] - counts.to(query.dtype).log()
-        bias = scale_logits.repeat_interleave(counts, dim=-1)[None, :, None]
+        bias = scale_logits.repeat_interleave(counts, dim=-1,
+                                              output_size=sum(self.tokens_per_scale))[None, :, None]
         temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
-        return (-self.distance(query, key) / temperature + bias).softmax(-1)
+        support = reliability.clamp_min(1e-6).log()[:, None, None, :]
+        return (-self.distance(query, key) / temperature + bias + support).softmax(-1)
 
     def distance(self, query, key):
         if self.geometry == "hyperbolic":
@@ -91,23 +95,25 @@ class PyramidContext(nn.Module):
         logits = tuple(self.guide(x) for x in normalized)
         if self.geometry == "none":
             return list(features), logits
-        weights = [self.assignments(z.sigmoid(), grid) for z, grid in zip(logits, self.grid_sizes)]
+        assignments = [self.assignments(z.sigmoid(), grid) for z, grid in zip(logits, self.grid_sizes)]
+        weights, reliabilities = zip(*assignments)
+        reliability = torch.cat(reliabilities, dim=1)
         prototypes = [self.pool_features(x, w, grid)
                       for x, w, grid in zip(normalized, weights, self.grid_sizes)]
-        queries = [self.project_heads(self.q, x) for x in normalized]
+        queries = [self.project_heads(self.qk, x) for x in normalized]
         if self.geometry == "hyperbolic":
             queries = [expmap0(query) for query in queries]
-            keys = [self.compress_hyperbolic_keys(expmap0(self.project_heads(self.k, x)), w, grid)
-                    for x, w, grid in zip(normalized, weights, self.grid_sizes)]
+            keys = [self.compress_hyperbolic_keys(query, w, grid)
+                    for query, w, grid in zip(queries, weights, self.grid_sizes)]
         else:
-            keys = [self.project_prototypes(self.k, p) for p in prototypes]
+            keys = [self.project_prototypes(self.qk, p) for p in prototypes]
         values = [self.project_prototypes(self.v, p) for p in prototypes]
         key, value = torch.cat(keys, dim=2), torch.cat(values, dim=2)
         enhanced, diagnostics = [], {}
         for index, (feature, query, assignment) in enumerate(zip(features, queries, weights)):
             batch, _, height, width = feature.shape
             query = query.flatten(2, 3)
-            probabilities = self.attention(query, key, index)
+            probabilities = self.attention(query, key, index, reliability)
             context = probabilities @ value
             context = context.transpose(-1, -2).reshape(batch, -1, height, width)
             update = self.out(context)
@@ -131,6 +137,11 @@ class PyramidContext(nn.Module):
                         residual_to_feature_rms=float(residual_rms / feature_rms.clamp_min(1e-8)),
                         query_attention_tv=float(query_tv.mean()),
                         query_attention_tv_per_head=query_tv.mean((0, 2)).tolist(),
+                        prototype_reliability_mean=reliabilities[index].reshape(batch, -1, 2).mean((0, 1)).tolist(),
+                        prototype_reliability_min=reliabilities[index].reshape(batch, -1, 2).amin((0, 1)).tolist(),
+                        prototype_reliability_max=reliabilities[index].reshape(batch, -1, 2).amax((0, 1)).tolist(),
+                        class_attention_mass=probabilities.reshape(batch, self.heads, height * width, -1, 2)
+                            .sum(-2).mean((0, 2)).tolist(),
                         finite=bool(torch.isfinite(update).all()))
                     if self.geometry == "hyperbolic":
                         radii = query.norm(dim=-1)

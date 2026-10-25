@@ -39,9 +39,9 @@ class Dataset(torch.utils.data.Dataset):
         label_name = self.gts[idx]
         post_image_name = self.post_images[idx]
 
-        pre_image = cv2.imread(pre_image_name)
+        pre_image = cv2.cvtColor(cv2.imread(pre_image_name), cv2.COLOR_BGR2RGB)
         label = cv2.imread(label_name, 0)
-        post_image = cv2.imread(post_image_name)
+        post_image = cv2.cvtColor(cv2.imread(post_image_name), cv2.COLOR_BGR2RGB)
 
         img = numpy.concatenate((pre_image, post_image), axis=2)
 

@@ -28,11 +28,11 @@ class RandomCropResize(object):
     def __call__(self, img, label):
         if random.random() < 0.5:
             h, w = img.shape[:2]
-            x1 = random.randint(0, self.ch)
-            y1 = random.randint(0, self.cw)
+            top, bottom = random.randint(0, self.ch), random.randint(0, self.ch)
+            left, right = random.randint(0, self.cw), random.randint(0, self.cw)
 
-            img_crop = img[y1:h - y1, x1:w - x1]
-            label_crop = label[y1:h - y1, x1:w - x1]
+            img_crop = img[top:h - bottom, left:w - right]
+            label_crop = label[top:h - bottom, left:w - right]
 
             img_crop = cv2.resize(img_crop, (w, h))
             label_crop = cv2.resize(label_crop, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -65,8 +65,16 @@ class RandomExchange(object):
         return [image, label]
 
 
+class RandomRotate90(object):
+    """Apply one shared quarter-turn rotation to both dates and the mask."""
+
+    def __call__(self, image, label):
+        k = random.randrange(4)
+        return [np.rot90(image, k).copy(), np.rot90(label, k).copy()]
+
+
 class Normalize(object):
-    """Normalize image using dataset mean and std"""
+    """Normalize both RGB dates and binarize the 0/255 change mask."""
 
     def __init__(self, mean, std):
         self.mean = mean
@@ -98,8 +106,7 @@ class ToTensor(object):
                 interpolation=cv2.INTER_NEAREST
             )
 
-        image = image[:, :, ::-1].copy()      # BGR → RGB
-        image = image.transpose((2, 0, 1))    # HWC → CHW
+        image = np.ascontiguousarray(image.transpose((2, 0, 1)))
 
         image_tensor = torch.from_numpy(image)
         label_tensor = torch.LongTensor(

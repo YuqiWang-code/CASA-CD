@@ -24,14 +24,25 @@ class CASANet(nn.Module):
             self.context = PyramidContext(geometry=geometry, grid_sizes=(8, 4, 4, 4),
                                           value_geometry="euclidean")
 
-    def forward(self, a, b, return_aux=False):
+    def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
         enhanced, guide_logits = self.context(self.tar(features_a, features_b))
-        pyramid = self.decoder.forward_pyramid(enhanced)
-        outputs = tuple(torch.sigmoid(F.interpolate(self.head(x), size=a.shape[-2:],
-                                                    mode="bilinear", align_corners=False))
-                        for x in pyramid)
-        return (outputs, guide_logits) if return_aux else outputs
+        return self.decoder.forward_pyramid(enhanced), guide_logits
+
+    def forward(self, a, b, return_aux=False):
+        """Return four probabilities, or raw logits and guide logits for training."""
+        pyramid, guide_logits = self._decode(a, b)
+        logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
+                                     mode="bilinear", align_corners=False)
+                       for x in pyramid)
+        return (logits, guide_logits) if return_aux else tuple(x.sigmoid() for x in logits)
+
+    def predict(self, a, b):
+        """Return the final change probability without auxiliary prediction heads."""
+        pyramid, _ = self._decode(a, b)
+        logits = F.interpolate(self.head(pyramid[0]), size=a.shape[-2:],
+                               mode="bilinear", align_corners=False)
+        return logits.sigmoid()
 
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()

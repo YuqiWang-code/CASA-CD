@@ -48,7 +48,7 @@ def inspect(model, image, target):
                  for n, p in model.context.named_parameters()}
     if not all(math.isfinite(x) for x in gradients.values()):
         raise FloatingPointError("non-finite context task gradient")
-    for name in ("q.weight", "k.weight", "v.weight", "out.weight"):
+    for name in ("qk.weight", "v.weight", "out.weight"):
         if gradients[name] <= 0:
             raise RuntimeError(f"segmentation task does not reach {name}")
     for stage in report.values():

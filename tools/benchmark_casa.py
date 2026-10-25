@@ -27,17 +27,17 @@ def main():
         model.switch_to_deploy()
         deployment_params=sum(p.numel() for p in model.parameters())
         with torch.inference_mode():
-            for _ in range(30):model(a,b)
+            for _ in range(30):model.predict(a,b)
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             times=[]
             for _ in range(100):
                 torch.cuda.synchronize();start=time.perf_counter()
-                model(a,b)
+                model.predict(a,b)
                 torch.cuda.synchronize();times.append((time.perf_counter()-start)*1000)
             peak=torch.cuda.max_memory_allocated()/1024**2
             with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU],with_flops=True) as profile:
-                model(a,b);torch.cuda.synchronize()
+                model.predict(a,b);torch.cuda.synchronize()
             flops=sum(event.flops for event in profile.key_averages())
         results[mode]=dict(training_learnable_params=training_params,deployment_params=deployment_params,
             latency_ms_median=statistics.median(times),latency_ms_mean=statistics.mean(times),
@@ -48,7 +48,8 @@ def main():
         torch.cuda.empty_cache()
     report=dict(device=torch.cuda.get_device_name(),torch_version=torch.__version__,batch_size=1,
         input_shape=[1,3,256,256],precision='FP32',allow_tf32_matmul=torch.backends.cuda.matmul.allow_tf32,
-        allow_tf32_cudnn=torch.backends.cudnn.allow_tf32,outputs=4,warmup=30,iterations=100,
+        allow_tf32_cudnn=torch.backends.cudnn.allow_tf32,outputs=1,
+        output_scope='Final decoder prediction',warmup=30,iterations=100,
         pretrained=False,weights_scope='Architecture cost with random weights',variants=results)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2))

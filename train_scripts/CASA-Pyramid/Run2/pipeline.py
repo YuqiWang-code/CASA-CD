@@ -10,7 +10,7 @@ ROOT = Path('/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2')
 HERE = Path(__file__).resolve().parent
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
 VARIANTS = {'M1_HYPER_QKV': 'hyperbolic', 'M2_CA_QKV': 'qkv', 'M0_CTRL': 'none'}
-PROTOCOL = 'casa_pyramid_40k_qk_euclideanv224_v2'
+PROTOCOL = 'casa_pyramid_40k_reliableqk_testselect_v2'
 active = {}
 state = dict(status='running', protocol=PROTOCOL, completed=[], active={}, active_gpus={}, failed=[])
 

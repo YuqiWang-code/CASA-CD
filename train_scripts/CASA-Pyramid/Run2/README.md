@@ -1,91 +1,53 @@
 # CASA-Pyramid / Run2
 
-协议`casa_pyramid_40k_qk_euclideanv224_v2`。原生MobileNetV2四尺度 → TAR → 224-token跨尺度QKV → DCR。
+协议`casa_pyramid_40k_reliableqk_testselect_v2`。共享MobileNetV2 → TAR → 可靠原型跨尺度检索 → DCR。LEVIR→SYSU→WHU→CDD，各双曲/普通/CTRL共12项，两GPU根据实测显存补位。
 
-## 模型与对照
+## 机制
 
-| 变体 | Q/K | V | 训练参数 | 部署参数 |
-|---|---|---|---:|---:|
-| M0_CTRL | 无检索 | 无检索，保留评分监督 | 2,047,125 | 1,935,810 |
-| M1_HYPER_QKV | 双曲距离/2；K先Exp再Lorentz压缩 | 先池化再欧式投影，直接加权读出 | 2,063,581 | 1,952,266 |
-| M2_CA_QKV | 欧氏距离；K先池化再投影 | 先池化再欧式投影，直接加权读出 | 2,063,581 | 1,952,266 |
+区域类别权重`m`为预测变化概率`p`或背景概率`1-p`；`w=m/Σm`，`P=ΣwX`，`r=Σwm=Σm²/Σm`。其中`X=LN(T)`，完整Q保留5440位置，KV总224，网格8/4/4/4。
 
-网格(8,4,4,4)，每区域变化/背景两原型，各尺度128/32/32/32个KV，合计224；完整Q、四头16维。logits加-log(M_source)修正数量先验，保留尺度偏置。三组评分头与面积标签辅助监督一致，系数0.2。gamma零初始化，out正常初始化，双曲曲率-1、切空间截断2.3。
+普通版：`Q=Wqk X`、`K=Wqk P`、`V=Wv P`；双曲版：`Q=Exp(Wqk X)`、`K=LorentzCentroid(Q,w)`、`V=Wv P`。四头各16维，投影除sqrt(16)；双曲曲率-1、切空间截断2.3。注意力logits为`-d/tau + scale_bias - log(M_source) + log(r)`，双曲距离使用`d_H/2`，普通版使用欧氏距离。两者`A@V`经输出投影，以零初始化gamma残差回接TAR特征。
 
-本轮同时改变细尺度原型数量、尺度先验、双曲V路径和投影正则。普通版池化与线性投影交换为等价计算调整。新模块的精度收益用同轮CTRL和欧氏/双曲对照评价，与Run1总体比较不能单独归因于其中一项。
+共享Q/K减少4,096参数并约束同一度量空间；可靠度保留类别支持，避免纯背景格产生的低支持变化原型取得等先验，同时保留面积小但预测明确的变化。两版均不增加卷积分支或特殊激活。
 
-## 训练与验证
+| 变体 | 训练参数 | 折叠参数 |
+|---|---:|---:|
+| CTRL | 2,047,125 | 1,935,810 |
+| 双曲 / 普通 | 2,059,485 | 1,948,170 |
 
-40K目标向完整epoch取整；LEVIR40182、SYSU40125、WHU40145、CDD40248步。batch32、seed2333，Adam5e-4/betas(0.9,0.99)/eps1e-8，poly^0.9，首epoch且step<200时warmup。主损失为四级BCE+Dice之和，加0.2倍四级评分BCE。context.q/k/v/out四个weight采用WD1e-4，其余context参数WD0，网络其余参数WD1e-4；CTRL的归一化和评分头仍WD0。
+## 设计证据
 
-独立val最高F1选best，相同F1更新；训练结束测试最佳权重，严格FP32折叠并记录四级误差及二值差异。三组共同路径初始化一致，正式实验从MobileNetV2预训练重新初始化，不使用探针或Run1权重。
+2026-10-25在独立val列表前8张固定图上读取已有权重，统计`r<0.05`的低支持原型及其注意力。LEVIR普通与双曲的低支持原型占比32.1%/33.3%，四层分配给它们的注意力约32.5%～33.6%/34.0%～35.8%；SYSU双曲占比32.9%，注意力约25.6%～30.9%。该小样本说明丢失类别支持信息在实际数据中可达，不代表全库平均，也不能直接推断精度收益。详细数据保存在`outputs/CASA-Pyramid/Run2/analysis/prototype_analysis.json`。
 
-## 启动与采集
+LEVIR/WHU关注稀疏小建筑与边界，使用细尺度128个KV及不按面积惩罚的可靠度；SYSU/CDD关注复杂变化类别与时相外观差异，使用监督语义原型、同步增强和时相交换。CTRL也存在SYSU后期泛化回落，模块设计不被视为该问题的唯一解释。
 
-四库×三组，共12项；LEVIR→SYSU→WHU→CDD优先，允许跨库按显存填空，两GPU按实测profile及探针峰值并行。先进行结构/梯度/等价/折叠检查，再各模块LEVIR3epoch、SYSU4epoch真实短训。四项health_result均passed且协议匹配后才允许启动正式队列。
+TAR/DCR尺度接口、共享预测头、预训练载入、混淆矩阵和折叠公式经过审查。训练使用原始logits的BCEWithLogits与sigmoid Dice；单输出`predict()`用于实际推理，避免生成三个辅助全分辨率预测。
+
+## 固定协议
+
+- RGB256、batch32、seed2333；从MobileNetV2预训练新建每项模型。
+- Adam5e-4、betas(.9,.99)、eps1e-8；qk/v/out权重及主体WD1e-4，其他context参数WD0。
+- 全局前200步warmup，poly^.9；40K取整至完整epoch，四库181/107/217/129epoch。
+- 四级主损失等权，四级评分BCE权重0.2；CTRL评分监督一致。
+- A/B独立读取RGB，图像双线性、mask最近邻；训练同步随机四边0～8像素裁剪后恢复(p=.5)、H/V翻转各.5、随机四分之一周旋转；时相交换.5。ImageNet RGB归一化。无独立时相颜色扰动，评估无增强/TTA。
+- FP32、AMP关、cuDNN TF32开、matmul TF32关、benchmark开；部署折叠检查使用严格FP32。
+- 每epoch从0开始在test选最高F1，最终在同一test复测best；manifest标注`selection_split=test, independent_test=false`。val仅用于训练前诊断。
+- 此设置参考[ChangeMamba 2024官方代码](https://github.com/ChenHongruixuan/ChangeMamba/blob/72597fa4a1fde0bffa94c94302a6dc848898be13/changedetection/script/train_MambaBCD.py)的test选模，原实现为每500步/Kappa，与本轮每epoch/F1有区别。
+
+## 检查与运行
+
+`validate.sh`检查可靠度边界与梯度、共享Q/K坐标、池化等价性、224-token布局、模型梯度、RGB/时相与mask对齐、稳定损失、全局warmup、恢复、折叠及调度。`profile_CASA.py`测batch32峰值；`probe.sh`分别做LEVIR3epoch、SYSU4epoch的两模块真实短训，四项通过后允许正式队列。探针权重不用于正式训练。
 
 ```bash
 bash train_scripts/CASA-Pyramid/Run2/validate.sh
 bash train_scripts/CASA-Pyramid/Run2/probe.sh
 bash train_scripts/CASA-Pyramid/Run2/launch.sh
-bash train_scripts/CASA-Pyramid/Run2/stop.sh
 ```
 
-```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run2
-python train_scripts/CASA-Pyramid/Run2/collect_results.py
-python tools/export_training_records.py --tag CASA-Pyramid --run Run2
-```
+`pipeline.py`是唯一正式调度器；`scheduling.json`与`placement.json`记录显存预算和物理GPU。训练启动前保存`source_code.tar.gz`、环境、配置和源码基线；活动模型不覆盖。新失败先保留日志并分析。用户已授权本次初期检查遇到真实问题时停止、修复后重训。
 
-服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`，本地`outputs/CASA-Pyramid/Run2`。source_code.tar.gz冻结实际训练源码，environment.json记录环境，source_baseline.json记录源码基线。旧Run1源码、日志、权重与171条正式历史记录保留；本轮十二项收齐后正常应183条，其他新增仍保留。冻结TXT用本轮归档，不用工作区覆盖历史。
+结果仅取完整TEST区块。173条历史记录逐单元格保留，新12项完成后正常185条；独立val选模的两个完整结果归档为Run2_val。冻结TXT从实际运行源码提取，当前TXT从工作源码生成。
 
-诊断记录gamma、熵、温度、各尺度注意力、原型分配、RMS(gamma*update)/RMS(T)、query注意力TV及双曲半径/裁剪。正式诊断来自每轮验证首batch，探针另外检查四级上下文、Q/K/V/out的主任务梯度。探针不计入正式指标。当前为单seed，最终收益以完整测试及后续重复实验评价。
-
-## 正式启动与初期观察
-
-正式队列于2026-10-25 11:07:35 CST启动，实际模型与训练源码基线`986fe75`，supervisor PID1320738。观察于2026-10-25T11:13:15+08:00，首发5项均完成至少三个完整epoch，主损失和评分损失下降；日志未见NaN/Inf/OOM或异常退出。正式模型从MobileNetV2预训练重新初始化，不使用探针或Run1权重。
-
-| 探针 | epoch / step | 各轮总损失 | 末轮主损失 | 末轮评分损失 | 验证F1(%) |
-|---|---|---|---:|---:|---:|
-| levir_hyperbolic | 3 / 666 | 2.1859 → 1.2926 → 1.1523 | 1.0804 | 0.3591 | 84.577 |
-| levir_qkv | 3 / 666 | 2.1884 → 1.3121 → 1.1464 | 1.0744 | 0.3596 | 84.576 |
-| sysu_hyperbolic | 4 / 1500 | 2.7242 → 2.0590 → 1.8205 → 1.6620 | 1.4519 | 1.0503 | 79.722 |
-| sysu_qkv | 4 / 1500 | 2.7252 → 2.0705 → 1.8305 → 1.6714 | 1.4607 | 1.0535 | 78.881 |
-
-四项passed=true，四级上下文及Q/K/V/out均有有限、非零主任务梯度；辅助评分梯度正常。探针只用于健康观察，不计正式指标。
-
-| 实验 | GPU | PID | 完整epoch | step | 首三轮总损失 |
-|---|---:|---:|---:|---:|---|
-| M1_HYPER_QKV/LEVIR-CD-256 | 0 | 1320740 | 6 | 1332 | 2.1786 → 1.3012 → 1.1443 |
-| M2_CA_QKV/LEVIR-CD-256 | 1 | 1320773 | 6 | 1400 | 2.1831 → 1.3028 → 1.1398 |
-| M0_CTRL/LEVIR-CD-256 | 1 | 1320803 | 6 | 1500 | 2.1820 → 1.3040 → 1.1549 |
-| M1_HYPER_QKV/SYSU-CD-256 | 0 | 1320835 | 3 | 1200 | 2.7263 → 2.0737 → 1.8518 |
-| M0_CTRL/SYSU-CD-256 | 1 | 1320865 | 3 | 1400 | 2.7273 → 2.0825 → 1.8697 |
-
-实测显存预算及各变体预留：
-
-```json
-{
-  "protocol": "casa_pyramid_40k_qk_euclideanv224_v2",
-  "gpu_budget_mib": {
-    "0": 30914,
-    "1": 31072
-  },
-  "variant_reserved_mib": {
-    "M1_HYPER_QKV": 14442,
-    "M2_CA_QKV": 12748,
-    "M0_CTRL": 8832
-  },
-  "free_headroom_mib": 1024
-}
-```
-
-## Run2推理开销
-
-RTX5090空闲GPU、256×256双时相输入、batch1、四级输出；折叠后30预热、100次同步测量，随机权重。输入/权重为FP32，cuDNN允许TF32，矩阵乘TF32关闭。FLOPs仅含profiler支持的卷积和矩阵乘，不含双曲逐元素运算。
-
-| 模式 | 训练参数 | 部署参数 | 已统计GFLOPs | 中位延迟(ms) |
-|---|---:|---:|---:|---:|
-| none | 2,047,125 | 1,935,810 | 1.734 | 3.84 |
-| hyperbolic | 2,063,581 | 1,952,266 | 2.206 | 6.80 |
-| qkv | 2,063,581 | 1,952,266 | 2.151 | 5.62 |
+<!-- STARTUP -->
+正式队列等待真实数据短训完成。
+<!-- END_STARTUP -->

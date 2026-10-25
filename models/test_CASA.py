@@ -15,13 +15,16 @@ def main():
         torch.manual_seed(2333)
         model = CASANet(module=variant).eval()
         count = sum(p.numel() for p in model.parameters())
-        assert count == (2047125 if variant == "none" else 2063581), count
+        assert count == (2047125 if variant == "none" else 2059485), count
         with torch.no_grad():
             encoded = model.encoder(a)[1:]
             assert [tuple(x.shape[1:]) for x in encoded] == [(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
-            outputs, guide = model(a, b, return_aux=True)
-            assert len(outputs) == len(guide) == 4
-            assert all(x.shape == target.shape for x in outputs)
+            logits, guide = model(a, b, return_aux=True)
+            outputs = model(a, b)
+            assert len(logits) == len(outputs) == len(guide) == 4
+            assert all(x.shape == target.shape for x in logits)
+            assert all(torch.equal(z.sigmoid(), p) for z, p in zip(logits, outputs))
+            assert torch.equal(model.predict(a, b), outputs[0])
             if reference is None:
                 reference = outputs[0]
             else:
@@ -30,7 +33,7 @@ def main():
         optimizer = make_optimizer(model)
         context_ids = {id(p) for p in model.context.parameters()}
         projection_ids = {id(p) for name, p in model.named_parameters()
-                          if name in {f"context.{name}.weight" for name in ("q", "k", "v", "out")}}
+                          if name in {f"context.{name}.weight" for name in ("qk", "v", "out")}}
         grouped = [id(p) for g in optimizer.param_groups for p in g["params"]]
         assert len(grouped) == len(set(grouped)) == len(list(model.parameters()))
         for group in optimizer.param_groups:
@@ -38,8 +41,8 @@ def main():
                                                  else 1e-4) for p in group["params"])
         for _ in range(3):
             optimizer.zero_grad(set_to_none=True)
-            outputs, guide = model(a, b, return_aux=True)
-            loss, main_loss, auxiliary = training_losses(outputs, guide, target)
+            logits, guide = model(a, b, return_aux=True)
+            loss, main_loss, auxiliary = training_losses(logits, guide, target)
             assert torch.allclose(loss, main_loss + .2 * auxiliary)
             loss.backward()
             assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
@@ -47,13 +50,13 @@ def main():
         assert model.context.guide.weight.grad.abs().sum() > 0
         if variant != "none":
             assert (model.context.gamma.abs() > 0).all()
-            assert model.context.q.weight.grad.abs().sum() > 0
+            assert model.context.qk.weight.grad.abs().sum() > 0
         model.eval()
         _, report = verify_deployment(model, torch.cat((a, b), 1))
         assert max(report["per_scale_max_diff"]) < 2e-4
         assert report["binary_disagreement"] == 0
         deployed = model.switch_to_deploy()
-        assert sum(p.numel() for p in deployed.parameters()) == (1935810 if variant == "none" else 1952266)
+        assert sum(p.numel() for p in deployed.parameters()) == (1935810 if variant == "none" else 1948170)
         print(variant, "parameters", count, "guide, full gradients and deployment PASS")
 
 

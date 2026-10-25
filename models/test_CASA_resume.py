@@ -15,10 +15,13 @@ class SmallModel(nn.Module):
         super().__init__()
         self.module = "qkv"
         self.body = nn.Linear(3, 3)
-        self.context = nn.Linear(3, 3)
+        self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
+                                      "v": nn.Linear(3, 3, bias=False),
+                                      "out": nn.Linear(3, 3, bias=False),
+                                      "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
-        return self.context(self.body(x))
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
 
 
 def step(model, optimizer):
@@ -39,6 +42,9 @@ def main():
     random.seed(2333)
     model = SmallModel()
     optimizer = make_optimizer(model)
+    decay = {id(p): group["weight_decay"] for group in optimizer.param_groups for p in group["params"]}
+    for name, parameter in model.named_parameters():
+        assert decay[id(parameter)] == (0.0 if name.startswith("context.guide.") else 1e-4)
     for _ in range(4):
         step(model, optimizer)
     checkpoint = copy.deepcopy(dict(

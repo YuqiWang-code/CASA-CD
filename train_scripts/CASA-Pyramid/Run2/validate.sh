@@ -15,6 +15,7 @@ for file in train_scripts/CASA-Pyramid/Run2/*.sh; do bash -n "$file"; done
 python models/test_pyramid_context.py
 python models/test_CASA.py
 python models/test_CASA_resume.py
+python models/test_data_pipeline.py
 python train_scripts/CASA-Pyramid/Run2/test_pipeline.py
 python models/profile_CASA.py --dataset-root /share_datasets/CD/LEVIR-CD-256 \
   --pretrained "$REPO/pretrained_weight/mobilenet_v2-b0353104.pth" --output "$OUT/profile.json"

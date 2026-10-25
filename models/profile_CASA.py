@@ -34,8 +34,8 @@ def main():
             torch.cuda.synchronize()
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
-            outputs, guide = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss = training_losses(outputs, guide, target)
+            logits, guide = model(image[:, :3], image[:, 3:], return_aux=True)
+            loss, main_loss, auxiliary_loss = training_losses(logits, guide, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -43,7 +43,7 @@ def main():
             times.append(time.time() - start)
         model.context.collect_diag = True
         with torch.no_grad():
-            model(image[:, :3], image[:, 3:])
+            model.predict(image[:, :3], image[:, 3:])
         used = subprocess.check_output(
             ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
             text=True)
@@ -51,6 +51,8 @@ def main():
                            if int(row.split(",")[0]) == os.getpid())
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
+                      training_outputs=4, training_prediction_format="logits",
+                      inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
@@ -63,7 +65,7 @@ def main():
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, outputs, guide, loss, main_loss, auxiliary_loss
+        del model, optimizer, logits, guide, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)

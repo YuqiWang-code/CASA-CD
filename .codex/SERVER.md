@@ -25,7 +25,9 @@ cd /home/yqwang/projects/CASA-CD
 
 先读取实时队列、进程和 GPU 占用。每轮脚本集中在 `train_scripts/<tag>/<Run>/`；`pipeline.py` 为唯一调度器，`pipeline_status.json`、`placement.json` 记录实验和物理 GPU 分配。启动前查看已有状态以避免重复队列。
 
-CASA-Pyramid Run2 使用 `models/train_CASA.py`，协议 `casa_pyramid_40k_qk_euclideanv224_v2`。两张 GPU 按实测显存预算补位，数据集优先级 LEVIR→SYSU→WHU→CDD，允许跨库并行。模型、数值几何、梯度和部署折叠检查通过后做真实数据短训，随后从预训练骨干全新初始化正式实验。探针不是正式指标。
+CASA-Pyramid Run2 使用 `models/train_CASA.py`，协议 `casa_pyramid_40k_reliableqk_testselect_v2`。两张 GPU 按实测显存预算补位，数据集优先级 LEVIR→SYSU→WHU→CDD，允许跨库并行。模型、数值几何、梯度和部署折叠检查通过后做真实数据短训，随后从预训练骨干全新初始化正式实验。探针不是正式指标。
+
+当前Run2每epoch使用test F1选模，manifest标注非独立测试。训练数据使用同步裁剪、翻转、90度旋转与时相交换，RGB归一化配置见README。
 
 在下一轮部署前保存该轮源码、参数与环境。训练运行期间不覆盖其模型或训练代码。按精确 PID / 本轮停止脚本处理本项目队列，保留旧日志和 checkpoint；失败先读具体错误，不循环重启。
 
