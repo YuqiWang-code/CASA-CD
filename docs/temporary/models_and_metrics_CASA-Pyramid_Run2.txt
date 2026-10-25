@@ -1,14 +1,14 @@
 # CASA-CD models snapshot + metrics
-# tag=CASA-Pyramid  run=Run2  models_dir=outputs/CASA-Pyramid/Run2/runtime_source/models
+# tag=CASA-Pyramid  run=Run2  models_dir=F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models
 # CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
 ================================================================================
-## MODELS CODE (16 files)
+## MODELS CODE (17 files)
 ================================================================================
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/profile_CASA.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/profile_CASA.py
 ================================================================================
 """Measure full-batch training memory and throughput for CASA variants."""
 import argparse
@@ -46,8 +46,8 @@ def main():
             torch.cuda.synchronize()
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
-            outputs, guide = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss = training_losses(outputs, guide, target)
+            logits, guide = model(image[:, :3], image[:, 3:], return_aux=True)
+            loss, main_loss, auxiliary_loss = training_losses(logits, guide, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -55,7 +55,7 @@ def main():
             times.append(time.time() - start)
         model.context.collect_diag = True
         with torch.no_grad():
-            model(image[:, :3], image[:, 3:])
+            model.predict(image[:, :3], image[:, 3:])
         used = subprocess.check_output(
             ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
             text=True)
@@ -63,6 +63,8 @@ def main():
                            if int(row.split(",")[0]) == os.getpid())
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
+                      training_outputs=4, training_prediction_format="logits",
+                      inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
@@ -75,7 +77,7 @@ def main():
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, outputs, guide, loss, main_loss, auxiliary_loss
+        del model, optimizer, logits, guide, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +88,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/test_CASA.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/test_CASA.py
 ================================================================================
 """Native pyramid, shared initialization, guided gradients and folding checks."""
 import torch
@@ -105,13 +107,16 @@ def main():
         torch.manual_seed(2333)
         model = CASANet(module=variant).eval()
         count = sum(p.numel() for p in model.parameters())
-        assert count == (2047125 if variant == "none" else 2063581), count
+        assert count == (2047125 if variant == "none" else 2059485), count
         with torch.no_grad():
             encoded = model.encoder(a)[1:]
             assert [tuple(x.shape[1:]) for x in encoded] == [(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
-            outputs, guide = model(a, b, return_aux=True)
-            assert len(outputs) == len(guide) == 4
-            assert all(x.shape == target.shape for x in outputs)
+            logits, guide = model(a, b, return_aux=True)
+            outputs = model(a, b)
+            assert len(logits) == len(outputs) == len(guide) == 4
+            assert all(x.shape == target.shape for x in logits)
+            assert all(torch.equal(z.sigmoid(), p) for z, p in zip(logits, outputs))
+            assert torch.equal(model.predict(a, b), outputs[0])
             if reference is None:
                 reference = outputs[0]
             else:
@@ -120,7 +125,7 @@ def main():
         optimizer = make_optimizer(model)
         context_ids = {id(p) for p in model.context.parameters()}
         projection_ids = {id(p) for name, p in model.named_parameters()
-                          if name in {f"context.{name}.weight" for name in ("q", "k", "v", "out")}}
+                          if name in {f"context.{name}.weight" for name in ("qk", "v", "out")}}
         grouped = [id(p) for g in optimizer.param_groups for p in g["params"]]
         assert len(grouped) == len(set(grouped)) == len(list(model.parameters()))
         for group in optimizer.param_groups:
@@ -128,8 +133,8 @@ def main():
                                                  else 1e-4) for p in group["params"])
         for _ in range(3):
             optimizer.zero_grad(set_to_none=True)
-            outputs, guide = model(a, b, return_aux=True)
-            loss, main_loss, auxiliary = training_losses(outputs, guide, target)
+            logits, guide = model(a, b, return_aux=True)
+            loss, main_loss, auxiliary = training_losses(logits, guide, target)
             assert torch.allclose(loss, main_loss + .2 * auxiliary)
             loss.backward()
             assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
@@ -137,13 +142,13 @@ def main():
         assert model.context.guide.weight.grad.abs().sum() > 0
         if variant != "none":
             assert (model.context.gamma.abs() > 0).all()
-            assert model.context.q.weight.grad.abs().sum() > 0
+            assert model.context.qk.weight.grad.abs().sum() > 0
         model.eval()
         _, report = verify_deployment(model, torch.cat((a, b), 1))
         assert max(report["per_scale_max_diff"]) < 2e-4
         assert report["binary_disagreement"] == 0
         deployed = model.switch_to_deploy()
-        assert sum(p.numel() for p in deployed.parameters()) == (1935810 if variant == "none" else 1952266)
+        assert sum(p.numel() for p in deployed.parameters()) == (1935810 if variant == "none" else 1948170)
         print(variant, "parameters", count, "guide, full gradients and deployment PASS")
 
 
@@ -151,7 +156,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/test_CASA_resume.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/test_CASA_resume.py
 ================================================================================
 """Optimizer/RNG continuation and deployment backend-state checks."""
 import copy
@@ -170,10 +175,13 @@ class SmallModel(nn.Module):
         super().__init__()
         self.module = "qkv"
         self.body = nn.Linear(3, 3)
-        self.context = nn.Linear(3, 3)
+        self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
+                                      "v": nn.Linear(3, 3, bias=False),
+                                      "out": nn.Linear(3, 3, bias=False),
+                                      "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
-        return self.context(self.body(x))
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
 
 
 def step(model, optimizer):
@@ -194,6 +202,9 @@ def main():
     random.seed(2333)
     model = SmallModel()
     optimizer = make_optimizer(model)
+    decay = {id(p): group["weight_decay"] for group in optimizer.param_groups for p in group["params"]}
+    for name, parameter in model.named_parameters():
+        assert decay[id(parameter)] == (0.0 if name.startswith("context.guide.") else 1e-4)
     for _ in range(4):
         step(model, optimizer)
     checkpoint = copy.deepcopy(dict(
@@ -229,7 +240,76 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/test_pyramid_context.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/test_data_pipeline.py
+================================================================================
+"""RGB/date ordering, synchronized augmentation and stable binary loss checks."""
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import cv2
+import numpy as np
+import torch
+from torch.nn import functional as F
+
+from dataset import casa_transforms as transforms
+from train_CASA import MEAN, STD, learning_rate, loss_function, make_loader
+
+
+def main():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for name in ("A", "B", "label", "list"):
+            (root / name).mkdir()
+        a = np.full((256, 256, 3), (17, 83, 211), dtype=np.uint8)
+        b = np.full_like(a, (199, 67, 29))
+        mask = np.zeros((256, 256), dtype=np.uint8)
+        mask[100:180, 130:210] = 255
+        cv2.imwrite(str(root / "A" / "pair.png"), cv2.cvtColor(a, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(root / "B" / "pair.png"), cv2.cvtColor(b, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(root / "label" / "pair.png"), mask)
+        (root / "list" / "test.txt").write_text("pair.png\n")
+        image, target = next(iter(make_loader(root, "test", batch_size=1, workers=0)))
+        expected = (torch.tensor([17, 83, 211, 199, 67, 29]) / 255 - torch.tensor(MEAN)) / torch.tensor(STD)
+        assert torch.allclose(image[0, :, 0, 0], expected, atol=1e-6)
+        assert torch.equal(target[0, 0], torch.from_numpy((mask >= 128).astype(np.int64)))
+
+    mask = np.zeros((32, 32), dtype=np.uint8)
+    mask[5:19, 12:25] = 255
+    pair = np.stack((mask, mask, mask, 255-mask, 255-mask, 255-mask), -1)
+    with patch.object(transforms.random, "random", return_value=0.0), \
+            patch.object(transforms.random, "randrange", return_value=1):
+        image, target = transforms.Compose([
+            transforms.RandomFlip(), transforms.RandomRotate90(), transforms.RandomExchange()
+        ])(pair, mask)
+    assert np.array_equal(image[:, :, 0], 255-target)
+    assert np.array_equal(image[:, :, 3], target)
+    with patch.object(transforms.random, "random", return_value=0.0), \
+            patch.object(transforms.random, "randint", side_effect=[1, 2, 3, 4]):
+        cropped, crop_target = transforms.RandomCropResize(8)(pair, mask)
+    assert np.array_equal(crop_target, cv2.resize(mask[1:-2, 3:-4], (32, 32), interpolation=cv2.INTER_NEAREST))
+    assert np.array_equal(cropped, cv2.resize(pair[1:-2, 3:-4], (32, 32)))
+
+    logits = torch.tensor([[[[-100.0, 100.0]]]], requires_grad=True)
+    target = torch.tensor([[[[1.0, 0.0]]]])
+    loss = loss_function((logits,), target)
+    loss.backward()
+    assert torch.isfinite(loss) and torch.isfinite(logits.grad).all()
+    assert (logits.grad.abs() > 0.4).all()
+    moderate = torch.tensor([[[[-2.0, 1.0]]]])
+    probability = moderate.sigmoid()
+    expected = F.binary_cross_entropy(probability, target) + 1 - (
+        2 * (probability * target).sum() + 1e-5) / (probability.sum() + target.sum() + 1e-5)
+    assert torch.allclose(loss_function((moderate,), target), expected)
+    assert learning_rate(5e-4, 1, 185, 40145) == 5e-4 * .9 * 186 / 200 + 5e-5
+    print("RGB/date ordering, mask alignment, synchronized augmentation, stable logits loss and 200-step warmup PASS")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/test_pyramid_context.py
 ================================================================================
 """Check grid geometry, cross-scale connectivity and manifold gradients."""
 import torch
@@ -246,9 +326,9 @@ def pooling_equivalence():
         feature = torch.randn(1, 64, size, size, dtype=torch.double, requires_grad=True)
         normalized = op.norm(feature.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         scores = torch.randn(1, 1, size, size, dtype=torch.double, requires_grad=True)
-        weights = op.assignments(scores.sigmoid(), grid)
+        weights, _ = op.assignments(scores.sigmoid(), grid)
         pooled = op.pool_features(normalized, weights, grid)
-        for layer in (op.k, op.v):
+        for layer in (op.qk, op.v):
             before = torch.einsum("brtp,bhrpd->bhrtd", weights,
                                   op.regions(op.project_heads(layer, normalized), grid)).flatten(2, 3)
             after = op.project_prototypes(layer, pooled)
@@ -275,8 +355,10 @@ def value_readout():
         op(features)
         normalized = [op.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) for x in features]
         probabilities = [op.guide(x).sigmoid() for x in normalized]
-        weights = [op.assignments(p, grid) for p, grid in zip(probabilities, op.grid_sizes)]
-        keys = torch.cat([op.compress_hyperbolic_keys(expmap0(op.project_heads(op.k, x)), w, grid)
+        assignments = [op.assignments(p, grid) for p, grid in zip(probabilities, op.grid_sizes)]
+        weights, reliabilities = zip(*assignments)
+        reliability = torch.cat(reliabilities, dim=1)
+        keys = torch.cat([op.compress_hyperbolic_keys(expmap0(op.project_heads(op.qk, x)), w, grid)
                           for x, w, grid in zip(normalized, weights, op.grid_sizes)], 2)
         values = []
         for x, w, grid in zip(normalized, weights, op.grid_sizes):
@@ -286,12 +368,61 @@ def value_readout():
         values = torch.cat(values, 2)
         assert values.norm(dim=-1).max() > 1, "value test must exercise outside-ball content"
         for index, x in enumerate(normalized):
-            query = expmap0(op.project_heads(op.q, x)).flatten(2, 3)
-            expected = (op.attention(query, keys, index) @ values).transpose(-1, -2).reshape(
+            query = expmap0(op.project_heads(op.qk, x)).flatten(2, 3)
+            expected = (op.attention(query, keys, index, reliability) @ values).transpose(-1, -2).reshape(
                 1, 64, x.shape[-2], x.shape[-1])
             assert torch.allclose(captured[index], expected, atol=1e-6, rtol=1e-5)
     hook.remove()
     print("hyperbolic Q/K attention with Euclidean V and direct readout PASS")
+
+
+def prototype_support():
+    """Preserve class confidence without penalizing a sparse confident change."""
+    op = PyramidContext().double()
+    low = torch.full((1, 1, 8, 8), .01, dtype=torch.double)
+    high = 1 - low
+    low_weights, low_support = op.assignments(low, 1)
+    high_weights, high_support = op.assignments(high, 1)
+    assert torch.allclose(low_weights, high_weights, atol=1e-12)
+    assert torch.allclose(low_support, torch.tensor([[.01, .99]], dtype=torch.double))
+    assert torch.allclose(high_support, torch.tensor([[.99, .01]], dtype=torch.double))
+    sparse = torch.zeros_like(low)
+    sparse[:, :, 0, 0] = 1
+    _, sparse_support = op.assignments(sparse, 1)
+    assert sparse.mean() < .02 and sparse_support[0, 0] > .999
+    _, absent_support = op.assignments(torch.zeros_like(low), 1)
+    assert absent_support[0, 0] <= 1.000001e-6
+
+    query, key = torch.zeros(1, 4, 3, 16, dtype=torch.double), torch.zeros(1, 4, 224, 16, dtype=torch.double)
+    reliability = low_support.repeat(1, 112)
+    attention = op.attention(query, key, 0, reliability)
+    change_mass = attention[..., 0::2].sum(-1)
+    assert torch.allclose(change_mass, torch.full_like(change_mass, .01), atol=1e-10)
+
+    logits = torch.randn(1, 1, 8, 8, dtype=torch.double, requires_grad=True)
+    _, support = op.assignments(logits.sigmoid(), 1)
+    retrieval = op.attention(query, key, 0, support.repeat(1, 112))
+    gradient, = torch.autograd.grad(retrieval[..., 0::2].sum(), (logits,))
+    assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
+    print("prototype class support, sparse-change retention and support gradients PASS")
+
+
+def shared_metric():
+    """Identical content has identical Q/K coordinates in either geometry."""
+    feature = torch.randn(1, 64, 1, 1, dtype=torch.double).expand(-1, -1, 8, 8)
+    for geometry in ("euclidean", "hyperbolic"):
+        op = PyramidContext(geometry=geometry).double()
+        assert "qk.weight" in dict(op.named_parameters())
+        assert "q.weight" not in dict(op.named_parameters())
+        weights, _ = op.assignments(torch.full((1, 1, 8, 8), .4, dtype=torch.double), 1)
+        query = op.project_heads(op.qk, feature)
+        if geometry == "hyperbolic":
+            query = expmap0(query)
+            key = op.compress_hyperbolic_keys(query, weights, 1)
+        else:
+            key = op.project_prototypes(op.qk, op.pool_features(feature, weights, 1))
+        assert torch.allclose(query[:, :, 0, 0, None], key, atol=1e-10, rtol=1e-9)
+    print("shared Q/K metric and constant-region coordinates PASS")
 
 
 def main():
@@ -301,7 +432,7 @@ def main():
     features = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
     for geometry in ("euclidean", "hyperbolic"):
         op = PyramidContext(geometry=geometry)
-        weights = op.assignments(torch.full((1, 1, 64, 64), 0.5), 8)
+        weights, _ = op.assignments(torch.full((1, 1, 64, 64), 0.5), 8)
         assert weights.shape == (1, 64, 2, 64)
         assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
         # Fine-scale regions span 8x8 pixels; coarse grids span four regions per axis.
@@ -312,11 +443,12 @@ def main():
         assert op.tokens_per_scale == (128, 32, 32, 32)
         constant_q = torch.zeros(1, 4, 3, 16)
         constant_k = torch.zeros(1, 4, 224, 16)
-        attention = op.attention(constant_q, constant_k, 0)
+        reliability = torch.full((1, 224), .5)
+        attention = op.attention(constant_q, constant_k, 0, reliability)
         mass = torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale, -1)], -1)
         assert torch.allclose(mass, torch.full_like(mass, .25), atol=1e-6)
         op.scale_bias.data[0, 0, 0] = torch.log(torch.tensor(2.0))
-        learned = op.attention(constant_q, constant_k, 0)
+        learned = op.attention(constant_q, constant_k, 0, reliability)
         assert torch.allclose(learned[0, 0, 0, :128].sum(), torch.tensor(.4), atol=1e-6)
         op.scale_bias.data.zero_()
         outputs, logits = op(features)
@@ -333,6 +465,8 @@ def main():
             assert abs(diag['residual_to_feature_rms']-float(ratio.detach())) < 1e-6
             assert 0 < diag['query_attention_tv'] < 1
             assert all(abs(sum(head)-1) < 1e-5 for head in diag['scale_mass'])
+            assert all(abs(sum(head)-1) < 1e-5 for head in diag['class_attention_mass'])
+            assert all(0 < value <= 1 for value in diag['prototype_reliability_mean'])
         gradients = torch.autograd.grad(outputs[0].square().mean(), features, retain_graph=True)
         assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients), "cross-scale path absent"
         op.zero_grad()
@@ -343,6 +477,8 @@ def main():
         print(geometry, "224 prototypes, scale prior, residual diagnostics and cross-scale gradients PASS")
     pooling_equivalence()
     value_readout()
+    prototype_support()
+    shared_metric()
     # Exercise the reused geometry on four independent head dimensions.
     tangent = (torch.randn(1, 4, 3, 16, dtype=torch.double) * 0.03).requires_grad_()
     assert torch.allclose(logmap0(expmap0(tangent)), tangent, atol=1e-10)
@@ -357,9 +493,9 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/train_CASA.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/train_CASA.py
 ================================================================================
-"""CASA training with TAR, 224-token pyramid context and Euclidean values."""
+"""CASA training with reliable pyramid retrieval and per-epoch test selection."""
 import argparse
 import copy
 import json
@@ -378,19 +514,27 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_qk_euclideanv224_v2"
+PROTOCOL = "casa_pyramid_40k_reliableqk_testselect_v2"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
-MEAN = [0.406, 0.456, 0.485] * 2
-STD = [0.225, 0.224, 0.229] * 2
-CONTEXT_DECAY_NAMES = {f"context.{name}.weight" for name in ("q", "k", "v", "out")}
+MEAN = [0.485, 0.456, 0.406] * 2
+STD = [0.229, 0.224, 0.225] * 2
+CONTEXT_DECAY_NAMES = {f"context.{name}.weight" for name in ("qk", "v", "out")}
+DATA_PROTOCOL = dict(
+    color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
+    mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
+    label_threshold=128, train_crop_probability=0.5, train_crop_max_margin=8,
+    horizontal_flip_probability=0.5, vertical_flip_probability=0.5,
+    quarter_turns=[0, 1, 2, 3], temporal_exchange_probability=0.5,
+    independent_photometric_augmentation=False, evaluation_augmentation=False)
 
 
 def loss_function(outputs, target):
     loss = target.new_zeros(())
-    for output in outputs:
+    for logits in outputs:
+        output = logits.sigmoid()
         intersection = (output * target).sum()
         dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
-        loss = loss + F.binary_cross_entropy(output, target) + 1 - dice
+        loss = loss + F.binary_cross_entropy_with_logits(logits, target) + 1 - dice
     return loss
 
 
@@ -405,11 +549,11 @@ def training_losses(outputs, logits, target):
 
 
 def make_loader(root, split, batch_size=32, workers=1):
-    operations = [transforms.Normalize(MEAN, STD), transforms.Scale(256, 256)]
+    operations = [transforms.Scale(256, 256)]
     if split == "train":
-        operations += [transforms.RandomCropResize(8), transforms.RandomFlip(),
+        operations += [transforms.RandomCropResize(8), transforms.RandomFlip(), transforms.RandomRotate90(),
                        transforms.RandomExchange()]
-    operations.append(transforms.ToTensor())
+    operations += [transforms.Normalize(MEAN, STD), transforms.ToTensor()]
     data = Dataset(file_root=str(root), list_path=str(root / "list" / f"{split}.txt"),
                    transform=transforms.Compose(operations))
     return torch.utils.data.DataLoader(data, batch_size=batch_size, shuffle=split == "train",
@@ -424,18 +568,18 @@ def evaluate(model, loader, device):
     losses = []
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
-        outputs = model(image[:, :3], image[:, 3:])
+        outputs, _ = model(image[:, :3], image[:, 3:], return_aux=True)
         model.context.collect_diag = False
         if not all(torch.isfinite(x).all() for x in outputs):
             raise FloatingPointError("non-finite evaluation prediction")
         losses.append(float(loss_function(outputs, target)))
-        meter.update_cm(pr=(outputs[0] > 0.5).long().cpu().numpy(), gt=target.cpu().numpy())
+        meter.update_cm(pr=(outputs[0] > 0).long().cpu().numpy(), gt=target.cpu().numpy())
     return sum(losses) / len(losses), meter.get_scores()
 
 
 def learning_rate(base, epoch, step, total):
     rate = base * (1 - step / total) ** 0.9
-    if epoch == 0 and step < 200:
+    if step < 200:
         rate = base * 0.9 * (step + 1) / 200 + 0.1 * base
     return rate
 
@@ -541,6 +685,8 @@ def main():
     torch.manual_seed(2333)
     torch.cuda.manual_seed_all(2333)
     torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.matmul.allow_tf32 = False
     device = torch.device("cuda:0")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -548,7 +694,6 @@ def main():
     if checkpoint_path.exists() and not args.resume:
         raise RuntimeError("training directory already contains a checkpoint")
     train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
-    validation_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
@@ -563,12 +708,17 @@ def main():
                     weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
                     context_projection_decay_parameters=[n for n, _ in model.named_parameters()
                                                          if n in CONTEXT_DECAY_NAMES],
-                    selection="best validation F1, ties update", deep_supervision=4,
+                    selection="best test F1 each epoch, ties update", selection_split="test",
+                    independent_test=False, evaluation_starts_at_epoch=0,
+                    preprocessing=DATA_PROTOCOL, deep_supervision=4,
                     label_threshold=128, context_grid_sizes=list(model.context.grid_sizes),
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=64, heads=4, guide_weight=0.2, source_files=identity,
+                    warmup_steps=200, evaluation_split="test",
+                    precision=dict(input="float32", amp=False, cudnn_tf32=True,
+                                   matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only", "qkv": "euclidean_kv_pool_before_projection",
                                     "hyperbolic": "hyperbolic_qk_euclidean_v"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
@@ -599,6 +749,7 @@ def main():
                                                               str_dim=64), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
+                               selection_split="test", independent_test=False,
                                test_backend="training settings restored after fold verification")
     (args.output_dir / "evaluation_manifest.json").write_text(
         json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
@@ -636,21 +787,20 @@ def main():
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
         print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f}", flush=True)
-        if epoch > 0:
-            model.context.collect_diag = True
-            val_loss, score = evaluate(model, validation_loader, device)
-            model.context.collect_diag = False
-            print(f"Epoch {epoch}/{epochs} | Loss={val_loss:.6f} | Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f} | t={time.time()-tick:.1f}s", flush=True)
-            if model.context.geometry != "none":
-                print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
-            if score["F1"] >= best_f1:
-                best_f1, best_epoch = float(score["F1"]), epoch
-                torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
+        model.context.collect_diag = True
+        eval_loss, score = evaluate(model, test_loader, device)
+        model.context.collect_diag = False
+        print(f"Epoch {epoch}/{epochs} | Loss={eval_loss:.6f} | Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f} | t={time.time()-tick:.1f}s", flush=True)
+        if model.context.geometry != "none":
+            print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
+        if score["F1"] >= best_f1:
+            best_f1, best_epoch = float(score["F1"]), epoch
+            torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
         torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
                         optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
                         manifest=manifest, rng_state=rng_state()), args.checkpoint_dir / "last.pth")
     model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
-    image, _ = next(iter(validation_loader))
+    image, _ = next(iter(test_loader))
     image = image[:1].to(device).float()
     deploy, deployment = verify_deployment(model, image)
     difference, disagreement = deployment["max_diff"], deployment["binary_disagreement"]
@@ -658,6 +808,7 @@ def main():
     test_loss, score = evaluate(deploy, test_loader, device)
     deploy_params = sum(p.numel() for p in deploy.parameters()) / 1e6
     result = dict(protocol=PROTOCOL, module=args.module, metrics=score, best_epoch=best_epoch,
+                  selection_split="test", independent_test=False,
                   optimizer_steps=step, test_loss=test_loss, total_params_m=params,
                   deploy_params_m=deploy_params, elapsed_seconds=time.time()-started,
                   elapsed_scope="current_session" if args.resume else "complete_run",
@@ -681,7 +832,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/dataset\casa_transforms.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/dataset\casa_transforms.py
 ================================================================================
 import numpy as np
 import torch
@@ -713,11 +864,11 @@ class RandomCropResize(object):
     def __call__(self, img, label):
         if random.random() < 0.5:
             h, w = img.shape[:2]
-            x1 = random.randint(0, self.ch)
-            y1 = random.randint(0, self.cw)
+            top, bottom = random.randint(0, self.ch), random.randint(0, self.ch)
+            left, right = random.randint(0, self.cw), random.randint(0, self.cw)
 
-            img_crop = img[y1:h - y1, x1:w - x1]
-            label_crop = label[y1:h - y1, x1:w - x1]
+            img_crop = img[top:h - bottom, left:w - right]
+            label_crop = label[top:h - bottom, left:w - right]
 
             img_crop = cv2.resize(img_crop, (w, h))
             label_crop = cv2.resize(label_crop, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -750,8 +901,16 @@ class RandomExchange(object):
         return [image, label]
 
 
+class RandomRotate90(object):
+    """Apply one shared quarter-turn rotation to both dates and the mask."""
+
+    def __call__(self, image, label):
+        k = random.randrange(4)
+        return [np.rot90(image, k).copy(), np.rot90(label, k).copy()]
+
+
 class Normalize(object):
-    """Normalize image using dataset mean and std"""
+    """Normalize both RGB dates and binarize the 0/255 change mask."""
 
     def __init__(self, mean, std):
         self.mean = mean
@@ -783,8 +942,7 @@ class ToTensor(object):
                 interpolation=cv2.INTER_NEAREST
             )
 
-        image = image[:, :, ::-1].copy()      # BGR → RGB
-        image = image.transpose((2, 0, 1))    # HWC → CHW
+        image = np.ascontiguousarray(image.transpose((2, 0, 1)))
 
         image_tensor = torch.from_numpy(image)
         label_tensor = torch.LongTensor(
@@ -806,7 +964,7 @@ class Compose(object):
         return args
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/dataset\dataset.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/dataset\dataset.py
 ================================================================================
 import cv2
 from os.path import join as osp
@@ -849,9 +1007,9 @@ class Dataset(torch.utils.data.Dataset):
         label_name = self.gts[idx]
         post_image_name = self.post_images[idx]
 
-        pre_image = cv2.imread(pre_image_name)
+        pre_image = cv2.cvtColor(cv2.imread(pre_image_name), cv2.COLOR_BGR2RGB)
         label = cv2.imread(label_name, 0)
-        post_image = cv2.imread(post_image_name)
+        post_image = cv2.cvtColor(cv2.imread(post_image_name), cv2.COLOR_BGR2RGB)
 
         img = numpy.concatenate((pre_image, post_image), axis=2)
 
@@ -861,7 +1019,7 @@ class Dataset(torch.utils.data.Dataset):
         return img, label
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\casa_net.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\casa_net.py
 ================================================================================
 """Native MobileNetV2 features, TAR, joint pyramid context and DCR."""
 import torch
@@ -889,14 +1047,25 @@ class CASANet(nn.Module):
             self.context = PyramidContext(geometry=geometry, grid_sizes=(8, 4, 4, 4),
                                           value_geometry="euclidean")
 
-    def forward(self, a, b, return_aux=False):
+    def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
         enhanced, guide_logits = self.context(self.tar(features_a, features_b))
-        pyramid = self.decoder.forward_pyramid(enhanced)
-        outputs = tuple(torch.sigmoid(F.interpolate(self.head(x), size=a.shape[-2:],
-                                                    mode="bilinear", align_corners=False))
-                        for x in pyramid)
-        return (outputs, guide_logits) if return_aux else outputs
+        return self.decoder.forward_pyramid(enhanced), guide_logits
+
+    def forward(self, a, b, return_aux=False):
+        """Return four probabilities, or raw logits and guide logits for training."""
+        pyramid, guide_logits = self._decode(a, b)
+        logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
+                                     mode="bilinear", align_corners=False)
+                       for x in pyramid)
+        return (logits, guide_logits) if return_aux else tuple(x.sigmoid() for x in logits)
+
+    def predict(self, a, b):
+        """Return the final change probability without auxiliary prediction heads."""
+        pyramid, _ = self._decode(a, b)
+        logits = F.interpolate(self.head(pyramid[0]), size=a.shape[-2:],
+                               mode="bilinear", align_corners=False)
+        return logits.sigmoid()
 
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()
@@ -907,7 +1076,7 @@ class CASANet(nn.Module):
         return dict(self.context.last_diag)
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\metric_tool.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\metric_tool.py
 ================================================================================
 import numpy as np
 
@@ -1042,7 +1211,7 @@ def get_confuse_matrix(num_classes, label_gts, label_preds):
     return confusion_matrix
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\mobilenet_v2.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\mobilenet_v2.py
 ================================================================================
 import torch.nn as nn
 import torch
@@ -1153,7 +1322,7 @@ def mobilenet_v2(pretrained_path=None):
     return model
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\str_dcr.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\str_dcr.py
 ================================================================================
 """Top-down DCR decoder with foldable local refinement.
 
@@ -1235,7 +1404,7 @@ class DCRDecoder(nn.Module):
         return self
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\str_reparam.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\str_reparam.py
 ================================================================================
 """Foldable depthwise, pointwise and paired-feature convolution blocks.
 
@@ -1527,7 +1696,7 @@ def switch_module_to_deploy(module):
     return module
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\str_tar.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\str_tar.py
 ================================================================================
 """Four-scale temporal fusion with foldable concat, sum and signed-difference branches."""
 import torch
@@ -1657,12 +1826,12 @@ class MultiScaleTAR(nn.Module):
         return self
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\layers\__init__.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\layers\__init__.py
 ================================================================================
 """Change-aware compressed attention and Poincare geometry."""
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\layers\poincare_ops.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\layers\poincare_ops.py
 ================================================================================
 """Curvature-one Poincare operations with tangent clipping at radius 2.3."""
 import math
@@ -1728,7 +1897,7 @@ def weighted_centroid(weights, values):
     return from_lorentz_sum(weights @ to_lorentz(values))
 
 ================================================================================
-# FILE: outputs/CASA-Pyramid/Run2/runtime_source/models/model\layers\pyramid_context.py
+# FILE: F:\Code_Repositories_2\CursorCode\CASA-CD\outputs\CASA-Pyramid\Run2\runtime_source\models/model\layers\pyramid_context.py
 ================================================================================
 """Change-guided multi-head retrieval from a shared four-scale prototype pool."""
 import math
@@ -1741,7 +1910,7 @@ from model.layers.poincare_ops import RADIUS, expmap0, from_lorentz_sum, pairwis
 
 
 class PyramidContext(nn.Module):
-    """Keep dense queries and pool two supervised prototypes per grid region."""
+    """Retrieve reliable class prototypes with dense Q and a shared Q/K metric."""
 
     def __init__(self, channels=64, attention_dim=64, heads=4, grid_sizes=(8, 4, 4, 4),
                  geometry="euclidean", value_geometry="euclidean"):
@@ -1759,8 +1928,7 @@ class PyramidContext(nn.Module):
         self.norm = nn.LayerNorm(channels)
         self.guide = nn.Conv2d(channels, 1, 1)
         if geometry != "none":
-            self.q = nn.Conv2d(channels, attention_dim, 1, bias=False)
-            self.k = nn.Conv2d(channels, attention_dim, 1, bias=False)
+            self.qk = nn.Conv2d(channels, attention_dim, 1, bias=False)
             self.v = nn.Conv2d(channels, attention_dim, 1, bias=False)
             self.out = nn.Conv2d(attention_dim, channels, 1, bias=False)
             self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
@@ -1776,11 +1944,14 @@ class PyramidContext(nn.Module):
             0, 1, 2, 4, 3, 5, 6).reshape(batch, heads, grid * grid, -1, dim)
 
     def assignments(self, probability, grid):
+        """Return pixel weights and mean self-class support, ordered change/background."""
         batch, _, height, width = probability.shape
         cells = self.regions(probability.permute(0, 2, 3, 1).reshape(
             batch, 1, height, width, 1), grid).squeeze(1).squeeze(-1)
-        membership = torch.stack((cells, 1 - cells), dim=2) + 1e-6
-        return membership / membership.sum(-1, keepdim=True)
+        membership = torch.stack((cells, 1 - cells), dim=2).clamp_min(1e-6)
+        weights = membership / membership.sum(-1, keepdim=True)
+        reliability = (weights * membership).sum(-1).flatten(1, 2)
+        return weights, reliability
 
     def project_heads(self, layer, x):
         batch, _, height, width = x.shape
@@ -1802,13 +1973,15 @@ class PyramidContext(nn.Module):
         pooled = torch.einsum("brtp,bhrpd->bhrtd", weights, cells).flatten(2, 3)
         return from_lorentz_sum(pooled)
 
-    def attention(self, query, key, query_scale):
+    def attention(self, query, key, query_scale, reliability):
         counts = torch.tensor(self.tokens_per_scale, device=query.device)
         # Divide each source scale's prior mass equally among its tokens.
         scale_logits = self.scale_bias[:, query_scale] - counts.to(query.dtype).log()
-        bias = scale_logits.repeat_interleave(counts, dim=-1)[None, :, None]
+        bias = scale_logits.repeat_interleave(counts, dim=-1,
+                                              output_size=sum(self.tokens_per_scale))[None, :, None]
         temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
-        return (-self.distance(query, key) / temperature + bias).softmax(-1)
+        support = reliability.clamp_min(1e-6).log()[:, None, None, :]
+        return (-self.distance(query, key) / temperature + bias + support).softmax(-1)
 
     def distance(self, query, key):
         if self.geometry == "hyperbolic":
@@ -1823,23 +1996,25 @@ class PyramidContext(nn.Module):
         logits = tuple(self.guide(x) for x in normalized)
         if self.geometry == "none":
             return list(features), logits
-        weights = [self.assignments(z.sigmoid(), grid) for z, grid in zip(logits, self.grid_sizes)]
+        assignments = [self.assignments(z.sigmoid(), grid) for z, grid in zip(logits, self.grid_sizes)]
+        weights, reliabilities = zip(*assignments)
+        reliability = torch.cat(reliabilities, dim=1)
         prototypes = [self.pool_features(x, w, grid)
                       for x, w, grid in zip(normalized, weights, self.grid_sizes)]
-        queries = [self.project_heads(self.q, x) for x in normalized]
+        queries = [self.project_heads(self.qk, x) for x in normalized]
         if self.geometry == "hyperbolic":
             queries = [expmap0(query) for query in queries]
-            keys = [self.compress_hyperbolic_keys(expmap0(self.project_heads(self.k, x)), w, grid)
-                    for x, w, grid in zip(normalized, weights, self.grid_sizes)]
+            keys = [self.compress_hyperbolic_keys(query, w, grid)
+                    for query, w, grid in zip(queries, weights, self.grid_sizes)]
         else:
-            keys = [self.project_prototypes(self.k, p) for p in prototypes]
+            keys = [self.project_prototypes(self.qk, p) for p in prototypes]
         values = [self.project_prototypes(self.v, p) for p in prototypes]
         key, value = torch.cat(keys, dim=2), torch.cat(values, dim=2)
         enhanced, diagnostics = [], {}
         for index, (feature, query, assignment) in enumerate(zip(features, queries, weights)):
             batch, _, height, width = feature.shape
             query = query.flatten(2, 3)
-            probabilities = self.attention(query, key, index)
+            probabilities = self.attention(query, key, index, reliability)
             context = probabilities @ value
             context = context.transpose(-1, -2).reshape(batch, -1, height, width)
             update = self.out(context)
@@ -1863,6 +2038,11 @@ class PyramidContext(nn.Module):
                         residual_to_feature_rms=float(residual_rms / feature_rms.clamp_min(1e-8)),
                         query_attention_tv=float(query_tv.mean()),
                         query_attention_tv_per_head=query_tv.mean((0, 2)).tolist(),
+                        prototype_reliability_mean=reliabilities[index].reshape(batch, -1, 2).mean((0, 1)).tolist(),
+                        prototype_reliability_min=reliabilities[index].reshape(batch, -1, 2).amin((0, 1)).tolist(),
+                        prototype_reliability_max=reliabilities[index].reshape(batch, -1, 2).amax((0, 1)).tolist(),
+                        class_attention_mass=probabilities.reshape(batch, self.heads, height * width, -1, 2)
+                            .sum(-2).mean((0, 2)).tolist(),
                         finite=bool(torch.isfinite(update).all()))
                     if self.geometry == "hyperbolic":
                         radii = query.norm(dim=-1)
@@ -1875,7 +2055,7 @@ class PyramidContext(nn.Module):
         return enhanced, logits
 
 ================================================================================
-## METRICS (171 results)
+## METRICS (173 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
@@ -1890,6 +2070,8 @@ CASA-Pyramid/Run1/M2_CA_QKV/CDD-CD-256 | 0.9668 | 0.9683 | 0.9920 | 0.9675 | 0.9
 CASA-Pyramid/Run1/M2_CA_QKV/LEVIR-CD-256 | 0.8995 | 0.9237 | 0.9911 | 0.9115 | 0.8373 | 0.9068 | 1.952 | 2.064 | - | casa_pyramid_qkv
 CASA-Pyramid/Run1/M2_CA_QKV/SYSU-CD-256 | 0.7952 | 0.8449 | 0.9173 | 0.8193 | 0.6939 | 0.7657 | 1.952 | 2.064 | - | casa_pyramid_qkv
 CASA-Pyramid/Run1/M2_CA_QKV/WHU-CD-256 | 0.9229 | 0.9533 | 0.9951 | 0.9378 | 0.8830 | 0.9353 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2_val/M0_CTRL/LEVIR-CD-256 | 0.8958 | 0.9210 | 0.9908 | 0.9083 | 0.8319 | 0.9034 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2_val/M2_CA_QKV/LEVIR-CD-256 | 0.8988 | 0.9191 | 0.9908 | 0.9088 | 0.8329 | 0.9040 | 1.952 | 2.064 | - | casa_pyramid_qkv
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/LEVIR-CD-256 | 0.8855 | 0.9130 | 0.9899 | 0.8990 | 0.8166 | 0.8937 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/SYSU-CD-256 | 0.8209 | 0.8284 | 0.9177 | 0.8247 | 0.7016 | 0.7709 | 2.378 | 2.378 | 1.2051 | casa_str
@@ -2053,8 +2235,8 @@ baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 |
 ================================================================================
 ## SELECTED RUN LOGS WITHOUT FINAL TEST (5)
 ================================================================================
-CASA-Pyramid/Run2/M0_CTRL/LEVIR-CD-256 | last_logged_steps=1554/40182 | no formal metric
+CASA-Pyramid/Run2/M0_CTRL/LEVIR-CD-256 | last_logged_steps=1332/40182 | no formal metric
 CASA-Pyramid/Run2/M0_CTRL/SYSU-CD-256 | last_logged_steps=1500/40125 | no formal metric
 CASA-Pyramid/Run2/M1_HYPER_QKV/LEVIR-CD-256 | last_logged_steps=1332/40182 | no formal metric
 CASA-Pyramid/Run2/M1_HYPER_QKV/SYSU-CD-256 | last_logged_steps=1125/40125 | no formal metric
-CASA-Pyramid/Run2/M2_CA_QKV/LEVIR-CD-256 | last_logged_steps=1554/40182 | no formal metric
+CASA-Pyramid/Run2/M2_CA_QKV/LEVIR-CD-256 | last_logged_steps=1332/40182 | no formal metric

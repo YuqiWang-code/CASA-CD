@@ -58,6 +58,13 @@ def diagnostic_rows(events):
                         for head, masses in enumerate(value):
                             for source_scale, mass in enumerate(masses, 1):
                                 row[f'scale_mass_head{head}_source{source_scale}'] = mass
+                    elif name == 'class_attention_mass':
+                        for head, masses in enumerate(value):
+                            for label, mass in zip(('change', 'background'), masses):
+                                row[f'class_attention_mass_head{head}_{label}'] = mass
+                    elif name.startswith('prototype_reliability_'):
+                        for label, item in zip(('change', 'background'), value):
+                            row[f'{name}_{label}'] = item
                     else:
                         for head, item in enumerate(value):
                             row[f'{name}_head{head}'] = item

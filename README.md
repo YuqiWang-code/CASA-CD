@@ -28,10 +28,10 @@
 
 | 数据集特征 | 对应设计目的 |
 |---|---|
-| LEVIR：建筑变化稀疏，小建筑与边界重要 | 细尺度128个KV、完整Q；可靠度保留少量高置信变化 |
-| WHU：密集建筑、大小尺度差异及背景纹理 | 联合四尺度检索；TAR/DCR保留局部细节 |
-| SYSU：变化类型丰富，植被、阴影和时相差异明显 | 变化/背景监督约束语义原型，降低低支持原型影响 |
-| CDD：季节和外观差异显著 | 同步几何增强、时相交换与有监督原型；跨尺度关联 |
+| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化稀疏，小建筑与边界重要 | 细尺度128个KV、完整Q；可靠度保留少量高置信变化 |
+| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：密集建筑、大小尺度差异及背景纹理 | 联合四尺度检索；TAR/DCR保留局部细节 |
+| [SYSU](https://github.com/liumency/SYSU-CD)：变化类型丰富，植被、阴影和时相差异明显 | 变化/背景监督约束语义原型，降低低支持原型影响 |
+| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节和外观差异显著 | 同步几何增强、时相交换与有监督原型；跨尺度关联 |
 
 这些是机制目标，四库精度收益由正式对照验证。双曲映射本身不保证类别可分性提高。
 
@@ -76,11 +76,26 @@
 
 ## 当前实验：CASA-Pyramid / Run2
 
-四库各双曲、普通、CTRL共12项，优先LEVIR→SYSU→WHU→CDD；两张GPU按实测显存留量并行补位。模型、数据流程和部署检查通过后进行LEVIR/SYSU短训，再从预训练骨干重新初始化正式实验。配置、检查与启动信息见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
+四库各双曲、普通、CTRL共12项，优先LEVIR→SYSU→WHU→CDD；两张GPU按实测显存留量并行补位。正式队列于2026-10-25 13:58:47 CST启动，源码基线`9f515ef`，supervisor PID1334437。截至2026-10-25T14:04:46+08:00，首发五项均完成至少3个训练及test评估epoch，主损失和评分损失下降，未见NaN/Inf/OOM或异常退出。两模块四项真实短训均通过，四层分支及qk/v/out任务梯度非零。正式权重从MobileNetV2预训练全新初始化，未使用探针或历史权重。配置、检查与启动信息见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_START -->
 
-状态：启动前真实数据短训；正式结果 **0/12**。
+状态更新：2026-10-25 14:05:04 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：1400/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：1332/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：1400/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：1500/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 训练中：1300/40125 | — | — |
+| SYSU | `M2_CA_QKV` | 待启动 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- CASA_PYRAMID_RUN2_RESULTS_END -->
 
@@ -91,6 +106,16 @@ python tools/export_training_records.py --tag CASA-Pyramid --run Run2
 ```
 
 源码、日志和JSON：`outputs/CASA-Pyramid/Run2`；服务器日志根`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint根`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。指标表保留173条完整历史记录，本轮收齐后正常185条。独立val选模的两项LEVIR结果另存`Run2_val`（CTRL F1 90.8261%、普通90.8842%）；历史冻结TXT与其运行源码对应。
+
+## 当前推理开销
+
+RTX5090，256×256，FP32；训练batch32实测6步、前2步预热。推理为折叠后predict()单输出、batch1、30预热/100同步计时、随机权重；cuDNN TF32开、matmul TF32关。FLOPs仅含支持的卷积和矩阵乘，未计双曲逐元素运算。
+
+| 模式 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
+|---|---:|---:|---:|---:|
+| none | 8200 | 54.01 | 3.68 | 1.734 |
+| hyperbolic | 13518 | 103.80 | 6.42 | 2.165 |
+| qkv | 11966 | 81.53 | 5.47 | 2.156 |
 
 ## 诊断依据与适用范围
 

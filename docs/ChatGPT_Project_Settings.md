@@ -44,7 +44,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-当前主线CASA-Pyramid/Run2，协议`casa_pyramid_40k_reliableqk_testselect_v2`，正在准备重新启动。用户授权四库各双曲、普通、CTRL共12项，LEVIR→SYSU→WHU→CDD优先，两卡按实测显存补位。正式模型从MobileNetV2预训练初始化，不使用探针或历史权重；源码基线、部署与实时启动信息见`.codex/STATE.md`。
+当前主线CASA-Pyramid/Run2。正式队列于2026-10-25 13:58:47 CST启动，源码基线`9f515ef`，supervisor PID1334437。截至2026-10-25T14:04:46+08:00，首发五项均完成至少3个训练及test评估epoch，主损失和评分损失下降，未见NaN/Inf/OOM或异常退出。两模块四项真实短训均通过，四层分支及qk/v/out任务梯度非零。正式权重从MobileNetV2预训练全新初始化，未使用探针或历史权重。 实时状态见.codex/STATE.md。
 
 网格8/4/4/4、联合224个KV，共享Q/K投影与类别支持度先验，双曲Q/K配欧式V；两个QKV训练2.059485M/部署1.948170M，CTRL训练2.047125M/部署1.935810M。评分辅助监督0.2三组相同。评价采用每epoch测试集F1选模；结构、数据处理与选模协议均有变化，跨轮结果须分清口径。
 

@@ -41,7 +41,9 @@ def describe_run(root, name, state, now):
     summary = dict(name=name, placement=placement, active_pid=int(pid) if pid else None,
                    physical_gpu=state.get('active_gpus', {}).get(pid, placement.get('physical_gpu')),
                    alive=process_alive(pid, 'train_CASA.py') if pid else None,
-                   complete_test=False, status='pending')
+                   complete_test=False, status='pending',
+                   evaluation_split=manifest.get('selection_split', 'val'),
+                   independent_test=manifest.get('independent_test', True))
     if not log.exists():
         if pid:
             summary['status'] = 'starting' if summary['alive'] else 'missing_process'
@@ -148,6 +150,7 @@ def readable(summary):
               f"pid={row['active_pid']} alive={row['alive']} "
               f"steps={row.get('steps', 0)}/{row.get('target_steps')} "
               f"epochs={row.get('finished_train_epochs')}/{row.get('total_epochs')} "
+              f"evaluation_split={row['evaluation_split']} "
               f"recent_epoch_s={row.get('mean_epoch_seconds_last20')} "
               f"log_age_s={row.get('log_age_seconds')}")
         for key in ('recent_train', 'recent_validation', 'best_validation',
