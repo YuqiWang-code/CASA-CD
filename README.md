@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run2**，协议`casa_pyramid_40k_reliableqk_testselect_v2`。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run3**，协议`casa_pyramid_40k_pairbanks_lr01_v3`。
 
 ## 项目定位与研究原则
 
@@ -14,32 +14,36 @@
 双时相RGB A / B
   → 共享MobileNetV2原生四尺度24/32/96/320通道
   → TAR：四级时相融合，统一64通道
-  → 跨尺度QKV（或CTRL直通）
-      LN → 变化/背景评分 → 区域原型及其可靠度
+  → 成对跨尺度上下文（同时接收A/B原生特征）
       完整Q：5440个位置；网格8/4/4/4 → 224个KV
-      共享Q/K投影：欧氏距离或双曲距离；V为欧式
-      注意力 = softmax(-距离/温度 + 尺度偏置 - log(KV数量) + log(可靠度))
-      输出投影 → 每尺度gamma残差相加
+      普通E：成对绝对差 → 均值库/对比库，各112个KV，分别检索
+      双曲H：成对中点/切空间差异 → 配对KV，双曲关系＋差异幅度检索
+      两版V均为欧式；S1/S2保留稠密差异及受边界监督的局部高频
+      输出投影 → context/local两个残差；CTRL保留相同辅助监督
   → DCR逐级解码 → 共享预测头
       训练：四级logits深监督；推理：只输出最终一级概率图
 ```
 
-原型由预测类别权重`m=p`或`1-p`归一化池化，可靠度`r=Σm²/Σm`保留其类别支持信息。全背景格的变化原型会被降权；区域内少量高置信变化仍可获得高可靠度，不按面积直接压低小目标。共享Q/K减少4,096参数，并使距离比较使用同一投影。双曲版对Q/K做Exp、K用Lorentz质心压缩，曲率-1、切空间截断2.3；两版V均先池化再线性投影，直接`A@V`读出。普通版K也先池化再投影。CTRL保留相同评分监督。
+普通版用共享32维投影提取双时相绝对差，将区域均值与变化/背景均值之差分别存入两库，各自softmax，避免两类内容争夺同一归一化质量。类别均值以一个区域均值伪计数平滑，保持压缩权重可学习。
+
+双曲版将A/B映射到曲率−1的双曲空间，构造精确两点中点和搬运至原点的切向差异。中点表示共同上下文，差异绝对值表示变化幅度；两者与欧式V采用同一组区域权重压缩，保持检索关系和内容对应。四头、每头双曲空间维度8，切空间截断2.3。S1/S2对有符号差异先做固定二项式高通，再取绝对值；普通版直接对绝对差高通。
+
+两版均按来源token数修正注意力数量先验，保留可学习尺度偏置。context与局部残差gamma均零初始化。CTRL采用相同guide与边界监督。几何处理的时相对称性针对成对表示，TAR本身仍保留时相顺序。
 
 | 数据集特征 | 对应设计目的 |
 |---|---|
-| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化稀疏，小建筑与边界重要 | 细尺度128个KV、完整Q；可靠度保留少量高置信变化 |
-| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：密集建筑、大小尺度差异及背景纹理 | 联合四尺度检索；TAR/DCR保留局部细节 |
-| [SYSU](https://github.com/liumency/SYSU-CD)：变化类型丰富，植被、阴影和时相差异明显 | 变化/背景监督约束语义原型，降低低支持原型影响 |
-| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节和外观差异显著 | 同步几何增强、时相交换与有监督原型；跨尺度关联 |
+| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化稀疏，小建筑与边界重要 | 细尺度128个KV、完整Q，S1/S2稠密差异与边界监督保留小建筑 |
+| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：密集建筑、大小尺度差异及背景纹理 | 联合四尺度检索；局部细节支路与TAR/DCR保留建筑边缘 |
+| [SYSU](https://github.com/liumency/SYSU-CD)：变化类型丰富，植被、阴影和时相差异明显 | 成对差异进入上下文；均值和对比信息分别保留，检查内部召回 |
+| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节和外观差异显著 | 共同上下文与变化差异分开表示；同步几何增强和跨尺度关联 |
 
 这些是机制目标，四库精度收益由正式对照验证。双曲映射本身不保证类别可分性提高。
 
 | 变体 | 训练参数 | 折叠部署参数 | context参数 |
 |---|---:|---:|---:|
-| M0_CTRL | 2,047,125 | 1,935,810 | 193 |
-| M1_HYPER_QKV | 2,059,485 | 1,948,170 | 12,553 |
-| M2_CA_QKV | 2,059,485 | 1,948,170 | 12,553 |
+| M0_CTRL | 2,047,190 | 1,935,875 | 258 |
+| M1_HYPER_QKV | 2,073,620 | 1,962,305 | 26,688 |
+| M2_CA_QKV | 2,085,964 | 1,974,649 | 39,032 |
 
 实现见[models](models/README.md)，来源见[SOURCES](models/SOURCES.md)。
 
@@ -55,11 +59,12 @@
 | 翻转 / 旋转 | 水平、垂直各0.5；均匀选择0/90/180/270度，A/B/标签同步 |
 | 时相交换 | 训练以0.5概率交换A/B；标签保持对应空间位置 |
 | 光度增强 / 评估增强 | 无独立时相颜色扰动；评估无随机增强、无TTA |
-| 优化器 | Adam，lr5e-4，betas(.9,.99)，eps1e-8 |
-| Weight decay | context.qk/v/out.weight为1e-4，其余context为0；网络其余为1e-4 |
-| 学习率 / 预算 | 全局前200步warmup，之后poly^0.9；40K按完整epoch上取整 |
+| 优化器 | Adam，骨干lr5e-5、新层5e-4，betas(.9,.99)，eps1e-8 |
+| Weight decay | context卷积/线性weight为1e-4，其余context为0；网络其余为1e-4 |
+| 学习率 / 预算 | 前200步warmup，之后poly^0.9，保留骨干0.1倍率；40K按完整epoch上取整 |
 | 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
 | 评分损失 | 四尺度面积平均标签的BCEWithLogits求和×0.2，三组一致 |
+| 边界损失 | S1/S2的BCEWithLogits+Dice求和×0.05，三组一致；原mask3×3形态学边界再maxpool到对应尺度 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
 | 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
 | 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |
@@ -74,7 +79,43 @@
 | WHU-CD-256 | 5,947 / 743 / 744 | 217 / 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 129 / 40,248 |
 
-## 当前实验：CASA-Pyramid / Run2
+## 当前实验：CASA-Pyramid / Run3
+
+四数据集各CTRL、双曲H、普通E，共12项，优先LEVIR→SYSU→WHU→CDD，两张GPU按实测显存并行。实现和检查见[Run3说明](train_scripts/CASA-Pyramid/Run3/README.md)，设计依据见[模块设计](docs/temporary/CASA-Pyramid_Run3_design.md)。正式训练从MobileNetV2预训练重新初始化，不使用历史或探针权重。
+
+<!-- CASA_PYRAMID_RUN3_RESULTS_START -->
+
+状态：启动前检查；正式结果0/12。指标表保留185条历史记录。
+
+<!-- CASA_PYRAMID_RUN3_RESULTS_END -->
+
+```powershell
+python .codex/status.py --tag CASA-Pyramid --run Run3
+python train_scripts/CASA-Pyramid/Run3/collect_results.py
+python tools/export_training_records.py --tag CASA-Pyramid --run Run3
+```
+
+日志与源码归档：`outputs/CASA-Pyramid/Run3`；服务器同名日志目录，checkpoint在`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。
+
+## Run3 实测开销
+
+RTX5090，256×256、FP32；训练batch32测6步，前2步预热。部署为折叠后单输出predict、batch1、30预热/100同步计时，随机权重。cuDNN TF32开、matmul TF32关。FLOPs只统计支持的卷积和矩阵乘；双曲逐元素几何与直接距离运算未完整计入。
+
+| 变体 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
+|---|---:|---:|---:|---:|
+| none | 8202 | 54.52 | 3.69 | 1.735 |
+| hyperbolic | 14870 | 148.15 | 8.67 | 2.037 |
+| qkv | 9446 | 69.42 | 5.95 | 2.136 |
+
+双曲版以更高的实际计算开销换取成对几何表示；参数少于普通版，但推理更慢。是否值得由同轮精度与开销共同判断。
+
+## Run3 诊断依据与适用范围
+
+固定SYSU验证集前256张的Run2诊断中，CTRL/普通/双曲的F1为87.60/87.03/87.53%，内部召回为89.72/85.57/85.07%，1像素边界F1为31.27/37.47/36.65%。旧模块已改善边界，薄弱项更集中在变化区域内部。去掉可靠度先验未改善这个子集；关闭context反而使两个模块下降约1.5～1.6个百分点，因此旧模块并未失活。Run3用成对表示和独立信息通路检验内部信息保留问题。
+
+分析产物位于`outputs/CASA-Pyramid/Run3/analysis`。这是固定验证子集与同权重干预，不是完整正式对照；小目标样本量有限。新结构与骨干LR共同变化，跨轮收益不可归因于单项；几何贡献仍需同协议专门消融。
+
+## 历史 CASA-Pyramid / Run2
 
 Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。 配置与初期观察见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
 
@@ -109,7 +150,7 @@ python tools/export_training_records.py --tag CASA-Pyramid --run Run2
 
 源码、日志和JSON：`outputs/CASA-Pyramid/Run2`；服务器日志根`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint根`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。指标表共185条正式记录，原173条逐单元格保留，本轮新增12条。独立val选模的两项LEVIR结果另存`Run2_val`（CTRL F1 90.8261%、普通90.8842%）；历史冻结TXT与其运行源码对应。
 
-## 当前推理开销
+## Run2 推理开销
 
 RTX5090，256×256，FP32；训练batch32实测6步、前2步预热。推理为折叠后predict()单输出、batch1、30预热/100同步计时、随机权重；cuDNN TF32开、matmul TF32关。FLOPs仅含支持的卷积和矩阵乘，未计双曲逐元素运算。
 
@@ -118,10 +159,6 @@ RTX5090，256×256，FP32；训练batch32实测6步、前2步预热。推理为�
 | none | 8200 | 54.01 | 3.68 | 1.734 |
 | hyperbolic | 13518 | 103.80 | 6.42 | 2.165 |
 | qkv | 11966 | 81.53 | 5.47 | 2.156 |
-
-## 诊断依据与适用范围
-
-固定验证样本的原型分析见[Run2设计说明](train_scripts/CASA-Pyramid/Run2/README.md)。低类别支持原型占用注意力是本轮针对的问题；SYSU的CTRL同样出现后期泛化回落，不能单独归因于QKV。可靠度先验依赖评分质量，仍可能接受高置信伪变化；共享Q/K约束也会减少映射自由度。当前结构、增强和选模协议同时变化，跨轮提升不能单独归因于某一项。
 
 ## 历史 CASA-Pyramid / Run1
 

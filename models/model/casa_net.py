@@ -6,13 +6,16 @@ from torch.nn import functional as F
 from model.mobilenet_v2 import mobilenet_v2
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
-from model.layers.pyramid_context import PyramidContext
+from model.layers.pyramid_context import AuxiliaryContext
+from model.layers.paired_euclidean_context import PairedEuclideanContext
+from model.layers.paired_hyperbolic_context import PairedHyperbolicContext
 
 
 class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none"):
         super().__init__()
-        geometry = {"none": "none", "hyperbolic": "hyperbolic", "qkv": "euclidean"}[module]
+        context_type = {"none": AuxiliaryContext, "hyperbolic": PairedHyperbolicContext,
+                        "qkv": PairedEuclideanContext}[module]
         self.module = module
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
@@ -21,21 +24,20 @@ class CASANet(nn.Module):
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(2333)
-            self.context = PyramidContext(geometry=geometry, grid_sizes=(8, 4, 4, 4),
-                                          value_geometry="euclidean")
+            self.context = context_type()
 
     def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, guide_logits = self.context(self.tar(features_a, features_b))
-        return self.decoder.forward_pyramid(enhanced), guide_logits
+        enhanced, auxiliary = self.context(features_a, features_b, self.tar(features_a, features_b))
+        return self.decoder.forward_pyramid(enhanced), auxiliary
 
     def forward(self, a, b, return_aux=False):
-        """Return four probabilities, or raw logits and guide logits for training."""
-        pyramid, guide_logits = self._decode(a, b)
+        """Return four probabilities, or raw logits with guide and boundary heads."""
+        pyramid, auxiliary = self._decode(a, b)
         logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
                                      mode="bilinear", align_corners=False)
                        for x in pyramid)
-        return (logits, guide_logits) if return_aux else tuple(x.sigmoid() for x in logits)
+        return (logits, auxiliary) if return_aux else tuple(x.sigmoid() for x in logits)
 
     def predict(self, a, b):
         """Return the final change probability without auxiliary prediction heads."""

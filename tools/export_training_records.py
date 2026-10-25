@@ -44,6 +44,11 @@ def parse_log(text):
             row.update({'val_' + key: value for key, value in values(line).items()})
         if line.startswith('[MODULE-DIAG] '):
             diagnostics.append(dict(epoch=current, stages=json.loads(line.split(' ', 1)[1])))
+        if line.startswith('[SPATIAL-DIAG] '):
+            spatial = json.loads(line.split(' ', 1)[1])
+            row = epochs.setdefault(int(spatial['epoch']), {'epoch': int(spatial['epoch'])})
+            for region in ('boundary_1px', 'boundary_2px', 'interior'):
+                row.update({f'val_{region}_{name}': value for name, value in spatial[region].items()})
     return [epochs[key] for key in sorted(epochs)], diagnostics
 
 
@@ -54,10 +59,10 @@ def diagnostic_rows(events):
             row = dict(epoch=event['epoch'], stage=stage)
             for name, value in data.items():
                 if isinstance(value, list):
-                    if name == 'scale_mass':
+                    if name == 'scale_mass' or name.endswith('_scale_mass'):
                         for head, masses in enumerate(value):
                             for source_scale, mass in enumerate(masses, 1):
-                                row[f'scale_mass_head{head}_source{source_scale}'] = mass
+                                row[f'{name}_head{head}_source{source_scale}'] = mass
                     elif name == 'class_attention_mass':
                         for head, masses in enumerate(value):
                             for label, mass in zip(('change', 'background'), masses):
@@ -76,25 +81,47 @@ def diagnostic_rows(events):
 
 def curves(destination, dataset, records, selection_split):
     colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718'}
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7.8), constrained_layout=True)
+    manifest = next(iter(records.values()))[2]
+    guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
+    has_boundary = boundary_weight != 0
+    fig, axes = plt.subplots(3 if has_boundary else 2, 2,
+                             figsize=(12, 11 if has_boundary else 7.8), constrained_layout=True)
+    main_axis, f1_axis, guide_axis = axes.flat[:3]
+    boundary_axis, total_axis, spatial_axis = axes.flat[3:] if has_boundary else (None, axes.flat[3], None)
     evaluation_label = 'test selection' if selection_split == 'test' else 'validation'
-    for variant, (rows, result) in records.items():
+    for variant, (rows, result, _) in records.items():
         color, label = colors[variant], VARIANTS[variant]
         x = [row['epoch'] for row in rows]
-        axes[0, 0].plot(x, [row['train_main'] for row in rows], color=color, label=label + ' train')
+        main_axis.plot(x, [row['train_main'] for row in rows], color=color, label=label + ' train')
         validation = [row for row in rows if 'val_F1' in row]
         vx = [row['epoch'] for row in validation]
-        axes[0, 0].plot(vx, [row['val_Loss'] for row in validation], color=color, ls='--', alpha=.85,
+        main_axis.plot(vx, [row['val_Loss'] for row in validation], color=color, ls='--', alpha=.85,
                         label=label + ' ' + evaluation_label)
-        axes[0, 1].plot(vx, [row['val_F1'] * 100 for row in validation], color=color, label=label)
+        f1_axis.plot(vx, [row['val_F1'] * 100 for row in validation], color=color, label=label)
         best = next(row for row in validation if row['epoch'] == result['best_epoch'])
-        axes[0, 1].plot(best['epoch'], best['val_F1'] * 100, marker='o', color=color, ms=4)
-        axes[1, 0].plot(x, [row['train_guide'] for row in rows], color=color, label=label)
-        axes[1, 1].plot(x, [row['train_loss'] for row in rows], color=color, label=label)
+        f1_axis.plot(best['epoch'], best['val_F1'] * 100, marker='o', color=color, ms=4)
+        guide_axis.plot(x, [row['train_guide'] for row in rows], color=color, label=label)
+        total_axis.plot(x, [row['train_loss'] for row in rows], color=color, label=label)
+        if has_boundary:
+            boundary_axis.plot(x, [row['train_boundary'] for row in rows], color=color, label=label)
+            spatial = [row for row in rows if 'val_boundary_1px_F1' in row]
+            sx = [row['epoch'] for row in spatial]
+            spatial_axis.plot(sx, [row['val_boundary_1px_F1'] * 100 for row in spatial],
+                              color=color, label=label + ' boundary 1px')
+            spatial_axis.plot(sx, [row['val_interior_recall'] * 100
+                                  if row['val_interior_recall'] is not None else float('nan')
+                                  for row in spatial], color=color, ls='--', label=label + ' interior recall')
+    formula = f'Main + {guide_weight:g} x guide'
+    if has_boundary:
+        formula += f' + {boundary_weight:g} x boundary'
     titles = [('Main loss: train / ' + evaluation_label, 'BCE + Dice (four outputs)'),
               (evaluation_label.capitalize() + ' F1; dots mark selected checkpoints', 'F1 (%)'),
-              ('Guide loss before the 0.2 multiplier', 'Guide BCE (four scales)'),
-              ('Total training loss', 'Main + 0.2 x guide')]
+              (f'Guide loss before the {guide_weight:g} multiplier', 'Guide BCE (four scales)')]
+    if has_boundary:
+        titles += [(f'Boundary loss before the {boundary_weight:g} multiplier', 'Boundary BCE + Dice (two scales)')]
+    titles.append(('Total training loss', formula))
+    if has_boundary:
+        titles.append(('Boundary / interior diagnostics on ' + evaluation_label, 'Score (%)'))
     for ax, (title, ylabel) in zip(axes.flat, titles):
         ax.set(title=title, xlabel='Epoch (0-based)', ylabel=ylabel)
         ax.grid(alpha=.2)
@@ -148,7 +175,7 @@ def main():
                     file.write(json.dumps(event, ensure_ascii=False) + '\n')
             if diagnostics:
                 write_csv(published / 'module_diagnostics.csv', diagnostic_rows(diagnostics))
-            records[variant] = rows, result
+            records[variant] = rows, result, manifest
             row = dict(dataset=dataset, variant=variant, best_epoch=result['best_epoch'],
                        selection_split=selection_split,
                        independent_test=manifest.get('independent_test', selection_split != 'test'),
@@ -188,6 +215,18 @@ def main():
     curve_note = ('圆点为实际选中checkpoint的test选模F1；最终折叠模型的复测结果单独保存在result.json。'
                   if selection_split == 'test' else
                   '圆点为实际选中checkpoint的验证F1，正式测试值不混入验证曲线。')
+    guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
+    loss_formula = f'main+{guide_weight:g}×guide'
+    loss_note = '评分损失单独展示'
+    boundary_note = ''
+    if boundary_weight:
+        loss_formula += f'+{boundary_weight:g}×boundary'
+        loss_note = f'评分与边界损失分别展示未乘权重的值，权重由manifest给出（{guide_weight:g}、{boundary_weight:g}）'
+        boundary_note = ('\n- `train_boundary`是两细尺度边界BCEWithLogits+Dice之和，未乘边界权重；'
+                         '`train_encoder_lr`记录预训练骨干实际学习率。'
+                         '`val_boundary_1px_*`、`val_boundary_2px_*`与`val_interior_*`来自整轮评估集的累计统计：'
+                         '边界为replicate填充的3×3形态学梯度，容差按输入像素的Chebyshev距离计算；'
+                         '内部统计排除GT膨胀2像素减腐蚀2像素的边界带，无正类内部时Recall为空。')
     readme = f'''# {args.tag} / {args.run} 完整训练记录
 
 协议`{state['protocol']}`，模型/训练源码基线`{baseline['model_training_commit']}`。本目录保存12项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/{args.tag}/{args.run}`。本轮于{started} CST启动，{state['updated']} CST完成。
@@ -203,7 +242,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 ## 文件与数值口径
 
 - 每项的`train_log.txt`是完整原始日志，包括训练后期、{evaluation_name}评估行、实际MODULE-DIAG及最终TEST RESULTS。
-- `epochs.csv`保存每轮训练总损失、主损失、评分损失、学习率，以及{evaluation_name}Loss/Recall/Precision/OA/F1/IoU/Kappa和耗时；指标沿用日志的0～1单位。{epoch_note}
+- `epochs.csv`保存每轮训练总损失、主损失、评分损失、学习率，以及{evaluation_name}Loss/Recall/Precision/OA/F1/IoU/Kappa和耗时；指标沿用日志的0～1单位。{epoch_note}{boundary_note}
 - CSV沿用`val_`列名前缀和`best_val_F1_pct`字段，数据来源由`summary.csv`及manifest的`selection_split`明确：本轮为`{selection_split}`。字段前缀不表示独立验证集。
 - `module_diagnostics.jsonl`按epoch保存四级完整诊断；`module_diagnostics.csv`按epoch/stage展开温度各头、gamma、归一化注意力熵、原型分配TV、预测变化概率、分支RMS、跨尺度注意力质量，以及双曲半径和裁剪比例。源日志未记录的量不补造。
 - MODULE-DIAG来自当轮{evaluation_name}的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
@@ -213,7 +252,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 
 ## 完整训练与{evaluation_name}曲线
 
-曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/{evaluation_name}BCE+Dice；评分损失单独展示，总训练损失为main+0.2×guide。{curve_note}
+曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/{evaluation_name}BCE+Dice；{loss_note}，总训练损失为{loss_formula}。{curve_note}
 
 '''
     for dataset in DATASETS:

@@ -7,13 +7,15 @@ import torch
 from torch import nn
 
 from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
-                        rng_state, strict_fold_precision)
+                        rng_state, strict_fold_precision, update_learning_rate,
+                        learning_rate, context_decay_names)
 
 
 class SmallModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.module = "qkv"
+        self.encoder = nn.Linear(3, 3)
         self.body = nn.Linear(3, 3)
         self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
                                       "v": nn.Linear(3, 3, bias=False),
@@ -21,6 +23,7 @@ class SmallModel(nn.Module):
                                       "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
+        x = self.encoder(x)
         return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
 
 
@@ -43,13 +46,22 @@ def main():
     model = SmallModel()
     optimizer = make_optimizer(model)
     decay = {id(p): group["weight_decay"] for group in optimizer.param_groups for p in group["params"]}
+    scales = {id(p): group["lr_scale"] for group in optimizer.param_groups for p in group["params"]}
+    decay_names = context_decay_names(model)
     for name, parameter in model.named_parameters():
-        assert decay[id(parameter)] == (0.0 if name.startswith("context.guide.") else 1e-4)
+        expected_decay = 0.0 if name.startswith("context.") and name not in decay_names else 1e-4
+        assert decay[id(parameter)] == expected_decay
+        assert scales[id(parameter)] == (0.1 if name.startswith("encoder.") else 1.0)
+    for count in (0, 185, 199, 200, 20000, 39999):
+        rate = learning_rate(5e-4, 1, count, 40000)
+        update_learning_rate(optimizer, rate)
+        assert optimizer.param_groups[0]["lr"] == rate * 0.1
+        assert all(group["lr"] == rate for group in optimizer.param_groups[1:])
     for _ in range(4):
         step(model, optimizer)
     checkpoint = copy.deepcopy(dict(
         epoch=2, step=4, state_dict=model.state_dict(), optimizer=optimizer.state_dict(),
-        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6), rng_state=rng_state()))
+        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6, encoder_lr_mult=0.1), rng_state=rng_state()))
     for _ in range(2):
         step(model, optimizer)
     restored = SmallModel()
@@ -73,7 +85,7 @@ def main():
     except ValueError:
         pass
     assert backend_state() == before
-    print("Optimizer/RNG continuation, legacy checkpoint reseeding and backend restoration PASS")
+    print("Encoder LR ratio, context decay, optimizer/RNG continuation and backend restoration PASS")
 
 
 if __name__ == "__main__":

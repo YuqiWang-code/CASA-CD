@@ -14,10 +14,10 @@
 在仓库根目录执行：
 
 ```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run2
+python .codex/status.py --tag CASA-Pyramid --run Run3
 python .codex/ssh.py "nvidia-smi" 60
 python .codex/ssh.py outputs/remote_command.sh 120
-python train_scripts/CASA-Pyramid/Run2/collect_results.py
+python train_scripts/CASA-Pyramid/Run3/collect_results.py
 ```
 
 连接信息保存在未提交的 `.vscode/sftp.json`，Python 需要 `paramiko`。状态查询只读，不会启动、停止或恢复训练。命令文件可放入 `outputs/`；可重复使用的实验启动、停止和检查脚本放在 `train_scripts/<tag>/<Run>/`。

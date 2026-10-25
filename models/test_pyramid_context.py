@@ -1,179 +1,133 @@
-"""Check grid geometry, cross-scale connectivity and manifold gradients."""
+"""Paired token semantics, dense details, gradients and scale priors."""
 import torch
-from torch.nn import functional as F
 
-from model.layers.pyramid_context import PyramidContext
-from model.layers.poincare_ops import expmap0, logmap0, pairwise_distance, weighted_centroid
-
-
-def pooling_equivalence():
-    """Moving K/V projections must preserve values and assignment gradients."""
-    op = PyramidContext().double()
-    for size, grid in zip((64, 32, 16, 8), op.grid_sizes):
-        feature = torch.randn(1, 64, size, size, dtype=torch.double, requires_grad=True)
-        normalized = op.norm(feature.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-        scores = torch.randn(1, 1, size, size, dtype=torch.double, requires_grad=True)
-        weights, _ = op.assignments(scores.sigmoid(), grid)
-        pooled = op.pool_features(normalized, weights, grid)
-        for layer in (op.qk, op.v):
-            before = torch.einsum("brtp,bhrpd->bhrtd", weights,
-                                  op.regions(op.project_heads(layer, normalized), grid)).flatten(2, 3)
-            after = op.project_prototypes(layer, pooled)
-            assert torch.allclose(before, after, atol=1e-11, rtol=1e-9)
-            direction = torch.randn_like(after)
-            a = torch.autograd.grad((before * direction).sum(), (feature, scores, layer.weight),
-                                    retain_graph=True)
-            b = torch.autograd.grad((after * direction).sum(), (feature, scores, layer.weight),
-                                    retain_graph=True)
-            assert a[1].abs().sum() > 0
-            assert all(torch.allclose(x, y, atol=1e-10, rtol=1e-8) for x, y in zip(a, b))
-    print("pool-before-project values and feature/assignment/projection gradients PASS")
+from model.layers.paired_euclidean_context import PairedEuclideanContext
+from model.layers.paired_hyperbolic_context import PairedHyperbolicContext
+from model.layers.pyramid_context import binomial_highpass, feature_regions, project_tokens, regions
+from model.layers.poincare_ops import expmap0, to_lorentz
+from model.layers.lorentz_pair_ops import lorentz_normalize
 
 
-def value_readout():
-    """Hyperbolic matching must retrieve the unbounded Euclidean value vectors."""
-    op = PyramidContext(geometry="hyperbolic").eval()
-    op.gamma.data.fill_(0.1)
-    op.v.weight.data.mul_(20)
-    features = [torch.randn(1, 64, n, n) for n in (64, 32, 16, 8)]
-    captured = []
-    hook = op.out.register_forward_pre_hook(lambda layer, inputs: captured.append(inputs[0].detach()))
-    with torch.no_grad():
-        op(features)
-        normalized = [op.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) for x in features]
-        probabilities = [op.guide(x).sigmoid() for x in normalized]
-        assignments = [op.assignments(p, grid) for p, grid in zip(probabilities, op.grid_sizes)]
-        weights, reliabilities = zip(*assignments)
-        reliability = torch.cat(reliabilities, dim=1)
-        keys = torch.cat([op.compress_hyperbolic_keys(expmap0(op.project_heads(op.qk, x)), w, grid)
-                          for x, w, grid in zip(normalized, weights, op.grid_sizes)], 2)
-        values = []
-        for x, w, grid in zip(normalized, weights, op.grid_sizes):
-            prototypes = op.pool_features(x, w, grid)
-            linear = F.linear(prototypes, op.v.weight[:, :, 0, 0]) / 4
-            values.append(linear.reshape(1, -1, 4, 16).transpose(1, 2))
-        values = torch.cat(values, 2)
-        assert values.norm(dim=-1).max() > 1, "value test must exercise outside-ball content"
-        for index, x in enumerate(normalized):
-            query = expmap0(op.project_heads(op.qk, x)).flatten(2, 3)
-            expected = (op.attention(query, keys, index, reliability) @ values).transpose(-1, -2).reshape(
-                1, 64, x.shape[-2], x.shape[-1])
-            assert torch.allclose(captured[index], expected, atol=1e-6, rtol=1e-5)
-    hook.remove()
-    print("hyperbolic Q/K attention with Euclidean V and direct readout PASS")
-
-
-def prototype_support():
-    """Preserve class confidence without penalizing a sparse confident change."""
-    op = PyramidContext().double()
-    low = torch.full((1, 1, 8, 8), .01, dtype=torch.double)
-    high = 1 - low
-    low_weights, low_support = op.assignments(low, 1)
-    high_weights, high_support = op.assignments(high, 1)
-    assert torch.allclose(low_weights, high_weights, atol=1e-12)
-    assert torch.allclose(low_support, torch.tensor([[.01, .99]], dtype=torch.double))
-    assert torch.allclose(high_support, torch.tensor([[.99, .01]], dtype=torch.double))
-    sparse = torch.zeros_like(low)
-    sparse[:, :, 0, 0] = 1
-    _, sparse_support = op.assignments(sparse, 1)
-    assert sparse.mean() < .02 and sparse_support[0, 0] > .999
-    _, absent_support = op.assignments(torch.zeros_like(low), 1)
-    assert absent_support[0, 0] <= 1.000001e-6
-
-    query, key = torch.zeros(1, 4, 3, 16, dtype=torch.double), torch.zeros(1, 4, 224, 16, dtype=torch.double)
-    reliability = low_support.repeat(1, 112)
-    attention = op.attention(query, key, 0, reliability)
-    change_mass = attention[..., 0::2].sum(-1)
-    assert torch.allclose(change_mass, torch.full_like(change_mass, .01), atol=1e-10)
-
+def contrast_semantics():
+    op = PairedEuclideanContext().double()
+    feature = torch.randn(1, 64, 8, 8, dtype=torch.double, requires_grad=True)
+    for level in (0., .01, .5, .99, 1.):
+        probability = torch.full((1, 1, 8, 8), level, dtype=torch.double)
+        mean, contrast = op.prototypes(feature, probability, 1)
+        assert torch.allclose(mean, feature.mean((-2, -1)).unsqueeze(1), atol=1e-12)
+        assert contrast.abs().max() < 1e-12, "constant guide must not create contrast content"
+        value = project_tokens(op.v_contrast, contrast, 4)
+        assert value.abs().max() < 1e-12
+    probability = torch.zeros(1, 1, 8, 8, dtype=torch.double)
+    probability[..., 0, 0] = 1
+    mean, contrast = op.prototypes(feature, probability, 1)
+    positive = (feature[..., 0, 0].unsqueeze(1) + mean) / 2
+    negative = (feature.flatten(2).sum(-1).unsqueeze(1) - feature[..., 0, 0].unsqueeze(1) + mean) / 64
+    assert torch.allclose(contrast, positive - negative, atol=1e-12)
     logits = torch.randn(1, 1, 8, 8, dtype=torch.double, requires_grad=True)
-    _, support = op.assignments(logits.sigmoid(), 1)
-    retrieval = op.attention(query, key, 0, support.repeat(1, 112))
-    gradient, = torch.autograd.grad(retrieval[..., 0::2].sum(), (logits,))
-    assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
-    print("prototype class support, sparse-change retention and support gradients PASS")
+    _, contrast = op.prototypes(feature, logits.sigmoid(), 1)
+    grads = torch.autograd.grad(contrast.square().sum(), (feature, logits))
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
+    assert binomial_highpass(torch.ones(1, 32, 8, 8)).abs().max() == 0
+    print("mean/contrast shrinkage, zero constant-guide values and assignment gradients PASS")
 
 
-def shared_metric():
-    """Identical content has identical Q/K coordinates in either geometry."""
-    feature = torch.randn(1, 64, 1, 1, dtype=torch.double).expand(-1, -1, 8, 8)
-    for geometry in ("euclidean", "hyperbolic"):
-        op = PyramidContext(geometry=geometry).double()
-        assert "qk.weight" in dict(op.named_parameters())
-        assert "q.weight" not in dict(op.named_parameters())
-        weights, _ = op.assignments(torch.full((1, 1, 8, 8), .4, dtype=torch.double), 1)
-        query = op.project_heads(op.qk, feature)
-        if geometry == "hyperbolic":
-            query = expmap0(query)
-            key = op.compress_hyperbolic_keys(query, weights, 1)
+def aligned_hyperbolic_tokens():
+    op = PairedHyperbolicContext().double()
+    midpoint = to_lorentz(expmap0(torch.randn(1, 4, 8, 8, 8, dtype=torch.double) * .1))
+    unsigned = torch.rand(1, 4, 8, 8, 8, dtype=torch.double)
+    feature = torch.randn(1, 64, 8, 8, dtype=torch.double)
+    probability = torch.full((1, 1, 8, 8), .3, dtype=torch.double)
+    weights = op.assignments(probability, 2)
+    km, ku, value = op.compress(midpoint, unsigned, feature, weights, 2)
+    assert torch.allclose(km[:, :, 0::2], km[:, :, 1::2], atol=1e-12)
+    assert torch.allclose(ku[:, :, 0::2], ku[:, :, 1::2], atol=1e-12)
+    assert torch.allclose(value[:, :, 0::2], value[:, :, 1::2], atol=1e-12)
+    probability.zero_()
+    probability[..., 0, 0] = 1
+    weights = op.assignments(probability, 2)
+    km, ku, value = op.compress(midpoint, unsigned, feature, weights, 2)
+    wm = weights[:, 0, 1, :, None]
+    expected_m = lorentz_normalize((regions(midpoint, 2)[:, :, 0] * wm[:, None]).sum(-2))
+    expected_u = (regions(unsigned, 2)[:, :, 0] * wm[:, None]).sum(-2)
+    expected_x = (feature_regions(feature, 2)[:, 0] * wm).sum(-2).unsqueeze(1)
+    expected_v = project_tokens(op.v, expected_x, 4).squeeze(2)
+    assert torch.allclose(km[:, :, 1], expected_m, atol=1e-12)
+    assert torch.allclose(ku[:, :, 1], expected_u, atol=1e-12)
+    assert torch.allclose(value[:, :, 1], expected_v, atol=1e-12)
+    assert weights[0, 0, 1, 0] > .9999, "sparse change weight was diluted"
+    print("uniform/change duplicate tokens and aligned midpoint/difference/value pooling PASS")
+
+
+def scale_priors():
+    e = PairedEuclideanContext()
+    q, k = torch.zeros(1, 4, 3, 16), torch.zeros(1, 4, 112, 16)
+    for bank in range(2):
+        attention = e.attention(q, k, 0, bank)
+        masses = torch.stack([part.sum(-1) for part in attention.split(e.regions_per_scale, -1)], -1)
+        assert torch.allclose(masses, torch.full_like(masses, .25), atol=1e-6)
+        assert torch.allclose(attention.sum(-1), torch.ones_like(attention[..., 0]))
+    h = PairedHyperbolicContext()
+    origin_q, origin_k = torch.zeros(1, 4, 3, 9), torch.zeros(1, 4, 224, 9)
+    origin_q[..., 0] = origin_k[..., 0] = 1
+    attention, _, _ = h.attention(origin_q, torch.zeros(1, 4, 3, 8), origin_k,
+                                   torch.zeros(1, 4, 224, 8), 0)
+    masses = torch.stack([part.sum(-1) for part in attention.split(h.tokens_per_scale, -1)], -1)
+    assert torch.allclose(masses, torch.full_like(masses, .25), atol=1e-6)
+    print("two independent 112-token softmaxes and 224-token source priors PASS")
+
+
+def contexts():
+    sizes, channels = (32, 16, 8, 4), (24, 32, 96, 320)
+    for context_type, expected_count in ((PairedEuclideanContext, 39032), (PairedHyperbolicContext, 26688)):
+        op = context_type()
+        assert sum(p.numel() for p in op.parameters()) == expected_count
+        a = [torch.randn(1, c, n, n, requires_grad=True) for c, n in zip(channels, sizes)]
+        b = [torch.randn_like(x, requires_grad=True) for x in a]
+        tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
+        output, auxiliary = op(a, b, tar)
+        assert all(torch.equal(x, y) for x, y in zip(output, tar)), "zero gates must preserve TAR"
+        assert len(auxiliary["guide_logits"]) == 4 and len(auxiliary["boundary_logits"]) == 2
+        op.gamma_context.data.fill_(.1)
+        op.gamma_detail.data.fill_(.1)
+        op.collect_diag = True
+        output, _ = op(a, b, tar)
+        exchanged, _ = op(b, a, tar)
+        assert all(torch.allclose(x, y, atol=2e-6, rtol=1e-5) for x, y in zip(output, exchanged))
+        # With TAR held fixed, paired geometry is unordered; TAR itself can remain ordered.
+        if isinstance(op, PairedHyperbolicContext):
+            pair = op.paired_features(a, b, tar)
+            reverse = op.paired_features(b, a, tar)
+            assert all(torch.equal(x, y) for x, y in zip(pair[0], reverse[0]))
+            assert all(torch.equal(x, -y) for x, y in zip(pair[1], reverse[1]))
+            identical = op.paired_features(a, a, tar)
+            assert all(x.abs().max() == 0 for x in identical[1])
         else:
-            key = op.project_prototypes(op.qk, op.pool_features(feature, weights, 1))
-        assert torch.allclose(query[:, :, 0, 0, None], key, atol=1e-10, rtol=1e-9)
-    print("shared Q/K metric and constant-region coordinates PASS")
+            identical = op.paired_features(a, a, tar)
+            assert all(x.abs().max() == 0 for x in identical[0])
+        gradients = torch.autograd.grad(output[0].square().mean(), tar + a + b, retain_graph=True)
+        assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
+        sum(x.square().mean() for x in output).backward()
+        for name, parameter in op.named_parameters():
+            if parameter.ndim >= 2:
+                assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
+                assert parameter.grad.abs().sum() > 0, name
+        for index, original in enumerate(tar):
+            diag = op.last_diag[f"stage{index + 1}"]
+            assert diag["finite"] and diag["contexts"] == 224
+            assert diag["context_residual_to_feature_rms"] > 0
+            if index < 2:
+                assert diag["local_residual_to_feature_rms"] > 0
+        print(context_type.__name__, expected_count, "identity/swap/dense detail/cross-scale task gradients PASS")
 
 
 def main():
     torch.set_num_threads(4)
     torch.manual_seed(2333)
-    sizes = (64, 32, 16, 8)
-    features = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
-    for geometry in ("euclidean", "hyperbolic"):
-        op = PyramidContext(geometry=geometry)
-        weights, _ = op.assignments(torch.full((1, 1, 64, 64), 0.5), 8)
-        assert weights.shape == (1, 64, 2, 64)
-        assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
-        # Fine-scale regions span 8x8 pixels; coarse grids span four regions per axis.
-        coordinate = torch.arange(64 * 64).reshape(1, 1, 64, 64, 1).float()
-        regions = op.regions(coordinate, 8)
-        assert regions[0, 0, 0, 0, 0] == 0 and regions[0, 0, 1, 0, 0] == 8
-        assert regions[0, 0, 8, 0, 0] == 8 * 64
-        assert op.tokens_per_scale == (128, 32, 32, 32)
-        constant_q = torch.zeros(1, 4, 3, 16)
-        constant_k = torch.zeros(1, 4, 224, 16)
-        reliability = torch.full((1, 224), .5)
-        attention = op.attention(constant_q, constant_k, 0, reliability)
-        mass = torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale, -1)], -1)
-        assert torch.allclose(mass, torch.full_like(mass, .25), atol=1e-6)
-        op.scale_bias.data[0, 0, 0] = torch.log(torch.tensor(2.0))
-        learned = op.attention(constant_q, constant_k, 0, reliability)
-        assert torch.allclose(learned[0, 0, 0, :128].sum(), torch.tensor(.4), atol=1e-6)
-        op.scale_bias.data.zero_()
-        outputs, logits = op(features)
-        assert all(torch.equal(x, y) for x, y in zip(features, outputs))
-        assert [z.shape[-2:] for z in logits] == [(n, n) for n in sizes]
-        op.gamma.data.fill_(0.1)
-        op.collect_diag = True
-        outputs, _ = op(features)
-        assert all(x.shape == y.shape for x, y in zip(features, outputs))
-        assert all(d["contexts"] == 224 and d["finite"] for d in op.last_diag.values())
-        for index, (original, enhanced) in enumerate(zip(features, outputs), 1):
-            diag = op.last_diag[f"stage{index}"]
-            ratio = (enhanced-original).square().mean().sqrt() / original.square().mean().sqrt()
-            assert abs(diag['residual_to_feature_rms']-float(ratio.detach())) < 1e-6
-            assert 0 < diag['query_attention_tv'] < 1
-            assert all(abs(sum(head)-1) < 1e-5 for head in diag['scale_mass'])
-            assert all(abs(sum(head)-1) < 1e-5 for head in diag['class_attention_mass'])
-            assert all(0 < value <= 1 for value in diag['prototype_reliability_mean'])
-        gradients = torch.autograd.grad(outputs[0].square().mean(), features, retain_graph=True)
-        assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients), "cross-scale path absent"
-        op.zero_grad()
-        sum(x.square().mean() for x in outputs).backward()
-        for name, parameter in op.named_parameters():
-            assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
-            assert parameter.grad.abs().sum() > 0, name
-        print(geometry, "224 prototypes, scale prior, residual diagnostics and cross-scale gradients PASS")
-    pooling_equivalence()
-    value_readout()
-    prototype_support()
-    shared_metric()
-    # Exercise the reused geometry on four independent head dimensions.
-    tangent = (torch.randn(1, 4, 3, 16, dtype=torch.double) * 0.03).requires_grad_()
-    assert torch.allclose(logmap0(expmap0(tangent)), tangent, atol=1e-10)
-    probability = torch.softmax(torch.randn(1, 4, 2, 3, dtype=torch.double), -1)
-    assert torch.autograd.gradcheck(lambda x: weighted_centroid(probability, expmap0(x)), (tangent,))
-    distance = pairwise_distance(expmap0(tangent), expmap0(tangent))
-    assert torch.isfinite(distance).all() and torch.allclose(distance, distance.transpose(-1, -2))
-    print("head-wise Exp/Log, distance and centroid gradients PASS")
+    contrast_semantics()
+    aligned_hyperbolic_tokens()
+    scale_priors()
+    contexts()
 
 
 if __name__ == "__main__":

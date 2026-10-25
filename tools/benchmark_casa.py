@@ -18,6 +18,8 @@ def main():
     from model.casa_net import CASANet
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark=True
+    torch.backends.cudnn.allow_tf32=True
+    torch.backends.cuda.matmul.allow_tf32=False
     torch.manual_seed(2333)
     a,b=(torch.randn(1,3,256,256,device='cuda') for _ in range(2))
     results={}

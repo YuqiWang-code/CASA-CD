@@ -2,11 +2,19 @@
 
 更新：2026-10-26。
 
+## CASA-Pyramid / Run3 启动检查
+
+用户已授权按`docs/temporary/CASA-Pyramid_Run3_design.md`实现成对模块并启动12项。协议`casa_pyramid_40k_pairbanks_lr01_v3`：普通均值/对比双库、双曲中点/差异配对检索、224KV、S1/S2细节与边界监督，骨干学习率倍率0.1。每epoch仍在test选模，非独立测试。
+
+模型、几何、任务梯度、部署、LR分组、数据同步与边界标签检查已通过。正式启动前执行LEVIR/SYSU两模块短训及SYSU CTRL骨干LR倍率12epoch对照。正式队列尚未启动，禁止重复启动。两卡按实测显存补位，优先LEVIR→SYSU→WHU→CDD；正式模型不使用任何探针权重。
+
+源码与脚本：`models/`、`train_scripts/CASA-Pyramid/Run3/`；服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。历史指标185条，Run3没有正式结果，12项齐全后应197条。
+
 ## CASA-Pyramid / Run2 已完成
 
 Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。
 
-协议`casa_pyramid_40k_reliableqk_testselect_v2`；224-token、共享Q/K、类别支持度先验、双曲Q/K+欧式V。每epoch使用test F1选模，非独立测试。当前无活动训练或自动化，不恢复已完成队列。
+协议`casa_pyramid_40k_reliableqk_testselect_v2`；224-token、共享Q/K、类别支持度先验、双曲Q/K+欧式V。每epoch使用test F1选模，非独立测试。本轮已归档，不恢复已完成队列。
 
 | 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) |
 |---|---:|---:|---:|
@@ -31,7 +39,7 @@ Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28
 
 本轮相对CTRL，双曲/普通模块在LEVIR分别提高0.031/0.191个百分点，在SYSU提高0.359/0.714个百分点；WHU分别降低0.114/0.297个百分点，CDD降低0.052/0.045个百分点。普通版在LEVIR与SYSU高于双曲版，本轮尚未证明双曲几何具有稳定精度优势。两个模块部署参数均为1.952266M，精度与开销需共同评价。
 
-全部部署折叠检查通过，首级最大绝对差不超过3.25e-6，二值差异均为0。Run1已归档，当前活动轮次见Run2；不恢复历史队列。连接与操作见SERVER.md。
+全部部署折叠检查通过，首级最大绝对差不超过3.25e-6，二值差异均为0。Run1已归档，当前活动轮次见Run3；不恢复历史队列。连接与操作见SERVER.md。
 
 ## 产物
 

@@ -9,7 +9,8 @@ import torch
 from torch.nn import functional as F
 
 from dataset import casa_transforms as transforms
-from train_CASA import MEAN, STD, learning_rate, loss_function, make_loader
+from train_CASA import (MEAN, STD, learning_rate, loss_function, make_loader,
+                        mask_boundary, boundary_loss, training_losses, SpatialMetrics)
 
 
 def main():
@@ -58,7 +59,51 @@ def main():
         2 * (probability * target).sum() + 1e-5) / (probability.sum() + target.sum() + 1e-5)
     assert torch.allclose(loss_function((moderate,), target), expected)
     assert learning_rate(5e-4, 1, 185, 40145) == 5e-4 * .9 * 186 / 200 + 5e-5
-    print("RGB/date ordering, mask alignment, synchronized augmentation, stable logits loss and 200-step warmup PASS")
+
+    for value in (0.0, 1.0):
+        constant = torch.full((1, 1, 16, 16), value)
+        assert mask_boundary(constant).count_nonzero() == 0
+    target = torch.zeros(1, 1, 16, 16)
+    target[:, :, 4:12, 5:13] = 1
+    edge = mask_boundary(target)
+    assert edge[0, 0, 3:13, 4:14].sum() == 64
+    assert edge[:, :, 0].sum() == 0 and edge[:, :, -1].sum() == 0
+    assert F.adaptive_max_pool2d(edge, (4, 4)).sum() > 0
+    boundary_logits = (torch.zeros(1, 1, 4, 4, requires_grad=True),
+                       torch.zeros(1, 1, 2, 2, requires_grad=True))
+    aux = dict(guide_logits=tuple(torch.zeros(1, 1, side, side, requires_grad=True)
+                                 for side in (8, 4, 2, 1)), boundary_logits=boundary_logits)
+    outputs = tuple(torch.zeros_like(target, requires_grad=True) for _ in range(4))
+    total, main_loss, guide, boundary = training_losses(outputs, aux, target)
+    assert torch.equal(total, main_loss + .2 * guide + .05 * boundary)
+    total.backward()
+    assert all(z.grad is not None and torch.isfinite(z.grad).all() and z.grad.abs().sum() > 0
+               for z in (*outputs, *aux["guide_logits"], *boundary_logits))
+    extreme = tuple(torch.full_like(z, -100, requires_grad=True) for z in boundary_logits)
+    edge_loss = boundary_loss(extreme, target)
+    edge_loss.backward()
+    assert torch.isfinite(edge_loss) and all(torch.isfinite(z.grad).all() for z in extreme)
+
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(target > 0, target)
+    scores = metric.scores()
+    assert scores["boundary_1px"]["F1"] == 1 and scores["boundary_2px"]["F1"] == 1
+    assert scores["interior"]["recall"] == 1 and scores["interior"]["target_pixels"] == 16
+    shifted = torch.roll(target, shifts=1, dims=-1)
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(shifted > 0, target)
+    assert metric.scores()["boundary_1px"]["F1"] == 1
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(torch.zeros_like(target).bool(), target)
+    assert metric.scores()["boundary_1px"]["F1"] == 0
+    assert metric.scores()["interior"]["recall"] == 0
+    small = torch.zeros_like(target)
+    small[..., 8, 8] = 1
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(torch.zeros_like(small).bool(), small)
+    assert metric.scores()["interior"]["target_pixels"] == 0
+    assert metric.scores()["interior"]["recall"] is None
+    print("RGB/date order, synchronized augmentation, stable losses, boundary targets/metrics and warmup PASS")
 
 
 if __name__ == "__main__":
