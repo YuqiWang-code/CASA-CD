@@ -25,13 +25,13 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 【双曲模块】paired_hyperbolic_context.py。同层A/B共用输入LN及Ci→32投影，拆4头各8维除√8，再Exp并转Lorentz，曲率−1、切空间上限2.3。计算精确两点中点m与v=PT(m→原点,Log_m(B))的8维空间坐标，u=|v|，X=LN(T+W_D u)。每区域uniform/change两种权重各生成一个token，共224；change权重(p+1e-6)/Σ(p+1e-6)。同token的m用Lorentz质心压缩，u和X加权均值，V由X原型欧式投影；区域Lorentz质心不称精确多点Fréchet均值。完整query为(m,u)，评分−dH(m,Km)/(2tau_mid)−||u−Ku||/tau_diff，加尺度偏置及-log(源尺度token数)，单个224-token softmax。两组每头正温度初值.2，V四头16维直接A@V。细两层H=|v−blur(v)|，边界b由[X,u,H]预测，回写W_D(u+bH)。m/v表达共同参考与有向半位移，|v|保留幅度但丢失方向；不把该联合评分称纯双曲测地距离。CTRL保留LN、guide及65参数边界头，直接使用TAR；三组辅助目标相同，边界头输入宽度不同。几何收益须由匹配对照验证。
 
-【训练协议】当前协议casa_pyramid_40k_pairbanks_lr01_v3：256×256、batch32、seed2333；Adam新层lr5e-4、预训练骨干lr5e-5，betas(0.9,0.99)、eps1e-8。每步调度保留骨干lr_scale=.1。context内Conv2d/Linear权重WD1e-4，LN、bias、温度、gamma与尺度偏置WD0，网络其余1e-4。poly指数.9，全局前200步warmup；40K整epoch取整为LEVIR/SYSU/WHU/CDD的40182/40125/40145/40248步。主损失四级BCEWithLogits＋sigmoidDice；guide四级BCE、面积平均标签、权重.2；细两层边界BCE＋Dice、权重.05。边界为原始mask的3×3膨胀−腐蚀，外侧replicate，再maxpool到feature占据标签。三组损失相同；标签只进入损失，原型使用预测概率。每epoch test.txt首级最高F1选best（相同更新），结束后复测，非独立盲测。ChangeMamba2024是每500步test/Kappa选模，本项目频率及指标不同。新轮从MobileNetV2预训练初始化，不使用探针或历史权重。骨干较小LR为共同泛化假设，跨Run2差异不能单归因于模块。
+【训练协议】当前协议casa_pyramid_40k_pairbanks_contrastwd0_v3：256×256、batch32、seed2333；Adam新层lr5e-4、预训练骨干lr5e-5，betas(0.9,0.99)、eps1e-8。每步调度保留骨干lr_scale=.1。普通模块context.k_contrast.weight与context.v_contrast.weight采用WD0；context内其余Conv2d/Linear权重WD1e-4，LN、bias、温度、gamma与尺度偏置WD0，网络其余1e-4。poly指数.9，全局前200步warmup；40K整epoch取整为LEVIR/SYSU/WHU/CDD的40182/40125/40145/40248步。主损失四级BCEWithLogits＋sigmoidDice；guide四级BCE、面积平均标签、权重.2；细两层边界BCE＋Dice、权重.05。边界为原始mask的3×3膨胀−腐蚀，外侧replicate，再maxpool到feature占据标签。三组损失相同；标签只进入损失，原型使用预测概率。每epoch test.txt首级最高F1选best（相同更新），结束后复测，非独立盲测。ChangeMamba2024是每500步test/Kappa选模，本项目频率及指标不同。新轮从MobileNetV2预训练初始化，不使用探针或历史权重。骨干较小LR为共同泛化假设，跨Run2差异不能单归因于模块。
 
 【数据处理】按RGB读取，图像双线性缩放至256×256，标签最近邻；像素除255，RGB均值[0.485,0.456,0.406]、标准差[0.229,0.224,0.225]。训练开启0.5概率裁剪四边各0～8像素后恢复、水平/垂直各0.5概率翻转、等概率0/90/180/270度旋转、0.5概率时相交换。A/B与标签空间变换同步，增强后归一化，不添加独立光度扰动。评价不增强，保留全部样本；训练shuffle并drop_last。LEVIR/WHU重点观察小建筑与边界，SYSU关注多类地表变化及伪变化，CDD关注季节/光照差异；这些是分析方向，精度收益须由实际结果验证。
 
 【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回(seg_logits,aux)，aux含guide_logits四层及boundary_logits两层；predict只计算最终一级输出，效率按此接口实测。训练/部署参数：CTRL2.047190M/1.935875M，双曲2.073620M/1.962305M，普通2.085964M/1.974649M；context分别258/26688/39032参数。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级最大差<=2e-4为通过条件。gamma_context四个、gamma_detail两个零初始化，保持初始恒等。检查实际风险：成对几何重建/交换/同点、原型语义、任务梯度、接口与折叠；真实数据短训观察损失及分支。gamma为0时内部任务梯度受门控符合设计。固定TAR时配对模块交换不变不等于整网交换不变；也不要求整网相同输入恒零。
 
-【证据与诊断】区分直接事实、证据支持的推断、待验证假设和缺失信息。正式指标只取同一train_log.txt最后一个完整的“=== TEST RESULTS ===”到“=== END TEST RESULTS ===”区块，不能拿验证行、探针或checkpoint名字代替。报告Recall/Precision/OA/F1/IoU/Kappa及参数、计算与实测效率，说明单位和统计范围。FLOPs若遗漏双曲逐元素运算必须注明；延迟注明硬件、输入、batch、精度和测量方法。单seed或微小差异不称稳定普适增益。诊断gamma、半径CV、裁剪、方向/距离分布、注意力及压缩前后信息，结合分支输出、任务梯度、验证消融和同轮CTRL区分失活、泛化与选模差异；熵高或gamma小不能单独判定失活。
+【证据与诊断】区分直接事实、证据支持的推断、待验证假设和缺失信息。正式指标只取同一train_log.txt最后一个完整的“=== TEST RESULTS ===”到“=== END TEST RESULTS ===”区块，不能拿验证行、探针或checkpoint名字代替。报告Recall/Precision/OA/F1/IoU/Kappa及参数、计算与实测效率，说明单位和统计范围。FLOPs若遗漏双曲逐元素运算必须注明；延迟注明硬件、输入、batch、精度和测量方法。单seed或微小差异不称稳定普适增益。诊断context/local残差、普通两库内容与K/V权重RMS、gamma、半径CV、裁剪、方向/距离分布、注意力及压缩前后信息，结合分支输出、任务梯度、验证消融和同轮CTRL区分失活、泛化与选模差异；熵高或gamma小不能单独判定失活。
 
 【状态与来源】长期规则见AGENTS.md及README，当次任务以用户最新指令为准。区分工作源码、已部署训练源码和历史源码，实际运行实现以该轮source_code.tar.gz及manifest为准，不用当前models解释未对应的历史结果。状态见.codex/STATE.md及指定轮次实时pipeline_status.json、进程、日志；正式结果见指标表及完整TEST。材料冲突时指出具体不一致并用对应运行证据核实。网页对话没有本地/SSH能力时依据上传材料分析，不声称已读取服务器。
 
@@ -44,7 +44,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-当前工作主线为CASA-Pyramid/Run3，正在进行新模块测试、效率测量与真实数据短训；正式十二项启动情况以`.codex/STATE.md`和实时队列为准。新协议为`casa_pyramid_40k_pairbanks_lr01_v3`，包括配对上下文、边界支撑与骨干0.1学习率倍率。
+当前工作主线为CASA-Pyramid/Run3，正式十二项队列已于2026-10-26 02:57:17 CST启动，初始调度器PID1376272，运行源码基线`0f714f5`。协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`使用配对上下文、边界支撑、骨干0.1学习率倍率，并对普通模块Kcontrast/Vcontrast投影权重采用WD0。四项健康探针均通过：LEVIR普通8个epoch、双曲3个epoch，SYSU普通与双曲各4个epoch；探针不计正式指标，正式训练从预训练骨干全新初始化。当前进度以`.codex/STATE.md`和实时队列为准。
 
 已完成的Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。其正式F1如下：
 

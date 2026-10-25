@@ -2,13 +2,19 @@
 
 更新：2026-10-26。
 
-## CASA-Pyramid / Run3 启动检查
+## CASA-Pyramid / Run3 训练中
 
-用户已授权按`docs/temporary/CASA-Pyramid_Run3_design.md`实现成对模块并启动12项。协议`casa_pyramid_40k_pairbanks_lr01_v3`：普通均值/对比双库、双曲中点/差异配对检索、224KV、S1/S2细节与边界监督，骨干学习率倍率0.1。每epoch仍在test选模，非独立测试。
+源码基线`0f714f5`，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`：普通均值/对比双库、双曲中点/差异配对检索、224KV、细两层边界细节。普通k_contrast/v_contrast权重WD0；骨干LR倍率0.1，其余训练设置见README。
 
-模型、几何、任务梯度、部署、LR分组、数据同步与边界标签检查已通过。正式启动前执行LEVIR/SYSU两模块短训及SYSU CTRL骨干LR倍率12epoch对照。正式队列尚未启动，禁止重复启动。两卡按实测显存补位，优先LEVIR→SYSU→WHU→CDD；正式模型不使用任何探针权重。
+LEVIR普通8epoch、双曲3epoch，SYSU两版各4epoch健康探针全部通过；数值、任务梯度、对比投影与检索正常。CTRL骨干倍率1/0.1的12epoch对照已完成，采用0.1；短训不证明长期泛化改善。
 
-源码与脚本：`models/`、`train_scripts/CASA-Pyramid/Run3/`；服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。历史指标185条，Run3没有正式结果，12项齐全后应197条。
+正式队列2026-10-26 02:57:17 CST启动，初始supervisor PID1376272。GPU0运行LEVIR H(1376274)、SYSU E(1376366)；GPU1运行LEVIR E(1376300)、LEVIR CTRL(1376333)、SYSU CTRL(1376397)，以实时pipeline_status.json为准。优先LEVIR→SYSU→WHU→CDD，共12项，两卡按容量补位，不重复启动。
+
+本轮日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。正式训练使用全新预训练初始化，不使用探针权重。运行源码、manifest、环境已归档。未完成记录保存在日志与checkpoint根的`archive/20261026_024558`，不作为正式指标。
+
+初期观察截至2026-10-26T03:02:17+08:00，首批5项均完成至少3轮，损失下降、诊断有限，无数值或进程错误。详细记录见Run3 README与startup_health.json。
+
+指标表185条历史记录保持不变，Run3正式结果0/12。没有本轮自动化任务。模型和训练源码保持运行版本，最新授权仅要求完成启动与初期观察。
 
 ## CASA-Pyramid / Run2 已完成
 

@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run3**，协议`casa_pyramid_40k_pairbanks_lr01_v3`。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run3**，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`。
 
 ## 项目定位与研究原则
 
@@ -60,7 +60,7 @@
 | 时相交换 | 训练以0.5概率交换A/B；标签保持对应空间位置 |
 | 光度增强 / 评估增强 | 无独立时相颜色扰动；评估无随机增强、无TTA |
 | 优化器 | Adam，骨干lr5e-5、新层5e-4，betas(.9,.99)，eps1e-8 |
-| Weight decay | context卷积/线性weight为1e-4，其余context为0；网络其余为1e-4 |
+| Weight decay | 普通对比K/V weight为0；其余context卷积/线性weight为1e-4，其他context为0；网络其余为1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，保留骨干0.1倍率；40K按完整epoch上取整 |
 | 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
 | 评分损失 | 四尺度面积平均标签的BCEWithLogits求和×0.2，三组一致 |
@@ -85,7 +85,22 @@
 
 <!-- CASA_PYRAMID_RUN3_RESULTS_START -->
 
-状态：启动前检查；正式结果0/12。指标表保留185条历史记录。
+状态更新：2026-10-26 03:02:34 CST；队列 `running`；正式结果 **0/12**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M0_CTRL` | 训练中：1110/40182 | — | — |
+| LEVIR | `M1_HYPER_QKV` | 训练中：1000/40182 | — | — |
+| LEVIR | `M2_CA_QKV` | 训练中：1200/40182 | — | — |
+| SYSU | `M0_CTRL` | 训练中：1125/40125 | — | — |
+| SYSU | `M1_HYPER_QKV` | 待启动 | — | — |
+| SYSU | `M2_CA_QKV` | 训练中：1125/40125 | — | — |
+| WHU | `M0_CTRL` | 待启动 | — | — |
+| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
+| WHU | `M2_CA_QKV` | 待启动 | — | — |
+| CDD | `M0_CTRL` | 待启动 | — | — |
+| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
+| CDD | `M2_CA_QKV` | 待启动 | — | — |
 
 <!-- CASA_PYRAMID_RUN3_RESULTS_END -->
 
@@ -97,15 +112,17 @@ python tools/export_training_records.py --tag CASA-Pyramid --run Run3
 
 日志与源码归档：`outputs/CASA-Pyramid/Run3`；服务器同名日志目录，checkpoint在`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。
 
+源码基线`0f714f5`，正式队列于2026-10-26 02:57:17 CST启动。LEVIR普通8epoch、双曲3epoch及SYSU两版各4epoch健康短训通过，分支及任务梯度有效；普通对比K/V采用WD0。SYSU CTRL的12epoch骨干学习率对照中，倍率0.1/1.0最佳val F1为80.5987/80.0503%，后四轮平均79.2011/79.1474%；采用0.1作为共同协议，短训不证明长期泛化已解决。
+
 ## Run3 实测开销
 
 RTX5090，256×256、FP32；训练batch32测6步，前2步预热。部署为折叠后单输出predict、batch1、30预热/100同步计时，随机权重。cuDNN TF32开、matmul TF32关。FLOPs只统计支持的卷积和矩阵乘；双曲逐元素几何与直接距离运算未完整计入。
 
 | 变体 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
 |---|---:|---:|---:|---:|
-| none | 8202 | 54.52 | 3.69 | 1.735 |
-| hyperbolic | 14870 | 148.15 | 8.67 | 2.037 |
-| qkv | 9446 | 69.42 | 5.95 | 2.136 |
+| none | 8202 | 54.51 | 3.69 | 1.735 |
+| hyperbolic | 14870 | 148.28 | 8.67 | 2.037 |
+| qkv | 9426 | 69.72 | 5.95 | 2.136 |
 
 双曲版以更高的实际计算开销换取成对几何表示；参数少于普通版，但推理更慢。是否值得由同轮精度与开销共同判断。
 

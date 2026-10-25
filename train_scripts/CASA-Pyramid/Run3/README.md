@@ -1,6 +1,6 @@
 # CASA-Pyramid / Run3
 
-协议 `casa_pyramid_40k_pairbanks_lr01_v3`。四库各CTRL、双曲H、普通E，共12项；LEVIR→SYSU→WHU→CDD优先，两张RTX5090按实测峰值与1GiB留量并行补位。设计依据见[Run3设计文档](../../../docs/temporary/CASA-Pyramid_Run3_design.md)。
+协议 `casa_pyramid_40k_pairbanks_contrastwd0_v3`。四库各CTRL、双曲H、普通E，共12项；LEVIR→SYSU→WHU→CDD优先，两张RTX5090按实测峰值与1GiB留量并行补位。设计依据见[Run3设计文档](../../../docs/temporary/CASA-Pyramid_Run3_design.md)。
 
 ## 模块
 
@@ -11,17 +11,23 @@
 - 固定3×3二项式滤波，reflect padding，不降采样。context gamma4个、detail gamma2个均零初始化，投影正常初始化。
 - CTRL保留LN/guide和S1/S2共享边界头，使用相同辅助损失；不含成对投影与检索。CTRL边界头为64→1，两模块边界头为128→1。
 
+## 设计诊断
+
+固定SYSU val前256张的旧Run2检查：CTRL/普通/双曲F1分别87.60/87.03/87.53%，内部Recall89.72/85.57/85.07%，边界F1@1px31.27/37.47/36.65%。旧模块已改善边界，内部召回仍弱于CTRL；去掉可靠度先验没有改善该子集，关闭context则下降约1.5～1.6个百分点。设计动机是分开保留共同上下文与成对差异，不能将去先验单项称为已验证改进。数据与样例在`outputs/CASA-Pyramid/Run3/analysis`。
+
+子集采用固定顺序，面积1～64/65～256/257～1024/>1024的变化连通域数量分别6/10/49/257；最小目标样本少，不能据此推断完整四库的细目标表现。诊断不计正式指标。
+
 ## 共同训练协议
 
 RGB256、batch32、seed2333，MobileNetV2预训练全新初始化。40K按整epoch上取整，LEVIR/SYSU/WHU/CDD为181/107/217/129轮。每epoch在test以最高F1选best，再在同一test复测；test参与选模，非独立盲测。
 
-Adam betas(.9,.99)、eps1e-8；骨干lr5e-5，新层lr5e-4，每步warmup/poly保留0.1倍率。context卷积/线性weight及主体WD1e-4，其余context参数WD0。四级BCEWithLogits+Dice主损失；四级guide BCE权重0.2；S1/S2边界BCEWithLogits+Dice权重0.05。边界标签取原mask3×3膨胀减腐蚀，replicate padding，再maxpool到对应feature范围。
+Adam betas(.9,.99)、eps1e-8；骨干lr5e-5，新层lr5e-4，每步warmup/poly保留0.1倍率。普通对比K/V weight设WD0；其余context卷积/线性weight及主体WD1e-4，其他context参数WD0。四级BCEWithLogits+Dice主损失；四级guide BCE权重0.2；S1/S2边界BCEWithLogits+Dice权重0.05。边界标签取原mask3×3膨胀减腐蚀，replicate padding，再maxpool到对应feature范围。
 
 沿用RGB ImageNet归一化；同步裁剪、HV翻转、90度旋转和时相交换。无新增光度扰动。FP32，AMP关、cuDNN TF32开、matmul TF32关；部署验证strict_fp32_fold_v1。
 
 ## 验证与启动
 
-`validate.sh`检查几何恒等式与梯度、双库与配对压缩、局部通路、模型接口/部署、优化器倍率、边界标签和数据同步，再测batch32显存。`probe.sh`执行LEVIR各3轮、SYSU各4轮两模块短训，及SYSU CTRL骨干倍率1/0.1的12轮val对照；均从预训练新初始化，探针不计正式指标。短训比较不能证明完整40K的后期泛化。
+`validate.sh`检查几何恒等式与梯度、双库与配对压缩、局部通路、模型接口/部署、优化器倍率、边界标签和数据同步，再测batch32显存。`probe.sh`执行LEVIR双曲3轮、普通8轮和SYSU两版各4轮短训。SYSU CTRL骨干倍率1/0.1的12轮val对照已完成；均从预训练新初始化，探针不计正式指标。短训比较不能证明完整40K的后期泛化。
 
 ```bash
 bash train_scripts/CASA-Pyramid/Run3/validate.sh
@@ -37,9 +43,9 @@ RTX5090，256×256、FP32；训练batch32测6步，前2步预热。部署为折�
 
 | 变体 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
 |---|---:|---:|---:|---:|
-| none | 8202 | 54.52 | 3.69 | 1.735 |
-| hyperbolic | 14870 | 148.15 | 8.67 | 2.037 |
-| qkv | 9446 | 69.42 | 5.95 | 2.136 |
+| none | 8202 | 54.51 | 3.69 | 1.735 |
+| hyperbolic | 14870 | 148.28 | 8.67 | 2.037 |
+| qkv | 9426 | 69.72 | 5.95 | 2.136 |
 
 双曲版以更高的实际计算开销换取成对几何表示；参数少于普通版，但推理更慢。是否值得由同轮精度与开销共同判断。
 
@@ -52,3 +58,69 @@ python .codex/status.py --tag CASA-Pyramid --run Run3
 python train_scripts/CASA-Pyramid/Run3/collect_results.py
 python tools/models_to_txt.py --tag CASA-Pyramid --run current
 ```
+
+## 启动检查记录
+
+几何恒等式与FP32/FP64梯度、相同输入、时相表示对称、双库与配对压缩、任务梯度、LR倍率、对比投影免衰减及数据变换检查通过。三组未训练模型的strict FP32部署折叠首级最大差为5.96e-8，二值差为0。
+
+普通版的对比K/V采用WD0，避免弱梯度阶段的耦合衰减把对比投影压向零。均值库、其他投影及H/CTRL优化器设置保持固定。健康检查记录投影权重RMS、两库读出RMS及主任务梯度，并对LEVIR普通版观察8个完整epoch。
+
+### 骨干学习率短训对照
+
+SYSU CTRL从相同初始化、seed及增强开始，比较骨干LR倍率1.0与0.1，各12epoch/4500步，评估使用val。两组均通过数值检查。
+
+| val指标 (%) | 倍率1.0 | 倍率0.1 |
+|---|---:|---:|
+| 最佳F1（均第8轮） | 80.0503 | 80.5987 |
+| 末轮F1 | 79.3846 | 80.2468 |
+| 后四轮平均F1 | 79.1474 | 79.2011 |
+| 末轮内部Recall | 75.9526 | 79.0679 |
+| 末轮Boundary F1@1px | 24.2549 | 25.0307 |
+| 末轮Precision | 85.8453 | 83.9450 |
+
+采用0.1作为本轮共同设置。短训呈现召回/精度取舍，后四轮平均F1差距很小；不能据12轮单seed证明四库后期泛化已改善。完整记录位于本轮`probes/sysu_ctrl_lr{1,01}`与`analysis/lr_comparison.json`。
+
+### 健康短训
+
+所有短训使用train/val，正式训练从预训练重新初始化。
+
+| 数据集 | 模块 | epoch / step | 末轮主损失 | guide损失 | boundary损失 | val F1 (%) | 状态 |
+|---|---|---:|---:|---:|---:|---:|---|
+| LEVIR | hyperbolic | 3 / 666 | 1.2574 | 0.4111 | 1.6348 | 83.673 | 通过 |
+| LEVIR | qkv | 8 / 1776 | 0.9999 | 0.3323 | 1.3422 | 87.357 | 通过 |
+| SYSU | hyperbolic | 4 / 1500 | 1.4872 | 1.1130 | 2.0173 | 78.887 | 通过 |
+| SYSU | qkv | 4 / 1500 | 1.4820 | 1.1209 | 2.0209 | 78.417 | 通过 |
+
+LEVIR普通版第8轮的对比K/V权重RMS为0.1213/0.1023，四层对比检索的query attention TV为0.1877～0.2661、读出RMS为1.0037～1.2146，任务梯度有限且非零。均值库和对比库均参与学习。对应数据见`analysis/contrast_wd_comparison.json`。
+
+### 正式启动
+
+2026-10-26 02:57:17 CST启动，源码基线`0f714f5`，supervisor PID1376272。12项从MobileNetV2预训练全新初始化；两卡按容量运行5项，空闲后自动补位。
+
+| GPU | 首批实验 | PID |
+|---|---|---:|
+| 0 | LEVIR M1_HYPER_QKV | 1376274 |
+| 0 | SYSU M2_CA_QKV | 1376366 |
+| 1 | LEVIR M2_CA_QKV | 1376300 |
+| 1 | LEVIR M0_CTRL | 1376333 |
+| 1 | SYSU M0_CTRL | 1376397 |
+
+实际调度预留H/E/CTRL为15774/10508/8922MiB，GPU0/1预算30914/31072MiB，保留额外1GiB。运行源码、环境、短训与显存记录已保存在本轮日志根目录。实时状态见`.codex/STATE.md`。
+
+### 正式初期观察
+
+观察时间：2026-10-26T03:02:17+08:00。首批5项均完成至少3个epoch，主损失下降；无NaN、OOM或异常退出，模块诊断均为有限值。
+
+| 实验 | 已完成epoch | 首个记录主损失 | 最新主损失 |
+|---|---:|---:|---:|
+| M1_HYPER_QKV/LEVIR-CD-256 | 4 | 2.2786 | 1.1576 |
+| M2_CA_QKV/LEVIR-CD-256 | 5 | 2.2768 | 1.1002 |
+| M0_CTRL/LEVIR-CD-256 | 5 | 2.2813 | 1.1098 |
+| M2_CA_QKV/SYSU-CD-256 | 3 | 2.5632 | 1.6530 |
+| M0_CTRL/SYSU-CD-256 | 3 | 2.5672 | 1.6940 |
+
+普通对比库投影、检索差异和读出幅度保持有效；双曲四层上下文及局部残差持续参与学习。检查数据见`startup_health.json`，完整日志保存在本轮outputs。队列继续执行剩余实验。
+
+## 已知限制
+
+双曲短训在LEVIR/SYSU最粗层分别约57.3%/33.7%的成对特征触发切空间截断，会限制该层半径自由度；对应半径CV为0.207/0.227，检索和任务梯度仍有效，未呈现分支失活。双曲版的参数较少，但实际推理慢于普通版。短训检查只验证初期优化与数值行为，最终精度以完整12项结果为准。
