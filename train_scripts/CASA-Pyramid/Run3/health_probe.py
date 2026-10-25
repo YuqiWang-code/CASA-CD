@@ -13,7 +13,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "models"))
 from train_CASA import (PROTOCOL, DATA_PROTOCOL, learning_rate, update_learning_rate,
-                        loss_function, training_losses, make_loader, make_optimizer, evaluate)
+                        loss_function, training_losses, make_loader, make_optimizer, evaluate, NO_DECAY_PROJECTIONS)
 from model.casa_net import CASANet
 
 
@@ -42,6 +42,10 @@ def inspect(model, image, target):
     for index, (context, update) in enumerate(captured):
         report[f"stage{index+1}"].update(
             branch_rms=rms(update), context_rms=rms(context), task_context_grad_rms=rms(context.grad))
+        if model.module == "qkv":
+            report[f"stage{index+1}"].update(mean_content_rms=rms(context[:, :32]),
+                contrast_content_rms=rms(context[:, 32:]), mean_content_task_grad_rms=rms(context.grad[:, :32]),
+                contrast_content_task_grad_rms=rms(context.grad[:, 32:]))
     gradients = {n: rms(p.grad) if p.grad is not None else 0.0
                  for n, p in model.context.named_parameters()}
     if not all(math.isfinite(x) for x in gradients.values()):
@@ -56,7 +60,8 @@ def inspect(model, image, target):
             if not stage["finite"] or stage["task_context_grad_rms"] <= 0:
                 raise RuntimeError("inactive pyramid stage")
     model.zero_grad(set_to_none=True)
-    return dict(stages=report, task_grad_rms=gradients, guide_grad_rms=rms(guide_gradient),
+    return dict(stages=report, task_grad_rms=gradients,
+                projection_weight_rms={n: rms(p) for n, p in model.context.named_parameters() if p.ndim >= 2}, guide_grad_rms=rms(guide_gradient),
                 edge_grad_rms=rms(edge_gradient), sample_main_loss=float(main.detach()),
                 sample_guide_loss=float(guide.detach()), sample_boundary_loss=float(boundary.detach()))
 
@@ -80,6 +85,7 @@ def main():
     train = make_loader(dataset, 'train', 32, 1)
     validation = make_loader(dataset, 'val', 2, 0)
     model = CASANet(str(ROOT / 'pretrained_weight/mobilenet_v2-b0353104.pth'), args.module).cuda()
+    initial_weights = {n: rms(p) for n, p in model.context.named_parameters() if p.ndim >= 2}
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     with torch.random.fork_rng(devices=[]):
         image, target = next(iter(validation))
@@ -88,6 +94,7 @@ def main():
     manifest = dict(protocol=PROTOCOL, module=args.module, dataset=args.dataset,
                     epochs=args.epochs, batch_size=32, scheduler_total=total, guide_weight=0.2,
                     boundary_weight=0.05, encoder_lr_mult=args.encoder_lr_mult, evaluation_split="val",
+                    no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS], initial_projection_weight_rms=initial_weights,
                     preprocessing=DATA_PROTOCOL, seed=2333,
                     grid_sizes=list(model.context.grid_sizes),
                     contexts_per_scale=list(model.context.tokens_per_scale),

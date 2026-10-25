@@ -8,7 +8,7 @@ from torch import nn
 
 from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
                         rng_state, strict_fold_precision, update_learning_rate,
-                        learning_rate, context_decay_names)
+                        learning_rate, context_decay_names, NO_DECAY_PROJECTIONS)
 
 
 class SmallModel(nn.Module):
@@ -18,13 +18,16 @@ class SmallModel(nn.Module):
         self.encoder = nn.Linear(3, 3)
         self.body = nn.Linear(3, 3)
         self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
+                                      "k_contrast": nn.Linear(3, 3, bias=False),
+                                      "v_contrast": nn.Linear(3, 3, bias=False),
                                       "v": nn.Linear(3, 3, bias=False),
                                       "out": nn.Linear(3, 3, bias=False),
                                       "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
         x = self.encoder(x)
-        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)
+                                   + self.context["k_contrast"](x) + self.context["v_contrast"](x)) + self.context["guide"](x)
 
 
 def step(model, optimizer):
@@ -52,6 +55,10 @@ def main():
         expected_decay = 0.0 if name.startswith("context.") and name not in decay_names else 1e-4
         assert decay[id(parameter)] == expected_decay
         assert scales[id(parameter)] == (0.1 if name.startswith("encoder.") else 1.0)
+        if name in NO_DECAY_PROJECTIONS:
+            assert decay[id(parameter)] == 0.0
+        elif name.endswith('.weight'):
+            assert decay[id(parameter)] == 1e-4
     for count in (0, 185, 199, 200, 20000, 39999):
         rate = learning_rate(5e-4, 1, count, 40000)
         update_learning_rate(optimizer, rate)

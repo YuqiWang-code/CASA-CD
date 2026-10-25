@@ -94,6 +94,12 @@ class PairedEuclideanContext(nn.Module):
                     diag = residual_diagnostics(original, update, local, self.gamma_context[index], detail_gamma)
                     diag.update(queries=height * width, contexts=mean.shape[1] + contrast.shape[1],
                                 contexts_per_bank=mean.shape[1], guide_mean=float(guide[index].sigmoid().mean()),
+                                mean_content_rms=float(content[0].square().mean().sqrt()),
+                                contrast_content_rms=float(content[1].square().mean().sqrt()),
+                                k_mean_weight_rms=float(self.k_mean.weight.square().mean().sqrt()),
+                                k_contrast_weight_rms=float(self.k_contrast.weight.square().mean().sqrt()),
+                                v_mean_weight_rms=float(self.v_mean.weight.square().mean().sqrt()),
+                                v_contrast_weight_rms=float(self.v_contrast.weight.square().mean().sqrt()),
                                 dense_difference_rms=float(difference.square().mean().sqrt()),
                                 mean_prototype_rms=float(prototypes[index][0].square().mean().sqrt()),
                                 contrast_prototype_rms=float(prototypes[index][1].square().mean().sqrt()))

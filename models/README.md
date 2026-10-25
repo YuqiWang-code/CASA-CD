@@ -2,7 +2,7 @@
 
 共享MobileNetV2原生四尺度（24/32/96/320通道）→ TAR时相融合至64通道 → 配对跨尺度上下文 → DCR → 共享预测头。context同时接收四层A/B编码特征和TAR输出；骨干结束于320通道，不使用HFEA。训练四级深监督，`predict()`输出最终一级变化概率。
 
-当前工作源码对应Run3，协议`casa_pyramid_40k_pairbanks_lr01_v3`，脚本位于`train_scripts/CASA-Pyramid/Run3/`。设计依据见[Run3设计文档](../docs/temporary/CASA-Pyramid_Run3_design.md)。各历史冻结快照保留对应轮次的实现。
+当前工作源码对应Run3，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`，脚本位于`train_scripts/CASA-Pyramid/Run3/`。设计依据见[Run3设计文档](../docs/temporary/CASA-Pyramid_Run3_design.md)。各历史冻结快照保留对应轮次的实现。
 
 ## 共同输入与压缩规模
 
@@ -74,7 +74,7 @@ S1/S2采用`H=|v−blur(v)|`，边界头输入`[X,u,H]`，细节残差为`gamma_
 - 主损失为四级BCEWithLogits＋Dice求和；guide为面积平均标签BCE，权重0.2；边界为BCE＋Dice，权重0.05。边界标签为原始mask的3×3膨胀减腐蚀，外侧replicate，再以max pooling得到细两层边界占据标签。
 - CTRL保留共享LayerNorm、guide及65参数边界头，TAR直接进入DCR。三组使用同样的辅助目标与损失系数；CTRL边界输入为64通道TAR归一化特征，模块版为128通道配对表示。
 - 256×256、batch32、seed2333、40K取整到完整epoch。Adam betas(0.9,0.99)、eps1e-8；新层基础LR5e-4，预训练骨干LR5e-5。全局前200步warmup、poly指数0.9；每步保留骨干`lr_scale=0.1`。
-- context内Conv2d/Linear权重WD1e-4，LayerNorm、bias、温度、gamma与尺度偏置WD0；网络其余参数WD1e-4。FP32训练，AMP关闭。
+- 普通模块的`context.k_contrast.weight`与`context.v_contrast.weight`采用WD0；context内其余Conv2d/Linear权重WD1e-4，LayerNorm、bias、温度、gamma与尺度偏置WD0；网络其余参数WD1e-4。FP32训练，AMP关闭。
 - 每epoch用`test.txt`的最高F1选模（相同更新），结束后复测best；结果明确为test参与选模，非独立盲测。方案诊断优先使用train/val材料。
 
 ## 数据预处理与增强
@@ -93,4 +93,4 @@ RGB图像双线性缩放至256×256，标签最近邻、灰度≥128二值化。
 
 参数按当前结构统计；训练峰值显存及步耗时由`profile_CASA.py`测量，折叠单输出延迟由`tools/benchmark_casa.py`测量，Run2效率数值不能代替Run3实测。
 
-诊断分别记录context/local残差RMS、guide与边界输出、均值/对比库注意力、来源尺度质量和query差异。双曲另记录中点/差异logit贡献、半径CV、裁剪比例、压缩前后差异幅度。每轮诊断取评价首个batch，结合任务梯度和全split边界/内部指标判断状态。
+诊断分别记录context/local残差RMS、guide与边界输出、均值/对比库注意力、来源尺度质量和query差异。普通模块还记录两库读出内容RMS，以及`k_mean/k_contrast/v_mean/v_contrast`权重RMS，观察对比检索与内容是否保持有效幅度。双曲另记录中点/差异logit贡献、半径CV、裁剪比例、压缩前后差异幅度。每轮诊断取评价首个batch，结合任务梯度和全split边界/内部指标判断状态。

@@ -13,42 +13,26 @@ export LD_LIBRARY_PATH=/home/yqwang/miniforge3/envs/casacd/lib/python3.10/site-p
 export OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 cd "$REPO"
-worker() {
-  local MODE=$1 GPU=$2 DATASET EPOCHS NAME DIR
-  for spec in 'LEVIR-CD-256 3' 'SYSU-CD-256 4'; do
-    read -r DATASET EPOCHS <<< "$spec"
-    NAME="${DATASET%%-*}"
-    NAME="${NAME,,}_$MODE"
-    DIR="$OUT/probes/$NAME"
-    mkdir -p "$DIR"
-    CUDA_VISIBLE_DEVICES="$GPU" python "$REPO/train_scripts/CASA-Pyramid/Run3/health_probe.py"       --module "$MODE" --dataset "$DATASET" --epochs "$EPOCHS" --output-dir "$DIR"       > "$DIR/probe.log" 2>&1 &
-    local PID=$!
-    echo "$PID" > "$DIR/probe.pid"
-    echo "probe=$NAME pid=$PID gpu=$GPU"
-    wait "$PID" || return $?
-  done
-}
-lr_probe() {
-  local MULT=$1 GPU=$2 NAME=$3 DIR="$OUT/probes/$3"
+probe() {
+  local MODE=$1 GPU=$2 DATASET=$3 EPOCHS=$4 NAME=$5 DIR="$OUT/probes/$5"
   mkdir -p "$DIR"
   CUDA_VISIBLE_DEVICES="$GPU" python "$REPO/train_scripts/CASA-Pyramid/Run3/health_probe.py" \
-    --module none --dataset SYSU-CD-256 --epochs 12 --encoder-lr-mult "$MULT" \
-    --validation-every-epoch --output-dir "$DIR" > "$DIR/probe.log" 2>&1 &
+    --module "$MODE" --dataset "$DATASET" --epochs "$EPOCHS" --output-dir "$DIR" > "$DIR/probe.log" 2>&1 &
   local PID=$!
   echo "$PID" > "$DIR/probe.pid"
   echo "probe=$NAME pid=$PID gpu=$GPU"
   wait "$PID"
 }
-lr_probe 1.0 0 sysu_ctrl_lr1 &
-LR1=$!
-lr_probe 0.1 1 sysu_ctrl_lr01 &
-LR01=$!
-worker hyperbolic 0 &
-HYPER=$!
-worker qkv 1 &
-EUCLIDEAN=$!
-wait "$HYPER"
-wait "$EUCLIDEAN"
-wait "$LR1"
-wait "$LR01"
+probe hyperbolic 0 LEVIR-CD-256 3 levir_hyperbolic &
+H_LEVIR=$!
+probe qkv 0 SYSU-CD-256 4 sysu_qkv &
+E_SYSU=$!
+probe qkv 1 LEVIR-CD-256 8 levir_qkv &
+E_LEVIR=$!
+probe hyperbolic 1 SYSU-CD-256 4 sysu_hyperbolic &
+H_SYSU=$!
+wait "$H_LEVIR"
+wait "$E_SYSU"
+wait "$E_LEVIR"
+wait "$H_SYSU"
 echo '[ALL-PROBES-PASS]'

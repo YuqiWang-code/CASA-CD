@@ -17,12 +17,13 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_pairbanks_lr01_v3"
+PROTOCOL = "casa_pyramid_40k_pairbanks_contrastwd0_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
 GUIDE_WEIGHT = 0.2
 BOUNDARY_WEIGHT = 0.05
+NO_DECAY_PROJECTIONS = {"context.k_contrast.weight", "context.v_contrast.weight"}
 DATA_PROTOCOL = dict(
     color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
     mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
@@ -152,7 +153,8 @@ def learning_rate(base, epoch, step, total):
 
 def context_decay_names(model):
     return {f"{name}.weight" for name, layer in model.named_modules()
-            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))}
+            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))
+            and f"{name}.weight" not in NO_DECAY_PROJECTIONS}
 
 
 def make_optimizer(model, encoder_lr_mult=0.1):
@@ -291,6 +293,7 @@ def main():
                     weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
                     context_projection_decay_parameters=[n for n, _ in model.named_parameters()
                                                          if n in context_decay_names(model)],
+                    no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                     optimizer_groups=[dict(name=g["group_name"], lr_scale=g["lr_scale"],
                                            weight_decay=g["weight_decay"], lr=g["lr"])
                                       for g in optimizer.param_groups],

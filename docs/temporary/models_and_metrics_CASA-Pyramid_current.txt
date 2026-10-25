@@ -22,7 +22,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, NO_DECAY_PROJECTIONS, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -73,6 +73,7 @@ def main():
                       joint_contexts=sum(model.context.tokens_per_scale),
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                       context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                      no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                       peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
                       context_overhead_mib=context_mib, process_memory_mib=process_mib,
@@ -177,7 +178,7 @@ from torch import nn
 
 from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
                         rng_state, strict_fold_precision, update_learning_rate,
-                        learning_rate, context_decay_names)
+                        learning_rate, context_decay_names, NO_DECAY_PROJECTIONS)
 
 
 class SmallModel(nn.Module):
@@ -187,13 +188,16 @@ class SmallModel(nn.Module):
         self.encoder = nn.Linear(3, 3)
         self.body = nn.Linear(3, 3)
         self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
+                                      "k_contrast": nn.Linear(3, 3, bias=False),
+                                      "v_contrast": nn.Linear(3, 3, bias=False),
                                       "v": nn.Linear(3, 3, bias=False),
                                       "out": nn.Linear(3, 3, bias=False),
                                       "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
         x = self.encoder(x)
-        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)
+                                   + self.context["k_contrast"](x) + self.context["v_contrast"](x)) + self.context["guide"](x)
 
 
 def step(model, optimizer):
@@ -221,6 +225,10 @@ def main():
         expected_decay = 0.0 if name.startswith("context.") and name not in decay_names else 1e-4
         assert decay[id(parameter)] == expected_decay
         assert scales[id(parameter)] == (0.1 if name.startswith("encoder.") else 1.0)
+        if name in NO_DECAY_PROJECTIONS:
+            assert decay[id(parameter)] == 0.0
+        elif name.endswith('.weight'):
+            assert decay[id(parameter)] == 1e-4
     for count in (0, 185, 199, 200, 20000, 39999):
         rate = learning_rate(5e-4, 1, count, 40000)
         update_learning_rate(optimizer, rate)
@@ -653,12 +661,13 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_pairbanks_lr01_v3"
+PROTOCOL = "casa_pyramid_40k_pairbanks_contrastwd0_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
 GUIDE_WEIGHT = 0.2
 BOUNDARY_WEIGHT = 0.05
+NO_DECAY_PROJECTIONS = {"context.k_contrast.weight", "context.v_contrast.weight"}
 DATA_PROTOCOL = dict(
     color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
     mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
@@ -788,7 +797,8 @@ def learning_rate(base, epoch, step, total):
 
 def context_decay_names(model):
     return {f"{name}.weight" for name, layer in model.named_modules()
-            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))}
+            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))
+            and f"{name}.weight" not in NO_DECAY_PROJECTIONS}
 
 
 def make_optimizer(model, encoder_lr_mult=0.1):
@@ -927,6 +937,7 @@ def main():
                     weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
                     context_projection_decay_parameters=[n for n, _ in model.named_parameters()
                                                          if n in context_decay_names(model)],
+                    no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                     optimizer_groups=[dict(name=g["group_name"], lr_scale=g["lr_scale"],
                                            weight_decay=g["weight_decay"], lr=g["lr"])
                                       for g in optimizer.param_groups],
@@ -2260,6 +2271,12 @@ class PairedEuclideanContext(nn.Module):
                     diag = residual_diagnostics(original, update, local, self.gamma_context[index], detail_gamma)
                     diag.update(queries=height * width, contexts=mean.shape[1] + contrast.shape[1],
                                 contexts_per_bank=mean.shape[1], guide_mean=float(guide[index].sigmoid().mean()),
+                                mean_content_rms=float(content[0].square().mean().sqrt()),
+                                contrast_content_rms=float(content[1].square().mean().sqrt()),
+                                k_mean_weight_rms=float(self.k_mean.weight.square().mean().sqrt()),
+                                k_contrast_weight_rms=float(self.k_contrast.weight.square().mean().sqrt()),
+                                v_mean_weight_rms=float(self.v_mean.weight.square().mean().sqrt()),
+                                v_contrast_weight_rms=float(self.v_contrast.weight.square().mean().sqrt()),
                                 dense_difference_rms=float(difference.square().mean().sqrt()),
                                 mean_prototype_rms=float(prototypes[index][0].square().mean().sqrt()),
                                 contrast_prototype_rms=float(prototypes[index][1].square().mean().sqrt()))

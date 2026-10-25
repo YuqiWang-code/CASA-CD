@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, NO_DECAY_PROJECTIONS, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -61,6 +61,7 @@ def main():
                       joint_contexts=sum(model.context.tokens_per_scale),
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                       context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                      no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                       peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
                       context_overhead_mib=context_mib, process_memory_mib=process_mib,

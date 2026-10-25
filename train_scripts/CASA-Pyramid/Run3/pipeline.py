@@ -10,7 +10,7 @@ ROOT = Path('/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3')
 HERE = Path(__file__).resolve().parent
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
 VARIANTS = {'M1_HYPER_QKV': 'hyperbolic', 'M2_CA_QKV': 'qkv', 'M0_CTRL': 'none'}
-PROTOCOL = 'casa_pyramid_40k_pairbanks_lr01_v3'
+PROTOCOL = 'casa_pyramid_40k_pairbanks_contrastwd0_v3'
 active = {}
 state = dict(status='running', protocol=PROTOCOL, completed=[], active={}, active_gpus={}, failed=[])
 
@@ -82,8 +82,10 @@ def main():
     config = json.loads((ROOT / 'scheduling.json').read_text())
     limits = {int(gpu): value for gpu, value in config['gpu_budget_mib'].items()}
     requirements = config['variant_reserved_mib']
-    for dataset, epochs, steps in (('LEVIR-CD-256', 3, 666), ('SYSU-CD-256', 4, 1500)):
+    for dataset in ('LEVIR-CD-256', 'SYSU-CD-256'):
         for mode in ('hyperbolic', 'qkv'):
+            epochs = (8 if mode == 'qkv' else 3) if dataset == 'LEVIR-CD-256' else 4
+            steps = epochs * (222 if dataset == 'LEVIR-CD-256' else 375)
             name = f"{dataset.split('-')[0].lower()}_{mode}"
             health = json.loads((ROOT / 'probes' / name / 'health_result.json').read_text())
             if (not health['passed'] or health['protocol'] != PROTOCOL or health['steps'] != steps
