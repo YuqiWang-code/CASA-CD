@@ -6,7 +6,7 @@
 
 协议`casa_pyramid_40k_relative_adamwctx_v4`。共享TAR Q/K、可靠性压缩、query相对内容回写，双曲版直接Lorentz坐标与平方测地距离。共同训练为全网lr5e-4、main+0.2guide、40K；test逐epoch选模。两卡授权持续有效，优先LEVIR→SYSU→WHU→CDD，共12项。
 
-模型/数学/梯度/部署/数据检查已通过，四项LEVIR/SYSU真实数据探针已启动，LEVIR各6epoch、SYSU各4epoch；探针不计正式指标。正式启动前须确认四项health_result通过、完成源码归档及显存调度配置，禁止重复启动。
+源码基线`eb3babe`。模型/数学/梯度/部署/数据检查及四项探针通过（LEVIR各6epoch、SYSU各4epoch）。正式队列2026-10-26 13:40:12 CST启动，supervisor PID 1497160；两卡首批5项，按实测显存自动补位。截至2026-10-26T13:45:44+08:00，首批均完成至少3轮、损失下降，无数值或进程错误。不得重复启动。源码、环境、scheduling及startup_health均已保存本地和服务器。
 
 日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run4`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run4`。唯一调度器`train_scripts/CASA-Pyramid/Run4/pipeline.py`。历史197条指标保持不变，本轮收齐后209条（另有新增全部保留）。当前没有本轮自动化。
 

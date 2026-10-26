@@ -47,3 +47,34 @@ python tools/models_to_txt.py --tag CASA-Pyramid --run current
 ```
 
 探针不计正式指标。本轮使用一个seed，test参与选模；完整结果与同轮CTRL比较，并结合实际推理时延评价精度和开销。
+
+## 真实数据短训结果
+
+train/val短训，epoch从1开始；不计正式指标。Q/K权重比为末轮RMS除以初始化RMS。
+
+| 数据集 | 模块 | epoch | 首轮→末轮主损失 | 末轮val F1 (%) | Q/K权重比 |
+|---|---|---:|---:|---:|---:|
+| LEVIR | hyperbolic | 6 | 1.9594 → 0.9810 | 85.85 | 0.987 |
+| LEVIR | qkv | 6 | 1.9635 → 0.9855 | 87.88 | 1.001 |
+| SYSU | hyperbolic | 4 | 2.4127 → 1.4956 | 79.31 | 1.033 |
+| SYSU | qkv | 4 | 2.4080 → 1.4874 | 79.87 | 1.018 |
+
+末轮query注意力TV为0.061～0.207，S1/S2局部残差相对TAR的RMS为2.9%～9.4%；两版投影、局部支路和主任务梯度保持有效。双曲平均半径0.63～0.94、CV为0.168～0.260；自尺度注意力约22%～37%，跨尺度检索正常。验证值有早期波动，短训仅支持初期优化与数值正常的判断。
+
+完整记录：本轮`probes/*/{run_manifest,health_history,health_result}.json`与`health_summary.json`。
+
+## 正式启动与初期观察
+
+源码基线`eb3babe`，正式队列于2026-10-26 13:40:12 CST启动；supervisor PID 1497160。四项短训通过：LEVIR H/E各6轮，SYSU H/E各4轮；正式实验均重新初始化。源码、配置与环境保存在本轮`source_code.tar.gz`、`source_manifest.json`和`environment.json`。
+
+截至2026-10-26T13:45:44+08:00，首批5项均完成至少3轮，主损失下降；无NaN、OOM或异常退出，模块诊断有限，Q/K投影、检索差异和局部分支保持学习。
+
+| 活跃实验 | GPU | 已完成epoch | 首轮→最新主损失 |
+|---|---:|---:|---:|
+| M1_HYPER_QKV/LEVIR-CD-256 | 0 | 5 | 1.9595 → 1.0319 |
+| M2_CA_QKV/LEVIR-CD-256 | 1 | 5 | 1.9613 → 1.0101 |
+| M0_CTRL/LEVIR-CD-256 | 1 | 5 | 1.9595 → 1.0138 |
+| M2_CA_QKV/SYSU-CD-256 | 0 | 3 | 2.4127 → 1.6612 |
+| M0_CTRL/SYSU-CD-256 | 1 | 3 | 2.4149 → 1.6666 |
+
+两卡容量与变体预留见`scheduling.json`，实际分配见各项`placement.json`。首期记录为`startup_health.json`，探针原始记录在`probes/`。初期数值与梯度正常不等于最终精度提升；四库净收益以同轮CTRL和完整测试结果判断。
