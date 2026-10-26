@@ -1,14 +1,25 @@
 # 当前状态
 
-更新：2026-10-26。
+更新：2026-10-27。
 
-## CASA-Pyramid / Run4
+## CASA-Pyramid / Run4 已完成
 
-协议`casa_pyramid_40k_relative_adamwctx_v4`。共享TAR Q/K、可靠性压缩、query相对内容回写，双曲版直接Lorentz坐标与平方测地距离。共同训练为全网lr5e-4、main+0.2guide、40K；test逐epoch选模。两卡授权持续有效，优先LEVIR→SYSU→WHU→CDD，共12项。
+Run4于2026-10-26 13:40:12 CST启动，2026-10-26 22:40:40 CST完成，历时9小时00分28秒。12/12项正式训练及测试完成，无失败；调度器已退出。全部部署折叠检查通过，最大绝对差3.815e-06，二值差均为0。
 
-源码基线`eb3babe`。模型/数学/梯度/部署/数据检查及四项探针通过（LEVIR各6epoch、SYSU各4epoch）。正式队列2026-10-26 13:40:12 CST启动，supervisor PID 1497160；两卡首批5项，按实测显存自动补位。截至2026-10-26T13:45:44+08:00，首批均完成至少3轮、损失下降，无数值或进程错误。不得重复启动。源码、环境、scheduling及startup_health均已保存本地和服务器。
+源码基线`eb3babe`，协议`casa_pyramid_40k_relative_adamwctx_v4`。共享TAR Q/K、可靠性压缩、相对回写和细层高通，双曲直接Lorentz坐标；context权重解耦衰减。全网lr5e-4、main+0.2guide、40K，test逐epoch选模。
 
-日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run4`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run4`。唯一调度器`train_scripts/CASA-Pyramid/Run4/pipeline.py`。历史197条指标保持不变，本轮收齐后209条（另有新增全部保留）。当前没有本轮自动化。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 90.9482 | 91.1166 | 91.1429 | +0.168 / +0.195 |
+| SYSU | 82.3165 | 82.7753 | 82.8930 | +0.459 / +0.576 |
+| WHU | 94.1891 | 94.6085 | 94.7247 | +0.419 / +0.536 |
+| CDD | 96.9150 | 96.9384 | 96.8998 | +0.023 / -0.015 |
+
+相对同轮CTRL，双曲/普通模块在LEVIR提高0.168/0.195个百分点，SYSU提高0.459/0.576个百分点，WHU提高0.419/0.536个百分点；CDD为+0.023/−0.015个百分点。两个模块在前三库均有收益，CDD基本持平；普通版在前三库略高于双曲版。SYSU普通版最佳epoch仍为3，后期泛化仍是薄弱项。本轮恢复共同学习率和损失设置，跨轮提升不能全部归因于模块；单seed及test参与选模的限制保持明确。
+
+125份日志与JSON已下载至`outputs/CASA-Pyramid/Run4`；指标表共209条正式记录，原197条历史记录逐单元格保留。Run4冻结TXT使用实际`source_code.tar.gz`中的源码，current TXT使用当前工作源码。完整日志、逐轮CSV、曲线及模块诊断已发布至`docs/experiments/CASA-Pyramid/Run4`。
+
+日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run4`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run4`。本轮队列已完成，本次核查两卡无活动训练进程；不重复启动。当前无本轮自动化。
 
 ## CASA-Pyramid / Run3 已完成
 

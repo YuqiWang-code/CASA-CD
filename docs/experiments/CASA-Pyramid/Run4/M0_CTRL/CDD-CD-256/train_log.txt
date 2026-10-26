@@ -1,0 +1,934 @@
+[PRETRAIN-LOAD] MobileNetV2 tensors=306 missing=0 unexpected=['classifier.1.weight', 'classifier.1.bias', 'features.18.0.weight', 'features.18.1.weight', 'features.18.1.bias', 'features.18.1.running_mean', 'features.18.1.running_var', 'features.18.1.num_batches_tracked']
+[PROTOCOL-VERSION] casa_pyramid_40k_relative_adamwctx_v4
+[CONFIG] {"protocol": "casa_pyramid_40k_relative_adamwctx_v4", "module": "none", "seed": 2333, "max_steps_requested": 40000, "actual_steps": 40248, "epochs": 129, "train_batches": 312, "batch_size": 32, "lr": 0.0005, "encoder_lr": 0.0005, "encoder_lr_mult": 1.0, "optimizer": "Adam(0.9,0.99),eps=1e-8", "weight_decay": 0.0001, "body_weight_decay_mode": "coupled_l2", "context_projection_weight_decay": 0.0001, "context_projection_weight_decay_mode": "decoupled", "context_other_weight_decay": 0.0, "context_projection_decay_parameters": ["context.guide.weight"], "optimizer_groups": [{"name": "encoder", "lr_scale": 1.0, "weight_decay": 0.0001, "lr": 0.0005, "decoupled_weight_decay": false}, {"name": "body_decay", "lr_scale": 1.0, "weight_decay": 0.0001, "lr": 0.0005, "decoupled_weight_decay": false}, {"name": "context_decay", "lr_scale": 1.0, "weight_decay": 0.0001, "lr": 0.0005, "decoupled_weight_decay": true}, {"name": "context_no_decay", "lr_scale": 1.0, "weight_decay": 0.0, "lr": 0.0005, "decoupled_weight_decay": false}], "selection": "best test F1 each epoch, ties update", "selection_split": "test", "independent_test": false, "evaluation_starts_at_epoch": 0, "preprocessing": {"color_order": "RGB", "input_size": [256, 256], "image_interpolation": "bilinear", "mask_interpolation": "nearest", "normalization_mean": [0.485, 0.456, 0.406], "normalization_std": [0.229, 0.224, 0.225], "label_threshold": 128, "train_crop_probability": 0.5, "train_crop_max_margin": 8, "horizontal_flip_probability": 0.5, "vertical_flip_probability": 0.5, "quarter_turns": [0, 1, 2, 3], "temporal_exchange_probability": 0.5, "independent_photometric_augmentation": false, "evaluation_augmentation": false}, "deep_supervision": 4, "label_threshold": 128, "context_grid_sizes": [8, 4, 4, 4], "context_prototypes_per_scale": [0, 0, 0, 0], "joint_contexts": 0, "qk_geometry": "none", "value_geometry": "euclidean", "qkv_dim": 64, "heads": 4, "guide_weight": 0.2, "query_key_head_dim": 16, "value_head_dim": 16, "shared_query_key_projection": true, "reliability_prior": "class posterior second moment / class mass", "context_readout": "attention @ values - query value", "context_gamma_shape": [4, 64], "local_gamma_shape": [2, 64], "local_scales": [1, 2], "local_detail": "depthwise3x3 + pointwise on X - avg3(X)", "source_files": ["models/dataset/casa_transforms.py", "models/dataset/dataset.py", "models/model/casa_net.py", "models/model/layers/__init__.py", "models/model/layers/euclidean_context.py", "models/model/layers/hyperbolic_context.py", "models/model/layers/lorentz_ops.py", "models/model/layers/pyramid_context.py", "models/model/metric_tool.py", "models/model/mobilenet_v2.py", "models/model/str_dcr.py", "models/model/str_reparam.py", "models/model/str_tar.py", "models/profile_CASA.py", "models/test_CASA.py", "models/test_CASA_resume.py", "models/test_context_geometry.py", "models/test_data_pipeline.py", "models/test_pyramid_context.py", "models/train_CASA.py"], "warmup_steps": 200, "evaluation_split": "test", "precision": {"input": "float32", "amp": false, "cudnn_tf32": true, "matmul_tf32": false, "cudnn_benchmark": true}, "context_values": "guide_only", "source_archive": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run4/source_code.tar.gz", "dataset": "/share_datasets/CD/CDD-CD-256", "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth", "deploy_verification": "strict_fp32_fold_v1"}
+[TOTAL-PARAMS] 2.047125 M
+[MAX-STEPS] requested=40000 actual=40248 epochs=129 train_batches=312
+[TRAIN] step=100/40248 loss=2.82060 lr=0.00027500 encoder_lr=0.00027500
+[TRAIN] step=200/40248 loss=1.82953 lr=0.00050000 encoder_lr=0.00050000
+[TRAIN] step=300/40248 loss=2.41872 lr=0.00049666 encoder_lr=0.00049666
+[ACTUAL-OPT-STEPS] epoch=0 executed=312 cumulative=312/40248
+[TRAIN-EPOCH] epoch=0 loss=2.683171 main=2.400147 guide=1.415120 lr=0.00049652 encoder_lr=0.00049652
+Epoch 0/129 | Loss=1.781740 | Recall=0.768928 | Precision=0.812456 | OA=0.949568 | F1=0.790093 | IoU=0.653019 | Kappa=0.761459 | t=72.6s
+[SPATIAL-DIAG] {"epoch": 0, "split": "test", "boundary_1px": {"precision": 0.2818615215290611, "recall": 0.14641021692303743, "F1": 0.19271599222717756, "predicted_pixels": 2055222, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.38987613016987943, "recall": 0.20828570187544546, "F1": 0.2715172351911702, "predicted_pixels": 2055222, "target_pixels": 4051944}, "interior": {"precision": 0.8444675177791843, "recall": 0.8418673596779337, "F1": 0.84316543413794, "predicted_pixels": 20463256, "target_pixels": 20526458, "tp": 17280555, "fp": 3182701, "fn": 3245903, "tn": 165124362}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=400/40248 loss=1.41923 lr=0.00049554 encoder_lr=0.00049554
+[TRAIN] step=500/40248 loss=1.59646 lr=0.00049442 encoder_lr=0.00049442
+[TRAIN] step=600/40248 loss=1.73574 lr=0.00049330 encoder_lr=0.00049330
+[ACTUAL-OPT-STEPS] epoch=1 executed=312 cumulative=624/40248
+[TRAIN-EPOCH] epoch=1 loss=1.834169 main=1.653457 guide=0.903559 lr=0.00049303 encoder_lr=0.00049303
+Epoch 1/129 | Loss=1.424269 | Recall=0.783624 | Precision=0.893635 | OA=0.961779 | F1=0.835022 | IoU=0.716770 | Kappa=0.813512 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 1, "split": "test", "boundary_1px": {"precision": 0.40170638354940513, "recall": 0.21111249316377523, "F1": 0.27677096569141857, "predicted_pixels": 2072922, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.5326915339795709, "recall": 0.28919229880768343, "F1": 0.3748711998495277, "predicted_pixels": 2072922, "target_pixels": 4051944}, "interior": {"precision": 0.9266307351290884, "recall": 0.864247207189862, "F1": 0.8943524357607799, "predicted_pixels": 19144556, "target_pixels": 20526458, "tp": 17739934, "fp": 1404622, "fn": 2786524, "tn": 166902441}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=700/40248 loss=2.28181 lr=0.00049218 encoder_lr=0.00049218
+[TRAIN] step=800/40248 loss=1.50495 lr=0.00049106 encoder_lr=0.00049106
+[TRAIN] step=900/40248 loss=1.71571 lr=0.00048994 encoder_lr=0.00048994
+[ACTUAL-OPT-STEPS] epoch=2 executed=312 cumulative=936/40248
+[TRAIN-EPOCH] epoch=2 loss=1.590904 main=1.427615 guide=0.816446 lr=0.00048953 encoder_lr=0.00048953
+Epoch 2/129 | Loss=1.253863 | Recall=0.819838 | Precision=0.899323 | OA=0.966433 | F1=0.857743 | IoU=0.750920 | Kappa=0.838761 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 2, "split": "test", "boundary_1px": {"precision": 0.47639668843034627, "recall": 0.26033429879583725, "F1": 0.33668299550727887, "predicted_pixels": 2154507, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.6159822177416922, "recall": 0.34753219689117126, "F1": 0.44436004303939036, "predicted_pixels": 2154507, "target_pixels": 4051944}, "interior": {"precision": 0.9379615780489832, "recall": 0.8934620381168539, "F1": 0.9151711879236358, "predicted_pixels": 19552625, "target_pixels": 20526458, "tp": 18339611, "fp": 1213014, "fn": 2186847, "tn": 167094049}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=1000/40248 loss=1.48456 lr=0.00048882 encoder_lr=0.00048882
+[TRAIN] step=1100/40248 loss=1.20638 lr=0.00048770 encoder_lr=0.00048770
+[TRAIN] step=1200/40248 loss=1.38539 lr=0.00048657 encoder_lr=0.00048657
+[ACTUAL-OPT-STEPS] epoch=3 executed=312 cumulative=1248/40248
+[TRAIN-EPOCH] epoch=3 loss=1.408064 main=1.254503 guide=0.767806 lr=0.00048604 encoder_lr=0.00048604
+Epoch 3/129 | Loss=1.122609 | Recall=0.847792 | Precision=0.903396 | OA=0.970022 | F1=0.874711 | IoU=0.777321 | Kappa=0.857704 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 3, "split": "test", "boundary_1px": {"precision": 0.5165811461840824, "recall": 0.32127467704390783, "F1": 0.3961646772778995, "predicted_pixels": 2448926, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.653328030328397, "recall": 0.41962598693367925, "F1": 0.5110254775271073, "predicted_pixels": 2448926, "target_pixels": 4051944}, "interior": {"precision": 0.9406672466803623, "recall": 0.9207861385534708, "F1": 0.9306205233022593, "predicted_pixels": 20092629, "target_pixels": 20526458, "tp": 18900478, "fp": 1192151, "fn": 1625980, "tn": 167114912}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=1300/40248 loss=1.46588 lr=0.00048545 encoder_lr=0.00048545
+[TRAIN] step=1400/40248 loss=1.72219 lr=0.00048433 encoder_lr=0.00048433
+[TRAIN] step=1500/40248 loss=1.42798 lr=0.00048321 encoder_lr=0.00048321
+[ACTUAL-OPT-STEPS] epoch=4 executed=312 cumulative=1560/40248
+[TRAIN-EPOCH] epoch=4 loss=1.302464 main=1.155224 guide=0.736200 lr=0.00048254 encoder_lr=0.00048254
+Epoch 4/129 | Loss=1.063135 | Recall=0.880753 | Precision=0.886617 | OA=0.971378 | F1=0.883675 | IoU=0.791594 | Kappa=0.867357 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 4, "split": "test", "boundary_1px": {"precision": 0.5256938173671517, "recall": 0.3737445532317327, "F1": 0.4368841875797419, "predicted_pixels": 2799584, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.6617804645261581, "recall": 0.48482111302624126, "F1": 0.559645386282285, "predicted_pixels": 2799584, "target_pixels": 4051944}, "interior": {"precision": 0.9291786384200657, "recall": 0.9440505517318185, "F1": 0.9365555596395109, "predicted_pixels": 20854993, "target_pixels": 20526458, "tp": 19378014, "fp": 1476979, "fn": 1148444, "tn": 166830084}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=1600/40248 loss=0.86785 lr=0.00048209 encoder_lr=0.00048209
+[TRAIN] step=1700/40248 loss=1.11991 lr=0.00048096 encoder_lr=0.00048096
+[TRAIN] step=1800/40248 loss=1.26348 lr=0.00047984 encoder_lr=0.00047984
+[ACTUAL-OPT-STEPS] epoch=5 executed=312 cumulative=1872/40248
+[TRAIN-EPOCH] epoch=5 loss=1.216423 main=1.074403 guide=0.710098 lr=0.00047903 encoder_lr=0.00047903
+Epoch 5/129 | Loss=1.008889 | Recall=0.887031 | Precision=0.891002 | OA=0.972661 | F1=0.889012 | IoU=0.800200 | Kappa=0.873423 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 5, "split": "test", "boundary_1px": {"precision": 0.5420687513125363, "recall": 0.3907674933315959, "F1": 0.4541479780185778, "predicted_pixels": 2833255, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.6793348992589795, "recall": 0.5058206628719449, "F1": 0.5798759927133733, "predicted_pixels": 2833255, "target_pixels": 4051944}, "interior": {"precision": 0.9355819017155064, "recall": 0.9471614635121169, "F1": 0.9413360733391016, "predicted_pixels": 20780511, "target_pixels": 20526458, "tp": 19441870, "fp": 1338641, "fn": 1084588, "tn": 166968422}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=1900/40248 loss=1.07995 lr=0.00047872 encoder_lr=0.00047872
+[TRAIN] step=2000/40248 loss=1.22181 lr=0.00047759 encoder_lr=0.00047759
+[TRAIN] step=2100/40248 loss=1.50778 lr=0.00047647 encoder_lr=0.00047647
+[ACTUAL-OPT-STEPS] epoch=6 executed=312 cumulative=2184/40248
+[TRAIN-EPOCH] epoch=6 loss=1.144385 main=1.006504 guide=0.689406 lr=0.00047553 encoder_lr=0.00047553
+Epoch 6/129 | Loss=0.970972 | Recall=0.876827 | Precision=0.913287 | OA=0.974520 | F1=0.894686 | IoU=0.809440 | Kappa=0.880199 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 6, "split": "test", "boundary_1px": {"precision": 0.5903220053274421, "recall": 0.4161967687608713, "F1": 0.48819777130985154, "predicted_pixels": 2781072, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.7292824493576577, "recall": 0.5297812605504914, "F1": 0.6137261717220576, "predicted_pixels": 2781072, "target_pixels": 4051944}, "interior": {"precision": 0.9542036267473543, "recall": 0.9423949811506691, "F1": 0.9482625423194693, "predicted_pixels": 20272435, "target_pixels": 20526458, "tp": 19344031, "fp": 928404, "fn": 1182427, "tn": 167378659}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=2200/40248 loss=0.89672 lr=0.00047535 encoder_lr=0.00047535
+[TRAIN] step=2300/40248 loss=1.00111 lr=0.00047422 encoder_lr=0.00047422
+[TRAIN] step=2400/40248 loss=0.82381 lr=0.00047310 encoder_lr=0.00047310
+[ACTUAL-OPT-STEPS] epoch=7 executed=312 cumulative=2496/40248
+[TRAIN-EPOCH] epoch=7 loss=1.078038 main=0.944226 guide=0.669061 lr=0.00047202 encoder_lr=0.00047202
+Epoch 7/129 | Loss=0.907420 | Recall=0.900703 | Precision=0.905745 | OA=0.976174 | F1=0.903217 | IoU=0.823514 | Kappa=0.889631 | t=66.5s
+[SPATIAL-DIAG] {"epoch": 7, "split": "test", "boundary_1px": {"precision": 0.6133337112546894, "recall": 0.43512718833231656, "F1": 0.5090856004125714, "predicted_pixels": 2787176, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.7498963108178314, "recall": 0.549759325400351, "F1": 0.6344180388507368, "predicted_pixels": 2787176, "target_pixels": 4051944}, "interior": {"precision": 0.9481762448706377, "recall": 0.9617058627455355, "F1": 0.9548931318554407, "predicted_pixels": 20819352, "target_pixels": 20526458, "tp": 19740415, "fp": 1078937, "fn": 786043, "tn": 167228126}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=2500/40248 loss=1.12851 lr=0.00047197 encoder_lr=0.00047197
+[TRAIN] step=2600/40248 loss=0.84312 lr=0.00047085 encoder_lr=0.00047085
+[TRAIN] step=2700/40248 loss=0.96569 lr=0.00046972 encoder_lr=0.00046972
+[TRAIN] step=2800/40248 loss=1.10860 lr=0.00046859 encoder_lr=0.00046859
+[ACTUAL-OPT-STEPS] epoch=8 executed=312 cumulative=2808/40248
+[TRAIN-EPOCH] epoch=8 loss=1.027802 main=0.896746 guide=0.655280 lr=0.00046850 encoder_lr=0.00046850
+Epoch 8/129 | Loss=0.875247 | Recall=0.883102 | Precision=0.932185 | OA=0.977641 | F1=0.906980 | IoU=0.829792 | Kappa=0.894284 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 8, "split": "test", "boundary_1px": {"precision": 0.6491766152034742, "recall": 0.4409673480186301, "F1": 0.5251887825088353, "predicted_pixels": 2663457, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.7873504246548753, "recall": 0.5551708019656738, "F1": 0.6511836952984089, "predicted_pixels": 2663457, "target_pixels": 4051944}, "interior": {"precision": 0.9685909253998873, "recall": 0.95256677990913, "F1": 0.9605120249188159, "predicted_pixels": 20186873, "target_pixels": 20526458, "tp": 19552822, "fp": 634051, "fn": 973636, "tn": 167673012}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=2900/40248 loss=0.99979 lr=0.00046747 encoder_lr=0.00046747
+[TRAIN] step=3000/40248 loss=0.92759 lr=0.00046634 encoder_lr=0.00046634
+[TRAIN] step=3100/40248 loss=0.90410 lr=0.00046521 encoder_lr=0.00046521
+[ACTUAL-OPT-STEPS] epoch=9 executed=312 cumulative=3120/40248
+[TRAIN-EPOCH] epoch=9 loss=0.996197 main=0.868191 guide=0.640028 lr=0.00046499 encoder_lr=0.00046499
+Epoch 9/129 | Loss=0.837807 | Recall=0.894799 | Precision=0.931549 | OA=0.978899 | F1=0.912804 | IoU=0.839595 | Kappa=0.900807 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 9, "split": "test", "boundary_1px": {"precision": 0.6670445060695301, "recall": 0.4747597696315645, "F1": 0.5547113507542583, "predicted_pixels": 2793956, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8029654010299375, "recall": 0.5904136384905616, "F1": 0.6804777602615052, "predicted_pixels": 2793956, "target_pixels": 4051944}, "interior": {"precision": 0.9710296167535309, "recall": 0.9589029924208063, "F1": 0.9649282061020175, "predicted_pixels": 20270115, "target_pixels": 20526458, "tp": 19682882, "fp": 587233, "fn": 843576, "tn": 167719830}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=3200/40248 loss=0.86170 lr=0.00046409 encoder_lr=0.00046409
+[TRAIN] step=3300/40248 loss=0.60261 lr=0.00046296 encoder_lr=0.00046296
+[TRAIN] step=3400/40248 loss=0.83936 lr=0.00046183 encoder_lr=0.00046183
+[ACTUAL-OPT-STEPS] epoch=10 executed=312 cumulative=3432/40248
+[TRAIN-EPOCH] epoch=10 loss=0.990610 main=0.863026 guide=0.637917 lr=0.00046147 encoder_lr=0.00046147
+Epoch 10/129 | Loss=0.853311 | Recall=0.905989 | Precision=0.916904 | OA=0.978261 | F1=0.911414 | IoU=0.837245 | Kappa=0.899024 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 10, "split": "test", "boundary_1px": {"precision": 0.6507220659092828, "recall": 0.48653189678830705, "F1": 0.5567745664440235, "predicted_pixels": 2937128, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.7842147158721037, "recall": 0.6066453534402252, "F1": 0.6840950056442046, "predicted_pixels": 2937128, "target_pixels": 4051944}, "interior": {"precision": 0.9579583406733375, "recall": 0.9656563251195116, "F1": 0.9617919298727351, "predicted_pixels": 20691405, "target_pixels": 20526458, "tp": 19821504, "fp": 869901, "fn": 704954, "tn": 167437162}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=3500/40248 loss=0.63875 lr=0.00046070 encoder_lr=0.00046070
+[TRAIN] step=3600/40248 loss=1.09255 lr=0.00045957 encoder_lr=0.00045957
+[TRAIN] step=3700/40248 loss=0.68302 lr=0.00045845 encoder_lr=0.00045845
+[ACTUAL-OPT-STEPS] epoch=11 executed=312 cumulative=3744/40248
+[TRAIN-EPOCH] epoch=11 loss=0.936976 main=0.812701 guide=0.621375 lr=0.00045795 encoder_lr=0.00045795
+Epoch 11/129 | Loss=0.798141 | Recall=0.895092 | Precision=0.940107 | OA=0.980012 | F1=0.917047 | IoU=0.846803 | Kappa=0.905692 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 11, "split": "test", "boundary_1px": {"precision": 0.6792211640526639, "recall": 0.5119661081199542, "F1": 0.5838514632187165, "predicted_pixels": 2956258, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8106775525004922, "recall": 0.6320186063775808, "F1": 0.7102857989881854, "predicted_pixels": 2956258, "target_pixels": 4051944}, "interior": {"precision": 0.9755424199517919, "recall": 0.9607536770347812, "F1": 0.9680915729063643, "predicted_pixels": 20215287, "target_pixels": 20526458, "tp": 19720870, "fp": 494417, "fn": 805588, "tn": 167812646}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=3800/40248 loss=1.03810 lr=0.00045732 encoder_lr=0.00045732
+[TRAIN] step=3900/40248 loss=0.99017 lr=0.00045619 encoder_lr=0.00045619
+[TRAIN] step=4000/40248 loss=0.83038 lr=0.00045506 encoder_lr=0.00045506
+[ACTUAL-OPT-STEPS] epoch=12 executed=312 cumulative=4056/40248
+[TRAIN-EPOCH] epoch=12 loss=0.912904 main=0.790448 guide=0.612281 lr=0.00045443 encoder_lr=0.00045443
+Epoch 12/129 | Loss=0.766120 | Recall=0.909306 | Precision=0.933626 | OA=0.980826 | F1=0.921306 | IoU=0.854093 | Kappa=0.910391 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 12, "split": "test", "boundary_1px": {"precision": 0.6899595742925502, "recall": 0.5408122619661081, "F1": 0.6063489381957364, "predicted_pixels": 3078734, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8207503473830478, "recall": 0.6638946638946639, "F1": 0.7340364489533476, "predicted_pixels": 3078734, "target_pixels": 4051944}, "interior": {"precision": 0.9728578169339486, "recall": 0.9687911572469055, "F1": 0.9708202284110183, "predicted_pixels": 20440655, "target_pixels": 20526458, "tp": 19885851, "fp": 554804, "fn": 640607, "tn": 167752259}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=4100/40248 loss=0.82189 lr=0.00045393 encoder_lr=0.00045393
+[TRAIN] step=4200/40248 loss=0.82557 lr=0.00045280 encoder_lr=0.00045280
+[TRAIN] step=4300/40248 loss=0.75940 lr=0.00045167 encoder_lr=0.00045167
+[ACTUAL-OPT-STEPS] epoch=13 executed=312 cumulative=4368/40248
+[TRAIN-EPOCH] epoch=13 loss=0.890348 main=0.769442 guide=0.604530 lr=0.00045090 encoder_lr=0.00045090
+Epoch 13/129 | Loss=0.750887 | Recall=0.922865 | Precision=0.923397 | OA=0.981029 | F1=0.923131 | IoU=0.857236 | Kappa=0.912310 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 13, "split": "test", "boundary_1px": {"precision": 0.6944618251948536, "recall": 0.5416414935645705, "F1": 0.608605016285578, "predicted_pixels": 3070127, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8268521139353519, "recall": 0.6640980230723821, "F1": 0.7365918424874043, "predicted_pixels": 3070127, "target_pixels": 4051944}, "interior": {"precision": 0.9685894381844359, "recall": 0.9751790591440569, "F1": 0.9718730788401518, "predicted_pixels": 20666106, "target_pixels": 20526458, "tp": 20016972, "fp": 649134, "fn": 509486, "tn": 167657929}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=4400/40248 loss=0.93844 lr=0.00045054 encoder_lr=0.00045054
+[TRAIN] step=4500/40248 loss=0.70542 lr=0.00044940 encoder_lr=0.00044940
+[TRAIN] step=4600/40248 loss=0.75574 lr=0.00044827 encoder_lr=0.00044827
+[ACTUAL-OPT-STEPS] epoch=14 executed=312 cumulative=4680/40248
+[TRAIN-EPOCH] epoch=14 loss=0.867770 main=0.748792 guide=0.594893 lr=0.00044737 encoder_lr=0.00044737
+Epoch 14/129 | Loss=0.732395 | Recall=0.912989 | Precision=0.939553 | OA=0.982009 | F1=0.926080 | IoU=0.862337 | Kappa=0.915841 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 14, "split": "test", "boundary_1px": {"precision": 0.714434571553473, "recall": 0.5631077329795279, "F1": 0.6298087046076122, "predicted_pixels": 3095007, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8433040700715702, "recall": 0.6855272432195509, "F1": 0.7562742983167912, "predicted_pixels": 3095007, "target_pixels": 4051944}, "interior": {"precision": 0.9776996635439756, "recall": 0.9720439834286071, "F1": 0.9748636206854726, "predicted_pixels": 20407719, "target_pixels": 20526458, "tp": 19952620, "fp": 455099, "fn": 573838, "tn": 167851964}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=4700/40248 loss=0.96226 lr=0.00044714 encoder_lr=0.00044714
+[TRAIN] step=4800/40248 loss=0.61555 lr=0.00044601 encoder_lr=0.00044601
+[TRAIN] step=4900/40248 loss=0.85869 lr=0.00044488 encoder_lr=0.00044488
+[ACTUAL-OPT-STEPS] epoch=15 executed=312 cumulative=4992/40248
+[TRAIN-EPOCH] epoch=15 loss=0.861746 main=0.743506 guide=0.591198 lr=0.00044383 encoder_lr=0.00044383
+Epoch 15/129 | Loss=0.780257 | Recall=0.899910 | Precision=0.942460 | OA=0.980864 | F1=0.920693 | IoU=0.853042 | Kappa=0.909819 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 15, "split": "test", "boundary_1px": {"precision": 0.6968608420022665, "recall": 0.5258596861160963, "F1": 0.5994027502030079, "predicted_pixels": 2965859, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8284611642023441, "recall": 0.647431948714, "F1": 0.7268442697906881, "predicted_pixels": 2965859, "target_pixels": 4051944}, "interior": {"precision": 0.9777247085617473, "recall": 0.9644501745016115, "F1": 0.9710420766018654, "predicted_pixels": 20247771, "target_pixels": 20526458, "tp": 19796746, "fp": 451025, "fn": 729712, "tn": 167856038}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=5000/40248 loss=1.34801 lr=0.00044374 encoder_lr=0.00044374
+[TRAIN] step=5100/40248 loss=0.74066 lr=0.00044261 encoder_lr=0.00044261
+[TRAIN] step=5200/40248 loss=0.78505 lr=0.00044148 encoder_lr=0.00044148
+[TRAIN] step=5300/40248 loss=0.78408 lr=0.00044034 encoder_lr=0.00044034
+[ACTUAL-OPT-STEPS] epoch=16 executed=312 cumulative=5304/40248
+[TRAIN-EPOCH] epoch=16 loss=0.850824 main=0.733760 guide=0.585317 lr=0.00044030 encoder_lr=0.00044030
+Epoch 16/129 | Loss=0.714751 | Recall=0.925874 | Precision=0.929300 | OA=0.982156 | F1=0.927584 | IoU=0.864948 | Kappa=0.917408 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 16, "split": "test", "boundary_1px": {"precision": 0.7074514445513495, "recall": 0.5797172912557528, "F1": 0.6372464211121724, "predicted_pixels": 3224046, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8380947418244032, "recall": 0.7076171338991852, "F1": 0.767348958703108, "predicted_pixels": 3224046, "target_pixels": 4051944}, "interior": {"precision": 0.9737375221562037, "recall": 0.976304923138712, "F1": 0.9750195325437832, "predicted_pixels": 20580579, "target_pixels": 20526458, "tp": 20040082, "fp": 540497, "fn": 486376, "tn": 167766566}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=5400/40248 loss=0.76139 lr=0.00043921 encoder_lr=0.00043921
+[TRAIN] step=5500/40248 loss=0.70039 lr=0.00043807 encoder_lr=0.00043807
+[TRAIN] step=5600/40248 loss=0.65701 lr=0.00043694 encoder_lr=0.00043694
+[ACTUAL-OPT-STEPS] epoch=17 executed=312 cumulative=5616/40248
+[TRAIN-EPOCH] epoch=17 loss=0.830841 main=0.715064 guide=0.578885 lr=0.00043676 encoder_lr=0.00043676
+Epoch 17/129 | Loss=0.770595 | Recall=0.931254 | Precision=0.911089 | OA=0.980297 | F1=0.921061 | IoU=0.853673 | Kappa=0.909806 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 17, "split": "test", "boundary_1px": {"precision": 0.6599251286321527, "recall": 0.5627286556773736, "F1": 0.6074635113367075, "predicted_pixels": 3360163, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.7887920913360453, "recall": 0.6907610272994889, "F1": 0.7365289268417522, "predicted_pixels": 3360163, "target_pixels": 4051944}, "interior": {"precision": 0.9573511080865552, "recall": 0.9784071854968841, "F1": 0.9677646287763819, "predicted_pixels": 20977919, "target_pixels": 20526458, "tp": 20083234, "fp": 894685, "fn": 443224, "tn": 167412378}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=5700/40248 loss=0.99047 lr=0.00043580 encoder_lr=0.00043580
+[TRAIN] step=5800/40248 loss=1.02260 lr=0.00043467 encoder_lr=0.00043467
+[TRAIN] step=5900/40248 loss=0.76515 lr=0.00043353 encoder_lr=0.00043353
+[ACTUAL-OPT-STEPS] epoch=18 executed=312 cumulative=5928/40248
+[TRAIN-EPOCH] epoch=18 loss=0.817772 main=0.703264 guide=0.572540 lr=0.00043322 encoder_lr=0.00043322
+Epoch 18/129 | Loss=0.691613 | Recall=0.915290 | Precision=0.947945 | OA=0.983340 | F1=0.931331 | IoU=0.871487 | Kappa=0.921854 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 18, "split": "test", "boundary_1px": {"precision": 0.739840724230232, "recall": 0.5965872183820902, "F1": 0.6605362034731757, "predicted_pixels": 3163193, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8645767109373346, "recall": 0.7208290637777818, "F1": 0.7861861373893615, "predicted_pixels": 3163193, "target_pixels": 4051944}, "interior": {"precision": 0.9823127570191218, "recall": 0.9753877166727937, "F1": 0.9788379887558023, "predicted_pixels": 20381752, "target_pixels": 20526458, "tp": 20021255, "fp": 360497, "fn": 505203, "tn": 167946566}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=6000/40248 loss=0.89443 lr=0.00043240 encoder_lr=0.00043240
+[TRAIN] step=6100/40248 loss=0.92107 lr=0.00043126 encoder_lr=0.00043126
+[TRAIN] step=6200/40248 loss=1.17877 lr=0.00043012 encoder_lr=0.00043012
+[ACTUAL-OPT-STEPS] epoch=19 executed=312 cumulative=6240/40248
+[TRAIN-EPOCH] epoch=19 loss=0.810286 main=0.696659 guide=0.568138 lr=0.00042967 encoder_lr=0.00042967
+Epoch 19/129 | Loss=0.677000 | Recall=0.924383 | Precision=0.942513 | OA=0.983707 | F1=0.933360 | IoU=0.875047 | Kappa=0.924080 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 19, "split": "test", "boundary_1px": {"precision": 0.7507402528360254, "recall": 0.6042904344186395, "F1": 0.6696012980207571, "predicted_pixels": 3156354, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8751990429463868, "recall": 0.7277383399178271, "F1": 0.7946859377293944, "predicted_pixels": 3156354, "target_pixels": 4051944}, "interior": {"precision": 0.9820662583629776, "recall": 0.9781413822102186, "F1": 0.9800998909444978, "predicted_pixels": 20444423, "target_pixels": 20526458, "tp": 20077778, "fp": 366645, "fn": 448680, "tn": 167940418}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=6300/40248 loss=0.57583 lr=0.00042899 encoder_lr=0.00042899
+[TRAIN] step=6400/40248 loss=0.57937 lr=0.00042785 encoder_lr=0.00042785
+[TRAIN] step=6500/40248 loss=0.94907 lr=0.00042671 encoder_lr=0.00042671
+[ACTUAL-OPT-STEPS] epoch=20 executed=312 cumulative=6552/40248
+[TRAIN-EPOCH] epoch=20 loss=0.793880 main=0.681248 guide=0.563163 lr=0.00042612 encoder_lr=0.00042612
+Epoch 20/129 | Loss=0.670314 | Recall=0.929146 | Precision=0.940445 | OA=0.983991 | F1=0.934761 | IoU=0.877514 | Kappa=0.925638 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 20, "split": "test", "boundary_1px": {"precision": 0.7521587534987226, "recall": 0.6208368131445055, "F1": 0.6802175547333459, "predicted_pixels": 3242612, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8738048215451001, "recall": 0.7427935825371723, "F1": 0.8029905413672641, "predicted_pixels": 3242612, "target_pixels": 4051944}, "interior": {"precision": 0.9803572760578143, "recall": 0.9809224757627448, "F1": 0.980639794470927, "predicted_pixels": 20538292, "target_pixels": 20526458, "tp": 20134864, "fp": 403428, "fn": 391594, "tn": 167903635}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=6600/40248 loss=0.53198 lr=0.00042557 encoder_lr=0.00042557
+[TRAIN] step=6700/40248 loss=0.86416 lr=0.00042444 encoder_lr=0.00042444
+[TRAIN] step=6800/40248 loss=0.94617 lr=0.00042330 encoder_lr=0.00042330
+[ACTUAL-OPT-STEPS] epoch=21 executed=312 cumulative=6864/40248
+[TRAIN-EPOCH] epoch=21 loss=0.796251 main=0.683837 guide=0.562069 lr=0.00042257 encoder_lr=0.00042257
+Epoch 21/129 | Loss=0.662554 | Recall=0.924270 | Precision=0.946762 | OA=0.984237 | F1=0.935381 | IoU=0.878606 | Kappa=0.926406 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 21, "split": "test", "boundary_1px": {"precision": 0.7572580911857636, "recall": 0.6236416396672807, "F1": 0.6839854727854423, "predicted_pixels": 3235527, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8791183012844584, "recall": 0.7471917183455645, "F1": 0.8078040548691973, "predicted_pixels": 3235527, "target_pixels": 4051944}, "interior": {"precision": 0.9836345954348599, "recall": 0.9794362475981, "F1": 0.9815309320899722, "predicted_pixels": 20438847, "target_pixels": 20526458, "tp": 20104357, "fp": 334490, "fn": 422101, "tn": 167972573}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=6900/40248 loss=0.91032 lr=0.00042216 encoder_lr=0.00042216
+[TRAIN] step=7000/40248 loss=0.78186 lr=0.00042102 encoder_lr=0.00042102
+[TRAIN] step=7100/40248 loss=0.67774 lr=0.00041988 encoder_lr=0.00041988
+[ACTUAL-OPT-STEPS] epoch=22 executed=312 cumulative=7176/40248
+[TRAIN-EPOCH] epoch=22 loss=0.760049 main=0.650169 guide=0.549402 lr=0.00041901 encoder_lr=0.00041901
+Epoch 22/129 | Loss=0.658426 | Recall=0.923116 | Precision=0.949711 | OA=0.984476 | F1=0.936225 | IoU=0.880097 | Kappa=0.927390 | t=65.3s
+[SPATIAL-DIAG] {"epoch": 22, "split": "test", "boundary_1px": {"precision": 0.7723882177685183, "recall": 0.6191514492796544, "F1": 0.6873325939063613, "predicted_pixels": 3139609, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8897111073385253, "recall": 0.7378557058044237, "F1": 0.8066991926427841, "predicted_pixels": 3139609, "target_pixels": 4051944}, "interior": {"precision": 0.985237051090551, "recall": 0.9791830134551222, "F1": 0.9822007034708271, "predicted_pixels": 20400328, "target_pixels": 20526458, "tp": 20099159, "fp": 301169, "fn": 427299, "tn": 168005894}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=7200/40248 loss=0.76881 lr=0.00041874 encoder_lr=0.00041874
+[TRAIN] step=7300/40248 loss=0.76062 lr=0.00041760 encoder_lr=0.00041760
+[TRAIN] step=7400/40248 loss=0.76478 lr=0.00041646 encoder_lr=0.00041646
+[ACTUAL-OPT-STEPS] epoch=23 executed=312 cumulative=7488/40248
+[TRAIN-EPOCH] epoch=23 loss=0.758647 main=0.649155 guide=0.547460 lr=0.00041545 encoder_lr=0.00041545
+Epoch 23/129 | Loss=0.650142 | Recall=0.926275 | Precision=0.948636 | OA=0.984709 | F1=0.937322 | IoU=0.882038 | Kappa=0.928616 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 23, "split": "test", "boundary_1px": {"precision": 0.7701859163786335, "recall": 0.6351203274280197, "F1": 0.696162467855864, "predicted_pixels": 3231399, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8885631269923646, "recall": 0.7574147125429177, "F1": 0.8177640904292766, "predicted_pixels": 3231399, "target_pixels": 4051944}, "interior": {"precision": 0.9847881184565102, "recall": 0.9805838396473469, "F1": 0.9826814822033213, "predicted_pixels": 20438826, "target_pixels": 20526458, "tp": 20127913, "fp": 310913, "fn": 398545, "tn": 167996150}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=7500/40248 loss=0.82755 lr=0.00041532 encoder_lr=0.00041532
+[TRAIN] step=7600/40248 loss=0.70111 lr=0.00041417 encoder_lr=0.00041417
+[TRAIN] step=7700/40248 loss=0.68642 lr=0.00041303 encoder_lr=0.00041303
+[TRAIN] step=7800/40248 loss=0.81871 lr=0.00041189 encoder_lr=0.00041189
+[ACTUAL-OPT-STEPS] epoch=24 executed=312 cumulative=7800/40248
+[TRAIN-EPOCH] epoch=24 loss=0.758851 main=0.649497 guide=0.546769 lr=0.00041189 encoder_lr=0.00041189
+Epoch 24/129 | Loss=0.648430 | Recall=0.927173 | Precision=0.948766 | OA=0.984831 | F1=0.937845 | IoU=0.882965 | Kappa=0.929208 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 24, "split": "test", "boundary_1px": {"precision": 0.7753972822792329, "recall": 0.6467875666593615, "F1": 0.7052772665578032, "predicted_pixels": 3274435, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8925347426349889, "recall": 0.767134985083703, "F1": 0.8250974456455619, "predicted_pixels": 3274435, "target_pixels": 4051944}, "interior": {"precision": 0.9843149193908136, "recall": 0.9814528643957959, "F1": 0.9828818083921756, "predicted_pixels": 20466774, "target_pixels": 20526458, "tp": 20145751, "fp": 321023, "fn": 380707, "tn": 167986040}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=7900/40248 loss=0.79761 lr=0.00041075 encoder_lr=0.00041075
+[TRAIN] step=8000/40248 loss=0.73757 lr=0.00040960 encoder_lr=0.00040960
+[TRAIN] step=8100/40248 loss=0.84509 lr=0.00040846 encoder_lr=0.00040846
+[ACTUAL-OPT-STEPS] epoch=25 executed=312 cumulative=8112/40248
+[TRAIN-EPOCH] epoch=25 loss=0.745404 main=0.636766 guide=0.543195 lr=0.00040832 encoder_lr=0.00040832
+Epoch 25/129 | Loss=0.639570 | Recall=0.928789 | Precision=0.949638 | OA=0.985130 | F1=0.939098 | IoU=0.885188 | Kappa=0.930630 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 25, "split": "test", "boundary_1px": {"precision": 0.7822806814727278, "recall": 0.6524643479771685, "F1": 0.7114995965073148, "predicted_pixels": 3269742, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8969958486021221, "recall": 0.7716799639876563, "F1": 0.8296323574943903, "predicted_pixels": 3269742, "target_pixels": 4051944}, "interior": {"precision": 0.9868745933439907, "recall": 0.9802588444630828, "F1": 0.9835555940524173, "predicted_pixels": 20388854, "target_pixels": 20526458, "tp": 20121242, "fp": 267612, "fn": 405216, "tn": 168039451}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=8200/40248 loss=0.70352 lr=0.00040732 encoder_lr=0.00040732
+[TRAIN] step=8300/40248 loss=0.69312 lr=0.00040617 encoder_lr=0.00040617
+[TRAIN] step=8400/40248 loss=0.94800 lr=0.00040503 encoder_lr=0.00040503
+[ACTUAL-OPT-STEPS] epoch=26 executed=312 cumulative=8424/40248
+[TRAIN-EPOCH] epoch=26 loss=0.735029 main=0.627054 guide=0.539872 lr=0.00040475 encoder_lr=0.00040475
+Epoch 26/129 | Loss=0.637343 | Recall=0.929412 | Precision=0.949906 | OA=0.985237 | F1=0.939547 | IoU=0.885987 | Kappa=0.931140 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 26, "split": "test", "boundary_1px": {"precision": 0.7851963287640763, "recall": 0.6648063250627353, "F1": 0.7200034902015359, "predicted_pixels": 3326945, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8994443851641671, "recall": 0.7837460241306395, "F1": 0.8376187945300677, "predicted_pixels": 3326945, "target_pixels": 4051944}, "interior": {"precision": 0.9868871800542498, "recall": 0.980456978987802, "F1": 0.9836615710684086, "predicted_pixels": 20392715, "target_pixels": 20526458, "tp": 20125309, "fp": 267406, "fn": 401149, "tn": 168039657}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=8500/40248 loss=0.68570 lr=0.00040388 encoder_lr=0.00040388
+[TRAIN] step=8600/40248 loss=0.69071 lr=0.00040274 encoder_lr=0.00040274
+[TRAIN] step=8700/40248 loss=0.60374 lr=0.00040159 encoder_lr=0.00040159
+[ACTUAL-OPT-STEPS] epoch=27 executed=312 cumulative=8736/40248
+[TRAIN-EPOCH] epoch=27 loss=0.727347 main=0.620572 guide=0.533876 lr=0.00040118 encoder_lr=0.00040118
+Epoch 27/129 | Loss=0.626135 | Recall=0.928595 | Precision=0.953777 | OA=0.985631 | F1=0.941017 | IoU=0.888605 | Kappa=0.932838 | t=66.4s
+[SPATIAL-DIAG] {"epoch": 27, "split": "test", "boundary_1px": {"precision": 0.7923961716186225, "recall": 0.6743360717719692, "F1": 0.7286146794199215, "predicted_pixels": 3343763, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9035081134637831, "recall": 0.7914894677715191, "F1": 0.8437972582020167, "predicted_pixels": 3343763, "target_pixels": 4051944}, "interior": {"precision": 0.9883184230209726, "recall": 0.9810336493514857, "F1": 0.9846625627377381, "predicted_pixels": 20375160, "target_pixels": 20526458, "tp": 20137146, "fp": 238014, "fn": 389312, "tn": 168069049}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=8800/40248 loss=0.81550 lr=0.00040045 encoder_lr=0.00040045
+[TRAIN] step=8900/40248 loss=0.74347 lr=0.00039930 encoder_lr=0.00039930
+[TRAIN] step=9000/40248 loss=0.57021 lr=0.00039816 encoder_lr=0.00039816
+[ACTUAL-OPT-STEPS] epoch=28 executed=312 cumulative=9048/40248
+[TRAIN-EPOCH] epoch=28 loss=0.717255 main=0.610662 guide=0.532968 lr=0.00039760 encoder_lr=0.00039760
+Epoch 28/129 | Loss=0.619085 | Recall=0.943865 | Precision=0.940149 | OA=0.985654 | F1=0.942004 | IoU=0.890366 | Kappa=0.933818 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 28, "split": "test", "boundary_1px": {"precision": 0.7813720379043104, "recall": 0.680659456300482, "F1": 0.7275469353382472, "predicted_pixels": 3423885, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8954748772228039, "recall": 0.8023198247557222, "F1": 0.8463417228588325, "predicted_pixels": 3423885, "target_pixels": 4051944}, "interior": {"precision": 0.9831086191338982, "recall": 0.986621120896747, "F1": 0.9848617381976973, "predicted_pixels": 20599796, "target_pixels": 20526458, "tp": 20251837, "fp": 347959, "fn": 274621, "tn": 167959104}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=9100/40248 loss=0.66526 lr=0.00039701 encoder_lr=0.00039701
+[TRAIN] step=9200/40248 loss=0.73340 lr=0.00039586 encoder_lr=0.00039586
+[TRAIN] step=9300/40248 loss=0.72836 lr=0.00039471 encoder_lr=0.00039471
+[ACTUAL-OPT-STEPS] epoch=29 executed=312 cumulative=9360/40248
+[TRAIN-EPOCH] epoch=29 loss=0.716822 main=0.610841 guide=0.529906 lr=0.00039402 encoder_lr=0.00039402
+Epoch 29/129 | Loss=0.644950 | Recall=0.949452 | Precision=0.927551 | OA=0.984607 | F1=0.938373 | IoU=0.883902 | Kappa=0.929580 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 29, "split": "test", "boundary_1px": {"precision": 0.7529451723056907, "recall": 0.6575695518003211, "F1": 0.702032826771196, "predicted_pixels": 3441819, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8791772606287548, "recall": 0.7883280223023813, "F1": 0.8312778114938231, "predicted_pixels": 3441819, "target_pixels": 4051944}, "interior": {"precision": 0.9787279565127458, "recall": 0.9859126206771768, "F1": 0.9823071514848569, "predicted_pixels": 20677139, "target_pixels": 20526458, "tp": 20237294, "fp": 439845, "fn": 289164, "tn": 167867218}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=9400/40248 loss=0.70253 lr=0.00039357 encoder_lr=0.00039357
+[TRAIN] step=9500/40248 loss=0.48841 lr=0.00039242 encoder_lr=0.00039242
+[TRAIN] step=9600/40248 loss=0.55961 lr=0.00039127 encoder_lr=0.00039127
+[ACTUAL-OPT-STEPS] epoch=30 executed=312 cumulative=9672/40248
+[TRAIN-EPOCH] epoch=30 loss=0.730222 main=0.624297 guide=0.529621 lr=0.00039044 encoder_lr=0.00039044
+Epoch 30/129 | Loss=0.605058 | Recall=0.933379 | Precision=0.954449 | OA=0.986278 | F1=0.943796 | IoU=0.893574 | Kappa=0.935983 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 30, "split": "test", "boundary_1px": {"precision": 0.8080121868526224, "recall": 0.684518344774755, "F1": 0.7411562483738496, "predicted_pixels": 3319643, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9160195840335843, "recall": 0.8008546021366534, "F1": 0.8545745581474523, "predicted_pixels": 3319643, "target_pixels": 4051944}, "interior": {"precision": 0.9892203375752501, "recall": 0.9840375285399946, "F1": 0.9866221266716053, "predicted_pixels": 20418914, "target_pixels": 20526458, "tp": 20198805, "fp": 220109, "fn": 327653, "tn": 168086954}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=9700/40248 loss=0.56447 lr=0.00039012 encoder_lr=0.00039012
+[TRAIN] step=9800/40248 loss=0.84913 lr=0.00038897 encoder_lr=0.00038897
+[TRAIN] step=9900/40248 loss=0.58276 lr=0.00038782 encoder_lr=0.00038782
+[ACTUAL-OPT-STEPS] epoch=31 executed=312 cumulative=9984/40248
+[TRAIN-EPOCH] epoch=31 loss=0.704218 main=0.599361 guide=0.524283 lr=0.00038685 encoder_lr=0.00038685
+Epoch 31/129 | Loss=0.630078 | Recall=0.942564 | Precision=0.938818 | OA=0.985328 | F1=0.940687 | IoU=0.888016 | Kappa=0.932316 | t=64.8s
+[SPATIAL-DIAG] {"epoch": 31, "split": "test", "boundary_1px": {"precision": 0.7819905505341003, "recall": 0.6773662222380171, "F1": 0.7259280183212935, "predicted_pixels": 3407600, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8931497241460266, "recall": 0.795362917157789, "F1": 0.8414247577168589, "predicted_pixels": 3407600, "target_pixels": 4051944}, "interior": {"precision": 0.9807429070651099, "recall": 0.9858989310284317, "F1": 0.9833141601691258, "predicted_pixels": 20634371, "target_pixels": 20526458, "tp": 20237013, "fp": 397358, "fn": 289445, "tn": 167909705}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=10000/40248 loss=0.47662 lr=0.00038667 encoder_lr=0.00038667
+[TRAIN] step=10100/40248 loss=0.58813 lr=0.00038552 encoder_lr=0.00038552
+[TRAIN] step=10200/40248 loss=0.55061 lr=0.00038437 encoder_lr=0.00038437
+[ACTUAL-OPT-STEPS] epoch=32 executed=312 cumulative=10296/40248
+[TRAIN-EPOCH] epoch=32 loss=0.702368 main=0.597731 guide=0.523188 lr=0.00038326 encoder_lr=0.00038326
+Epoch 32/129 | Loss=0.598862 | Recall=0.948072 | Precision=0.941961 | OA=0.986380 | F1=0.945007 | IoU=0.895747 | Kappa=0.937234 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 32, "split": "test", "boundary_1px": {"precision": 0.7984106767869463, "recall": 0.7018206569488621, "F1": 0.7470062690961988, "predicted_pixels": 3453923, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9069573930860647, "recall": 0.8195261336286978, "F1": 0.8610279498422163, "predicted_pixels": 3453923, "target_pixels": 4051944}, "interior": {"precision": 0.9842141157115277, "recall": 0.9888726540156124, "F1": 0.9865378853641401, "predicted_pixels": 20623615, "target_pixels": 20526458, "tp": 20298053, "fp": 325562, "fn": 228405, "tn": 167981501}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=10300/40248 loss=0.51500 lr=0.00038322 encoder_lr=0.00038322
+[TRAIN] step=10400/40248 loss=0.81600 lr=0.00038206 encoder_lr=0.00038206
+[TRAIN] step=10500/40248 loss=0.75367 lr=0.00038091 encoder_lr=0.00038091
+[TRAIN] step=10600/40248 loss=0.58101 lr=0.00037976 encoder_lr=0.00037976
+[ACTUAL-OPT-STEPS] epoch=33 executed=312 cumulative=10608/40248
+[TRAIN-EPOCH] epoch=33 loss=0.700284 main=0.595798 guide=0.522426 lr=0.00037967 encoder_lr=0.00037967
+Epoch 33/129 | Loss=0.600613 | Recall=0.942471 | Precision=0.946634 | OA=0.986341 | F1=0.944548 | IoU=0.894923 | Kappa=0.936759 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 33, "split": "test", "boundary_1px": {"precision": 0.8027043865854973, "recall": 0.7015439996209227, "F1": 0.7487226857508803, "predicted_pixels": 3434790, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9110693812431037, "recall": 0.817177878075314, "F1": 0.8615731802603815, "predicted_pixels": 3434790, "target_pixels": 4051944}, "interior": {"precision": 0.9865605232534512, "recall": 0.9863786533458427, "F1": 0.9864695799170613, "predicted_pixels": 20522674, "target_pixels": 20526458, "tp": 20246860, "fp": 275814, "fn": 279598, "tn": 168031249}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=10700/40248 loss=0.77395 lr=0.00037861 encoder_lr=0.00037861
+[TRAIN] step=10800/40248 loss=0.80994 lr=0.00037745 encoder_lr=0.00037745
+[TRAIN] step=10900/40248 loss=0.71029 lr=0.00037630 encoder_lr=0.00037630
+[ACTUAL-OPT-STEPS] epoch=34 executed=312 cumulative=10920/40248
+[TRAIN-EPOCH] epoch=34 loss=0.686613 main=0.583424 guide=0.515948 lr=0.00037607 encoder_lr=0.00037607
+Epoch 34/129 | Loss=0.589959 | Recall=0.940317 | Precision=0.952548 | OA=0.986851 | F1=0.946393 | IoU=0.898241 | Kappa=0.938900 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 34, "split": "test", "boundary_1px": {"precision": 0.8127611981847853, "recall": 0.7173524609422045, "F1": 0.7620822704227649, "predicted_pixels": 3466477, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9151873790017935, "recall": 0.8300874839336377, "F1": 0.8705626888886496, "predicted_pixels": 3466477, "target_pixels": 4051944}, "interior": {"precision": 0.9879406348248606, "recall": 0.9867271304187015, "F1": 0.9873335097507165, "predicted_pixels": 20501245, "target_pixels": 20526458, "tp": 20254013, "fp": 247232, "fn": 272445, "tn": 168059831}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=11000/40248 loss=0.53701 lr=0.00037515 encoder_lr=0.00037515
+[TRAIN] step=11100/40248 loss=0.65714 lr=0.00037399 encoder_lr=0.00037399
+[TRAIN] step=11200/40248 loss=0.53347 lr=0.00037284 encoder_lr=0.00037284
+[ACTUAL-OPT-STEPS] epoch=35 executed=312 cumulative=11232/40248
+[TRAIN-EPOCH] epoch=35 loss=0.681207 main=0.578234 guide=0.514865 lr=0.00037247 encoder_lr=0.00037247
+Epoch 35/129 | Loss=0.610231 | Recall=0.944333 | Precision=0.943646 | OA=0.986168 | F1=0.943989 | IoU=0.893920 | Kappa=0.936099 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 35, "split": "test", "boundary_1px": {"precision": 0.7964003668091085, "recall": 0.7004129375924247, "F1": 0.7453289181438423, "predicted_pixels": 3450296, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9038056445012254, "recall": 0.8172931313956955, "F1": 0.8583750749373044, "predicted_pixels": 3450296, "target_pixels": 4051944}, "interior": {"precision": 0.9845913466681969, "recall": 0.9863748533721697, "F1": 0.9854822930819002, "predicted_pixels": 20563640, "target_pixels": 20526458, "tp": 20246782, "fp": 316858, "fn": 279676, "tn": 167990205}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=11300/40248 loss=0.64795 lr=0.00037168 encoder_lr=0.00037168
+[TRAIN] step=11400/40248 loss=0.60386 lr=0.00037053 encoder_lr=0.00037053
+[TRAIN] step=11500/40248 loss=0.63594 lr=0.00036937 encoder_lr=0.00036937
+[ACTUAL-OPT-STEPS] epoch=36 executed=312 cumulative=11544/40248
+[TRAIN-EPOCH] epoch=36 loss=0.679265 main=0.576581 guide=0.513423 lr=0.00036886 encoder_lr=0.00036886
+Epoch 36/129 | Loss=0.582586 | Recall=0.940855 | Precision=0.953762 | OA=0.987069 | F1=0.947264 | IoU=0.899812 | Kappa=0.939896 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 36, "split": "test", "boundary_1px": {"precision": 0.8206447612963262, "recall": 0.7212451603477245, "F1": 0.7677410094471417, "predicted_pixels": 3445213, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9209047452218484, "recall": 0.8337733690297793, "F1": 0.8751757325093323, "predicted_pixels": 3445213, "target_pixels": 4051944}, "interior": {"precision": 0.9881044130233488, "recall": 0.9878160177464617, "F1": 0.9879601943385528, "predicted_pixels": 20520467, "target_pixels": 20526458, "tp": 20276364, "fp": 244103, "fn": 250094, "tn": 168062960}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=11600/40248 loss=0.63936 lr=0.00036821 encoder_lr=0.00036821
+[TRAIN] step=11700/40248 loss=0.53726 lr=0.00036706 encoder_lr=0.00036706
+[TRAIN] step=11800/40248 loss=0.66624 lr=0.00036590 encoder_lr=0.00036590
+[ACTUAL-OPT-STEPS] epoch=37 executed=312 cumulative=11856/40248
+[TRAIN-EPOCH] epoch=37 loss=0.676560 main=0.574216 guide=0.511721 lr=0.00036525 encoder_lr=0.00036525
+Epoch 37/129 | Loss=0.592719 | Recall=0.944249 | Precision=0.948124 | OA=0.986741 | F1=0.946182 | IoU=0.897862 | Kappa=0.938622 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 37, "split": "test", "boundary_1px": {"precision": 0.8161139435364093, "recall": 0.7151009490753081, "F1": 0.7622755739804157, "predicted_pixels": 3435807, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9179654154031353, "recall": 0.8284588829460624, "F1": 0.8709184856702427, "predicted_pixels": 3435807, "target_pixels": 4051944}, "interior": {"precision": 0.987212371975997, "recall": 0.9864875859244688, "F1": 0.9868498458715401, "predicted_pixels": 20511388, "target_pixels": 20526458, "tp": 20249096, "fp": 262292, "fn": 277362, "tn": 168044771}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=11900/40248 loss=0.61998 lr=0.00036474 encoder_lr=0.00036474
+[TRAIN] step=12000/40248 loss=0.57148 lr=0.00036358 encoder_lr=0.00036358
+[TRAIN] step=12100/40248 loss=0.78869 lr=0.00036242 encoder_lr=0.00036242
+[ACTUAL-OPT-STEPS] epoch=38 executed=312 cumulative=12168/40248
+[TRAIN-EPOCH] epoch=38 loss=0.664465 main=0.563117 guide=0.506740 lr=0.00036164 encoder_lr=0.00036164
+Epoch 38/129 | Loss=0.571868 | Recall=0.938720 | Precision=0.959130 | OA=0.987498 | F1=0.948815 | IoU=0.902615 | Kappa=0.941696 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 38, "split": "test", "boundary_1px": {"precision": 0.828969977864264, "recall": 0.7300986884320217, "F1": 0.7763992781998522, "predicted_pixels": 3448722, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9257319088056387, "recall": 0.8400555387734875, "F1": 0.8808152062443315, "predicted_pixels": 3448722, "target_pixels": 4051944}, "interior": {"precision": 0.9913096135478536, "recall": 0.9864478810713471, "F1": 0.9888727717431476, "predicted_pixels": 20425789, "target_pixels": 20526458, "tp": 20248281, "fp": 177508, "fn": 278177, "tn": 168129555}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=12200/40248 loss=0.59221 lr=0.00036126 encoder_lr=0.00036126
+[TRAIN] step=12300/40248 loss=0.69221 lr=0.00036011 encoder_lr=0.00036011
+[TRAIN] step=12400/40248 loss=0.57841 lr=0.00035895 encoder_lr=0.00035895
+[ACTUAL-OPT-STEPS] epoch=39 executed=312 cumulative=12480/40248
+[TRAIN-EPOCH] epoch=39 loss=0.694517 main=0.591800 guide=0.513583 lr=0.00035802 encoder_lr=0.00035802
+Epoch 39/129 | Loss=0.621287 | Recall=0.943380 | Precision=0.942533 | OA=0.985911 | F1=0.942956 | IoU=0.892070 | Kappa=0.934920 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 39, "split": "test", "boundary_1px": {"precision": 0.788618692381377, "recall": 0.696828978880261, "F1": 0.7398878718780666, "predicted_pixels": 3469039, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8958460830218398, "recall": 0.8141642628822116, "F1": 0.8530543310295474, "predicted_pixels": 3469039, "target_pixels": 4051944}, "interior": {"precision": 0.983584889759751, "recall": 0.9853857884297427, "F1": 0.9844845155080741, "predicted_pixels": 20564041, "target_pixels": 20526458, "tp": 20226480, "fp": 337561, "fn": 299978, "tn": 167969502}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=12500/40248 loss=0.68922 lr=0.00035779 encoder_lr=0.00035779
+[TRAIN] step=12600/40248 loss=0.52556 lr=0.00035662 encoder_lr=0.00035662
+[TRAIN] step=12700/40248 loss=0.77758 lr=0.00035546 encoder_lr=0.00035546
+[ACTUAL-OPT-STEPS] epoch=40 executed=312 cumulative=12792/40248
+[TRAIN-EPOCH] epoch=40 loss=0.673455 main=0.571682 guide=0.508865 lr=0.00035440 encoder_lr=0.00035440
+Epoch 40/129 | Loss=0.566727 | Recall=0.952361 | Precision=0.947064 | OA=0.987549 | F1=0.949705 | IoU=0.904227 | Kappa=0.942600 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 40, "split": "test", "boundary_1px": {"precision": 0.8246507465616842, "recall": 0.7373070802557982, "F1": 0.7785368128882366, "predicted_pixels": 3504332, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9226497375248692, "recall": 0.8482094026965822, "F1": 0.8838649726440253, "predicted_pixels": 3504332, "target_pixels": 4051944}, "interior": {"precision": 0.9870211350842962, "recall": 0.9909812009456284, "F1": 0.9889972038837426, "predicted_pixels": 20608813, "target_pixels": 20526458, "tp": 20341334, "fp": 267479, "fn": 185124, "tn": 168039584}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=12800/40248 loss=0.57119 lr=0.00035430 encoder_lr=0.00035430
+[TRAIN] step=12900/40248 loss=0.65065 lr=0.00035314 encoder_lr=0.00035314
+[TRAIN] step=13000/40248 loss=0.84564 lr=0.00035198 encoder_lr=0.00035198
+[TRAIN] step=13100/40248 loss=0.69301 lr=0.00035082 encoder_lr=0.00035082
+[ACTUAL-OPT-STEPS] epoch=41 executed=312 cumulative=13104/40248
+[TRAIN-EPOCH] epoch=41 loss=0.669586 main=0.568280 guide=0.506532 lr=0.00035077 encoder_lr=0.00035077
+Epoch 41/129 | Loss=0.565296 | Recall=0.948062 | Precision=0.951341 | OA=0.987603 | F1=0.949698 | IoU=0.904215 | Kappa=0.942629 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 41, "split": "test", "boundary_1px": {"precision": 0.8322339299043519, "recall": 0.7337969132840928, "F1": 0.7799216618885167, "predicted_pixels": 3456420, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9288738058453544, "recall": 0.8429635256558333, "F1": 0.8838359191826601, "predicted_pixels": 3456420, "target_pixels": 4051944}, "interior": {"precision": 0.9894454960644145, "recall": 0.9889906967875315, "F1": 0.989218044151762, "predicted_pixels": 20517023, "target_pixels": 20526458, "tp": 20300476, "fp": 216547, "fn": 225982, "tn": 168090516}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=13200/40248 loss=0.92120 lr=0.00034965 encoder_lr=0.00034965
+[TRAIN] step=13300/40248 loss=0.67325 lr=0.00034849 encoder_lr=0.00034849
+[TRAIN] step=13400/40248 loss=0.82542 lr=0.00034732 encoder_lr=0.00034732
+[ACTUAL-OPT-STEPS] epoch=42 executed=312 cumulative=13416/40248
+[TRAIN-EPOCH] epoch=42 loss=0.647322 main=0.547331 guide=0.499957 lr=0.00034714 encoder_lr=0.00034714
+Epoch 42/129 | Loss=0.561934 | Recall=0.953563 | Precision=0.946716 | OA=0.987643 | F1=0.950127 | IoU=0.904993 | Kappa=0.943076 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 42, "split": "test", "boundary_1px": {"precision": 0.8244544583713764, "recall": 0.7484256939385144, "F1": 0.7846025639285056, "predicted_pixels": 3565035, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9228944456365786, "recall": 0.8589156217361346, "F1": 0.8897564011854414, "predicted_pixels": 3565035, "target_pixels": 4051944}, "interior": {"precision": 0.9884925062001426, "recall": 0.9900112333067888, "F1": 0.9892512868553952, "predicted_pixels": 20557995, "target_pixels": 20526458, "tp": 20321424, "fp": 236571, "fn": 205034, "tn": 168070492}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=13500/40248 loss=0.71992 lr=0.00034616 encoder_lr=0.00034616
+[TRAIN] step=13600/40248 loss=0.59565 lr=0.00034500 encoder_lr=0.00034500
+[TRAIN] step=13700/40248 loss=0.57571 lr=0.00034383 encoder_lr=0.00034383
+[ACTUAL-OPT-STEPS] epoch=43 executed=312 cumulative=13728/40248
+[TRAIN-EPOCH] epoch=43 loss=0.648327 main=0.548427 guide=0.499503 lr=0.00034350 encoder_lr=0.00034350
+Epoch 43/129 | Loss=0.560071 | Recall=0.946642 | Precision=0.954295 | OA=0.987817 | F1=0.950453 | IoU=0.905584 | Kappa=0.943508 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 43, "split": "test", "boundary_1px": {"precision": 0.8303815798430519, "recall": 0.752854925931849, "F1": 0.789720121419175, "predicted_pixels": 3555062, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9254870941772605, "recall": 0.861064220038579, "F1": 0.8921141156847141, "predicted_pixels": 3555062, "target_pixels": 4051944}, "interior": {"precision": 0.9904003867689218, "recall": 0.988429810929874, "F1": 0.9894141176714419, "predicted_pixels": 20485617, "target_pixels": 20526458, "tp": 20288963, "fp": 196654, "fn": 237495, "tn": 168110409}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=13800/40248 loss=0.70305 lr=0.00034266 encoder_lr=0.00034266
+[TRAIN] step=13900/40248 loss=0.54996 lr=0.00034150 encoder_lr=0.00034150
+[TRAIN] step=14000/40248 loss=0.97088 lr=0.00034033 encoder_lr=0.00034033
+[ACTUAL-OPT-STEPS] epoch=44 executed=312 cumulative=14040/40248
+[TRAIN-EPOCH] epoch=44 loss=0.665776 main=0.565013 guide=0.503813 lr=0.00033986 encoder_lr=0.00033986
+Epoch 44/129 | Loss=0.628727 | Recall=0.956601 | Precision=0.924625 | OA=0.985017 | F1=0.940341 | IoU=0.887400 | Kappa=0.931777 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 44, "split": "test", "boundary_1px": {"precision": 0.7573068132081895, "recall": 0.6873342770778669, "F1": 0.7206259526780099, "predicted_pixels": 3577962, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.8781728257594686, "recall": 0.8154542609670815, "F1": 0.8456522433343473, "predicted_pixels": 3577962, "target_pixels": 4051944}, "interior": {"precision": 0.9767060358444944, "recall": 0.9877048441577208, "F1": 0.9821746486362404, "predicted_pixels": 20757609, "target_pixels": 20526458, "tp": 20274082, "fp": 483527, "fn": 252376, "tn": 167823536}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=14100/40248 loss=0.49129 lr=0.00033916 encoder_lr=0.00033916
+[TRAIN] step=14200/40248 loss=0.70362 lr=0.00033800 encoder_lr=0.00033800
+[TRAIN] step=14300/40248 loss=0.51064 lr=0.00033683 encoder_lr=0.00033683
+[ACTUAL-OPT-STEPS] epoch=45 executed=312 cumulative=14352/40248
+[TRAIN-EPOCH] epoch=45 loss=0.648211 main=0.548448 guide=0.498813 lr=0.00033622 encoder_lr=0.00033622
+Epoch 45/129 | Loss=0.547804 | Recall=0.952593 | Precision=0.952193 | OA=0.988245 | F1=0.952393 | IoU=0.909113 | Kappa=0.945688 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 45, "split": "test", "boundary_1px": {"precision": 0.8445907460147206, "recall": 0.7575581005068185, "F1": 0.7987105101323015, "predicted_pixels": 3514810, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9363820519459088, "recall": 0.86305240151394, "F1": 0.898223080160113, "predicted_pixels": 3514810, "target_pixels": 4051944}, "interior": {"precision": 0.9903265657950244, "recall": 0.9909782291713456, "F1": 0.9906522903151316, "predicted_pixels": 20539965, "target_pixels": 20526458, "tp": 20341273, "fp": 198692, "fn": 185185, "tn": 168108371}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=14400/40248 loss=0.58827 lr=0.00033566 encoder_lr=0.00033566
+[TRAIN] step=14500/40248 loss=0.58009 lr=0.00033449 encoder_lr=0.00033449
+[TRAIN] step=14600/40248 loss=0.49873 lr=0.00033332 encoder_lr=0.00033332
+[ACTUAL-OPT-STEPS] epoch=46 executed=312 cumulative=14664/40248
+[TRAIN-EPOCH] epoch=46 loss=0.635036 main=0.536054 guide=0.494913 lr=0.00033257 encoder_lr=0.00033257
+Epoch 46/129 | Loss=0.550693 | Recall=0.949870 | Precision=0.954011 | OA=0.988160 | F1=0.951936 | IoU=0.908280 | Kappa=0.945184 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 46, "split": "test", "boundary_1px": {"precision": 0.8419405782313785, "recall": 0.764019443506623, "F1": 0.8010896452451346, "predicted_pixels": 3560547, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9338143830147446, "recall": 0.868416740211612, "F1": 0.8999290179925827, "predicted_pixels": 3560547, "target_pixels": 4051944}, "interior": {"precision": 0.9912228739007228, "recall": 0.9889104101642865, "F1": 0.9900652917475075, "predicted_pixels": 20478571, "target_pixels": 20526458, "tp": 20298828, "fp": 179743, "fn": 227630, "tn": 168127320}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=14700/40248 loss=0.64427 lr=0.00033215 encoder_lr=0.00033215
+[TRAIN] step=14800/40248 loss=0.65588 lr=0.00033098 encoder_lr=0.00033098
+[TRAIN] step=14900/40248 loss=0.58408 lr=0.00032981 encoder_lr=0.00032981
+[ACTUAL-OPT-STEPS] epoch=47 executed=312 cumulative=14976/40248
+[TRAIN-EPOCH] epoch=47 loss=0.635512 main=0.536673 guide=0.494196 lr=0.00032892 encoder_lr=0.00032892
+Epoch 47/129 | Loss=0.552048 | Recall=0.952775 | Precision=0.951840 | OA=0.988220 | F1=0.952308 | IoU=0.908957 | Kappa=0.945588 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 47, "split": "test", "boundary_1px": {"precision": 0.8405935597870625, "recall": 0.7646549409369923, "F1": 0.80082805686605, "predicted_pixels": 3563112, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.930451807296543, "recall": 0.8691610742892795, "F1": 0.8987627291171931, "predicted_pixels": 3563112, "target_pixels": 4051944}, "interior": {"precision": 0.9890052329801001, "recall": 0.990961372877873, "F1": 0.9899823366290276, "predicted_pixels": 20567057, "target_pixels": 20526458, "tp": 20340927, "fp": 226130, "fn": 185531, "tn": 168080933}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=15000/40248 loss=0.67839 lr=0.00032864 encoder_lr=0.00032864
+[TRAIN] step=15100/40248 loss=0.55412 lr=0.00032747 encoder_lr=0.00032747
+[TRAIN] step=15200/40248 loss=0.62742 lr=0.00032630 encoder_lr=0.00032630
+[ACTUAL-OPT-STEPS] epoch=48 executed=312 cumulative=15288/40248
+[TRAIN-EPOCH] epoch=48 loss=0.631331 main=0.533116 guide=0.491078 lr=0.00032526 encoder_lr=0.00032526
+Epoch 48/129 | Loss=0.556521 | Recall=0.950262 | Precision=0.952649 | OA=0.988031 | F1=0.951454 | IoU=0.907404 | Kappa=0.944628 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 48, "split": "test", "boundary_1px": {"precision": 0.8421032914224662, "recall": 0.7516969632354248, "F1": 0.7943360343215637, "predicted_pixels": 3496786, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9341420950552879, "recall": 0.8572080463106104, "F1": 0.8940230073259398, "predicted_pixels": 3496786, "target_pixels": 4051944}, "interior": {"precision": 0.989725391081387, "recall": 0.9900101128017313, "F1": 0.9898677314674964, "predicted_pixels": 20532363, "target_pixels": 20526458, "tp": 20321401, "fp": 210962, "fn": 205057, "tn": 168096101}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=15300/40248 loss=0.55660 lr=0.00032512 encoder_lr=0.00032512
+[TRAIN] step=15400/40248 loss=0.56010 lr=0.00032395 encoder_lr=0.00032395
+[TRAIN] step=15500/40248 loss=0.65989 lr=0.00032278 encoder_lr=0.00032278
+[TRAIN] step=15600/40248 loss=0.55608 lr=0.00032160 encoder_lr=0.00032160
+[ACTUAL-OPT-STEPS] epoch=49 executed=312 cumulative=15600/40248
+[TRAIN-EPOCH] epoch=49 loss=0.628361 main=0.530044 guide=0.491581 lr=0.00032160 encoder_lr=0.00032160
+Epoch 49/129 | Loss=0.543840 | Recall=0.951918 | Precision=0.954543 | OA=0.988469 | F1=0.953228 | IoU=0.910637 | Kappa=0.946653 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 49, "split": "test", "boundary_1px": {"precision": 0.8496002570478071, "recall": 0.7629172565070002, "F1": 0.8039288774056774, "predicted_pixels": 3510631, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9387355150683737, "recall": 0.8668431745354822, "F1": 0.9013580838280761, "predicted_pixels": 3510631, "target_pixels": 4051944}, "interior": {"precision": 0.990997180623342, "recall": 0.990948949887019, "F1": 0.990973064668332, "predicted_pixels": 20525459, "target_pixels": 20526458, "tp": 20340672, "fp": 184787, "fn": 185786, "tn": 168122276}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=15700/40248 loss=0.57913 lr=0.00032043 encoder_lr=0.00032043
+[TRAIN] step=15800/40248 loss=0.72845 lr=0.00031925 encoder_lr=0.00031925
+[TRAIN] step=15900/40248 loss=0.53887 lr=0.00031808 encoder_lr=0.00031808
+[ACTUAL-OPT-STEPS] epoch=50 executed=312 cumulative=15912/40248
+[TRAIN-EPOCH] epoch=50 loss=0.626382 main=0.528977 guide=0.487023 lr=0.00031794 encoder_lr=0.00031794
+Epoch 50/129 | Loss=0.535389 | Recall=0.954476 | Precision=0.953913 | OA=0.988689 | F1=0.954194 | IoU=0.912401 | Kappa=0.947742 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 50, "split": "test", "boundary_1px": {"precision": 0.8529745656491209, "recall": 0.7765378791019817, "F1": 0.8129634876624395, "predicted_pixels": 3571076, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9400444011832848, "recall": 0.8771054091566912, "F1": 0.9074849243949349, "predicted_pixels": 3571076, "target_pixels": 4051944}, "interior": {"precision": 0.9916467679215688, "recall": 0.9910784412975683, "F1": 0.9913625231572448, "predicted_pixels": 20514694, "target_pixels": 20526458, "tp": 20343330, "fp": 171364, "fn": 183128, "tn": 168135699}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=16000/40248 loss=0.80655 lr=0.00031690 encoder_lr=0.00031690
+[TRAIN] step=16100/40248 loss=0.75955 lr=0.00031573 encoder_lr=0.00031573
+[TRAIN] step=16200/40248 loss=0.63608 lr=0.00031455 encoder_lr=0.00031455
+[ACTUAL-OPT-STEPS] epoch=51 executed=312 cumulative=16224/40248
+[TRAIN-EPOCH] epoch=51 loss=0.621419 main=0.523977 guide=0.487209 lr=0.00031427 encoder_lr=0.00031427
+Epoch 51/129 | Loss=0.549750 | Recall=0.960324 | Precision=0.944475 | OA=0.988134 | F1=0.952334 | IoU=0.909005 | Kappa=0.945558 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 51, "split": "test", "boundary_1px": {"precision": 0.8385157212042382, "recall": 0.7646922069998993, "F1": 0.7999042746377137, "predicted_pixels": 3579624, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9305795804252067, "recall": 0.8691665037818884, "F1": 0.8988252370781905, "predicted_pixels": 3579624, "target_pixels": 4051944}, "interior": {"precision": 0.9873942571317342, "recall": 0.9923350146430524, "F1": 0.989858470629059, "predicted_pixels": 20629169, "target_pixels": 20526458, "tp": 20369123, "fp": 260046, "fn": 157335, "tn": 168047017}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=16300/40248 loss=0.55610 lr=0.00031337 encoder_lr=0.00031337
+[TRAIN] step=16400/40248 loss=0.67577 lr=0.00031219 encoder_lr=0.00031219
+[TRAIN] step=16500/40248 loss=0.38903 lr=0.00031101 encoder_lr=0.00031101
+[ACTUAL-OPT-STEPS] epoch=52 executed=312 cumulative=16536/40248
+[TRAIN-EPOCH] epoch=52 loss=0.630599 main=0.532918 guide=0.488408 lr=0.00031059 encoder_lr=0.00031059
+Epoch 52/129 | Loss=0.531958 | Recall=0.943638 | Precision=0.965012 | OA=0.988820 | F1=0.954205 | IoU=0.912422 | Kappa=0.947839 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 52, "split": "test", "boundary_1px": {"precision": 0.8610907822373572, "recall": 0.7738591648848059, "F1": 0.8151478824231125, "predicted_pixels": 3514432, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9455425513994865, "recall": 0.8737544250364763, "F1": 0.908232134771166, "predicted_pixels": 3514432, "target_pixels": 4051944}, "interior": {"precision": 0.9936994307941788, "recall": 0.9895167495531865, "F1": 0.9916036794537276, "predicted_pixels": 20440058, "target_pixels": 20526458, "tp": 20311274, "fp": 128784, "fn": 215184, "tn": 168178279}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=16600/40248 loss=0.57428 lr=0.00030984 encoder_lr=0.00030984
+[TRAIN] step=16700/40248 loss=0.69799 lr=0.00030866 encoder_lr=0.00030866
+[TRAIN] step=16800/40248 loss=0.48080 lr=0.00030748 encoder_lr=0.00030748
+[ACTUAL-OPT-STEPS] epoch=53 executed=312 cumulative=16848/40248
+[TRAIN-EPOCH] epoch=53 loss=0.616466 main=0.519399 guide=0.485333 lr=0.00030691 encoder_lr=0.00030691
+Epoch 53/129 | Loss=0.534852 | Recall=0.949870 | Precision=0.958560 | OA=0.988743 | F1=0.954195 | IoU=0.912403 | Kappa=0.947779 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 53, "split": "test", "boundary_1px": {"precision": 0.859462035583918, "recall": 0.771651829344137, "F1": 0.8131933230049745, "predicted_pixels": 3516701, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9443293586801949, "recall": 0.8710732428681147, "F1": 0.9062232654063261, "predicted_pixels": 3516701, "target_pixels": 4051944}, "interior": {"precision": 0.992439869520333, "recall": 0.990599936920437, "F1": 0.9915190496439815, "predicted_pixels": 20488403, "target_pixels": 20526458, "tp": 20333508, "fp": 154895, "fn": 192950, "tn": 168152168}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=16900/40248 loss=0.68538 lr=0.00030630 encoder_lr=0.00030630
+[TRAIN] step=17000/40248 loss=0.45714 lr=0.00030512 encoder_lr=0.00030512
+[TRAIN] step=17100/40248 loss=0.83875 lr=0.00030393 encoder_lr=0.00030393
+[ACTUAL-OPT-STEPS] epoch=54 executed=312 cumulative=17160/40248
+[TRAIN-EPOCH] epoch=54 loss=0.614304 main=0.517473 guide=0.484154 lr=0.00030322 encoder_lr=0.00030322
+Epoch 54/129 | Loss=0.532109 | Recall=0.950605 | Precision=0.959150 | OA=0.988906 | F1=0.954859 | IoU=0.913617 | Kappa=0.948535 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 54, "split": "test", "boundary_1px": {"precision": 0.8615946035296518, "recall": 0.7812494447109831, "F1": 0.8194573383814275, "predicted_pixels": 3554175, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9442984658887084, "recall": 0.8776764930611084, "F1": 0.9097694365919261, "predicted_pixels": 3554175, "target_pixels": 4051944}, "interior": {"precision": 0.9929324784440813, "recall": 0.990179747523903, "F1": 0.9915542024699476, "predicted_pixels": 20469552, "target_pixels": 20526458, "tp": 20324883, "fp": 144669, "fn": 201575, "tn": 168162394}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=17200/40248 loss=0.76498 lr=0.00030275 encoder_lr=0.00030275
+[TRAIN] step=17300/40248 loss=0.68622 lr=0.00030157 encoder_lr=0.00030157
+[TRAIN] step=17400/40248 loss=0.66517 lr=0.00030039 encoder_lr=0.00030039
+[ACTUAL-OPT-STEPS] epoch=55 executed=312 cumulative=17472/40248
+[TRAIN-EPOCH] epoch=55 loss=0.620995 main=0.523919 guide=0.485380 lr=0.00029953 encoder_lr=0.00029953
+Epoch 55/129 | Loss=0.530904 | Recall=0.945294 | Precision=0.964267 | OA=0.988923 | F1=0.954686 | IoU=0.913301 | Kappa=0.948378 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 55, "split": "test", "boundary_1px": {"precision": 0.8646391415587931, "recall": 0.7786519260878235, "F1": 0.8193958407013712, "predicted_pixels": 3521173, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9459288140628137, "recall": 0.8765928156953798, "F1": 0.9099419057942574, "predicted_pixels": 3521173, "target_pixels": 4051944}, "interior": {"precision": 0.9936386493374357, "recall": 0.9896131617057361, "F1": 0.9916218201728212, "predicted_pixels": 20443300, "target_pixels": 20526458, "tp": 20313253, "fp": 130047, "fn": 213205, "tn": 168177016}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=17500/40248 loss=0.62753 lr=0.00029920 encoder_lr=0.00029920
+[TRAIN] step=17600/40248 loss=0.57045 lr=0.00029802 encoder_lr=0.00029802
+[TRAIN] step=17700/40248 loss=0.71280 lr=0.00029683 encoder_lr=0.00029683
+[ACTUAL-OPT-STEPS] epoch=56 executed=312 cumulative=17784/40248
+[TRAIN-EPOCH] epoch=56 loss=0.610192 main=0.513853 guide=0.481696 lr=0.00029584 encoder_lr=0.00029584
+Epoch 56/129 | Loss=0.531626 | Recall=0.959888 | Precision=0.949891 | OA=0.988798 | F1=0.954863 | IoU=0.913625 | Kappa=0.948469 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 56, "split": "test", "boundary_1px": {"precision": 0.855528216793257, "recall": 0.7755457627252499, "F1": 0.8135759527250443, "predicted_pixels": 3552140, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9424552523267664, "recall": 0.8769822583925148, "F1": 0.9085407228882149, "predicted_pixels": 3552140, "target_pixels": 4051944}, "interior": {"precision": 0.990503765316729, "recall": 0.9929628872160994, "F1": 0.9917318018443857, "predicted_pixels": 20577419, "target_pixels": 20526458, "tp": 20382011, "fp": 195408, "fn": 144447, "tn": 168111655}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=17800/40248 loss=0.35000 lr=0.00029565 encoder_lr=0.00029565
+[TRAIN] step=17900/40248 loss=0.68005 lr=0.00029446 encoder_lr=0.00029446
+[TRAIN] step=18000/40248 loss=0.51466 lr=0.00029328 encoder_lr=0.00029328
+[ACTUAL-OPT-STEPS] epoch=57 executed=312 cumulative=18096/40248
+[TRAIN-EPOCH] epoch=57 loss=0.606002 main=0.510254 guide=0.478740 lr=0.00029214 encoder_lr=0.00029214
+Epoch 57/129 | Loss=0.523617 | Recall=0.955305 | Precision=0.956939 | OA=0.989177 | F1=0.956121 | IoU=0.915931 | Kappa=0.949948 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 57, "split": "test", "boundary_1px": {"precision": 0.8637873883159319, "recall": 0.7945862529195863, "F1": 0.8277429972775089, "predicted_pixels": 3605371, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9434809898898061, "recall": 0.8896393928445211, "F1": 0.9157694856394627, "predicted_pixels": 3605371, "target_pixels": 4051944}, "interior": {"precision": 0.9918926790983857, "recall": 0.9917819236031857, "F1": 0.9918372982588523, "predicted_pixels": 20524166, "target_pixels": 20526458, "tp": 20357770, "fp": 166396, "fn": 168688, "tn": 168140667}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=18100/40248 loss=0.68496 lr=0.00029209 encoder_lr=0.00029209
+[TRAIN] step=18200/40248 loss=0.60524 lr=0.00029090 encoder_lr=0.00029090
+[TRAIN] step=18300/40248 loss=0.64677 lr=0.00028972 encoder_lr=0.00028972
+[TRAIN] step=18400/40248 loss=0.53409 lr=0.00028853 encoder_lr=0.00028853
+[ACTUAL-OPT-STEPS] epoch=58 executed=312 cumulative=18408/40248
+[TRAIN-EPOCH] epoch=58 loss=0.607502 main=0.511741 guide=0.478805 lr=0.00028843 encoder_lr=0.00028843
+Epoch 58/129 | Loss=0.526840 | Recall=0.942617 | Precision=0.967563 | OA=0.989016 | F1=0.954927 | IoU=0.913743 | Kappa=0.948675 | t=66.6s
+[SPATIAL-DIAG] {"epoch": 58, "split": "test", "boundary_1px": {"precision": 0.8667262742981514, "recall": 0.7798486356178664, "F1": 0.8209955081849809, "predicted_pixels": 3512973, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9481245657168444, "recall": 0.8788272986990936, "F1": 0.9121616908999023, "predicted_pixels": 3512973, "target_pixels": 4051944}, "interior": {"precision": 0.994218699634511, "recall": 0.9894882984682501, "F1": 0.9918478589303308, "predicted_pixels": 20428795, "target_pixels": 20526458, "tp": 20310690, "fp": 118105, "fn": 215768, "tn": 168188958}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=18500/40248 loss=0.55560 lr=0.00028734 encoder_lr=0.00028734
+[TRAIN] step=18600/40248 loss=0.73448 lr=0.00028615 encoder_lr=0.00028615
+[TRAIN] step=18700/40248 loss=0.52400 lr=0.00028496 encoder_lr=0.00028496
+[ACTUAL-OPT-STEPS] epoch=59 executed=312 cumulative=18720/40248
+[TRAIN-EPOCH] epoch=59 loss=0.601080 main=0.505533 guide=0.477734 lr=0.00028472 encoder_lr=0.00028472
+Epoch 59/129 | Loss=0.522999 | Recall=0.956155 | Precision=0.955683 | OA=0.989115 | F1=0.955919 | IoU=0.915560 | Kappa=0.949710 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 59, "split": "test", "boundary_1px": {"precision": 0.8576875458409587, "recall": 0.800118659093018, "F1": 0.827903535475523, "predicted_pixels": 3662118, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9408003783602822, "recall": 0.8963867713867714, "F1": 0.9180567301419846, "predicted_pixels": 3662118, "target_pixels": 4051944}, "interior": {"precision": 0.9917128733614023, "recall": 0.9918682024926073, "F1": 0.9917905318452924, "predicted_pixels": 20529673, "target_pixels": 20526458, "tp": 20359541, "fp": 170132, "fn": 166917, "tn": 168136931}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=18800/40248 loss=0.50465 lr=0.00028377 encoder_lr=0.00028377
+[TRAIN] step=18900/40248 loss=0.48165 lr=0.00028258 encoder_lr=0.00028258
+[TRAIN] step=19000/40248 loss=0.56770 lr=0.00028139 encoder_lr=0.00028139
+[ACTUAL-OPT-STEPS] epoch=60 executed=312 cumulative=19032/40248
+[TRAIN-EPOCH] epoch=60 loss=0.609016 main=0.512748 guide=0.481340 lr=0.00028101 encoder_lr=0.00028101
+Epoch 60/129 | Loss=0.533013 | Recall=0.951472 | Precision=0.958150 | OA=0.988880 | F1=0.954799 | IoU=0.913508 | Kappa=0.948460 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 60, "split": "test", "boundary_1px": {"precision": 0.8635990962516976, "recall": 0.7749650538112076, "F1": 0.8168848562594438, "predicted_pixels": 3515138, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9471517192212653, "recall": 0.8732099950048668, "F1": 0.9086791284902966, "predicted_pixels": 3515138, "target_pixels": 4051944}, "interior": {"precision": 0.9922166872248183, "recall": 0.9913481907107402, "F1": 0.9917822488337928, "predicted_pixels": 20508491, "target_pixels": 20526458, "tp": 20348867, "fp": 159624, "fn": 177591, "tn": 168147439}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=19100/40248 loss=0.68122 lr=0.00028020 encoder_lr=0.00028020
+[TRAIN] step=19200/40248 loss=0.60476 lr=0.00027900 encoder_lr=0.00027900
+[TRAIN] step=19300/40248 loss=0.59362 lr=0.00027781 encoder_lr=0.00027781
+[ACTUAL-OPT-STEPS] epoch=61 executed=312 cumulative=19344/40248
+[TRAIN-EPOCH] epoch=61 loss=0.592302 main=0.497453 guide=0.474244 lr=0.00027728 encoder_lr=0.00027728
+Epoch 61/129 | Loss=0.509589 | Recall=0.957641 | Precision=0.958562 | OA=0.989661 | F1=0.958101 | IoU=0.919572 | Kappa=0.952204 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 61, "split": "test", "boundary_1px": {"precision": 0.8788822029175913, "recall": 0.8008928553800349, "F1": 0.8380770669981553, "predicted_pixels": 3562185, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9539361375111063, "recall": 0.8922647993160814, "F1": 0.9220704196580934, "predicted_pixels": 3562185, "target_pixels": 4051944}, "interior": {"precision": 0.9930609568224538, "recall": 0.9929913870186469, "F1": 0.9930261707020634, "predicted_pixels": 20525020, "target_pixels": 20526458, "tp": 20382596, "fp": 142424, "fn": 143862, "tn": 168164639}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=19400/40248 loss=0.60077 lr=0.00027662 encoder_lr=0.00027662
+[TRAIN] step=19500/40248 loss=0.63324 lr=0.00027542 encoder_lr=0.00027542
+[TRAIN] step=19600/40248 loss=0.65969 lr=0.00027423 encoder_lr=0.00027423
+[ACTUAL-OPT-STEPS] epoch=62 executed=312 cumulative=19656/40248
+[TRAIN-EPOCH] epoch=62 loss=0.593330 main=0.498304 guide=0.475130 lr=0.00027356 encoder_lr=0.00027356
+Epoch 62/129 | Loss=0.516643 | Recall=0.952655 | Precision=0.961743 | OA=0.989478 | F1=0.957178 | IoU=0.917873 | Kappa=0.951180 | t=65.5s
+[SPATIAL-DIAG] {"epoch": 62, "split": "test", "boundary_1px": {"precision": 0.874879693090872, "recall": 0.7979098427816377, "F1": 0.8346239660124085, "predicted_pixels": 3566919, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9510591633844222, "recall": 0.8902117107245312, "F1": 0.9196300411219012, "predicted_pixels": 3566919, "target_pixels": 4051944}, "interior": {"precision": 0.9935118109252279, "recall": 0.9915756532373973, "F1": 0.9925427878643297, "predicted_pixels": 20486456, "target_pixels": 20526458, "tp": 20353536, "fp": 132920, "fn": 172922, "tn": 168174143}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=19700/40248 loss=0.61510 lr=0.00027303 encoder_lr=0.00027303
+[TRAIN] step=19800/40248 loss=0.68853 lr=0.00027183 encoder_lr=0.00027183
+[TRAIN] step=19900/40248 loss=0.44200 lr=0.00027064 encoder_lr=0.00027064
+[ACTUAL-OPT-STEPS] epoch=63 executed=312 cumulative=19968/40248
+[TRAIN-EPOCH] epoch=63 loss=0.593757 main=0.498800 guide=0.474786 lr=0.00026982 encoder_lr=0.00026982
+Epoch 63/129 | Loss=0.513433 | Recall=0.956781 | Precision=0.958018 | OA=0.989490 | F1=0.957399 | IoU=0.918280 | Kappa=0.951405 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 63, "split": "test", "boundary_1px": {"precision": 0.8735318537175208, "recall": 0.8001823322336142, "F1": 0.8352498435577523, "predicted_pixels": 3589220, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.951529301630995, "recall": 0.8925241809857194, "F1": 0.9210827328250937, "predicted_pixels": 3589220, "target_pixels": 4051944}, "interior": {"precision": 0.9933776963572647, "recall": 0.9919860016764704, "F1": 0.992681361243749, "predicted_pixels": 20497701, "target_pixels": 20526458, "tp": 20361959, "fp": 135742, "fn": 164499, "tn": 168171321}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=20000/40248 loss=0.62714 lr=0.00026944 encoder_lr=0.00026944
+[TRAIN] step=20100/40248 loss=0.51249 lr=0.00026824 encoder_lr=0.00026824
+[TRAIN] step=20200/40248 loss=0.75999 lr=0.00026704 encoder_lr=0.00026704
+[ACTUAL-OPT-STEPS] epoch=64 executed=312 cumulative=20280/40248
+[TRAIN-EPOCH] epoch=64 loss=0.592943 main=0.498420 guide=0.472617 lr=0.00026609 encoder_lr=0.00026609
+Epoch 64/129 | Loss=0.516335 | Recall=0.945676 | Precision=0.968156 | OA=0.989455 | F1=0.956784 | IoU=0.917148 | Kappa=0.950780 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 64, "split": "test", "boundary_1px": {"precision": 0.8758876849673292, "recall": 0.7949547180316411, "F1": 0.833461068956387, "predicted_pixels": 3539544, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9520607739302012, "recall": 0.8893802579700015, "F1": 0.919653729934971, "predicted_pixels": 3539544, "target_pixels": 4051944}, "interior": {"precision": 0.9945427588417771, "recall": 0.99041578435013, "F1": 0.9924749813505694, "predicted_pixels": 20441281, "target_pixels": 20526458, "tp": 20329728, "fp": 111553, "fn": 196730, "tn": 168195510}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=20300/40248 loss=0.54712 lr=0.00026585 encoder_lr=0.00026585
+[TRAIN] step=20400/40248 loss=0.51183 lr=0.00026465 encoder_lr=0.00026465
+[TRAIN] step=20500/40248 loss=0.60427 lr=0.00026345 encoder_lr=0.00026345
+[ACTUAL-OPT-STEPS] epoch=65 executed=312 cumulative=20592/40248
+[TRAIN-EPOCH] epoch=65 loss=0.593633 main=0.499019 guide=0.473066 lr=0.00026234 encoder_lr=0.00026234
+Epoch 65/129 | Loss=0.508426 | Recall=0.953365 | Precision=0.963067 | OA=0.989731 | F1=0.958191 | IoU=0.919738 | Kappa=0.952338 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 65, "split": "test", "boundary_1px": {"precision": 0.8818327529051632, "recall": 0.8025498378062481, "F1": 0.84032539485862, "predicted_pixels": 3556857, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9555143768782383, "recall": 0.893211258595874, "F1": 0.9233129922591099, "predicted_pixels": 3556857, "target_pixels": 4051944}, "interior": {"precision": 0.9937587240920956, "recall": 0.992546400358016, "F1": 0.9931521922595308, "predicted_pixels": 20501417, "target_pixels": 20526458, "tp": 20373462, "fp": 127955, "fn": 152996, "tn": 168179108}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=20600/40248 loss=0.55901 lr=0.00026224 encoder_lr=0.00026224
+[TRAIN] step=20700/40248 loss=0.42774 lr=0.00026104 encoder_lr=0.00026104
+[TRAIN] step=20800/40248 loss=0.51090 lr=0.00025984 encoder_lr=0.00025984
+[TRAIN] step=20900/40248 loss=0.56978 lr=0.00025864 encoder_lr=0.00025864
+[ACTUAL-OPT-STEPS] epoch=66 executed=312 cumulative=20904/40248
+[TRAIN-EPOCH] epoch=66 loss=0.584841 main=0.490746 guide=0.470476 lr=0.00025859 encoder_lr=0.00025859
+Epoch 66/129 | Loss=0.506487 | Recall=0.951753 | Precision=0.964865 | OA=0.989767 | F1=0.958264 | IoU=0.919873 | Kappa=0.952433 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 66, "split": "test", "boundary_1px": {"precision": 0.8838605288557592, "recall": 0.8030165273755018, "F1": 0.841501293700355, "predicted_pixels": 3553710, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9574118315788289, "recall": 0.8941298300272659, "F1": 0.9246894044966854, "predicted_pixels": 3553710, "target_pixels": 4051944}, "interior": {"precision": 0.994366555795119, "recall": 0.9924002962420502, "F1": 0.99338245303662, "predicted_pixels": 20485869, "target_pixels": 20526458, "tp": 20370463, "fp": 115406, "fn": 155995, "tn": 168191657}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=21000/40248 loss=0.70318 lr=0.00025743 encoder_lr=0.00025743
+[TRAIN] step=21100/40248 loss=0.70273 lr=0.00025623 encoder_lr=0.00025623
+[TRAIN] step=21200/40248 loss=0.64199 lr=0.00025503 encoder_lr=0.00025503
+[ACTUAL-OPT-STEPS] epoch=67 executed=312 cumulative=21216/40248
+[TRAIN-EPOCH] epoch=67 loss=0.586045 main=0.492024 guide=0.470105 lr=0.00025483 encoder_lr=0.00025483
+Epoch 67/129 | Loss=0.503093 | Recall=0.956571 | Precision=0.961521 | OA=0.989914 | F1=0.959039 | IoU=0.921302 | Kappa=0.953289 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 67, "split": "test", "boundary_1px": {"precision": 0.8834399724725465, "recall": 0.8105714195457785, "F1": 0.8454384615647367, "predicted_pixels": 3586238, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9558509502157971, "recall": 0.8990163733753478, "F1": 0.9265629339856774, "predicted_pixels": 3586238, "target_pixels": 4051944}, "interior": {"precision": 0.994134693775399, "recall": 0.9927395169687825, "F1": 0.9934366155277132, "predicted_pixels": 20497651, "target_pixels": 20526458, "tp": 20377426, "fp": 120225, "fn": 149032, "tn": 168186838}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=21300/40248 loss=0.47631 lr=0.00025382 encoder_lr=0.00025382
+[TRAIN] step=21400/40248 loss=0.53388 lr=0.00025262 encoder_lr=0.00025262
+[TRAIN] step=21500/40248 loss=0.63101 lr=0.00025141 encoder_lr=0.00025141
+[ACTUAL-OPT-STEPS] epoch=68 executed=312 cumulative=21528/40248
+[TRAIN-EPOCH] epoch=68 loss=0.583332 main=0.489319 guide=0.470064 lr=0.00025107 encoder_lr=0.00025107
+Epoch 68/129 | Loss=0.511683 | Recall=0.952903 | Precision=0.963210 | OA=0.989694 | F1=0.958029 | IoU=0.919439 | Kappa=0.952155 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 68, "split": "test", "boundary_1px": {"precision": 0.8838163432022625, "recall": 0.8072258649181726, "F1": 0.8437866407406102, "predicted_pixels": 3570769, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9556902168692514, "recall": 0.895960803012085, "F1": 0.9248621526877584, "predicted_pixels": 3570769, "target_pixels": 4051944}, "interior": {"precision": 0.9938369186927835, "recall": 0.9914233132671989, "F1": 0.9926286487942146, "predicted_pixels": 20476608, "target_pixels": 20526458, "tp": 20350409, "fp": 126199, "fn": 176049, "tn": 168180864}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=21600/40248 loss=0.52207 lr=0.00025020 encoder_lr=0.00025020
+[TRAIN] step=21700/40248 loss=0.76917 lr=0.00024899 encoder_lr=0.00024899
+[TRAIN] step=21800/40248 loss=0.46757 lr=0.00024779 encoder_lr=0.00024779
+[ACTUAL-OPT-STEPS] epoch=69 executed=312 cumulative=21840/40248
+[TRAIN-EPOCH] epoch=69 loss=0.579860 main=0.486191 guide=0.468341 lr=0.00024730 encoder_lr=0.00024730
+Epoch 69/129 | Loss=0.500724 | Recall=0.959429 | Precision=0.958906 | OA=0.989917 | F1=0.959167 | IoU=0.921539 | Kappa=0.953416 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 69, "split": "test", "boundary_1px": {"precision": 0.8798124599323418, "recall": 0.8164599510753356, "F1": 0.8469531583846285, "predicted_pixels": 3628238, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9529005539327905, "recall": 0.9057198223864891, "F1": 0.9287113511250291, "predicted_pixels": 3628238, "target_pixels": 4051944}, "interior": {"precision": 0.9934520563203553, "recall": 0.9932961643942662, "F1": 0.993374104241213, "predicted_pixels": 20523237, "target_pixels": 20526458, "tp": 20388852, "fp": 134385, "fn": 137606, "tn": 168172678}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=21900/40248 loss=0.52271 lr=0.00024658 encoder_lr=0.00024658
+[TRAIN] step=22000/40248 loss=0.60701 lr=0.00024537 encoder_lr=0.00024537
+[TRAIN] step=22100/40248 loss=0.40963 lr=0.00024416 encoder_lr=0.00024416
+[ACTUAL-OPT-STEPS] epoch=70 executed=312 cumulative=22152/40248
+[TRAIN-EPOCH] epoch=70 loss=0.578322 main=0.484940 guide=0.466914 lr=0.00024353 encoder_lr=0.00024353
+Epoch 70/129 | Loss=0.507510 | Recall=0.951458 | Precision=0.965344 | OA=0.989792 | F1=0.958351 | IoU=0.920032 | Kappa=0.952534 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 70, "split": "test", "boundary_1px": {"precision": 0.8883968909150649, "recall": 0.7978192689731152, "F1": 0.8406753237554639, "predicted_pixels": 3506112, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9606584159319497, "recall": 0.8876914389734902, "F1": 0.9227346752969048, "predicted_pixels": 3506112, "target_pixels": 4051944}, "interior": {"precision": 0.9948709681817176, "recall": 0.9918767767921772, "F1": 0.9933716162412565, "predicted_pixels": 20464681, "target_pixels": 20526458, "tp": 20359717, "fp": 104964, "fn": 166741, "tn": 168202099}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=22200/40248 loss=0.85909 lr=0.00024294 encoder_lr=0.00024294
+[TRAIN] step=22300/40248 loss=0.48611 lr=0.00024173 encoder_lr=0.00024173
+[TRAIN] step=22400/40248 loss=0.43607 lr=0.00024052 encoder_lr=0.00024052
+[ACTUAL-OPT-STEPS] epoch=71 executed=312 cumulative=22464/40248
+[TRAIN-EPOCH] epoch=71 loss=0.573895 main=0.480691 guide=0.466021 lr=0.00023974 encoder_lr=0.00023974
+Epoch 71/129 | Loss=0.500209 | Recall=0.950922 | Precision=0.967461 | OA=0.989994 | F1=0.959120 | IoU=0.921451 | Kappa=0.953420 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 71, "split": "test", "boundary_1px": {"precision": 0.8854110495408662, "recall": 0.8169135605033041, "F1": 0.8497842170896288, "predicted_pixels": 3606901, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9557697868613527, "recall": 0.904622571289238, "F1": 0.9294930914579659, "predicted_pixels": 3606901, "target_pixels": 4051944}, "interior": {"precision": 0.9950496602670656, "recall": 0.9919655889973809, "F1": 0.9935052312193897, "predicted_pixels": 20462838, "target_pixels": 20526458, "tp": 20361540, "fp": 101298, "fn": 164918, "tn": 168205765}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=22500/40248 loss=0.54505 lr=0.00023931 encoder_lr=0.00023931
+[TRAIN] step=22600/40248 loss=0.65831 lr=0.00023809 encoder_lr=0.00023809
+[TRAIN] step=22700/40248 loss=0.80223 lr=0.00023688 encoder_lr=0.00023688
+[ACTUAL-OPT-STEPS] epoch=72 executed=312 cumulative=22776/40248
+[TRAIN-EPOCH] epoch=72 loss=0.576237 main=0.483116 guide=0.465603 lr=0.00023596 encoder_lr=0.00023596
+Epoch 72/129 | Loss=0.527268 | Recall=0.941027 | Precision=0.969425 | OA=0.989057 | F1=0.955015 | IoU=0.913903 | Kappa=0.948788 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 72, "split": "test", "boundary_1px": {"precision": 0.8668801117957476, "recall": 0.7811230856102651, "F1": 0.8217703325404913, "predicted_pixels": 3517844, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9473364936023314, "recall": 0.8787781864704942, "F1": 0.9117703886942891, "predicted_pixels": 3517844, "target_pixels": 4051944}, "interior": {"precision": 0.9949618402123517, "recall": 0.9886737887267253, "F1": 0.9918078480243636, "predicted_pixels": 20396733, "target_pixels": 20526458, "tp": 20293971, "fp": 102762, "fn": 232487, "tn": 168204301}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=22800/40248 loss=0.38553 lr=0.00023566 encoder_lr=0.00023566
+[TRAIN] step=22900/40248 loss=0.53146 lr=0.00023445 encoder_lr=0.00023445
+[TRAIN] step=23000/40248 loss=0.87014 lr=0.00023323 encoder_lr=0.00023323
+[ACTUAL-OPT-STEPS] epoch=73 executed=312 cumulative=23088/40248
+[TRAIN-EPOCH] epoch=73 loss=0.572769 main=0.479719 guide=0.465252 lr=0.00023216 encoder_lr=0.00023216
+Epoch 73/129 | Loss=0.498429 | Recall=0.964184 | Precision=0.955009 | OA=0.989972 | F1=0.959575 | IoU=0.922291 | Kappa=0.953851 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 73, "split": "test", "boundary_1px": {"precision": 0.8832598337980593, "recall": 0.8182864817480202, "F1": 0.8495326577531318, "predicted_pixels": 3638345, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9565940008437902, "recall": 0.9053158187773572, "F1": 0.9302487929169604, "predicted_pixels": 3638345, "target_pixels": 4051944}, "interior": {"precision": 0.993381753243089, "recall": 0.993965544372049, "F1": 0.9936735630620924, "predicted_pixels": 20538521, "target_pixels": 20526458, "tp": 20402592, "fp": 135929, "fn": 123866, "tn": 168171134}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=23100/40248 loss=0.57045 lr=0.00023201 encoder_lr=0.00023201
+[TRAIN] step=23200/40248 loss=0.53307 lr=0.00023080 encoder_lr=0.00023080
+[TRAIN] step=23300/40248 loss=0.57431 lr=0.00022958 encoder_lr=0.00022958
+[TRAIN] step=23400/40248 loss=0.47191 lr=0.00022836 encoder_lr=0.00022836
+[ACTUAL-OPT-STEPS] epoch=74 executed=312 cumulative=23400/40248
+[TRAIN-EPOCH] epoch=74 loss=0.581306 main=0.488056 guide=0.466250 lr=0.00022836 encoder_lr=0.00022836
+Epoch 74/129 | Loss=0.492304 | Recall=0.965172 | Precision=0.955348 | OA=0.990133 | F1=0.960235 | IoU=0.923512 | Kappa=0.954603 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 74, "split": "test", "boundary_1px": {"precision": 0.8895784085808496, "recall": 0.8128303352662327, "F1": 0.8494743917472777, "predicted_pixels": 3578014, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9607036193821489, "recall": 0.9002587400023297, "F1": 0.92949954150251, "predicted_pixels": 3578014, "target_pixels": 4051944}, "interior": {"precision": 0.9937469838654784, "recall": 0.9944803920871297, "F1": 0.9941135527081687, "predicted_pixels": 20541607, "target_pixels": 20526458, "tp": 20413160, "fp": 128447, "fn": 113298, "tn": 168178616}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=23500/40248 loss=0.55305 lr=0.00022714 encoder_lr=0.00022714
+[TRAIN] step=23600/40248 loss=0.44707 lr=0.00022592 encoder_lr=0.00022592
+[TRAIN] step=23700/40248 loss=0.53396 lr=0.00022470 encoder_lr=0.00022470
+[ACTUAL-OPT-STEPS] epoch=75 executed=312 cumulative=23712/40248
+[TRAIN-EPOCH] epoch=75 loss=0.571524 main=0.479109 guide=0.462078 lr=0.00022455 encoder_lr=0.00022455
+Epoch 75/129 | Loss=0.495846 | Recall=0.958370 | Precision=0.961956 | OA=0.990183 | F1=0.960160 | IoU=0.923373 | Kappa=0.954562 | t=66.6s
+[SPATIAL-DIAG] {"epoch": 75, "split": "test", "boundary_1px": {"precision": 0.8934101937996476, "recall": 0.814242250139686, "F1": 0.8519910817672235, "predicted_pixels": 3558830, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9620091434544499, "recall": 0.9008897951205643, "F1": 0.9304468451882052, "predicted_pixels": 3558830, "target_pixels": 4051944}, "interior": {"precision": 0.9943260300901562, "recall": 0.9936557978000881, "F1": 0.9939908009633744, "predicted_pixels": 20512622, "target_pixels": 20526458, "tp": 20396234, "fp": 116388, "fn": 130224, "tn": 168190675}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=23800/40248 loss=0.55445 lr=0.00022347 encoder_lr=0.00022347
+[TRAIN] step=23900/40248 loss=0.64084 lr=0.00022225 encoder_lr=0.00022225
+[TRAIN] step=24000/40248 loss=0.43764 lr=0.00022103 encoder_lr=0.00022103
+[ACTUAL-OPT-STEPS] epoch=76 executed=312 cumulative=24024/40248
+[TRAIN-EPOCH] epoch=76 loss=0.569326 main=0.476935 guide=0.461953 lr=0.00022073 encoder_lr=0.00022073
+Epoch 76/129 | Loss=0.488010 | Recall=0.960399 | Precision=0.961787 | OA=0.990402 | F1=0.961093 | IoU=0.925099 | Kappa=0.955618 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 76, "split": "test", "boundary_1px": {"precision": 0.8932143250385378, "recall": 0.828316482162636, "F1": 0.8595421521803022, "predicted_pixels": 3632800, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9604024443955076, "recall": 0.9111150104739848, "F1": 0.935109721694445, "predicted_pixels": 3632800, "target_pixels": 4051944}, "interior": {"precision": 0.9948177948229749, "recall": 0.993599041783049, "F1": 0.9942080448000963, "predicted_pixels": 20501311, "target_pixels": 20526458, "tp": 20395069, "fp": 106242, "fn": 131389, "tn": 168200821}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=24100/40248 loss=0.51978 lr=0.00021980 encoder_lr=0.00021980
+[TRAIN] step=24200/40248 loss=0.64279 lr=0.00021858 encoder_lr=0.00021858
+[TRAIN] step=24300/40248 loss=0.39327 lr=0.00021735 encoder_lr=0.00021735
+[ACTUAL-OPT-STEPS] epoch=77 executed=312 cumulative=24336/40248
+[TRAIN-EPOCH] epoch=77 loss=0.565964 main=0.473892 guide=0.460356 lr=0.00021691 encoder_lr=0.00021691
+Epoch 77/129 | Loss=0.489865 | Recall=0.958338 | Precision=0.963047 | OA=0.990318 | F1=0.960687 | IoU=0.924347 | Kappa=0.955166 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 77, "split": "test", "boundary_1px": {"precision": 0.8944197205128848, "recall": 0.8224931045443866, "F1": 0.8569498019397995, "predicted_pixels": 3593010, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9617905321721899, "recall": 0.9071290225136379, "F1": 0.9336604169235045, "predicted_pixels": 3593010, "target_pixels": 4051944}, "interior": {"precision": 0.994946074417421, "recall": 0.9935247961435918, "F1": 0.9942349273444935, "predicted_pixels": 20497136, "target_pixels": 20526458, "tp": 20393545, "fp": 103591, "fn": 132913, "tn": 168203472}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=24400/40248 loss=0.74752 lr=0.00021612 encoder_lr=0.00021612
+[TRAIN] step=24500/40248 loss=0.63396 lr=0.00021490 encoder_lr=0.00021490
+[TRAIN] step=24600/40248 loss=0.59182 lr=0.00021367 encoder_lr=0.00021367
+[ACTUAL-OPT-STEPS] epoch=78 executed=312 cumulative=24648/40248
+[TRAIN-EPOCH] epoch=78 loss=0.560479 main=0.468533 guide=0.459730 lr=0.00021308 encoder_lr=0.00021308
+Epoch 78/129 | Loss=0.487266 | Recall=0.961535 | Precision=0.961177 | OA=0.990458 | F1=0.961356 | IoU=0.925587 | Kappa=0.955913 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 78, "split": "test", "boundary_1px": {"precision": 0.8988493089581053, "recall": 0.825597046750893, "F1": 0.8606673469349958, "predicted_pixels": 3586975, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9642054934868517, "recall": 0.9081559370020909, "F1": 0.9353417872653477, "predicted_pixels": 3586975, "target_pixels": 4051944}, "interior": {"precision": 0.9944501082455931, "recall": 0.9943835901936905, "F1": 0.9944168481072684, "predicted_pixels": 20525085, "target_pixels": 20526458, "tp": 20411173, "fp": 113912, "fn": 115285, "tn": 168193151}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=24700/40248 loss=0.64542 lr=0.00021244 encoder_lr=0.00021244
+[TRAIN] step=24800/40248 loss=0.65309 lr=0.00021121 encoder_lr=0.00021121
+[TRAIN] step=24900/40248 loss=0.68189 lr=0.00020998 encoder_lr=0.00020998
+[ACTUAL-OPT-STEPS] epoch=79 executed=312 cumulative=24960/40248
+[TRAIN-EPOCH] epoch=79 loss=0.561286 main=0.469492 guide=0.458971 lr=0.00020924 encoder_lr=0.00020924
+Epoch 79/129 | Loss=0.494084 | Recall=0.950249 | Precision=0.970312 | OA=0.990270 | F1=0.960176 | IoU=0.923402 | Kappa=0.954635 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 79, "split": "test", "boundary_1px": {"precision": 0.8948575761058671, "recall": 0.816733646861852, "F1": 0.8540126658135898, "predicted_pixels": 3558497, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.962780072598066, "recall": 0.9034389419004804, "F1": 0.9321660569454474, "predicted_pixels": 3558497, "target_pixels": 4051944}, "interior": {"precision": 0.996020746616659, "recall": 0.9922164359774103, "F1": 0.9941149516961946, "predicted_pixels": 20448057, "target_pixels": 20526458, "tp": 20366689, "fp": 81368, "fn": 159769, "tn": 168225695}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=25000/40248 loss=0.61339 lr=0.00020875 encoder_lr=0.00020875
+[TRAIN] step=25100/40248 loss=0.73736 lr=0.00020751 encoder_lr=0.00020751
+[TRAIN] step=25200/40248 loss=0.45891 lr=0.00020628 encoder_lr=0.00020628
+[ACTUAL-OPT-STEPS] epoch=80 executed=312 cumulative=25272/40248
+[TRAIN-EPOCH] epoch=80 loss=0.569523 main=0.477261 guide=0.461310 lr=0.00020539 encoder_lr=0.00020539
+Epoch 80/129 | Loss=0.481138 | Recall=0.963811 | Precision=0.960444 | OA=0.990633 | F1=0.962124 | IoU=0.927013 | Kappa=0.956780 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 80, "split": "test", "boundary_1px": {"precision": 0.9003557644002285, "recall": 0.8311294529243247, "F1": 0.8643587440607746, "predicted_pixels": 3608849, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.964988005871124, "recall": 0.9121076204409537, "F1": 0.9378029562813954, "predicted_pixels": 3608849, "target_pixels": 4051944}, "interior": {"precision": 0.9947440027980285, "recall": 0.9948545920586981, "F1": 0.994799294354883, "predicted_pixels": 20528740, "target_pixels": 20526458, "tp": 20420841, "fp": 107899, "fn": 105617, "tn": 168199164}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=25300/40248 loss=0.46409 lr=0.00020505 encoder_lr=0.00020505
+[TRAIN] step=25400/40248 loss=0.58490 lr=0.00020381 encoder_lr=0.00020381
+[TRAIN] step=25500/40248 loss=0.62018 lr=0.00020258 encoder_lr=0.00020258
+[ACTUAL-OPT-STEPS] epoch=81 executed=312 cumulative=25584/40248
+[TRAIN-EPOCH] epoch=81 loss=0.562631 main=0.470552 guide=0.460394 lr=0.00020154 encoder_lr=0.00020154
+Epoch 81/129 | Loss=0.487335 | Recall=0.965659 | Precision=0.957176 | OA=0.990428 | F1=0.961399 | IoU=0.925667 | Kappa=0.955936 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 81, "split": "test", "boundary_1px": {"precision": 0.8930049672283744, "recall": 0.8304537278896253, "F1": 0.8605942296841426, "predicted_pixels": 3641870, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9598393133198054, "recall": 0.9126678453601531, "F1": 0.9356594167544976, "predicted_pixels": 3641870, "target_pixels": 4051944}, "interior": {"precision": 0.9936195696119593, "recall": 0.9947148212321872, "F1": 0.9941668937685595, "predicted_pixels": 20549084, "target_pixels": 20526458, "tp": 20417972, "fp": 131112, "fn": 108486, "tn": 168175951}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=25600/40248 loss=0.67187 lr=0.00020134 encoder_lr=0.00020134
+[TRAIN] step=25700/40248 loss=0.63638 lr=0.00020010 encoder_lr=0.00020010
+[TRAIN] step=25800/40248 loss=0.60844 lr=0.00019886 encoder_lr=0.00019886
+[ACTUAL-OPT-STEPS] epoch=82 executed=312 cumulative=25896/40248
+[TRAIN-EPOCH] epoch=82 loss=0.554336 main=0.462608 guide=0.458639 lr=0.00019767 encoder_lr=0.00019767
+Epoch 82/129 | Loss=0.478611 | Recall=0.961387 | Precision=0.963387 | OA=0.990724 | F1=0.962386 | IoU=0.927500 | Kappa=0.957096 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 82, "split": "test", "boundary_1px": {"precision": 0.9013871672827688, "recall": 0.8365379679482243, "F1": 0.8677526712370277, "predicted_pixels": 3627104, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9642676361085869, "recall": 0.9164361600259037, "F1": 0.9397436549964995, "predicted_pixels": 3627104, "target_pixels": 4051944}, "interior": {"precision": 0.9945584539711447, "recall": 0.994926499252818, "F1": 0.9947424425686655, "predicted_pixels": 20534054, "target_pixels": 20526458, "tp": 20422317, "fp": 111737, "fn": 104141, "tn": 168195326}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=25900/40248 loss=0.48119 lr=0.00019762 encoder_lr=0.00019762
+[TRAIN] step=26000/40248 loss=0.40864 lr=0.00019638 encoder_lr=0.00019638
+[TRAIN] step=26100/40248 loss=0.65449 lr=0.00019514 encoder_lr=0.00019514
+[TRAIN] step=26200/40248 loss=0.45470 lr=0.00019390 encoder_lr=0.00019390
+[ACTUAL-OPT-STEPS] epoch=83 executed=312 cumulative=26208/40248
+[TRAIN-EPOCH] epoch=83 loss=0.554961 main=0.463705 guide=0.456280 lr=0.00019380 encoder_lr=0.00019380
+Epoch 83/129 | Loss=0.480019 | Recall=0.965407 | Precision=0.958773 | OA=0.990606 | F1=0.962079 | IoU=0.926928 | Kappa=0.956718 | t=65.5s
+[SPATIAL-DIAG] {"epoch": 83, "split": "test", "boundary_1px": {"precision": 0.8952190050543317, "recall": 0.8356448164140472, "F1": 0.8644066758462312, "predicted_pixels": 3649345, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9601958707658498, "recall": 0.9174850392799111, "F1": 0.9383546922086397, "predicted_pixels": 3649345, "target_pixels": 4051944}, "interior": {"precision": 0.9939342880311142, "recall": 0.9949674220462196, "F1": 0.9944505867081889, "predicted_pixels": 20547794, "target_pixels": 20526458, "tp": 20423157, "fp": 124637, "fn": 103301, "tn": 168182426}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=26300/40248 loss=0.62007 lr=0.00019266 encoder_lr=0.00019266
+[TRAIN] step=26400/40248 loss=0.80073 lr=0.00019142 encoder_lr=0.00019142
+[TRAIN] step=26500/40248 loss=0.58233 lr=0.00019017 encoder_lr=0.00019017
+[ACTUAL-OPT-STEPS] epoch=84 executed=312 cumulative=26520/40248
+[TRAIN-EPOCH] epoch=84 loss=0.552635 main=0.461508 guide=0.455633 lr=0.00018992 encoder_lr=0.00018992
+Epoch 84/129 | Loss=0.477710 | Recall=0.959757 | Precision=0.965757 | OA=0.990832 | F1=0.962748 | IoU=0.928171 | Kappa=0.957520 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 84, "split": "test", "boundary_1px": {"precision": 0.903683466952629, "recall": 0.8423398743911564, "F1": 0.871934068712273, "predicted_pixels": 3642438, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9646475794509062, "recall": 0.9205299974530744, "F1": 0.9420725609450484, "predicted_pixels": 3642438, "target_pixels": 4051944}, "interior": {"precision": 0.9951245463014502, "recall": 0.9942217015716983, "F1": 0.9946729190630871, "predicted_pixels": 20507835, "target_pixels": 20526458, "tp": 20407850, "fp": 99985, "fn": 118608, "tn": 168207078}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=26600/40248 loss=0.51935 lr=0.00018893 encoder_lr=0.00018893
+[TRAIN] step=26700/40248 loss=0.73814 lr=0.00018768 encoder_lr=0.00018768
+[TRAIN] step=26800/40248 loss=0.50400 lr=0.00018643 encoder_lr=0.00018643
+[ACTUAL-OPT-STEPS] epoch=85 executed=312 cumulative=26832/40248
+[TRAIN-EPOCH] epoch=85 loss=0.553109 main=0.462011 guide=0.455487 lr=0.00018603 encoder_lr=0.00018603
+Epoch 85/129 | Loss=0.476557 | Recall=0.961345 | Precision=0.964360 | OA=0.990843 | F1=0.962850 | IoU=0.928362 | Kappa=0.957628 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 85, "split": "test", "boundary_1px": {"precision": 0.9026359460258279, "recall": 0.8421747684568197, "F1": 0.8713578069360992, "predicted_pixels": 3643891, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9641822436510862, "recall": 0.9207743246204785, "F1": 0.9419784722392419, "predicted_pixels": 3643891, "target_pixels": 4051944}, "interior": {"precision": 0.9954256506774842, "recall": 0.994162071215599, "F1": 0.9947934596993286, "predicted_pixels": 20500402, "target_pixels": 20526458, "tp": 20406626, "fp": 93776, "fn": 119832, "tn": 168213287}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=26900/40248 loss=0.60459 lr=0.00018518 encoder_lr=0.00018518
+[TRAIN] step=27000/40248 loss=0.48854 lr=0.00018394 encoder_lr=0.00018394
+[TRAIN] step=27100/40248 loss=0.45247 lr=0.00018269 encoder_lr=0.00018269
+[ACTUAL-OPT-STEPS] epoch=86 executed=312 cumulative=27144/40248
+[TRAIN-EPOCH] epoch=86 loss=0.547542 main=0.456835 guide=0.453538 lr=0.00018214 encoder_lr=0.00018214
+Epoch 86/129 | Loss=0.477679 | Recall=0.960921 | Precision=0.964439 | OA=0.990803 | F1=0.962677 | IoU=0.928040 | Kappa=0.957432 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 86, "split": "test", "boundary_1px": {"precision": 0.9023014583680887, "recall": 0.8400456669687439, "F1": 0.870061332072573, "predicted_pixels": 3638519, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9639301045287931, "recall": 0.9188818996511304, "F1": 0.940867089878282, "predicted_pixels": 3638519, "target_pixels": 4051944}, "interior": {"precision": 0.9954281350324977, "recall": 0.9940365259315562, "F1": 0.9947318437742386, "predicted_pixels": 20497762, "target_pixels": 20526458, "tp": 20404049, "fp": 93713, "fn": 122409, "tn": 168213350}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=27200/40248 loss=0.69122 lr=0.00018143 encoder_lr=0.00018143
+[TRAIN] step=27300/40248 loss=0.38888 lr=0.00018018 encoder_lr=0.00018018
+[TRAIN] step=27400/40248 loss=0.55737 lr=0.00017893 encoder_lr=0.00017893
+[ACTUAL-OPT-STEPS] epoch=87 executed=312 cumulative=27456/40248
+[TRAIN-EPOCH] epoch=87 loss=0.547467 main=0.456753 guide=0.453569 lr=0.00017823 encoder_lr=0.00017823
+Epoch 87/129 | Loss=0.473472 | Recall=0.962983 | Precision=0.963379 | OA=0.990912 | F1=0.963181 | IoU=0.928977 | Kappa=0.957997 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 87, "split": "test", "boundary_1px": {"precision": 0.9036300484670344, "recall": 0.8453233805797908, "F1": 0.8735047997017681, "predicted_pixels": 3655268, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9645965767763129, "recall": 0.9226588521460316, "F1": 0.943161754019302, "predicted_pixels": 3655268, "target_pixels": 4051944}, "interior": {"precision": 0.9954627300841112, "recall": 0.994403710567113, "F1": 0.9949329385171665, "predicted_pixels": 20504621, "target_pixels": 20526458, "tp": 20411586, "fp": 93035, "fn": 114872, "tn": 168214028}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=27500/40248 loss=0.68862 lr=0.00017768 encoder_lr=0.00017768
+[TRAIN] step=27600/40248 loss=0.46196 lr=0.00017642 encoder_lr=0.00017642
+[TRAIN] step=27700/40248 loss=0.44569 lr=0.00017517 encoder_lr=0.00017517
+[ACTUAL-OPT-STEPS] epoch=88 executed=312 cumulative=27768/40248
+[TRAIN-EPOCH] epoch=88 loss=0.547070 main=0.456767 guide=0.451519 lr=0.00017431 encoder_lr=0.00017431
+Epoch 88/129 | Loss=0.473694 | Recall=0.961829 | Precision=0.964466 | OA=0.990914 | F1=0.963146 | IoU=0.928912 | Kappa=0.957964 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 88, "split": "test", "boundary_1px": {"precision": 0.9087899860068241, "recall": 0.8379987482551585, "F1": 0.8719599064992852, "predicted_pixels": 3601041, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9680256348094898, "recall": 0.9161296404886149, "F1": 0.9413629422463271, "predicted_pixels": 3601041, "target_pixels": 4051944}, "interior": {"precision": 0.99575510941616, "recall": 0.9944001054638847, "F1": 0.9950771461604958, "predicted_pixels": 20498526, "target_pixels": 20526458, "tp": 20411512, "fp": 87014, "fn": 114946, "tn": 168220049}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=27800/40248 loss=0.43162 lr=0.00017391 encoder_lr=0.00017391
+[TRAIN] step=27900/40248 loss=0.45113 lr=0.00017265 encoder_lr=0.00017265
+[TRAIN] step=28000/40248 loss=0.48623 lr=0.00017139 encoder_lr=0.00017139
+[ACTUAL-OPT-STEPS] epoch=89 executed=312 cumulative=28080/40248
+[TRAIN-EPOCH] epoch=89 loss=0.544513 main=0.454072 guide=0.452202 lr=0.00017038 encoder_lr=0.00017038
+Epoch 89/129 | Loss=0.473785 | Recall=0.957195 | Precision=0.969174 | OA=0.990958 | F1=0.963147 | IoU=0.928914 | Kappa=0.957995 | t=65.3s
+[SPATIAL-DIAG] {"epoch": 89, "split": "test", "boundary_1px": {"precision": 0.9105089484929455, "recall": 0.8392936822424002, "F1": 0.8734521193103425, "predicted_pixels": 3593566, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9694612538074993, "recall": 0.9167994424404681, "F1": 0.9423952253538456, "predicted_pixels": 3593566, "target_pixels": 4051944}, "interior": {"precision": 0.996274891807663, "recall": 0.993782658459633, "F1": 0.9950272145689648, "predicted_pixels": 20475110, "target_pixels": 20526458, "tp": 20398838, "fp": 76272, "fn": 127620, "tn": 168230791}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=28100/40248 loss=0.69273 lr=0.00017013 encoder_lr=0.00017013
+[TRAIN] step=28200/40248 loss=0.46391 lr=0.00016887 encoder_lr=0.00016887
+[TRAIN] step=28300/40248 loss=0.46640 lr=0.00016761 encoder_lr=0.00016761
+[ACTUAL-OPT-STEPS] epoch=90 executed=312 cumulative=28392/40248
+[TRAIN-EPOCH] epoch=90 loss=0.545144 main=0.455173 guide=0.449854 lr=0.00016645 encoder_lr=0.00016645
+Epoch 90/129 | Loss=0.472442 | Recall=0.958881 | Precision=0.968041 | OA=0.991017 | F1=0.963439 | IoU=0.929457 | Kappa=0.958319 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 90, "split": "test", "boundary_1px": {"precision": 0.9098185226132212, "recall": 0.8423280282254642, "F1": 0.8747734506899205, "predicted_pixels": 3610808, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9678905663219978, "recall": 0.918862896426999, "F1": 0.9427397344210567, "predicted_pixels": 3610808, "target_pixels": 4051944}, "interior": {"precision": 0.9957348804456102, "recall": 0.9943154829732436, "F1": 0.995024675518925, "predicted_pixels": 20497198, "target_pixels": 20526458, "tp": 20409775, "fp": 87423, "fn": 116683, "tn": 168219640}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=28400/40248 loss=0.55049 lr=0.00016635 encoder_lr=0.00016635
+[TRAIN] step=28500/40248 loss=0.45375 lr=0.00016508 encoder_lr=0.00016508
+[TRAIN] step=28600/40248 loss=0.53614 lr=0.00016382 encoder_lr=0.00016382
+[TRAIN] step=28700/40248 loss=0.60273 lr=0.00016255 encoder_lr=0.00016255
+[ACTUAL-OPT-STEPS] epoch=91 executed=312 cumulative=28704/40248
+[TRAIN-EPOCH] epoch=91 loss=0.540776 main=0.450831 guide=0.449725 lr=0.00016250 encoder_lr=0.00016250
+Epoch 91/129 | Loss=0.468935 | Recall=0.959254 | Precision=0.968524 | OA=0.991123 | F1=0.963867 | IoU=0.930254 | Kappa=0.958807 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 91, "split": "test", "boundary_1px": {"precision": 0.9091939913192367, "recall": 0.850457706226937, "F1": 0.8788455550049352, "predicted_pixels": 3651983, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9665603591254395, "recall": 0.9249720627925756, "F1": 0.9453090191150221, "predicted_pixels": 3651983, "target_pixels": 4051944}, "interior": {"precision": 0.99618832281956, "recall": 0.9939317343498815, "F1": 0.9950587492167994, "predicted_pixels": 20479961, "target_pixels": 20526458, "tp": 20401898, "fp": 78063, "fn": 124560, "tn": 168229000}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=28800/40248 loss=0.58533 lr=0.00016128 encoder_lr=0.00016128
+[TRAIN] step=28900/40248 loss=0.58671 lr=0.00016002 encoder_lr=0.00016002
+[TRAIN] step=29000/40248 loss=0.49557 lr=0.00015875 encoder_lr=0.00015875
+[ACTUAL-OPT-STEPS] epoch=92 executed=312 cumulative=29016/40248
+[TRAIN-EPOCH] epoch=92 loss=0.541459 main=0.451496 guide=0.449817 lr=0.00015854 encoder_lr=0.00015854
+Epoch 92/129 | Loss=0.464277 | Recall=0.961608 | Precision=0.967520 | OA=0.991276 | F1=0.964555 | IoU=0.931537 | Kappa=0.959581 | t=66.4s
+[SPATIAL-DIAG] {"epoch": 92, "split": "test", "boundary_1px": {"precision": 0.9132449369758256, "recall": 0.8533733437579591, "F1": 0.8822946009744445, "predicted_pixels": 3650980, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9695958345430542, "recall": 0.9265421733370451, "F1": 0.9475802162738729, "predicted_pixels": 3650980, "target_pixels": 4051944}, "interior": {"precision": 0.9962418077688138, "recall": 0.9948422177854552, "F1": 0.9955415208711936, "predicted_pixels": 20497621, "target_pixels": 20526458, "tp": 20420587, "fp": 77034, "fn": 105871, "tn": 168230029}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=29100/40248 loss=0.46488 lr=0.00015748 encoder_lr=0.00015748
+[TRAIN] step=29200/40248 loss=0.52006 lr=0.00015620 encoder_lr=0.00015620
+[TRAIN] step=29300/40248 loss=0.50400 lr=0.00015493 encoder_lr=0.00015493
+[ACTUAL-OPT-STEPS] epoch=93 executed=312 cumulative=29328/40248
+[TRAIN-EPOCH] epoch=93 loss=0.541743 main=0.451979 guide=0.448823 lr=0.00015457 encoder_lr=0.00015457
+Epoch 93/129 | Loss=0.465812 | Recall=0.959503 | Precision=0.969204 | OA=0.991238 | F1=0.964329 | IoU=0.931115 | Kappa=0.959335 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 93, "split": "test", "boundary_1px": {"precision": 0.9140124589826878, "recall": 0.8488091148347559, "F1": 0.8802049144167978, "predicted_pixels": 3618594, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9697946218890542, "recall": 0.9236870006100776, "F1": 0.9461794345996042, "predicted_pixels": 3618594, "target_pixels": 4051944}, "interior": {"precision": 0.996048139121423, "recall": 0.994885235436138, "F1": 0.9954663476529049, "predicted_pixels": 20502493, "target_pixels": 20526458, "tp": 20421470, "fp": 81023, "fn": 104988, "tn": 168226040}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=29400/40248 loss=0.43170 lr=0.00015366 encoder_lr=0.00015366
+[TRAIN] step=29500/40248 loss=0.40544 lr=0.00015238 encoder_lr=0.00015238
+[TRAIN] step=29600/40248 loss=0.54825 lr=0.00015110 encoder_lr=0.00015110
+[ACTUAL-OPT-STEPS] epoch=94 executed=312 cumulative=29640/40248
+[TRAIN-EPOCH] epoch=94 loss=0.539258 main=0.449615 guide=0.448217 lr=0.00015059 encoder_lr=0.00015059
+Epoch 94/129 | Loss=0.465576 | Recall=0.959322 | Precision=0.969176 | OA=0.991213 | F1=0.964224 | IoU=0.930919 | Kappa=0.959215 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 94, "split": "test", "boundary_1px": {"precision": 0.9149427079835886, "recall": 0.846947292460113, "F1": 0.8796329499431598, "predicted_pixels": 3603818, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9702973346600744, "recall": 0.9215413638490562, "F1": 0.9452910862077215, "predicted_pixels": 3603818, "target_pixels": 4051944}, "interior": {"precision": 0.996479035196074, "recall": 0.994232516881383, "F1": 0.9953545084405843, "predicted_pixels": 20480182, "target_pixels": 20526458, "tp": 20408072, "fp": 72110, "fn": 118386, "tn": 168234953}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=29700/40248 loss=0.64802 lr=0.00014983 encoder_lr=0.00014983
+[TRAIN] step=29800/40248 loss=0.62690 lr=0.00014855 encoder_lr=0.00014855
+[TRAIN] step=29900/40248 loss=0.66735 lr=0.00014727 encoder_lr=0.00014727
+[ACTUAL-OPT-STEPS] epoch=95 executed=312 cumulative=29952/40248
+[TRAIN-EPOCH] epoch=95 loss=0.534967 main=0.445376 guide=0.447958 lr=0.00014660 encoder_lr=0.00014660
+Epoch 95/129 | Loss=0.464275 | Recall=0.959230 | Precision=0.969808 | OA=0.991282 | F1=0.964490 | IoU=0.931416 | Kappa=0.959521 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 95, "split": "test", "boundary_1px": {"precision": 0.9142260170158891, "recall": 0.8514910373884733, "F1": 0.8817440571179073, "predicted_pixels": 3625435, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9684821269723495, "recall": 0.9260651183728107, "F1": 0.9467987855781361, "predicted_pixels": 3625435, "target_pixels": 4051944}, "interior": {"precision": 0.9960437864675017, "recall": 0.9946816932565765, "F1": 0.9953622738766649, "predicted_pixels": 20498388, "target_pixels": 20526458, "tp": 20417292, "fp": 81096, "fn": 109166, "tn": 168225967}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=30000/40248 loss=0.62813 lr=0.00014599 encoder_lr=0.00014599
+[TRAIN] step=30100/40248 loss=0.49526 lr=0.00014470 encoder_lr=0.00014470
+[TRAIN] step=30200/40248 loss=0.47648 lr=0.00014342 encoder_lr=0.00014342
+[ACTUAL-OPT-STEPS] epoch=96 executed=312 cumulative=30264/40248
+[TRAIN-EPOCH] epoch=96 loss=0.533160 main=0.443869 guide=0.446457 lr=0.00014260 encoder_lr=0.00014260
+Epoch 96/129 | Loss=0.461242 | Recall=0.960117 | Precision=0.970166 | OA=0.991433 | F1=0.965115 | IoU=0.932582 | Kappa=0.960232 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 96, "split": "test", "boundary_1px": {"precision": 0.9192992140661636, "recall": 0.8534930393904753, "F1": 0.885174761783554, "predicted_pixels": 3615826, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9721056820765158, "recall": 0.9256166916423326, "F1": 0.9482917605140536, "predicted_pixels": 3615826, "target_pixels": 4051944}, "interior": {"precision": 0.9966642199984448, "recall": 0.9947174032655804, "F1": 0.9956898600074352, "predicted_pixels": 20486363, "target_pixels": 20526458, "tp": 20418025, "fp": 68338, "fn": 108433, "tn": 168238725}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=30300/40248 loss=0.59014 lr=0.00014214 encoder_lr=0.00014214
+[TRAIN] step=30400/40248 loss=0.48947 lr=0.00014085 encoder_lr=0.00014085
+[TRAIN] step=30500/40248 loss=0.42776 lr=0.00013956 encoder_lr=0.00013956
+[ACTUAL-OPT-STEPS] epoch=97 executed=312 cumulative=30576/40248
+[TRAIN-EPOCH] epoch=97 loss=0.532657 main=0.443438 guide=0.446096 lr=0.00013858 encoder_lr=0.00013858
+Epoch 97/129 | Loss=0.460177 | Recall=0.965883 | Precision=0.964824 | OA=0.991442 | F1=0.965353 | IoU=0.933026 | Kappa=0.960471 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 97, "split": "test", "boundary_1px": {"precision": 0.918320738496323, "recall": 0.8561293048472536, "F1": 0.88613517007697, "predicted_pixels": 3637337, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9714194752919513, "recall": 0.9272178983717445, "F1": 0.9488041653573067, "predicted_pixels": 3637337, "target_pixels": 4051944}, "interior": {"precision": 0.9960111114719111, "recall": 0.9952112536902372, "F1": 0.995611021932901, "predicted_pixels": 20509974, "target_pixels": 20526458, "tp": 20428162, "fp": 81812, "fn": 98296, "tn": 168225251}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=30600/40248 loss=0.50931 lr=0.00013827 encoder_lr=0.00013827
+[TRAIN] step=30700/40248 loss=0.40754 lr=0.00013698 encoder_lr=0.00013698
+[TRAIN] step=30800/40248 loss=0.48752 lr=0.00013569 encoder_lr=0.00013569
+[ACTUAL-OPT-STEPS] epoch=98 executed=312 cumulative=30888/40248
+[TRAIN-EPOCH] epoch=98 loss=0.532245 main=0.442952 guide=0.446464 lr=0.00013455 encoder_lr=0.00013455
+Epoch 98/129 | Loss=0.461714 | Recall=0.961268 | Precision=0.969076 | OA=0.991433 | F1=0.965156 | IoU=0.932658 | Kappa=0.960272 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 98, "split": "test", "boundary_1px": {"precision": 0.9170506811391607, "recall": 0.8578423097653867, "F1": 0.8864589341573959, "predicted_pixels": 3648300, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.970636460817367, "recall": 0.9291453682479324, "F1": 0.9494378333587308, "predicted_pixels": 3648300, "target_pixels": 4051944}, "interior": {"precision": 0.9963800953996454, "recall": 0.9947331390539956, "F1": 0.9955559360839409, "predicted_pixels": 20492529, "target_pixels": 20526458, "tp": 20418348, "fp": 74181, "fn": 108110, "tn": 168232882}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=30900/40248 loss=0.37728 lr=0.00013440 encoder_lr=0.00013440
+[TRAIN] step=31000/40248 loss=0.65637 lr=0.00013310 encoder_lr=0.00013310
+[TRAIN] step=31100/40248 loss=0.54584 lr=0.00013181 encoder_lr=0.00013181
+[TRAIN] step=31200/40248 loss=0.38735 lr=0.00013051 encoder_lr=0.00013051
+[ACTUAL-OPT-STEPS] epoch=99 executed=312 cumulative=31200/40248
+[TRAIN-EPOCH] epoch=99 loss=0.525884 main=0.436885 guide=0.444992 lr=0.00013051 encoder_lr=0.00013051
+Epoch 99/129 | Loss=0.462038 | Recall=0.963130 | Precision=0.966988 | OA=0.991390 | F1=0.965055 | IoU=0.932470 | Kappa=0.960146 | t=65.9s
+[SPATIAL-DIAG] {"epoch": 99, "split": "test", "boundary_1px": {"precision": 0.9176512226901549, "recall": 0.8553659675454547, "F1": 0.8854145693436032, "predicted_pixels": 3636326, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9713425033949101, "recall": 0.927152004075081, "F1": 0.9487329514227023, "predicted_pixels": 3636326, "target_pixels": 4051944}, "interior": {"precision": 0.996112842107892, "recall": 0.994894589217487, "F1": 0.9955033429518493, "predicted_pixels": 20501354, "target_pixels": 20526458, "tp": 20421662, "fp": 79692, "fn": 104796, "tn": 168227371}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=31300/40248 loss=0.63936 lr=0.00012921 encoder_lr=0.00012921
+[TRAIN] step=31400/40248 loss=0.54246 lr=0.00012791 encoder_lr=0.00012791
+[TRAIN] step=31500/40248 loss=0.32233 lr=0.00012661 encoder_lr=0.00012661
+[ACTUAL-OPT-STEPS] epoch=100 executed=312 cumulative=31512/40248
+[TRAIN-EPOCH] epoch=100 loss=0.526701 main=0.437786 guide=0.444573 lr=0.00012645 encoder_lr=0.00012645
+Epoch 100/129 | Loss=0.458063 | Recall=0.965404 | Precision=0.965856 | OA=0.991517 | F1=0.965630 | IoU=0.933544 | Kappa=0.960792 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 100, "split": "test", "boundary_1px": {"precision": 0.9188730056555964, "recall": 0.8593916895198946, "F1": 0.8881375499687987, "predicted_pixels": 3646123, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9713073311021049, "recall": 0.9305419818240331, "F1": 0.9504877623068211, "predicted_pixels": 3646123, "target_pixels": 4051944}, "interior": {"precision": 0.9956625583189888, "recall": 0.9957708728900038, "F1": 0.9957167126588677, "predicted_pixels": 20528691, "target_pixels": 20526458, "tp": 20439649, "fp": 89042, "fn": 86809, "tn": 168218021}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=31600/40248 loss=0.69228 lr=0.00012531 encoder_lr=0.00012531
+[TRAIN] step=31700/40248 loss=0.42338 lr=0.00012400 encoder_lr=0.00012400
+[TRAIN] step=31800/40248 loss=0.40103 lr=0.00012269 encoder_lr=0.00012269
+[ACTUAL-OPT-STEPS] epoch=101 executed=312 cumulative=31824/40248
+[TRAIN-EPOCH] epoch=101 loss=0.524272 main=0.435602 guide=0.443349 lr=0.00012238 encoder_lr=0.00012238
+Epoch 101/129 | Loss=0.455629 | Recall=0.965664 | Precision=0.966159 | OA=0.991587 | F1=0.965911 | IoU=0.934070 | Kappa=0.961113 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 101, "split": "test", "boundary_1px": {"precision": 0.9211768634183365, "recall": 0.8602088281575461, "F1": 0.889649528402734, "predicted_pixels": 3641748, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9726224878821929, "recall": 0.9302231225308148, "F1": 0.9509504321005718, "predicted_pixels": 3641748, "target_pixels": 4051944}, "interior": {"precision": 0.9959797744126077, "recall": 0.995702278493445, "F1": 0.9958410071216313, "predicted_pixels": 20520739, "target_pixels": 20526458, "tp": 20438241, "fp": 82498, "fn": 88217, "tn": 168224565}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=31900/40248 loss=0.50135 lr=0.00012139 encoder_lr=0.00012139
+[TRAIN] step=32000/40248 loss=0.46427 lr=0.00012008 encoder_lr=0.00012008
+[TRAIN] step=32100/40248 loss=0.52049 lr=0.00011877 encoder_lr=0.00011877
+[ACTUAL-OPT-STEPS] epoch=102 executed=312 cumulative=32136/40248
+[TRAIN-EPOCH] epoch=102 loss=0.523933 main=0.435279 guide=0.443271 lr=0.00011829 encoder_lr=0.00011829
+Epoch 102/129 | Loss=0.456695 | Recall=0.966113 | Precision=0.965576 | OA=0.991566 | F1=0.965845 | IoU=0.933945 | Kappa=0.961033 | t=65.6s
+[SPATIAL-DIAG] {"epoch": 102, "split": "test", "boundary_1px": {"precision": 0.9172385546703538, "recall": 0.8643507906328419, "F1": 0.8900096669508561, "predicted_pixels": 3677002, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9698800816534775, "recall": 0.9341562963357836, "F1": 0.9516830617743269, "predicted_pixels": 3677002, "target_pixels": 4051944}, "interior": {"precision": 0.9956119160640602, "recall": 0.9957023272110561, "F1": 0.9956571195851007, "predicted_pixels": 20528322, "target_pixels": 20526458, "tp": 20438242, "fp": 90080, "fn": 88216, "tn": 168216983}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=32200/40248 loss=0.50988 lr=0.00011745 encoder_lr=0.00011745
+[TRAIN] step=32300/40248 loss=0.64578 lr=0.00011614 encoder_lr=0.00011614
+[TRAIN] step=32400/40248 loss=0.47314 lr=0.00011482 encoder_lr=0.00011482
+[ACTUAL-OPT-STEPS] epoch=103 executed=312 cumulative=32448/40248
+[TRAIN-EPOCH] epoch=103 loss=0.523415 main=0.434930 guide=0.442425 lr=0.00011419 encoder_lr=0.00011419
+Epoch 103/129 | Loss=0.456898 | Recall=0.967464 | Precision=0.963756 | OA=0.991493 | F1=0.965606 | IoU=0.933500 | Kappa=0.960753 | t=65.7s
+[SPATIAL-DIAG] {"epoch": 103, "split": "test", "boundary_1px": {"precision": 0.9173305110484463, "recall": 0.8598090200654304, "F1": 0.8876388533052607, "predicted_pixels": 3654722, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9704839383132288, "recall": 0.9311449022987485, "F1": 0.9504075165712802, "predicted_pixels": 3654722, "target_pixels": 4051944}, "interior": {"precision": 0.9958787126988023, "recall": 0.9956264251728184, "F1": 0.9957525529556869, "predicted_pixels": 20521258, "target_pixels": 20526458, "tp": 20436684, "fp": 84574, "fn": 89774, "tn": 168222489}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=32500/40248 loss=0.34733 lr=0.00011351 encoder_lr=0.00011351
+[TRAIN] step=32600/40248 loss=0.51522 lr=0.00011219 encoder_lr=0.00011219
+[TRAIN] step=32700/40248 loss=0.63369 lr=0.00011087 encoder_lr=0.00011087
+[ACTUAL-OPT-STEPS] epoch=104 executed=312 cumulative=32760/40248
+[TRAIN-EPOCH] epoch=104 loss=0.525450 main=0.436903 guide=0.442733 lr=0.00011007 encoder_lr=0.00011007
+Epoch 104/129 | Loss=0.454722 | Recall=0.963748 | Precision=0.968353 | OA=0.991637 | F1=0.966045 | IoU=0.934320 | Kappa=0.961277 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 104, "split": "test", "boundary_1px": {"precision": 0.9215863543182979, "recall": 0.8631550682832734, "F1": 0.8914142099430903, "predicted_pixels": 3651265, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9722641331155093, "recall": 0.9322369706985092, "F1": 0.9518299237099586, "predicted_pixels": 3651265, "target_pixels": 4051944}, "interior": {"precision": 0.9963147992549628, "recall": 0.995391265263593, "F1": 0.9958528181425845, "predicted_pixels": 20507431, "target_pixels": 20526458, "tp": 20431857, "fp": 75574, "fn": 94601, "tn": 168231489}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=32800/40248 loss=0.45089 lr=0.00010954 encoder_lr=0.00010954
+[TRAIN] step=32900/40248 loss=0.67478 lr=0.00010822 encoder_lr=0.00010822
+[TRAIN] step=33000/40248 loss=0.51095 lr=0.00010689 encoder_lr=0.00010689
+[ACTUAL-OPT-STEPS] epoch=105 executed=312 cumulative=33072/40248
+[TRAIN-EPOCH] epoch=105 loss=0.519143 main=0.430880 guide=0.441318 lr=0.00010594 encoder_lr=0.00010594
+Epoch 105/129 | Loss=0.453178 | Recall=0.960968 | Precision=0.971599 | OA=0.991715 | F1=0.966254 | IoU=0.934711 | Kappa=0.961532 | t=65.3s
+[SPATIAL-DIAG] {"epoch": 105, "split": "test", "boundary_1px": {"precision": 0.9233540941825101, "recall": 0.8657175419995933, "F1": 0.8936074114022555, "predicted_pixels": 3653672, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.972738658533114, "recall": 0.9335950842361099, "F1": 0.9527649954238688, "predicted_pixels": 3653672, "target_pixels": 4051944}, "interior": {"precision": 0.9968519267194538, "recall": 0.9948650663451044, "F1": 0.9958575055244802, "predicted_pixels": 20485546, "target_pixels": 20526458, "tp": 20421056, "fp": 64490, "fn": 105402, "tn": 168242573}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=33100/40248 loss=0.55788 lr=0.00010557 encoder_lr=0.00010557
+[TRAIN] step=33200/40248 loss=0.36242 lr=0.00010424 encoder_lr=0.00010424
+[TRAIN] step=33300/40248 loss=0.58560 lr=0.00010290 encoder_lr=0.00010290
+[ACTUAL-OPT-STEPS] epoch=106 executed=312 cumulative=33384/40248
+[TRAIN-EPOCH] epoch=106 loss=0.522477 main=0.434200 guide=0.441383 lr=0.00010178 encoder_lr=0.00010178
+Epoch 106/129 | Loss=0.452784 | Recall=0.962912 | Precision=0.969563 | OA=0.991691 | F1=0.966226 | IoU=0.934658 | Kappa=0.961488 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 106, "split": "test", "boundary_1px": {"precision": 0.9240830973134985, "recall": 0.8625736189838754, "F1": 0.8922695604821091, "predicted_pixels": 3636700, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.973318393048643, "recall": 0.9309484533843508, "F1": 0.9516620576117976, "predicted_pixels": 3636700, "target_pixels": 4051944}, "interior": {"precision": 0.9965662505109282, "recall": 0.9952553431283663, "F1": 0.9959103654360908, "predicted_pixels": 20499457, "target_pixels": 20526458, "tp": 20429067, "fp": 70390, "fn": 97391, "tn": 168236673}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=33400/40248 loss=0.66394 lr=0.00010157 encoder_lr=0.00010157
+[TRAIN] step=33500/40248 loss=0.47318 lr=0.00010023 encoder_lr=0.00010023
+[TRAIN] step=33600/40248 loss=0.52983 lr=0.00009890 encoder_lr=0.00009890
+[ACTUAL-OPT-STEPS] epoch=107 executed=312 cumulative=33696/40248
+[TRAIN-EPOCH] epoch=107 loss=0.518946 main=0.430668 guide=0.441390 lr=0.00009761 encoder_lr=0.00009761
+Epoch 107/129 | Loss=0.452144 | Recall=0.966768 | Precision=0.966394 | OA=0.991748 | F1=0.966581 | IoU=0.935324 | Kappa=0.961874 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 107, "split": "test", "boundary_1px": {"precision": 0.9242616197655774, "recall": 0.864294768140922, "F1": 0.8932729074221433, "predicted_pixels": 3642737, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9734271236161162, "recall": 0.9324709324709325, "F1": 0.9525089705106035, "predicted_pixels": 3642737, "target_pixels": 4051944}, "interior": {"precision": 0.9961219246953479, "recall": 0.9957946958018767, "F1": 0.9959582833702914, "predicted_pixels": 20519715, "target_pixels": 20526458, "tp": 20440138, "fp": 79577, "fn": 86320, "tn": 168227486}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=33700/40248 loss=0.54011 lr=0.00009756 encoder_lr=0.00009756
+[TRAIN] step=33800/40248 loss=0.62889 lr=0.00009622 encoder_lr=0.00009622
+[TRAIN] step=33900/40248 loss=0.44637 lr=0.00009487 encoder_lr=0.00009487
+[TRAIN] step=34000/40248 loss=0.45093 lr=0.00009353 encoder_lr=0.00009353
+[ACTUAL-OPT-STEPS] epoch=108 executed=312 cumulative=34008/40248
+[TRAIN-EPOCH] epoch=108 loss=0.517165 main=0.429234 guide=0.439653 lr=0.00009342 encoder_lr=0.00009342
+Epoch 108/129 | Loss=0.451007 | Recall=0.966572 | Precision=0.966724 | OA=0.991767 | F1=0.966648 | IoU=0.935450 | Kappa=0.961952 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 108, "split": "test", "boundary_1px": {"precision": 0.9239027319123386, "recall": 0.8685053396591859, "F1": 0.8953479609004937, "predicted_pixels": 3664100, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9727990502442619, "recall": 0.935368307163179, "F1": 0.9537165566789769, "predicted_pixels": 3664100, "target_pixels": 4051944}, "interior": {"precision": 0.9960882971359927, "recall": 0.9956862991169738, "F1": 0.9958872575590396, "predicted_pixels": 20518174, "target_pixels": 20526458, "tp": 20437913, "fp": 80261, "fn": 88545, "tn": 168226802}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=34100/40248 loss=0.54061 lr=0.00009218 encoder_lr=0.00009218
+[TRAIN] step=34200/40248 loss=0.64685 lr=0.00009083 encoder_lr=0.00009083
+[TRAIN] step=34300/40248 loss=0.52009 lr=0.00008947 encoder_lr=0.00008947
+[ACTUAL-OPT-STEPS] epoch=109 executed=312 cumulative=34320/40248
+[TRAIN-EPOCH] epoch=109 loss=0.515333 main=0.427275 guide=0.440291 lr=0.00008920 encoder_lr=0.00008920
+Epoch 109/129 | Loss=0.449288 | Recall=0.964638 | Precision=0.969428 | OA=0.991880 | F1=0.967027 | IoU=0.936159 | Kappa=0.962397 | t=65.3s
+[SPATIAL-DIAG] {"epoch": 109, "split": "test", "boundary_1px": {"precision": 0.9283337760731685, "recall": 0.8681089866987303, "F1": 0.8972118793493804, "predicted_pixels": 3643976, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9755961619944807, "recall": 0.9339033313392288, "F1": 0.9542945770964736, "predicted_pixels": 3643976, "target_pixels": 4051944}, "interior": {"precision": 0.996796774266563, "recall": 0.9954948389049879, "F1": 0.996145381187286, "predicted_pixels": 20499648, "target_pixels": 20526458, "tp": 20433983, "fp": 65665, "fn": 92475, "tn": 168241398}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=34400/40248 loss=0.75054 lr=0.00008812 encoder_lr=0.00008812
+[TRAIN] step=34500/40248 loss=0.43998 lr=0.00008676 encoder_lr=0.00008676
+[TRAIN] step=34600/40248 loss=0.56636 lr=0.00008540 encoder_lr=0.00008540
+[ACTUAL-OPT-STEPS] epoch=110 executed=312 cumulative=34632/40248
+[TRAIN-EPOCH] epoch=110 loss=0.514792 main=0.426968 guide=0.439120 lr=0.00008497 encoder_lr=0.00008497
+Epoch 110/129 | Loss=0.448213 | Recall=0.965672 | Precision=0.968579 | OA=0.991896 | F1=0.967123 | IoU=0.936339 | Kappa=0.962501 | t=65.4s
+[SPATIAL-DIAG] {"epoch": 110, "split": "test", "boundary_1px": {"precision": 0.9278771404379386, "recall": 0.8695648311032926, "F1": 0.8977751067175568, "predicted_pixels": 3649370, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9750641891614169, "recall": 0.9350958453522557, "F1": 0.9546618668197044, "predicted_pixels": 3649370, "target_pixels": 4051944}, "interior": {"precision": 0.9966202327628457, "recall": 0.9956196534248627, "F1": 0.99611969182918, "predicted_pixels": 20505850, "target_pixels": 20526458, "tp": 20436545, "fp": 69305, "fn": 89913, "tn": 168237758}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=34700/40248 loss=0.60619 lr=0.00008404 encoder_lr=0.00008404
+[TRAIN] step=34800/40248 loss=0.55295 lr=0.00008268 encoder_lr=0.00008268
+[TRAIN] step=34900/40248 loss=0.51973 lr=0.00008131 encoder_lr=0.00008131
+[ACTUAL-OPT-STEPS] epoch=111 executed=312 cumulative=34944/40248
+[TRAIN-EPOCH] epoch=111 loss=0.513978 main=0.426183 guide=0.438976 lr=0.00008071 encoder_lr=0.00008071
+Epoch 111/129 | Loss=0.446552 | Recall=0.966348 | Precision=0.968214 | OA=0.991930 | F1=0.967280 | IoU=0.936633 | Kappa=0.962678 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 111, "split": "test", "boundary_1px": {"precision": 0.9250579458648124, "recall": 0.8750229519460289, "F1": 0.8993450633203902, "predicted_pixels": 3690945, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9725471390118249, "recall": 0.9394488176539458, "F1": 0.9557114978952855, "predicted_pixels": 3690945, "target_pixels": 4051944}, "interior": {"precision": 0.9964242782294703, "recall": 0.9957875343130315, "F1": 0.996105804514296, "predicted_pixels": 20513341, "target_pixels": 20526458, "tp": 20439991, "fp": 73350, "fn": 86467, "tn": 168233713}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=35000/40248 loss=0.61836 lr=0.00007994 encoder_lr=0.00007994
+[TRAIN] step=35100/40248 loss=0.42344 lr=0.00007857 encoder_lr=0.00007857
+[TRAIN] step=35200/40248 loss=0.48999 lr=0.00007719 encoder_lr=0.00007719
+[ACTUAL-OPT-STEPS] epoch=112 executed=312 cumulative=35256/40248
+[TRAIN-EPOCH] epoch=112 loss=0.511311 main=0.423863 guide=0.437243 lr=0.00007642 encoder_lr=0.00007642
+Epoch 112/129 | Loss=0.445957 | Recall=0.967103 | Precision=0.967544 | OA=0.991935 | F1=0.967323 | IoU=0.936715 | Kappa=0.962723 | t=66.0s
+[SPATIAL-DIAG] {"epoch": 112, "split": "test", "boundary_1px": {"precision": 0.9284288937034522, "recall": 0.8696188792342638, "F1": 0.8980621161939183, "predicted_pixels": 3647729, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9752876378700281, "recall": 0.9346600051728257, "F1": 0.9545417142475465, "predicted_pixels": 3647729, "target_pixels": 4051944}, "interior": {"precision": 0.9966419002666614, "recall": 0.9957470012605195, "F1": 0.9961942497877091, "predicted_pixels": 20508027, "target_pixels": 20526458, "tp": 20439159, "fp": 68868, "fn": 87299, "tn": 168238195}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=35300/40248 loss=0.49174 lr=0.00007582 encoder_lr=0.00007582
+[TRAIN] step=35400/40248 loss=0.89805 lr=0.00007444 encoder_lr=0.00007444
+[TRAIN] step=35500/40248 loss=0.39028 lr=0.00007305 encoder_lr=0.00007305
+[ACTUAL-OPT-STEPS] epoch=113 executed=312 cumulative=35568/40248
+[TRAIN-EPOCH] epoch=113 loss=0.513399 main=0.426118 guide=0.436405 lr=0.00007211 encoder_lr=0.00007211
+Epoch 113/129 | Loss=0.447282 | Recall=0.965516 | Precision=0.969191 | OA=0.991955 | F1=0.967350 | IoU=0.936764 | Kappa=0.962762 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 113, "split": "test", "boundary_1px": {"precision": 0.9293167240475808, "recall": 0.8721665452434684, "F1": 0.8998351197216787, "predicted_pixels": 3656268, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9754580353518943, "recall": 0.9368888118888119, "F1": 0.9557844813631753, "predicted_pixels": 3656268, "target_pixels": 4051944}, "interior": {"precision": 0.9967568688680337, "recall": 0.9955141797966313, "F1": 0.9961351367655581, "predicted_pixels": 20500867, "target_pixels": 20526458, "tp": 20434380, "fp": 66487, "fn": 92078, "tn": 168240576}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=35600/40248 loss=0.57067 lr=0.00007167 encoder_lr=0.00007167
+[TRAIN] step=35700/40248 loss=0.53323 lr=0.00007028 encoder_lr=0.00007028
+[TRAIN] step=35800/40248 loss=0.46878 lr=0.00006889 encoder_lr=0.00006889
+[ACTUAL-OPT-STEPS] epoch=114 executed=312 cumulative=35880/40248
+[TRAIN-EPOCH] epoch=114 loss=0.511669 main=0.424526 guide=0.435717 lr=0.00006777 encoder_lr=0.00006777
+Epoch 114/129 | Loss=0.443058 | Recall=0.965193 | Precision=0.970431 | OA=0.992073 | F1=0.967805 | IoU=0.937618 | Kappa=0.963285 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 114, "split": "test", "boundary_1px": {"precision": 0.9316194057412187, "recall": 0.8715404260276055, "F1": 0.900579038496885, "predicted_pixels": 3639088, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9764289844048839, "recall": 0.9357424485629614, "F1": 0.955652859322092, "predicted_pixels": 3639088, "target_pixels": 4051944}, "interior": {"precision": 0.9971601094074608, "recall": 0.995673681255675, "F1": 0.9964163409780987, "predicted_pixels": 20495860, "target_pixels": 20526458, "tp": 20437654, "fp": 58206, "fn": 88804, "tn": 168248857}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=35900/40248 loss=0.65317 lr=0.00006749 encoder_lr=0.00006749
+[TRAIN] step=36000/40248 loss=0.76753 lr=0.00006609 encoder_lr=0.00006609
+[TRAIN] step=36100/40248 loss=0.32165 lr=0.00006469 encoder_lr=0.00006469
+[ACTUAL-OPT-STEPS] epoch=115 executed=312 cumulative=36192/40248
+[TRAIN-EPOCH] epoch=115 loss=0.511170 main=0.423616 guide=0.437768 lr=0.00006340 encoder_lr=0.00006340
+Epoch 115/129 | Loss=0.444992 | Recall=0.968950 | Precision=0.965819 | OA=0.991935 | F1=0.967382 | IoU=0.936824 | Kappa=0.962780 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 115, "split": "test", "boundary_1px": {"precision": 0.9299913714317246, "recall": 0.8692748468389494, "F1": 0.898608664747622, "predicted_pixels": 3642551, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9767149451030336, "recall": 0.9345847326616558, "F1": 0.9551855069879261, "predicted_pixels": 3642551, "target_pixels": 4051944}, "interior": {"precision": 0.9965301525667459, "recall": 0.9961149166602441, "F1": 0.9963224913491776, "predicted_pixels": 20517905, "target_pixels": 20526458, "tp": 20446711, "fp": 71194, "fn": 79747, "tn": 168235869}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=36200/40248 loss=0.66806 lr=0.00006329 encoder_lr=0.00006329
+[TRAIN] step=36300/40248 loss=0.67139 lr=0.00006188 encoder_lr=0.00006188
+[TRAIN] step=36400/40248 loss=0.46464 lr=0.00006047 encoder_lr=0.00006047
+[TRAIN] step=36500/40248 loss=0.43812 lr=0.00005905 encoder_lr=0.00005905
+[ACTUAL-OPT-STEPS] epoch=116 executed=312 cumulative=36504/40248
+[TRAIN-EPOCH] epoch=116 loss=0.509755 main=0.422428 guide=0.436632 lr=0.00005899 encoder_lr=0.00005899
+Epoch 116/129 | Loss=0.443199 | Recall=0.967684 | Precision=0.967887 | OA=0.992048 | F1=0.967786 | IoU=0.937582 | Kappa=0.963250 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 116, "split": "test", "boundary_1px": {"precision": 0.9293249346146828, "recall": 0.8771246591759412, "F1": 0.9024705913073877, "predicted_pixels": 3682784, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9749257626838826, "recall": 0.9395551863500582, "F1": 0.9569137338223663, "predicted_pixels": 3682784, "target_pixels": 4051944}, "interior": {"precision": 0.99664443045769, "recall": 0.9957623960256563, "F1": 0.9962032180042526, "predicted_pixels": 20508292, "target_pixels": 20526458, "tp": 20439475, "fp": 68817, "fn": 86983, "tn": 168238246}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=36600/40248 loss=0.56114 lr=0.00005763 encoder_lr=0.00005763
+[TRAIN] step=36700/40248 loss=0.40628 lr=0.00005621 encoder_lr=0.00005621
+[TRAIN] step=36800/40248 loss=0.47096 lr=0.00005478 encoder_lr=0.00005478
+[ACTUAL-OPT-STEPS] epoch=117 executed=312 cumulative=36816/40248
+[TRAIN-EPOCH] epoch=117 loss=0.511496 main=0.424263 guide=0.436165 lr=0.00005455 encoder_lr=0.00005455
+Epoch 117/129 | Loss=0.443804 | Recall=0.966108 | Precision=0.969520 | OA=0.992067 | F1=0.967811 | IoU=0.937629 | Kappa=0.963287 | t=66.5s
+[SPATIAL-DIAG] {"epoch": 117, "split": "test", "boundary_1px": {"precision": 0.9322164186567353, "recall": 0.8722904363930005, "F1": 0.9012583846575537, "predicted_pixels": 3639908, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9767260601092116, "recall": 0.9359616026282693, "F1": 0.9559094319040268, "predicted_pixels": 3639908, "target_pixels": 4051944}, "interior": {"precision": 0.9969258036554085, "recall": 0.9957035938689471, "F1": 0.9963143239316238, "predicted_pixels": 20501293, "target_pixels": 20526458, "tp": 20438268, "fp": 63025, "fn": 88190, "tn": 168244038}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=36900/40248 loss=0.52353 lr=0.00005335 encoder_lr=0.00005335
+[TRAIN] step=37000/40248 loss=0.59377 lr=0.00005191 encoder_lr=0.00005191
+[TRAIN] step=37100/40248 loss=0.52498 lr=0.00005047 encoder_lr=0.00005047
+[ACTUAL-OPT-STEPS] epoch=118 executed=312 cumulative=37128/40248
+[TRAIN-EPOCH] epoch=118 loss=0.502900 main=0.415900 guide=0.435002 lr=0.00005007 encoder_lr=0.00005007
+Epoch 118/129 | Loss=0.440534 | Recall=0.966749 | Precision=0.969665 | OA=0.992163 | F1=0.968205 | IoU=0.938369 | Kappa=0.963735 | t=65.0s
+[SPATIAL-DIAG] {"epoch": 118, "split": "test", "boundary_1px": {"precision": 0.9324210252736597, "recall": 0.8773729350652427, "F1": 0.9040597875657621, "predicted_pixels": 3662944, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9763337905247801, "recall": 0.9397173307429718, "F1": 0.9576756834536508, "predicted_pixels": 3662944, "target_pixels": 4051944}, "interior": {"precision": 0.996971820808156, "recall": 0.995772188265506, "F1": 0.9963716434472404, "predicted_pixels": 20501759, "target_pixels": 20526458, "tp": 20439676, "fp": 62083, "fn": 86782, "tn": 168244980}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=37200/40248 loss=0.63362 lr=0.00004903 encoder_lr=0.00004903
+[TRAIN] step=37300/40248 loss=0.43019 lr=0.00004758 encoder_lr=0.00004758
+[TRAIN] step=37400/40248 loss=0.51890 lr=0.00004612 encoder_lr=0.00004612
+[ACTUAL-OPT-STEPS] epoch=119 executed=312 cumulative=37440/40248
+[TRAIN-EPOCH] epoch=119 loss=0.501233 main=0.414362 guide=0.434355 lr=0.00004554 encoder_lr=0.00004554
+Epoch 119/129 | Loss=0.442294 | Recall=0.968390 | Precision=0.967697 | OA=0.992108 | F1=0.968044 | IoU=0.938066 | Kappa=0.963542 | t=65.5s
+[SPATIAL-DIAG] {"epoch": 119, "split": "test", "boundary_1px": {"precision": 0.9335107002321331, "recall": 0.8741687940405889, "F1": 0.9028657188748237, "predicted_pixels": 3650061, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9780069428976667, "recall": 0.9367084046571226, "F1": 0.9569122892289854, "predicted_pixels": 3650061, "target_pixels": 4051944}, "interior": {"precision": 0.9970701165597002, "recall": 0.9957416423232883, "F1": 0.9964054366390597, "predicted_pixels": 20499109, "target_pixels": 20526458, "tp": 20439049, "fp": 60060, "fn": 87409, "tn": 168247003}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=37500/40248 loss=0.45384 lr=0.00004466 encoder_lr=0.00004466
+[TRAIN] step=37600/40248 loss=0.42545 lr=0.00004320 encoder_lr=0.00004320
+[TRAIN] step=37700/40248 loss=0.63146 lr=0.00004173 encoder_lr=0.00004173
+[ACTUAL-OPT-STEPS] epoch=120 executed=312 cumulative=37752/40248
+[TRAIN-EPOCH] epoch=120 loss=0.502949 main=0.416194 guide=0.433772 lr=0.00004096 encoder_lr=0.00004096
+Epoch 120/129 | Loss=0.439676 | Recall=0.967236 | Precision=0.969624 | OA=0.992215 | F1=0.968428 | IoU=0.938789 | Kappa=0.963989 | t=65.8s
+[SPATIAL-DIAG] {"epoch": 120, "split": "test", "boundary_1px": {"precision": 0.9338092749708445, "recall": 0.8788430935866833, "F1": 0.9054927974837104, "predicted_pixels": 3666556, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9772876781371946, "recall": 0.9400983824060747, "F1": 0.9583323716266603, "predicted_pixels": 3666556, "target_pixels": 4051944}, "interior": {"precision": 0.9968330799342229, "recall": 0.9960563580915909, "F1": 0.9964445676505661, "predicted_pixels": 20510464, "target_pixels": 20526458, "tp": 20445509, "fp": 64955, "fn": 80949, "tn": 168242108}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=37800/40248 loss=0.42365 lr=0.00004025 encoder_lr=0.00004025
+[TRAIN] step=37900/40248 loss=0.44060 lr=0.00003877 encoder_lr=0.00003877
+[TRAIN] step=38000/40248 loss=0.69660 lr=0.00003728 encoder_lr=0.00003728
+[ACTUAL-OPT-STEPS] epoch=121 executed=312 cumulative=38064/40248
+[TRAIN-EPOCH] epoch=121 loss=0.502180 main=0.415261 guide=0.434596 lr=0.00003633 encoder_lr=0.00003633
+Epoch 121/129 | Loss=0.438903 | Recall=0.967344 | Precision=0.969526 | OA=0.992216 | F1=0.968434 | IoU=0.938800 | Kappa=0.963995 | t=66.4s
+[SPATIAL-DIAG] {"epoch": 121, "split": "test", "boundary_1px": {"precision": 0.9333895685258351, "recall": 0.8806817172201787, "F1": 0.9062699294164609, "predicted_pixels": 3678598, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9767783813289737, "recall": 0.9416090153269641, "F1": 0.9588713222773496, "predicted_pixels": 3678598, "target_pixels": 4051944}, "interior": {"precision": 0.9970205529462755, "recall": 0.9958550082045329, "F1": 0.9964374397376291, "predicted_pixels": 20502462, "target_pixels": 20526458, "tp": 20441376, "fp": 61086, "fn": 85082, "tn": 168245977}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=38100/40248 loss=0.49896 lr=0.00003579 encoder_lr=0.00003579
+[TRAIN] step=38200/40248 loss=0.47600 lr=0.00003428 encoder_lr=0.00003428
+[TRAIN] step=38300/40248 loss=0.58143 lr=0.00003277 encoder_lr=0.00003277
+[ACTUAL-OPT-STEPS] epoch=122 executed=312 cumulative=38376/40248
+[TRAIN-EPOCH] epoch=122 loss=0.506372 main=0.419583 guide=0.433948 lr=0.00003162 encoder_lr=0.00003162
+Epoch 122/129 | Loss=0.438118 | Recall=0.966473 | Precision=0.970659 | OA=0.992256 | F1=0.968562 | IoU=0.939040 | Kappa=0.964146 | t=65.5s
+[SPATIAL-DIAG] {"epoch": 122, "split": "test", "boundary_1px": {"precision": 0.9347553318120766, "recall": 0.8797893060713573, "F1": 0.9064398059457144, "predicted_pixels": 3664514, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9773582526905341, "recall": 0.9406245495989086, "F1": 0.9586396344497299, "predicted_pixels": 3664514, "target_pixels": 4051944}, "interior": {"precision": 0.9972345686240786, "recall": 0.9957147502019101, "F1": 0.996474079908033, "predicted_pixels": 20495175, "target_pixels": 20526458, "tp": 20438497, "fp": 56678, "fn": 87961, "tn": 168250385}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=38400/40248 loss=0.53891 lr=0.00003126 encoder_lr=0.00003126
+[TRAIN] step=38500/40248 loss=0.39800 lr=0.00002973 encoder_lr=0.00002973
+[TRAIN] step=38600/40248 loss=0.56615 lr=0.00002820 encoder_lr=0.00002820
+[ACTUAL-OPT-STEPS] epoch=123 executed=312 cumulative=38688/40248
+[TRAIN-EPOCH] epoch=123 loss=0.499178 main=0.412586 guide=0.432963 lr=0.00002684 encoder_lr=0.00002684
+Epoch 123/129 | Loss=0.437741 | Recall=0.967208 | Precision=0.970222 | OA=0.992288 | F1=0.968713 | IoU=0.939324 | Kappa=0.964315 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 123, "split": "test", "boundary_1px": {"precision": 0.9344274918412914, "recall": 0.8813956954982596, "F1": 0.9071371869315595, "predicted_pixels": 3675214, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9769548113388772, "recall": 0.9417531436762206, "F1": 0.9590310629641988, "predicted_pixels": 3675214, "target_pixels": 4051944}, "interior": {"precision": 0.9969777450852454, "recall": 0.9959943892901542, "F1": 0.996485824588066, "predicted_pixels": 20506212, "target_pixels": 20526458, "tp": 20444237, "fp": 61975, "fn": 82221, "tn": 168245088}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=38700/40248 loss=0.38385 lr=0.00002665 encoder_lr=0.00002665
+[TRAIN] step=38800/40248 loss=0.55423 lr=0.00002510 encoder_lr=0.00002510
+[TRAIN] step=38900/40248 loss=0.42672 lr=0.00002353 encoder_lr=0.00002353
+[TRAIN] step=39000/40248 loss=0.40489 lr=0.00002196 encoder_lr=0.00002196
+[ACTUAL-OPT-STEPS] epoch=124 executed=312 cumulative=39000/40248
+[TRAIN-EPOCH] epoch=124 loss=0.497317 main=0.410816 guide=0.432507 lr=0.00002196 encoder_lr=0.00002196
+Epoch 124/129 | Loss=0.437312 | Recall=0.968307 | Precision=0.969196 | OA=0.992289 | F1=0.968752 | IoU=0.939397 | Kappa=0.964354 | t=66.3s
+[SPATIAL-DIAG] {"epoch": 124, "split": "test", "boundary_1px": {"precision": 0.9351174035968032, "recall": 0.8817046829867343, "F1": 0.9076259034742719, "predicted_pixels": 3674930, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9776444721396054, "recall": 0.9419118329374739, "F1": 0.9594455700816009, "predicted_pixels": 3674930, "target_pixels": 4051944}, "interior": {"precision": 0.9970275761226401, "recall": 0.9959599459390412, "F1": 0.9964934750696403, "predicted_pixels": 20504478, "target_pixels": 20526458, "tp": 20443530, "fp": 60948, "fn": 82928, "tn": 168246115}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=39100/40248 loss=0.51835 lr=0.00002037 encoder_lr=0.00002037
+[TRAIN] step=39200/40248 loss=0.52195 lr=0.00001877 encoder_lr=0.00001877
+[TRAIN] step=39300/40248 loss=0.54765 lr=0.00001715 encoder_lr=0.00001715
+[ACTUAL-OPT-STEPS] epoch=125 executed=312 cumulative=39312/40248
+[TRAIN-EPOCH] epoch=125 loss=0.498960 main=0.412474 guide=0.432429 lr=0.00001695 encoder_lr=0.00001695
+Epoch 125/129 | Loss=0.436894 | Recall=0.968091 | Precision=0.969569 | OA=0.992311 | F1=0.968830 | IoU=0.939544 | Kappa=0.964444 | t=66.1s
+[SPATIAL-DIAG] {"epoch": 125, "split": "test", "boundary_1px": {"precision": 0.9362920178116979, "recall": 0.8799252901817004, "F1": 0.907233976729356, "predicted_pixels": 3658270, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9782014449452884, "recall": 0.9402945845253537, "F1": 0.9588735208492709, "predicted_pixels": 3658270, "target_pixels": 4051944}, "interior": {"precision": 0.9970072380426301, "recall": 0.9960853450702503, "F1": 0.9965460783484187, "predicted_pixels": 20507478, "target_pixels": 20526458, "tp": 20446104, "fp": 61374, "fn": 80354, "tn": 168245689}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=39400/40248 loss=0.43709 lr=0.00001551 encoder_lr=0.00001551
+[TRAIN] step=39500/40248 loss=0.50946 lr=0.00001386 encoder_lr=0.00001386
+[TRAIN] step=39600/40248 loss=0.72897 lr=0.00001218 encoder_lr=0.00001218
+[ACTUAL-OPT-STEPS] epoch=126 executed=312 cumulative=39624/40248
+[TRAIN-EPOCH] epoch=126 loss=0.496355 main=0.410283 guide=0.430362 lr=0.00001178 encoder_lr=0.00001178
+Epoch 126/129 | Loss=0.435410 | Recall=0.967661 | Precision=0.970418 | OA=0.992367 | F1=0.969037 | IoU=0.939935 | Kappa=0.964684 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 126, "split": "test", "boundary_1px": {"precision": 0.936930411787341, "recall": 0.8820257634360198, "F1": 0.9086494474136251, "predicted_pixels": 3664270, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.978329380749781, "recall": 0.9417598071444225, "F1": 0.959696346135982, "predicted_pixels": 3664270, "target_pixels": 4051944}, "interior": {"precision": 0.9972273901077727, "recall": 0.9959682279329439, "F1": 0.9965974112948747, "predicted_pixels": 20500540, "target_pixels": 20526458, "tp": 20443700, "fp": 56840, "fn": 82758, "tn": 168250223}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=39700/40248 loss=0.46222 lr=0.00001048 encoder_lr=0.00001048
+[TRAIN] step=39800/40248 loss=0.30876 lr=0.00000874 encoder_lr=0.00000874
+[TRAIN] step=39900/40248 loss=0.52437 lr=0.00000697 encoder_lr=0.00000697
+[ACTUAL-OPT-STEPS] epoch=127 executed=312 cumulative=39936/40248
+[TRAIN-EPOCH] epoch=127 loss=0.494499 main=0.408174 guide=0.431626 lr=0.00000632 encoder_lr=0.00000632
+Epoch 127/129 | Loss=0.435194 | Recall=0.966936 | Precision=0.971227 | OA=0.992383 | F1=0.969077 | IoU=0.940008 | Kappa=0.964733 | t=66.2s
+[SPATIAL-DIAG] {"epoch": 127, "split": "test", "boundary_1px": {"precision": 0.9369395143728223, "recall": 0.8839502717707846, "F1": 0.909673879951486, "predicted_pixels": 3673600, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9779047800522648, "recall": 0.9428893884022089, "F1": 0.9600779251854865, "predicted_pixels": 3673600, "target_pixels": 4051944}, "interior": {"precision": 0.9972230652377947, "recall": 0.9958648491619938, "F1": 0.996543494412755, "predicted_pixels": 20498501, "target_pixels": 20526458, "tp": 20441578, "fp": 56923, "fn": 84880, "tn": 168250140}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[TRAIN] step=40000/40248 loss=0.52054 lr=0.00000514 encoder_lr=0.00000514
+[TRAIN] step=40100/40248 loss=0.54932 lr=0.00000324 encoder_lr=0.00000324
+[TRAIN] step=40200/40248 loss=0.39650 lr=0.00000119 encoder_lr=0.00000119
+[ACTUAL-OPT-STEPS] epoch=128 executed=312 cumulative=40248/40248
+[TRAIN-EPOCH] epoch=128 loss=0.494366 main=0.408041 guide=0.431627 lr=0.00000004 encoder_lr=0.00000004
+Epoch 128/129 | Loss=0.435092 | Recall=0.968208 | Precision=0.970090 | OA=0.992391 | F1=0.969148 | IoU=0.940143 | Kappa=0.964809 | t=64.4s
+[SPATIAL-DIAG] {"epoch": 128, "split": "test", "boundary_1px": {"precision": 0.9384256235221424, "recall": 0.8814026057615801, "F1": 0.9090207268753134, "predicted_pixels": 3654361, "target_pixels": 4051944}, "boundary_2px": {"precision": 0.9792141498883116, "recall": 0.9406307194768734, "F1": 0.9595347259864189, "predicted_pixels": 3654361, "target_pixels": 4051944}, "interior": {"precision": 0.9971969463781319, "recall": 0.9960571862909812, "F1": 0.9966267404721804, "predicted_pixels": 20502997, "target_pixels": 20526458, "tp": 20445526, "fp": 57471, "fn": 80932, "tn": 168249592}, "definition": {"boundary": "3x3 morphological gradient, replicate padding", "boundary_tolerance": "Chebyshev distance in input pixels", "interior": "outside GT dilation2-minus-erosion2 band"}}
+[DEPLOY-VERIFICATION] {"policy": "strict_fp32_fold_v1", "tolerance": 0.0002, "max_diff": 3.814697265625e-06, "per_scale_max_diff": [3.814697265625e-06, 3.4570693969726562e-06, 1.7285346984863281e-06, 7.748603820800781e-07], "binary_disagreement": 0}
+=== TEST RESULTS ===
+[MODE] casa_pyramid_none
+[TOTAL-PARAMS] 1.935810 M
+[TRAINABLE-PARAMS] 2.047125 M
+Recall=0.968212 | Precision=0.970089 | OA=0.992391 | F1=0.969150 | IoU=0.940146 | Kappa=0.964810
+[BEST-EPOCH] 128
+[DEPLOY-CHECK] maxdiff=3.815e-06 binary_disagreement=0
+[TIME-SCOPE] complete_run
+[TIME] 8538.0s [PEAK-MEMORY] 8168 MiB
+=== END TEST RESULTS ===
