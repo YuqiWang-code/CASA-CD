@@ -44,7 +44,22 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-当前工作主线为CASA-Pyramid/Run3，正式十二项队列已于2026-10-26 02:57:17 CST启动，初始调度器PID1376272，运行源码基线`0f714f5`。协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`使用配对上下文、边界支撑、骨干0.1学习率倍率，并对普通模块Kcontrast/Vcontrast投影权重采用WD0。四项健康探针均通过：LEVIR普通8个epoch、双曲3个epoch，SYSU普通与双曲各4个epoch；探针不计正式指标，正式训练从预训练骨干全新初始化。当前进度以`.codex/STATE.md`和实时队列为准。
+Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。
+
+源码基线`0f714f5`，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`。
+
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 90.5037 | 90.4977 | 90.5365 | -0.006 / +0.033 |
+| SYSU | 81.9320 | 82.2920 | 82.1898 | +0.360 / +0.258 |
+| WHU | 94.6343 | 94.3497 | 94.3585 | -0.285 / -0.276 |
+| CDD | 95.3094 | 95.4613 | 95.5150 | +0.152 / +0.206 |
+
+相对同轮CTRL，双曲/普通模块在SYSU的F1提高0.360/0.258个百分点，CDD提高0.152/0.206个百分点；LEVIR为−0.006/+0.033个百分点，WHU为−0.285/−0.276个百分点。两个模块相对Run2在四库均降低，CTRL在LEVIR、SYSU、CDD也降低；共同训练设置与模块变化需要分别归因。
+
+SYSU出现明确的后期泛化不足：CTRL与普通版最佳epoch为3、双曲为33，训练损失继续下降而test选模损失上升。普通对比K/V保持有效幅度和随query变化的检索，未复现归零；双曲最粗层在LEVIR/WHU的最佳checkpoint诊断中约75%输入对触发裁剪，但半径差异和检索仍有效。该层约99%注意力留在本尺度，跨尺度利用有限。CDD三组最佳均为最后一轮，当前40K预算尚不能证明已达到平台。
+
+全部197条正式记录已收集，原185条历史单元格保留。Run3完整日志、逐轮CSV、曲线及模块诊断见[完整记录](experiments/CASA-Pyramid/Run3/README.md)，结论见[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)。当前没有活动训练。
 
 已完成的Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。其正式F1如下：
 
@@ -59,7 +74,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 Run3两版独立设计：普通版112均值＋112对比token、双库softmax；双曲版224个整体/变化配对token、中点与切空间差异联合检索。两版均补充细层dense差异与边界控制高通，骨干学习率倍率.1、guide权重.2、边界权重.05三组共同使用。当前实现及参数见上方指令；Run2共享Q/K和支持度prior仅用于解释历史结果。
 
-已完成Run1为128-token结构，12项正式结果、完整日志及源码已归档。指标表现有185条，包含`Run2_val`的两项独立val选模正式结果：LEVIR CTRL F1为90.8261%，普通QKV为90.8842%。当前Run2十二项已全部收集，原173条历史单元格保留。各轮冻结TXT保持对应实际源码。
+已完成Run1为128-token结构，12项正式结果、完整日志及源码已归档。Run2收集后指标表为185条，包含`Run2_val`的两项独立val选模正式结果：LEVIR CTRL F1为90.8261%，普通QKV为90.8842%。当前Run2十二项已全部收集，原173条历史单元格保留。各轮冻结TXT保持对应实际源码。
 
 [ChangeMamba官方2024训练代码](https://github.com/ChenHongruixuan/ChangeMamba/blob/72597fa4a1fde0bffa94c94302a6dc848898be13/changedetection/script/train_MambaBCD.py#L115-L131)的每500步test/Kappa选模是该实现的具体设置；当前每epoch test/F1选模须按自身协议报告，不能称为所有RSCD方法的统一设置。模块与几何来源见[models/SOURCES.md](../models/SOURCES.md)。
 
@@ -76,6 +91,8 @@ Run3两版独立设计：普通版112均值＋112对比token、双库softmax；�
 | [本文件](ChatGPT_Project_Settings.md) | 可复制的项目指令 |
 
 ## GitHub上的完整训练记录
+
+[CASA-Pyramid/Run3完整记录](experiments/CASA-Pyramid/Run3/README.md)保存12项完整日志、逐轮表格、曲线和模块诊断；[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)对照同轮CTRL与Run2解释精度、泛化和开销。
 
 [CASA-Pyramid/Run2完整记录](experiments/CASA-Pyramid/Run2/README.md)提供12项完整日志、训练/test选模逐轮表格与曲线、实际最佳epoch、诊断和环境。本轮test参与选模，诊断取每轮test首个batch。
 

@@ -1,0 +1,81 @@
+{
+  "protocol": "casa_pyramid_40k_pairbanks_contrastwd0_v3",
+  "module": "qkv",
+  "dataset": "LEVIR-CD-256",
+  "epochs": 8,
+  "batch_size": 32,
+  "scheduler_total": 40182,
+  "guide_weight": 0.2,
+  "boundary_weight": 0.05,
+  "encoder_lr_mult": 0.1,
+  "evaluation_split": "val",
+  "no_decay_projections": [
+    "context.k_contrast.weight",
+    "context.v_contrast.weight"
+  ],
+  "initial_projection_weight_rms": {
+    "scale_bias": 0.0,
+    "guide.weight": 0.07500811519889829,
+    "pair_proj.0.weight": 0.11573022021813226,
+    "pair_proj.1.weight": 0.10244240135391332,
+    "pair_proj.2.weight": 0.059320953322780874,
+    "pair_proj.3.weight": 0.03206311747885564,
+    "diff_proj.weight": 0.10292615661475304,
+    "q.weight": 0.07162036570511664,
+    "k_mean.weight": 0.07134587677100294,
+    "k_contrast.weight": 0.07266872849316394,
+    "v_mean.weight": 0.07061384386702,
+    "v_contrast.weight": 0.07174646297046375,
+    "out.weight": 0.071911162830297,
+    "boundary.weight": 0.051424706774632914
+  },
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "seed": 2333,
+  "grid_sizes": [
+    8,
+    4,
+    4,
+    4
+  ],
+  "contexts_per_scale": [
+    128,
+    32,
+    32,
+    32
+  ],
+  "joint_contexts": 224,
+  "qk_geometry": "euclidean",
+  "value_geometry": "euclidean"
+}

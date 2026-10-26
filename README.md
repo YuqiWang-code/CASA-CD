@@ -79,30 +79,40 @@
 | WHU-CD-256 | 5,947 / 743 / 744 | 217 / 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 129 / 40,248 |
 
-## 当前实验：CASA-Pyramid / Run3
+## 当前实验：CASA-Pyramid / Run3（已完成）
 
 四数据集各CTRL、双曲H、普通E，共12项，优先LEVIR→SYSU→WHU→CDD，两张GPU按实测显存并行。实现和检查见[Run3说明](train_scripts/CASA-Pyramid/Run3/README.md)，设计依据见[模块设计](docs/temporary/CASA-Pyramid_Run3_design.md)。正式训练从MobileNetV2预训练重新初始化，不使用历史或探针权重。
 
 <!-- CASA_PYRAMID_RUN3_RESULTS_START -->
 
-状态更新：2026-10-26 03:02:34 CST；队列 `running`；正式结果 **0/12**。
+状态更新：2026-10-26 12:28:42 CST；队列 `complete`；正式结果 **12/12**。
 
 | 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
 |---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 训练中：1110/40182 | — | — |
-| LEVIR | `M1_HYPER_QKV` | 训练中：1000/40182 | — | — |
-| LEVIR | `M2_CA_QKV` | 训练中：1200/40182 | — | — |
-| SYSU | `M0_CTRL` | 训练中：1125/40125 | — | — |
-| SYSU | `M1_HYPER_QKV` | 待启动 | — | — |
-| SYSU | `M2_CA_QKV` | 训练中：1125/40125 | — | — |
-| WHU | `M0_CTRL` | 待启动 | — | — |
-| WHU | `M1_HYPER_QKV` | 待启动 | — | — |
-| WHU | `M2_CA_QKV` | 待启动 | — | — |
-| CDD | `M0_CTRL` | 待启动 | — | — |
-| CDD | `M1_HYPER_QKV` | 待启动 | — | — |
-| CDD | `M2_CA_QKV` | 待启动 | — | — |
+| LEVIR | `M0_CTRL` | 完成 | 90.50 | 82.65 |
+| LEVIR | `M1_HYPER_QKV` | 完成 | 90.50 | 82.64 |
+| LEVIR | `M2_CA_QKV` | 完成 | 90.54 | 82.71 |
+| SYSU | `M0_CTRL` | 完成 | 81.93 | 69.39 |
+| SYSU | `M1_HYPER_QKV` | 完成 | 82.29 | 69.91 |
+| SYSU | `M2_CA_QKV` | 完成 | 82.19 | 69.76 |
+| WHU | `M0_CTRL` | 完成 | 94.63 | 89.82 |
+| WHU | `M1_HYPER_QKV` | 完成 | 94.35 | 89.30 |
+| WHU | `M2_CA_QKV` | 完成 | 94.36 | 89.32 |
+| CDD | `M0_CTRL` | 完成 | 95.31 | 91.04 |
+| CDD | `M1_HYPER_QKV` | 完成 | 95.46 | 91.32 |
+| CDD | `M2_CA_QKV` | 完成 | 95.52 | 91.42 |
 
 <!-- CASA_PYRAMID_RUN3_RESULTS_END -->
+
+Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。
+
+相对同轮CTRL，双曲/普通模块在SYSU的F1提高0.360/0.258个百分点，CDD提高0.152/0.206个百分点；LEVIR为−0.006/+0.033个百分点，WHU为−0.285/−0.276个百分点。两个模块相对Run2在四库均降低，CTRL在LEVIR、SYSU、CDD也降低；共同训练设置与模块变化需要分别归因。
+
+SYSU出现明确的后期泛化不足：CTRL与普通版最佳epoch为3、双曲为33，训练损失继续下降而test选模损失上升。普通对比K/V保持有效幅度和随query变化的检索，未复现归零；双曲最粗层在LEVIR/WHU的最佳checkpoint诊断中约75%输入对触发裁剪，但半径差异和检索仍有效。该层约99%注意力留在本尺度，跨尺度利用有限。CDD三组最佳均为最后一轮，当前40K预算尚不能证明已达到平台。
+
+日志与JSON已下载至`outputs/CASA-Pyramid/Run3`；指标表197条正式记录，原185条历史单元格保留。Run3冻结TXT使用`source_code.tar.gz`内实际模型源码，current TXT使用当前工作源码。完整日志、逐轮表格、曲线、最佳epoch、模块诊断及环境已导出至`docs/experiments/CASA-Pyramid/Run3`。
+
+[完整训练记录](docs/experiments/CASA-Pyramid/Run3/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run3/analysis.md)
 
 ```powershell
 python .codex/status.py --tag CASA-Pyramid --run Run3
@@ -310,4 +320,4 @@ CASA/Run7相对CTRL，双曲/普通模块在LEVIR分别提高0.527/0.316个百�
 
 ## 已知限制
 
-当前实验为seed2333，尚不能主张稳定普适提升。变化评分的预测误差会影响原型，两个原型可在无变化区域接近；注意力熵或gamma单项不能作为失活定论，需结合任务梯度、支路贡献和验证数据。TAR是有序时相融合，整网不保证严格时相交换不变或相同输入恒零。选样与结构诊断使用训练/验证数据；当前Run2的test参与checkpoint选择，最终复测不是独立盲测。
+当前实验为seed2333，尚不能主张稳定普适提升。变化评分的预测误差会影响原型，两个原型可在无变化区域接近；注意力熵或gamma单项不能作为失活定论，需结合任务梯度、支路贡献和验证数据。TAR是有序时相融合，整网不保证严格时相交换不变或相同输入恒零。本轮逐epoch模块诊断取test首个batch；test参与checkpoint选择，最终复测不是独立盲测。

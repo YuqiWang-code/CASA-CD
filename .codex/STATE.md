@@ -2,19 +2,26 @@
 
 更新：2026-10-26。
 
-## CASA-Pyramid / Run3 训练中
+## CASA-Pyramid / Run3 已完成
 
-源码基线`0f714f5`，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`：普通均值/对比双库、双曲中点/差异配对检索、224KV、细两层边界细节。普通k_contrast/v_contrast权重WD0；骨干LR倍率0.1，其余训练设置见README。
+Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。
 
-LEVIR普通8epoch、双曲3epoch，SYSU两版各4epoch健康探针全部通过；数值、任务梯度、对比投影与检索正常。CTRL骨干倍率1/0.1的12epoch对照已完成，采用0.1；短训不证明长期泛化改善。
+源码基线`0f714f5`，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`。普通均值/对比双库、双曲中点/差异配对检索、224KV、细两层边界细节；普通对比K/V权重WD0，骨干LR倍率0.1。每epoch test F1选模并复测，非独立盲测。
 
-正式队列2026-10-26 02:57:17 CST启动，初始supervisor PID1376272。GPU0运行LEVIR H(1376274)、SYSU E(1376366)；GPU1运行LEVIR E(1376300)、LEVIR CTRL(1376333)、SYSU CTRL(1376397)，以实时pipeline_status.json为准。优先LEVIR→SYSU→WHU→CDD，共12项，两卡按容量补位，不重复启动。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 90.5037 | 90.4977 | 90.5365 | -0.006 / +0.033 |
+| SYSU | 81.9320 | 82.2920 | 82.1898 | +0.360 / +0.258 |
+| WHU | 94.6343 | 94.3497 | 94.3585 | -0.285 / -0.276 |
+| CDD | 95.3094 | 95.4613 | 95.5150 | +0.152 / +0.206 |
 
-本轮日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。正式训练使用全新预训练初始化，不使用探针权重。运行源码、manifest、环境已归档。未完成记录保存在日志与checkpoint根的`archive/20261026_024558`，不作为正式指标。
+相对同轮CTRL，双曲/普通模块在SYSU的F1提高0.360/0.258个百分点，CDD提高0.152/0.206个百分点；LEVIR为−0.006/+0.033个百分点，WHU为−0.285/−0.276个百分点。两个模块相对Run2在四库均降低，CTRL在LEVIR、SYSU、CDD也降低；共同训练设置与模块变化需要分别归因。
 
-初期观察截至2026-10-26T03:02:17+08:00，首批5项均完成至少3轮，损失下降、诊断有限，无数值或进程错误。详细记录见Run3 README与startup_health.json。
+SYSU出现明确的后期泛化不足：CTRL与普通版最佳epoch为3、双曲为33，训练损失继续下降而test选模损失上升。普通对比K/V保持有效幅度和随query变化的检索，未复现归零；双曲最粗层在LEVIR/WHU的最佳checkpoint诊断中约75%输入对触发裁剪，但半径差异和检索仍有效。该层约99%注意力留在本尺度，跨尺度利用有限。CDD三组最佳均为最后一轮，当前40K预算尚不能证明已达到平台。
 
-指标表185条历史记录保持不变，Run3正式结果0/12。没有本轮自动化任务。模型和训练源码保持运行版本，最新授权仅要求完成启动与初期观察。
+日志与JSON已下载至`outputs/CASA-Pyramid/Run3`；指标表197条正式记录，原185条历史单元格保留。Run3冻结TXT使用`source_code.tar.gz`内实际模型源码，current TXT使用当前工作源码。完整日志、逐轮表格、曲线、最佳epoch、模块诊断及环境已导出至`docs/experiments/CASA-Pyramid/Run3`。
+
+服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run3`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。未完成记录保存在日志与checkpoint根的`archive/20261026_024558`，不作为正式指标。当前无活动训练及本轮自动化，不重启已完成队列。
 
 ## CASA-Pyramid / Run2 已完成
 

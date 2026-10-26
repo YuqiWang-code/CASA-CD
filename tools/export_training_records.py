@@ -194,15 +194,21 @@ def main():
                          f"[结果]({link}/result.json) |")
         curves(destination, dataset, records, selection_split)
     write_csv(destination / 'summary.csv', summary)
-    for filename in ('environment.json', 'source_baseline.json', 'pipeline_status.json', 'pipeline.log',
-                     'scheduling.json', 'profile.json', 'inference.json', 'validation.log'):
+    source_record = 'source_manifest.json' if (source / 'source_manifest.json').exists() else 'source_baseline.json'
+    inference_record = 'inference_benchmark.json' if (source / 'inference_benchmark.json').exists() else 'inference.json'
+    for filename in ('environment.json', source_record, 'pipeline_status.json', 'pipeline.log',
+                     'scheduling.json', 'profile.json', inference_record):
         shutil.copyfile(source / filename, destination / filename)
+    for filename in ('validation.log', 'startup_health.json'):
+        if (source / filename).exists():
+            shutil.copyfile(source / filename, destination / filename)
     for name in ('levir_hyperbolic', 'levir_qkv', 'sysu_hyperbolic', 'sysu_qkv'):
         published = destination / 'probes' / name
         published.mkdir(parents=True, exist_ok=True)
         for filename in ('probe.log', 'run_manifest.json', 'health_history.json', 'health_result.json'):
             shutil.copyfile(source / 'probes' / name / filename, published / filename)
-    baseline = json.loads((source / 'source_baseline.json').read_text())
+    baseline = json.loads((source / source_record).read_text())
+    source_commit = baseline['code_baseline'] if source_record == 'source_manifest.json' else baseline['model_training_commit']
     started = min(json.loads((source / variant / dataset / 'placement.json').read_text())['started']
                   for dataset in DATASETS for variant in VARIANTS)
     evaluation_name = 'test选模' if selection_split == 'test' else '验证'
@@ -229,7 +235,7 @@ def main():
                          '内部统计排除GT膨胀2像素减腐蚀2像素的边界带，无正类内部时Recall为空。')
     readme = f'''# {args.tag} / {args.run} 完整训练记录
 
-协议`{state['protocol']}`，模型/训练源码基线`{baseline['model_training_commit']}`。本目录保存12项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/{args.tag}/{args.run}`。本轮于{started} CST启动，{state['updated']} CST完成。
+协议`{state['protocol']}`，模型/训练源码基线`{source_commit}`。本目录保存12项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/{args.tag}/{args.run}`。本轮于{started} CST启动，{state['updated']} CST完成。
 
 ## 正式结果与最佳epoch
 
@@ -247,7 +253,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 - `module_diagnostics.jsonl`按epoch保存四级完整诊断；`module_diagnostics.csv`按epoch/stage展开温度各头、gamma、归一化注意力熵、原型分配TV、预测变化概率、分支RMS、跨尺度注意力质量，以及双曲半径和裁剪比例。源日志未记录的量不补造。
 - MODULE-DIAG来自当轮{evaluation_name}的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
 - `result.json`保留完整精度的正式测试与实际最佳epoch；`run_manifest.json`、`evaluation_manifest.json`和`deploy_check.json`给出配置及折叠检查，`placement.json`记录物理GPU。`arch.json`记录结构配置。
-- 根目录的`environment.json`、`source_baseline.json`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`inference.json`记录显存和推理测量。
+- 根目录的`environment.json`、`{source_record}`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`{inference_record}`记录显存和推理测量。
 - `probes/`保存四项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
 
 ## 完整训练与{evaluation_name}曲线
