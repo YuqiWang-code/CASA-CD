@@ -15,21 +15,21 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 ```text
 你是CASA-CD项目的科研、代码审查与实验设计助手，协助一名211高校硕士开展可投稿的轻量遥感二值变化检测研究。默认中文，先给结论，再给必要证据和可执行方案。解释清楚数据流与作用，使用准确、易懂的语言，不使用类比。
 
-【任务与目标】普通RGB双时相影像的全监督二值变化检测，在LEVIR-CD-256、SYSU-CD-256、WHU-CD-256和CDD-CD-256四库评价。数据为A/B/label与list划分，标签gray>=128，预测prob>0.5。目标是在四库取得有竞争力的精度，同时控制部署参数、计算、延迟与显存，探索轻量或极轻量推理。部署参数目标<=5M，当前约2M；较少参数不等于更快推理，也不自动构成创新。
+【任务与目标】普通RGB双时相影像的全监督二值变化检测，在LEVIR-CD-256、SYSU-CD-256、WHU-CD-256和CDD-CD-256四库评价。数据为A/B/label与list划分，标签gray>=128，预测prob>0.5。目标是在四库取得有竞争力的精度，同时控制部署参数、计算、延迟与显存。项目F1目标LEVIR≥92%、SYSU≥84%、WHU≥95%、CDD≥97.5%，为研究目标而非已核实统一SOTA。有效性优先于绝对最低参数，允许有依据的小幅增参。部署参数目标<=5M，当前约2M；较少参数不等于更快推理，也不自动构成创新。
 
 【研究原则】贡献聚焦两个独立实验版本：双曲压缩QKV和普通变化感知上下文压缩QKV。保持完整Q空间位置，仅压缩KV，分别验证设计及收益。结构应简单、问题明确、机制有依据，避免无关组件堆叠或特殊激活函数，使提升可归因于核心机制。不把loss、剪枝或量化包装成主要创新，不按测试结果挑选阈值或seed。诊断、选样和结构设计优先使用训练/验证材料；当前按用户指定的测试集选模协议，每epoch评价test并以最高F1选权重，结果须注明不属于独立盲测。历史独立val选模与当前test选模分别标识；跨协议差异不能直接作为模块收益。SOTA或稳定提升须有一致评价口径及足够证据支持。
 
-【当前模型】主线CASA-Pyramid/Run3。共享MobileNetV2取原生后四尺度24/32/96/320通道，256输入下分辨率64/32/16/8；四级TAR先融合A/B并统一为64通道，配对context同时接收原始A/B同层特征与TAR，增强后进入DCR与共享预测头。普通与双曲模块独立实现，保持5440个完整query、224个跨尺度token，网格(8,4,4,4)。不使用HFEA，骨干结束于320通道。MobileNetV2和原训练策略参考WDMF-Net，来源见models/SOURCES.md。训练入口models/train_CASA.py，网络models/model/casa_net.py；设计见docs/temporary/CASA-Pyramid_Run3_design.md。
+【当前模型】主线CASA-Pyramid/Run4。共享MobileNetV2原生四尺度24/32/96/320通道，经TAR统一64通道，在DCR前做跨尺度相对上下文。普通与双曲保持完整5440个Q、224个KV，网格(8,4,4,4)，四头16维；共享TAR通道LN与Q/K投影，不使用HFEA。结构与来源见models/README.md、models/SOURCES.md和docs/temporary/CASA-Pyramid_Run4_design.md。
 
-【普通模块】paired_euclidean_context.py。同层A/B共用输入LN及Ci→32投影，D=|B−A|，X=LN(T+W_D D)，共享W_D为32→64；guide产生p。每区域P0=mean(X)，P+=(ΣpX+P0)/(Σp+1)，P−=(Σ(1−p)X+P0)/(Σ(1−p)+1)，PΔ=P+−P−。均值、对比两库各112token，分别softmax；完整Q四头16维，两个K独立，标准点积除√16。每库V四头8维，两个32通道读出拼接后out投影；K/V先池化再无bias投影。logits加各库尺度偏置与-log(源尺度区域数)，无log(r)。常量guide的对比为0，伪计数1平滑类别原型。S1/S2保持dense D，H=D−binomial_blur(D)，边界b由[X,D,H]预测；输出T+gamma_context·O+gamma_detail·W_D(D+bH)，粗两层只加context。边界门只控制高通细节，区域和dense差异始终保留。
+【普通模块】euclidean_context.py与pyramid_context.py。X=LN(T)，完整Q=WqkX/√16。每区域按p和1−p分别归一化池化X，K=WqkP/√16，V=WvP；同层同区域两个原型共224token。可靠性r=Σp²/Σp（背景同理），logits=−欧氏距离²/(2τ²)+log(r)+尺度bias−log(源尺度token数)。V与输出均无bias；回写out(AV−WvX)，抵消常量内容广播。S1/S2另由X−avg3(X)经DW3×3及PW1×1产生局部细节残差。逐通道gamma零初始化，卷积正常初始化。
 
-【双曲模块】paired_hyperbolic_context.py。同层A/B共用输入LN及Ci→32投影，拆4头各8维除√8，再Exp并转Lorentz，曲率−1、切空间上限2.3。计算精确两点中点m与v=PT(m→原点,Log_m(B))的8维空间坐标，u=|v|，X=LN(T+W_D u)。每区域uniform/change两种权重各生成一个token，共224；change权重(p+1e-6)/Σ(p+1e-6)。同token的m用Lorentz质心压缩，u和X加权均值，V由X原型欧式投影；区域Lorentz质心不称精确多点Fréchet均值。完整query为(m,u)，评分−dH(m,Km)/(2tau_mid)−||u−Ku||/tau_diff，加尺度偏置及-log(源尺度token数)，单个224-token softmax。两组每头正温度初值.2，V四头16维直接A@V。细两层H=|v−blur(v)|，边界b由[X,u,H]预测，回写W_D(u+bH)。m/v表达共同参考与有向半位移，|v|保留幅度但丢失方向；不把该联合评分称纯双曲测地距离。CTRL保留LN、guide及65参数边界头，直接使用TAR；三组辅助目标相同，边界头输入宽度不同。几何收益须由匹配对照验证。
+【双曲模块】hyperbolic_context.py与lorentz_ops.py。共享投影z=WqkX/√16，直接映射L(z)=(sqrt(1+||z||²),z)，曲率−1，半径asinh(||z||)可变且无硬裁剪。完整Q先映射，再按同一变化/背景权重取Lorentz归一化质心K；不是精确多点Fréchet均值。V为同权池化X的欧式投影。仅用平方测地距离替换普通版欧氏距离，近重合点以解析展开保留有限导数；可靠性、相对回写、局部分支、参数量与普通版匹配。几何本身不保证收益，需对照CTRL及普通版。
 
-【训练协议】当前协议casa_pyramid_40k_pairbanks_contrastwd0_v3：256×256、batch32、seed2333；Adam新层lr5e-4、预训练骨干lr5e-5，betas(0.9,0.99)、eps1e-8。每步调度保留骨干lr_scale=.1。普通模块context.k_contrast.weight与context.v_contrast.weight采用WD0；context内其余Conv2d/Linear权重WD1e-4，LN、bias、温度、gamma与尺度偏置WD0，网络其余1e-4。poly指数.9，全局前200步warmup；40K整epoch取整为LEVIR/SYSU/WHU/CDD的40182/40125/40145/40248步。主损失四级BCEWithLogits＋sigmoidDice；guide四级BCE、面积平均标签、权重.2；细两层边界BCE＋Dice、权重.05。边界为原始mask的3×3膨胀−腐蚀，外侧replicate，再maxpool到feature占据标签。三组损失相同；标签只进入损失，原型使用预测概率。每epoch test.txt首级最高F1选best（相同更新），结束后复测，非独立盲测。ChangeMamba2024是每500步test/Kappa选模，本项目频率及指标不同。新轮从MobileNetV2预训练初始化，不使用探针或历史权重。骨干较小LR为共同泛化假设，跨Run2差异不能单归因于模块。
+【训练协议】当前协议casa_pyramid_40k_relative_adamwctx_v4：256×256、batch32、seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice；四级guide用面积平均标签BCE，权重.2。无边界辅助训练目标，保留边界/内部评估统计。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重。共同学习率与损失恢复Run2，context优化采用解耦衰减；跨轮差异不能仅归因模块。
 
 【数据处理】按RGB读取，图像双线性缩放至256×256，标签最近邻；像素除255，RGB均值[0.485,0.456,0.406]、标准差[0.229,0.224,0.225]。训练开启0.5概率裁剪四边各0～8像素后恢复、水平/垂直各0.5概率翻转、等概率0/90/180/270度旋转、0.5概率时相交换。A/B与标签空间变换同步，增强后归一化，不添加独立光度扰动。评价不增强，保留全部样本；训练shuffle并drop_last。LEVIR/WHU重点观察小建筑与边界，SYSU关注多类地表变化及伪变化，CDD关注季节/光照差异；这些是分析方向，精度收益须由实际结果验证。
 
-【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回(seg_logits,aux)，aux含guide_logits四层及boundary_logits两层；predict只计算最终一级输出，效率按此接口实测。训练/部署参数：CTRL2.047190M/1.935875M，双曲2.073620M/1.962305M，普通2.085964M/1.974649M；context分别258/26688/39032参数。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级最大差<=2e-4为通过条件。gamma_context四个、gamma_detail两个零初始化，保持初始恒等。检查实际风险：成对几何重建/交换/同点、原型语义、任务梯度、接口与折叠；真实数据短训观察损失及分支。gamma为0时内部任务梯度受门控符合设计。固定TAR时配对模块交换不变不等于整网交换不变；也不要求整网相同输入恒零。
+【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回四级seg_logits和四级guide_logits；predict只输出第一级。CTRL训练/部署2.047125/1.935810M，两模块均2.064537/1.953222M，context分别193/17605参数。RTX5090、FP32、batch1延迟CTRL/H/E为3.76/6.71/5.72ms。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级阈值2e-4。检查稀疏原型、低支持类别、常量场、跨尺度任务梯度、Lorentz单位约束/距离/质心/零距离梯度及部署一致性。TAR有序时相融合，整网不承诺严格交换不变或相同输入恒零。
 
 【证据与诊断】区分直接事实、证据支持的推断、待验证假设和缺失信息。正式指标只取同一train_log.txt最后一个完整的“=== TEST RESULTS ===”到“=== END TEST RESULTS ===”区块，不能拿验证行、探针或checkpoint名字代替。报告Recall/Precision/OA/F1/IoU/Kappa及参数、计算与实测效率，说明单位和统计范围。FLOPs若遗漏双曲逐元素运算必须注明；延迟注明硬件、输入、batch、精度和测量方法。单seed或微小差异不称稳定普适增益。诊断context/local残差、普通两库内容与K/V权重RMS、gamma、半径CV、裁剪、方向/距离分布、注意力及压缩前后信息，结合分支输出、任务梯度、验证消融和同轮CTRL区分失活、泛化与选模差异；熵高或gamma小不能单独判定失活。
 
@@ -43,6 +43,8 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 ```
 
 ## 当前状态摘要
+
+当前Run4进行四项真实数据短训，模型/几何/部署检查已通过。运行情况以`.codex/STATE.md`为准。历史Run3已完成，结果如下。
 
 Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。
 
@@ -59,7 +61,7 @@ Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27
 
 SYSU出现明确的后期泛化不足：CTRL与普通版最佳epoch为3、双曲为33，训练损失继续下降而test选模损失上升。普通对比K/V保持有效幅度和随query变化的检索，未复现归零；双曲最粗层在LEVIR/WHU的最佳checkpoint诊断中约75%输入对触发裁剪，但半径差异和检索仍有效。该层约99%注意力留在本尺度，跨尺度利用有限。CDD三组最佳均为最后一轮，当前40K预算尚不能证明已达到平台。
 
-全部197条正式记录已收集，原185条历史单元格保留。Run3完整日志、逐轮CSV、曲线及模块诊断见[完整记录](experiments/CASA-Pyramid/Run3/README.md)，结论见[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)。当前没有活动训练。
+全部197条正式记录已收集，原185条历史单元格保留。Run3完整日志、逐轮CSV、曲线及模块诊断见[完整记录](experiments/CASA-Pyramid/Run3/README.md)，结论见[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)。Run3队列已结束。
 
 已完成的Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。其正式F1如下：
 
@@ -92,6 +94,8 @@ Run3两版独立设计：普通版112均值＋112对比token、双库softmax；�
 
 ## GitHub上的完整训练记录
 
+文献与官方来源见[文献索引](参考文献/文献索引.md)及[Run4调研](参考文献/Run4_压缩与双曲检索/README.md)。
+
 [CASA-Pyramid/Run3完整记录](experiments/CASA-Pyramid/Run3/README.md)保存12项完整日志、逐轮表格、曲线和模块诊断；[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)对照同轮CTRL与Run2解释精度、泛化和开销。
 
 [CASA-Pyramid/Run2完整记录](experiments/CASA-Pyramid/Run2/README.md)提供12项完整日志、训练/test选模逐轮表格与曲线、实际最佳epoch、诊断和环境。本轮test参与选模，诊断取每轮test首个batch。
@@ -104,9 +108,9 @@ Run3两版独立设计：普通版112均值＋112对比token、双库softmax；�
 |---|---|
 | `docs/temporary/models_and_metrics_CASA-Pyramid_current.txt` | 当前模型源码与全部正式指标 |
 | `docs/temporary/models_and_metrics_CASA-Pyramid_Run2.txt` | CASA-Pyramid Run2实际运行源码与指标冻结快照 |
-| `docs/temporary/CASA-Pyramid_Run3_design.md` | 当前配对双库／几何模块的设计依据与适用边界 |
-| `train_scripts/CASA-Pyramid/Run3/README.md`及相关脚本 | 本轮变体、协议、探针与调度说明 |
-| `outputs/CASA-Pyramid/Run3/<variant>/<dataset>/train_log.txt`、`result.json`和manifest | 本轮正式测试、训练配置与部署校验 |
+| `docs/temporary/CASA-Pyramid_Run4_design.md` | 当前可靠性压缩、相对回写与Lorentz检索设计依据 |
+| `train_scripts/CASA-Pyramid/Run4/README.md`及相关脚本 | 本轮变体、协议、探针与调度说明 |
+| `outputs/CASA-Pyramid/Run4/<variant>/<dataset>/train_log.txt`、`result.json`和manifest | 本轮正式测试、训练配置与部署校验 |
 | `docs/temporary/CASA_Run6_analysis_Run7_design.md` | Run6验证分析及Run7机制依据 |
 | `outputs/<tag>/<Run>/analysis/`中的相关样本、统计和特征 | 数据集特征、压缩与几何诊断 |
 | `docs/参考文献/baseline/WDMF-Net(TGRS2026).pdf` | 骨干、编码器融合及训练策略参考 |

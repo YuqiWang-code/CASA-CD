@@ -1,4 +1,4 @@
-"""CASA paired-context training with boundary support and test selection."""
+"""CASA relative-context training with shared supervision and test selection."""
 import argparse
 import copy
 import json
@@ -17,13 +17,11 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_pairbanks_contrastwd0_v3"
+PROTOCOL = "casa_pyramid_40k_relative_adamwctx_v4"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
 GUIDE_WEIGHT = 0.2
-BOUNDARY_WEIGHT = 0.05
-NO_DECAY_PROJECTIONS = {"context.k_contrast.weight", "context.v_contrast.weight"}
 DATA_PROTOCOL = dict(
     color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
     mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
@@ -55,17 +53,10 @@ def mask_boundary(target, radius=1):
     return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
 
 
-def boundary_loss(logits, target):
-    edge = mask_boundary(target)
-    return sum(loss_function((z,), F.adaptive_max_pool2d(edge, z.shape[-2:]))
-               for z in logits)
-
-
 def training_losses(outputs, aux, target):
     main = loss_function(outputs, target)
     guide = guide_loss(aux["guide_logits"], target)
-    boundary = boundary_loss(aux["boundary_logits"], target)
-    return main + GUIDE_WEIGHT * guide + BOUNDARY_WEIGHT * boundary, main, guide, boundary
+    return main + GUIDE_WEIGHT * guide, main, guide
 
 
 class SpatialMetrics:
@@ -153,21 +144,29 @@ def learning_rate(base, epoch, step, total):
 
 def context_decay_names(model):
     return {f"{name}.weight" for name, layer in model.named_modules()
-            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))
-            and f"{name}.weight" not in NO_DECAY_PROJECTIONS}
+            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))}
 
 
-def make_optimizer(model, encoder_lr_mult=0.1):
-    encoder, decay, no_decay = [], [], []
+def make_optimizer(model, encoder_lr_mult=1.0):
+    encoder, body_decay, context_decay, no_decay = [], [], [], []
     decay_names = context_decay_names(model)
     for name, parameter in model.named_parameters():
-        group = (encoder if name.startswith("encoder.") else
-                 no_decay if name.startswith("context.") and name not in decay_names else decay)
-        group.append(parameter)
+        if name.startswith("encoder."):
+            encoder.append(parameter)
+        elif name in decay_names:
+            context_decay.append(parameter)
+        elif name.startswith("context."):
+            no_decay.append(parameter)
+        else:
+            body_decay.append(parameter)
     groups = [dict(params=encoder, weight_decay=1e-4, lr_scale=encoder_lr_mult,
-                   lr=5e-4*encoder_lr_mult, group_name="encoder"),
-              dict(params=decay, weight_decay=1e-4, lr_scale=1.0, group_name="body_decay"),
-              dict(params=no_decay, weight_decay=0.0, lr_scale=1.0, group_name="context_no_decay")]
+                   lr=5e-4*encoder_lr_mult, group_name="encoder", decoupled_weight_decay=False),
+              dict(params=body_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="body_decay", decoupled_weight_decay=False),
+              dict(params=context_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="context_decay", decoupled_weight_decay=True),
+              dict(params=no_decay, weight_decay=0.0, lr_scale=1.0,
+                   group_name="context_no_decay", decoupled_weight_decay=False)]
     return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
 
 
@@ -260,7 +259,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
-    parser.add_argument("--encoder-lr-mult", type=float, default=0.1)
+    parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(4)
@@ -290,12 +289,14 @@ def main():
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, encoder_lr=5e-4*args.encoder_lr_mult,
                     encoder_lr_mult=args.encoder_lr_mult, optimizer="Adam(0.9,0.99),eps=1e-8",
-                    weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                    weight_decay=1e-4, body_weight_decay_mode="coupled_l2",
+                    context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                    context_other_weight_decay=0.0,
                     context_projection_decay_parameters=[n for n, _ in model.named_parameters()
                                                          if n in context_decay_names(model)],
-                    no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                     optimizer_groups=[dict(name=g["group_name"], lr_scale=g["lr_scale"],
-                                           weight_decay=g["weight_decay"], lr=g["lr"])
+                                           weight_decay=g["weight_decay"], lr=g["lr"],
+                                           decoupled_weight_decay=g["decoupled_weight_decay"])
                                       for g in optimizer.param_groups],
                     selection="best test F1 each epoch, ties update", selection_split="test",
                     independent_test=False, evaluation_starts_at_epoch=0,
@@ -304,19 +305,20 @@ def main():
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                    qkv_dim=64, heads=4, pair_dim=32, guide_weight=GUIDE_WEIGHT,
-                    query_key_head_dim=8 if args.module == "hyperbolic" else 16,
-                    value_head_dim=16,
-                    boundary_weight=BOUNDARY_WEIGHT, boundary_scales=[1, 2],
-                    boundary_target="3x3 dilation-minus-erosion, replicate padding, adaptive max pool",
-                    boundary_loss="BCEWithLogits + sigmoid Dice, sum over S1/S2",
+                    qkv_dim=64, heads=4, guide_weight=GUIDE_WEIGHT,
+                    query_key_head_dim=16, value_head_dim=16,
+                    shared_query_key_projection=True,
+                    reliability_prior="class posterior second moment / class mass",
+                    context_readout="attention @ values - query value",
+                    context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
+                    local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
                     warmup_steps=200, evaluation_split="test",
                     precision=dict(input="float32", amp=False, cudnn_tf32=True,
                                    matmul_tf32=False, cudnn_benchmark=True),
-                    context_values={"none": "guide_and_boundary_only",
-                                    "qkv": "paired_mean_contrast_dual_banks_dense_detail",
-                                    "hyperbolic": "paired_midpoint_transport_joint_retrieval_dense_detail"}[args.module],
+                    context_values={"none": "guide_only",
+                                    "qkv": "euclidean_relative_context",
+                                    "hyperbolic": "lorentz_relative_context_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -358,7 +360,7 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        epoch_loss, main_sum, guide_sum, boundary_sum, tick = 0.0, 0.0, 0.0, 0.0, time.time()
+        epoch_loss, main_sum, guide_sum, tick = 0.0, 0.0, 0.0, time.time()
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
@@ -367,7 +369,7 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss, edge_loss = training_losses(outputs, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -377,12 +379,11 @@ def main():
             epoch_loss += float(loss.detach())
             main_sum += float(main_loss.detach())
             guide_sum += float(auxiliary_loss.detach())
-            boundary_sum += float(edge_loss.detach())
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} boundary={boundary_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
         eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
         model.context.collect_diag = False

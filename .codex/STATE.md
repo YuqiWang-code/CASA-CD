@@ -2,6 +2,14 @@
 
 更新：2026-10-26。
 
+## CASA-Pyramid / Run4
+
+协议`casa_pyramid_40k_relative_adamwctx_v4`。共享TAR Q/K、可靠性压缩、query相对内容回写，双曲版直接Lorentz坐标与平方测地距离。共同训练为全网lr5e-4、main+0.2guide、40K；test逐epoch选模。两卡授权持续有效，优先LEVIR→SYSU→WHU→CDD，共12项。
+
+模型/数学/梯度/部署/数据检查已通过，四项LEVIR/SYSU真实数据探针已启动，LEVIR各6epoch、SYSU各4epoch；探针不计正式指标。正式启动前须确认四项health_result通过、完成源码归档及显存调度配置，禁止重复启动。
+
+日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run4`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run4`。唯一调度器`train_scripts/CASA-Pyramid/Run4/pipeline.py`。历史197条指标保持不变，本轮收齐后209条（另有新增全部保留）。当前没有本轮自动化。
+
 ## CASA-Pyramid / Run3 已完成
 
 Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。

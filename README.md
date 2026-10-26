@@ -1,10 +1,10 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run3**，协议`casa_pyramid_40k_pairbanks_contrastwd0_v3`。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run4**，协议`casa_pyramid_40k_relative_adamwctx_v4`。
 
 ## 项目定位与研究原则
 
-在LEVIR、SYSU、WHU、CDD四库研究检测精度与轻量推理，贡献聚焦双曲QKV和变化感知压缩QKV。保持完整Q、压缩KV；结构简洁、问题明确，新增机制应能通过对照验证。避免无关组件和特殊激活函数堆叠，准确率、部署参数、计算、实测延迟与显存共同评价。单seed的小差异不作为稳定领先证据。
+在LEVIR、SYSU、WHU、CDD四库研究检测精度与轻量推理，贡献聚焦双曲QKV和变化感知压缩QKV。保持完整Q、压缩KV；结构简洁、问题明确，新增机制应能通过对照验证。避免无关组件和特殊激活函数堆叠，准确率、部署参数、计算、实测延迟与显存共同评价。单seed的小差异不作为稳定领先证据。有效性优先于绝对最少参数，允许有依据的小幅参数增长。项目F1目标为LEVIR≥92%、SYSU≥84%、WHU≥95%、CDD≥97.5%；这些是研究目标，不是统一评价协议下已核实的SOTA界限。
 
 同轮三组使用相同骨干、增强、损失、预算和选模规则。当前按每epoch的test F1选模，最终test复测属于**test参与选模的结果**，不能称独立盲测，也不能将与历史val选模的差异全部归因于模块。结构诊断与短训使用train/val，测试阈值固定0.5。
 
@@ -13,39 +13,41 @@
 ```text
 双时相RGB A / B
   → 共享MobileNetV2原生四尺度24/32/96/320通道
-  → TAR：四级时相融合，统一64通道
-  → 成对跨尺度上下文（同时接收A/B原生特征）
-      完整Q：5440个位置；网格8/4/4/4 → 224个KV
-      普通E：成对绝对差 → 均值库/对比库，各112个KV，分别检索
-      双曲H：成对中点/切空间差异 → 配对KV，双曲关系＋差异幅度检索
-      两版V均为欧式；S1/S2保留稠密差异及受边界监督的局部高频
-      输出投影 → context/local两个残差；CTRL保留相同辅助监督
+  → TAR：时相融合，统一64通道
+  → 变化引导的跨尺度相对上下文
+      共享LN与Q/K投影；Q保留全部5440个位置
+      网格8/4/4/4，每区域变化/背景两原型，共224个KV
+      普通E：欧氏压缩原型与平方欧氏距离
+      双曲H：直接Lorentz映射与质心压缩，平方测地距离
+      两版V均为欧式，回写 out(Attention·V − Vquery)
+      S1/S2：未压缩高通差异 → DW3×3 → PW1×1
+      原始TAR + 逐通道上下文残差 + 逐通道局部残差
   → DCR逐级解码 → 共享预测头
-      训练：四级logits深监督；推理：只输出最终一级概率图
+      训练四级logits深监督，推理仅最终一级概率
 ```
 
-普通版用共享32维投影提取双时相绝对差，将区域均值与变化/背景均值之差分别存入两库，各自softmax，避免两类内容争夺同一归一化质量。类别均值以一个区域均值伪计数平滑，保持压缩权重可学习。
+普通版先对LN特征按预测变化/背景概率压缩，再进行共享K/V线性投影。类别可信度采用`Σp²/Σp`，保留稀疏但明确的变化；不存在可靠变化时，低质量原型的注意力先验降低。来源尺度另按token数量校正，不强迫跨尺度注意力均分。
 
-双曲版将A/B映射到曲率−1的双曲空间，构造精确两点中点和搬运至原点的切向差异。中点表示共同上下文，差异绝对值表示变化幅度；两者与欧式V采用同一组区域权重压缩，保持检索关系和内容对应。四头、每头双曲空间维度8，切空间截断2.3。S1/S2对有符号差异先做固定二项式高通，再取绝对值；普通版直接对绝对差高通。
+双曲版在共同TAR坐标中用`(sqrt(1+||z||²),z)`直接构造曲率−1的Lorentz点。半径`asinh(||z||)`可变，无硬裁剪；完整Q经同权Lorentz质心压缩得到K，V保持欧式。只用一个平方测地距离检索，近重合点使用解析极限保证梯度有限。两版共享压缩与回写规则，参数量匹配，几何收益由同轮对照判断。
 
-两版均按来源token数修正注意力数量先验，保留可学习尺度偏置。context与局部残差gamma均零初始化。CTRL采用相同guide与边界监督。几何处理的时相对称性针对成对表示，TAR本身仍保留时相顺序。
+相对回写抵消常量内容广播；细两层局部高通分支保留压缩以外的空间细节。全部残差gamma按通道零初始化，投影与卷积正常初始化。CTRL只保留相同guide辅助监督，不含上下文与局部分支。
 
-| 数据集特征 | 对应设计目的 |
+| 数据集特征 | 本轮设计目的 |
 |---|---|
-| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化稀疏，小建筑与边界重要 | 细尺度128个KV、完整Q，S1/S2稠密差异与边界监督保留小建筑 |
-| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：密集建筑、大小尺度差异及背景纹理 | 联合四尺度检索；局部细节支路与TAR/DCR保留建筑边缘 |
-| [SYSU](https://github.com/liumency/SYSU-CD)：变化类型丰富，植被、阴影和时相差异明显 | 成对差异进入上下文；均值和对比信息分别保留，检查内部召回 |
-| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节和外观差异显著 | 共同上下文与变化差异分开表示；同步几何增强和跨尺度关联 |
+| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化与不同尺寸目标 | 细尺度128KV、不按类别面积降权，局部高通补充边界 |
+| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：建筑轮廓与区域完整性 | 原始TAR保留，检索内容仅作相对修正，检查边界和内部召回 |
+| [SYSU](https://github.com/liumency/SYSU-CD)：建筑、地表、植被等多类变化 | 变化/背景可信度压缩，观察误报/漏检与后期泛化 |
+| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节外观差异 | 共享跨尺度坐标与局部差异互补，保持同步几何增强 |
 
-这些是机制目标，四库精度收益由正式对照验证。双曲映射本身不保证类别可分性提高。
+| 变体 | 训练参数 | 折叠部署参数 | context参数 | FP32 batch1延迟 |
+|---|---:|---:|---:|---:|
+| M0_CTRL | 2,047,125 | 1,935,810 | 193 | 3.76 ms |
+| M1_HYPER_QKV | 2,064,537 | 1,953,222 | 17,605 | 6.71 ms |
+| M2_CA_QKV | 2,064,537 | 1,953,222 | 17,605 | 5.72 ms |
 
-| 变体 | 训练参数 | 折叠部署参数 | context参数 |
-|---|---:|---:|---:|
-| M0_CTRL | 2,047,190 | 1,935,875 | 258 |
-| M1_HYPER_QKV | 2,073,620 | 1,962,305 | 26,688 |
-| M2_CA_QKV | 2,085,964 | 1,974,649 | 39,032 |
+RTX5090、256×256、FP32、30次预热后100次中位数，随机权重架构测量。参数轻量不等于与CTRL同速。
 
-实现见[models](models/README.md)，来源见[SOURCES](models/SOURCES.md)。
+实现见[models](models/README.md)，来源见[SOURCES](models/SOURCES.md)。[文献索引](docs/参考文献/文献索引.md) · [Run4定向调研](docs/参考文献/Run4_压缩与双曲检索/README.md) · [Run4设计与历史经验](docs/temporary/CASA-Pyramid_Run4_design.md)。
 
 ## 固定训练与评价设置
 
@@ -59,12 +61,11 @@
 | 翻转 / 旋转 | 水平、垂直各0.5；均匀选择0/90/180/270度，A/B/标签同步 |
 | 时相交换 | 训练以0.5概率交换A/B；标签保持对应空间位置 |
 | 光度增强 / 评估增强 | 无独立时相颜色扰动；评估无随机增强、无TTA |
-| 优化器 | Adam，骨干lr5e-5、新层5e-4，betas(.9,.99)，eps1e-8 |
-| Weight decay | 普通对比K/V weight为0；其余context卷积/线性weight为1e-4，其他context为0；网络其余为1e-4 |
-| 学习率 / 预算 | 前200步warmup，之后poly^0.9，保留骨干0.1倍率；40K按完整epoch上取整 |
+| 优化器 | Adam，全网lr5e-4，betas(.9,.99)，eps1e-8 |
+| Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
+| 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
 | 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
 | 评分损失 | 四尺度面积平均标签的BCEWithLogits求和×0.2，三组一致 |
-| 边界损失 | S1/S2的BCEWithLogits+Dice求和×0.05，三组一致；原mask3×3形态学边界再maxpool到对应尺度 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
 | 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
 | 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |
@@ -79,7 +80,19 @@
 | WHU-CD-256 | 5,947 / 743 / 744 | 217 / 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 129 / 40,248 |
 
-## 当前实验：CASA-Pyramid / Run3（已完成）
+## 当前实验：CASA-Pyramid / Run4
+
+四库各CTRL、双曲、普通共12项。优先LEVIR→SYSU→WHU→CDD，两卡按实测显存补位。数学、压缩、主任务梯度、预处理与部署检查已通过；正式训练前进行四项LEVIR/SYSU真实数据短训。启动记录见[Run4说明](train_scripts/CASA-Pyramid/Run4/README.md)。
+
+共同协议恢复全网5e-4与`main+0.2·guide`，保持三组一致。与Run3的跨轮差异同时包含共同协议变化；模块收益以同轮CTRL衡量。
+
+<!-- CASA_PYRAMID_RUN4_RESULTS_START -->
+
+当前处于真实数据短训阶段，正式结果0/12。已有197条正式历史记录保持不变。
+
+<!-- CASA_PYRAMID_RUN4_RESULTS_END -->
+
+## 历史实验：CASA-Pyramid / Run3（已完成）
 
 四数据集各CTRL、双曲H、普通E，共12项，优先LEVIR→SYSU→WHU→CDD，两张GPU按实测显存并行。实现和检查见[Run3说明](train_scripts/CASA-Pyramid/Run3/README.md)，设计依据见[模块设计](docs/temporary/CASA-Pyramid_Run3_design.md)。正式训练从MobileNetV2预训练重新初始化，不使用历史或探针权重。
 

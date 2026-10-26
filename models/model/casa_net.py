@@ -7,15 +7,15 @@ from model.mobilenet_v2 import mobilenet_v2
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.layers.pyramid_context import AuxiliaryContext
-from model.layers.paired_euclidean_context import PairedEuclideanContext
-from model.layers.paired_hyperbolic_context import PairedHyperbolicContext
+from model.layers.euclidean_context import EuclideanContext
+from model.layers.hyperbolic_context import HyperbolicContext
 
 
 class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none"):
         super().__init__()
-        context_type = {"none": AuxiliaryContext, "hyperbolic": PairedHyperbolicContext,
-                        "qkv": PairedEuclideanContext}[module]
+        context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
+                        "qkv": EuclideanContext}[module]
         self.module = module
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
@@ -28,11 +28,11 @@ class CASANet(nn.Module):
 
     def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, auxiliary = self.context(features_a, features_b, self.tar(features_a, features_b))
+        enhanced, auxiliary = self.context(self.tar(features_a, features_b))
         return self.decoder.forward_pyramid(enhanced), auxiliary
 
     def forward(self, a, b, return_aux=False):
-        """Return four probabilities, or raw logits with guide and boundary heads."""
+        """Return four probabilities, or raw logits and change-guide supervision."""
         pyramid, auxiliary = self._decode(a, b)
         logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
                                      mode="bilinear", align_corners=False)

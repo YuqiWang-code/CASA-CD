@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 from dataset import casa_transforms as transforms
 from train_CASA import (MEAN, STD, learning_rate, loss_function, make_loader,
-                        mask_boundary, boundary_loss, training_losses, SpatialMetrics)
+                        mask_boundary, training_losses, SpatialMetrics)
 
 
 def main():
@@ -69,20 +69,14 @@ def main():
     assert edge[0, 0, 3:13, 4:14].sum() == 64
     assert edge[:, :, 0].sum() == 0 and edge[:, :, -1].sum() == 0
     assert F.adaptive_max_pool2d(edge, (4, 4)).sum() > 0
-    boundary_logits = (torch.zeros(1, 1, 4, 4, requires_grad=True),
-                       torch.zeros(1, 1, 2, 2, requires_grad=True))
     aux = dict(guide_logits=tuple(torch.zeros(1, 1, side, side, requires_grad=True)
-                                 for side in (8, 4, 2, 1)), boundary_logits=boundary_logits)
+                                 for side in (8, 4, 2, 1)))
     outputs = tuple(torch.zeros_like(target, requires_grad=True) for _ in range(4))
-    total, main_loss, guide, boundary = training_losses(outputs, aux, target)
-    assert torch.equal(total, main_loss + .2 * guide + .05 * boundary)
+    total, main_loss, guide = training_losses(outputs, aux, target)
+    assert torch.equal(total, main_loss + .2 * guide)
     total.backward()
     assert all(z.grad is not None and torch.isfinite(z.grad).all() and z.grad.abs().sum() > 0
-               for z in (*outputs, *aux["guide_logits"], *boundary_logits))
-    extreme = tuple(torch.full_like(z, -100, requires_grad=True) for z in boundary_logits)
-    edge_loss = boundary_loss(extreme, target)
-    edge_loss.backward()
-    assert torch.isfinite(edge_loss) and all(torch.isfinite(z.grad).all() for z in extreme)
+               for z in (*outputs, *aux["guide_logits"]))
 
     metric = SpatialMetrics(torch.device("cpu"))
     metric.update(target > 0, target)

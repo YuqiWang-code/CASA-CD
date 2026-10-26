@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, NO_DECAY_PROJECTIONS, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, GUIDE_WEIGHT, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -37,7 +37,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss, edge_loss = training_losses(logits, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -54,14 +54,17 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      guide_weight=0.2, boundary_weight=0.05, encoder_lr_mult=0.1,
+                      guide_weight=GUIDE_WEIGHT, encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                      context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
-                      no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
+                      context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                      body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
+                      optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],
+                                             decoupled_weight_decay=g["decoupled_weight_decay"])
+                                        for g in optimizer.param_groups],
                       peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
                       context_overhead_mib=context_mib, process_memory_mib=process_mib,
@@ -69,7 +72,7 @@ def main():
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, logits, auxiliary, loss, main_loss, auxiliary_loss, edge_loss
+        del model, optimizer, logits, auxiliary, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)

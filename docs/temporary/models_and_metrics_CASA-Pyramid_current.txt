@@ -4,7 +4,7 @@
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
 ================================================================================
-## MODELS CODE (21 files)
+## MODELS CODE (20 files)
 ================================================================================
 
 ================================================================================
@@ -22,7 +22,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, NO_DECAY_PROJECTIONS, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, GUIDE_WEIGHT, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -49,7 +49,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss, edge_loss = training_losses(logits, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -66,14 +66,17 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      guide_weight=0.2, boundary_weight=0.05, encoder_lr_mult=0.1,
+                      guide_weight=GUIDE_WEIGHT, encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                      context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
-                      no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
+                      context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                      body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
+                      optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],
+                                             decoupled_weight_decay=g["decoupled_weight_decay"])
+                                        for g in optimizer.param_groups],
                       peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
                       peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
                       context_overhead_mib=context_mib, process_memory_mib=process_mib,
@@ -81,7 +84,7 @@ def main():
                       params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
         results[variant] = result
         print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
-        del model, optimizer, logits, auxiliary, loss, main_loss, auxiliary_loss, edge_loss
+        del model, optimizer, logits, auxiliary, loss, main_loss, auxiliary_loss
         gc.collect()
         torch.cuda.empty_cache()
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +97,7 @@ if __name__ == "__main__":
 ================================================================================
 # FILE: models/test_CASA.py
 ================================================================================
-"""Native pyramid, paired supervision, shared initialization and deployment."""
+"""Native pyramid, matching common initialization, task gradients and folding."""
 import torch
 
 from model.casa_net import CASANet
@@ -104,65 +107,61 @@ from train_CASA import context_decay_names, training_losses, make_optimizer, ver
 def main():
     torch.set_num_threads(4)
     torch.manual_seed(2333)
-    a, b = torch.randn(1, 3, 256, 256), torch.randn(1, 3, 256, 256)
-    target = torch.randint(0, 2, (1, 1, 256, 256)).float()
-    reference = None
-    counts = {"none": (2047190, 1935875), "hyperbolic": (2073620, 1962305),
-              "qkv": (2085964, 1974649)}
-    for variant in ("none", "hyperbolic", "qkv"):
+    a,b=torch.randn(1,3,256,256),torch.randn(1,3,256,256)
+    target=torch.randint(0,2,(1,1,256,256)).float()
+    reference=None
+    for variant in ('none','hyperbolic','qkv'):
         torch.manual_seed(2333)
-        model = CASANet(module=variant).eval()
-        count = sum(p.numel() for p in model.parameters())
-        assert count == counts[variant][0], count
+        model=CASANet(module=variant).eval()
+        count=sum(p.numel() for p in model.parameters())
         with torch.no_grad():
-            encoded = model.encoder(a)[1:]
-            assert [tuple(x.shape[1:]) for x in encoded] == [(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
-            logits, auxiliary = model(a, b, return_aux=True)
-            outputs = model(a, b)
-            assert len(logits) == len(outputs) == len(auxiliary["guide_logits"]) == 4
-            assert len(auxiliary["boundary_logits"]) == 2
-            assert all(x.shape == target.shape for x in logits)
-            assert all(torch.equal(z.sigmoid(), p) for z, p in zip(logits, outputs))
-            assert torch.equal(model.predict(a, b), outputs[0])
+            encoded=model.encoder(a)[1:]
+            assert [tuple(x.shape[1:]) for x in encoded]==[(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
+            logits,aux=model(a,b,return_aux=True)
+            outputs=model(a,b)
+            assert len(logits)==len(outputs)==len(aux['guide_logits'])==4
+            assert all(x.shape==target.shape for x in logits)
+            assert all(torch.equal(z.sigmoid(),p) for z,p in zip(logits,outputs))
+            assert torch.equal(model.predict(a,b),outputs[0])
+            assert all(torch.isfinite(x).all() for x in model(a,a))
             if reference is None:
-                reference = outputs[0]
+                reference=outputs[0]
             else:
-                assert torch.equal(reference, outputs[0]), "common path initialization differs"
+                assert torch.equal(reference,outputs[0]), 'common initialization differs'
         model.train()
-        optimizer = make_optimizer(model)
-        context_ids = {id(p) for p in model.context.parameters()}
-        encoder_ids = {id(p) for p in model.encoder.parameters()}
-        projection_ids = {id(p) for name, p in model.named_parameters() if name in context_decay_names(model)}
-        grouped = [id(p) for group in optimizer.param_groups for p in group["params"]]
-        assert len(grouped) == len(set(grouped)) == len(list(model.parameters()))
+        optimizer=make_optimizer(model)
+        context_ids={id(p) for p in model.context.parameters()}
+        projection_ids={id(p) for n,p in model.named_parameters() if n in context_decay_names(model)}
+        grouped=[id(p) for group in optimizer.param_groups for p in group['params']]
+        assert len(grouped)==len(set(grouped))==len(list(model.parameters()))
         for group in optimizer.param_groups:
-            assert all(group["weight_decay"] == (0.0 if id(p) in context_ids and id(p) not in projection_ids
-                                                 else 1e-4) for p in group["params"])
-            assert all(group["lr_scale"] == (.1 if id(p) in encoder_ids else 1.) for p in group["params"])
+            assert group['lr_scale']==1.
+            assert all(group['weight_decay']==(0. if id(p) in context_ids and id(p) not in projection_ids
+                                               else 1e-4) for p in group['params'])
         for _ in range(3):
             optimizer.zero_grad(set_to_none=True)
-            logits, auxiliary = model(a, b, return_aux=True)
-            loss, main_loss, guide, boundary = training_losses(logits, auxiliary, target)
-            assert torch.allclose(loss, main_loss + .2 * guide + .05 * boundary)
+            logits,aux=model(a,b,return_aux=True)
+            loss,main,guide=training_losses(logits,aux,target)
+            assert torch.allclose(loss,main+.2*guide)
             loss.backward()
             assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
             optimizer.step()
-        assert model.context.guide.weight.grad.abs().sum() > 0
-        assert model.context.boundary.weight.grad.abs().sum() > 0
-        if variant != "none":
-            assert (model.context.gamma_context.abs() > 0).all()
-            assert (model.context.gamma_detail.abs() > 0).all()
-            assert all(layer.weight.grad.abs().sum() > 0 for layer in model.context.pair_proj)
+        assert model.context.guide.weight.grad.abs().sum()>0
+        if variant!='none':
+            for layer in (model.context.qk,model.context.v,model.context.out,
+                          model.context.local_dw,model.context.local_out):
+                assert layer.weight.grad.abs().sum()>0
+            assert (model.context.gamma_context.abs().sum(-1)>0).all()
+            assert (model.context.gamma_detail.abs().sum(-1)>0).all()
         model.eval()
-        _, report = verify_deployment(model, torch.cat((a, b), 1))
-        assert max(report["per_scale_max_diff"]) < 2e-4
-        assert report["binary_disagreement"] == 0
-        deployed = model.switch_to_deploy()
-        assert sum(p.numel() for p in deployed.parameters()) == counts[variant][1]
-        print(variant, "parameters", count, "paired auxiliary gradients and deployment PASS")
+        _,report=verify_deployment(model,torch.cat((a,b),1))
+        assert max(report['per_scale_max_diff'])<2e-4 and report['binary_disagreement']==0
+        deployed=model.switch_to_deploy()
+        print(variant,'train/deploy params',count,sum(p.numel() for p in deployed.parameters()),
+              'guide/task gradients and folding PASS')
 
 
-if __name__ == "__main__":
+if __name__=='__main__':
     main()
 
 ================================================================================
@@ -178,7 +177,7 @@ from torch import nn
 
 from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
                         rng_state, strict_fold_precision, update_learning_rate,
-                        learning_rate, context_decay_names, NO_DECAY_PROJECTIONS)
+                        learning_rate, context_decay_names)
 
 
 class SmallModel(nn.Module):
@@ -188,16 +187,14 @@ class SmallModel(nn.Module):
         self.encoder = nn.Linear(3, 3)
         self.body = nn.Linear(3, 3)
         self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
-                                      "k_contrast": nn.Linear(3, 3, bias=False),
-                                      "v_contrast": nn.Linear(3, 3, bias=False),
+                                      "norm": nn.LayerNorm(3),
                                       "v": nn.Linear(3, 3, bias=False),
                                       "out": nn.Linear(3, 3, bias=False),
                                       "guide": nn.Linear(3, 3)})
 
     def forward(self, x):
-        x = self.encoder(x)
-        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)
-                                   + self.context["k_contrast"](x) + self.context["v_contrast"](x)) + self.context["guide"](x)
+        x = self.context["norm"](self.encoder(x))
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
 
 
 def step(model, optimizer):
@@ -212,7 +209,29 @@ def backend_state():
             torch.backends.cuda.matmul.allow_tf32, torch.get_float32_matmul_precision())
 
 
+def check_decay_step():
+    model = SmallModel().double()
+    optimizer = make_optimizer(model)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.fill_(1.0)
+            parameter.grad = torch.zeros_like(parameter)
+    optimizer.step()
+    lr, decay, eps = 5e-4, 1e-4, 1e-8
+    expected_context = 1 - lr * decay
+    expected_body = 1 - lr * decay / (decay + eps)
+    torch.testing.assert_close(model.context["qk"].weight,
+        torch.full_like(model.context["qk"].weight, expected_context), rtol=0, atol=1e-12)
+    torch.testing.assert_close(model.body.weight,
+        torch.full_like(model.body.weight, expected_body), rtol=0, atol=1e-12)
+    torch.testing.assert_close(model.encoder.weight,
+        torch.full_like(model.encoder.weight, expected_body), rtol=0, atol=1e-12)
+    assert torch.equal(model.context["norm"].weight, torch.ones_like(model.context["norm"].weight))
+    assert torch.equal(model.context["guide"].bias, torch.ones_like(model.context["guide"].bias))
+
+
 def main():
+    check_decay_step()
     torch.manual_seed(2333)
     np.random.seed(2333)
     random.seed(2333)
@@ -221,24 +240,27 @@ def main():
     decay = {id(p): group["weight_decay"] for group in optimizer.param_groups for p in group["params"]}
     scales = {id(p): group["lr_scale"] for group in optimizer.param_groups for p in group["params"]}
     decay_names = context_decay_names(model)
+    decoupled = {id(p): group["decoupled_weight_decay"]
+                 for group in optimizer.param_groups for p in group["params"]}
     for name, parameter in model.named_parameters():
         expected_decay = 0.0 if name.startswith("context.") and name not in decay_names else 1e-4
         assert decay[id(parameter)] == expected_decay
-        assert scales[id(parameter)] == (0.1 if name.startswith("encoder.") else 1.0)
-        if name in NO_DECAY_PROJECTIONS:
+        assert scales[id(parameter)] == 1.0
+        assert decoupled[id(parameter)] == (name in decay_names)
+        if name.startswith("context.norm.") or name == "context.guide.bias":
             assert decay[id(parameter)] == 0.0
-        elif name.endswith('.weight'):
+        elif name.endswith(".weight"):
             assert decay[id(parameter)] == 1e-4
     for count in (0, 185, 199, 200, 20000, 39999):
         rate = learning_rate(5e-4, 1, count, 40000)
         update_learning_rate(optimizer, rate)
-        assert optimizer.param_groups[0]["lr"] == rate * 0.1
+        assert optimizer.param_groups[0]["lr"] == rate
         assert all(group["lr"] == rate for group in optimizer.param_groups[1:])
     for _ in range(4):
         step(model, optimizer)
     checkpoint = copy.deepcopy(dict(
         epoch=2, step=4, state_dict=model.state_dict(), optimizer=optimizer.state_dict(),
-        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6, encoder_lr_mult=0.1), rng_state=rng_state()))
+        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6, encoder_lr_mult=1.0), rng_state=rng_state()))
     for _ in range(2):
         step(model, optimizer)
     restored = SmallModel()
@@ -262,7 +284,187 @@ def main():
     except ValueError:
         pass
     assert backend_state() == before
-    print("Encoder LR ratio, context decay, optimizer/RNG continuation and backend restoration PASS")
+    print("Encoder LR, decoupled context/coupled body decay, optimizer/RNG continuation and backend restoration PASS")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: models/test_context_geometry.py
+================================================================================
+"""Lorentz geometry checked against Poincare and Klein coordinate identities."""
+import torch
+
+from model.layers.lorentz_ops import (
+    acosh1p_squared, lift, normalize_sum, pairwise_squared_distance,
+)
+
+
+def poincare_distance_reference(space_q, space_k):
+    """FP64 reference using direct chords in the Poincare ball."""
+    q, k = space_q.double(), space_k.double()
+    time_q = torch.sqrt(1 + (q * q).sum(-1, keepdim=True))
+    time_k = torch.sqrt(1 + (k * k).sum(-1, keepdim=True))
+    ball_q, ball_k = q / (time_q + 1), k / (time_k + 1)
+    chord = torch.cdist(ball_q, ball_k, compute_mode="donot_use_mm_for_euclid_dist")
+    denominator = torch.sqrt(
+        (1 - ball_q.square().sum(-1)).unsqueeze(-1)
+        * (1 - ball_k.square().sum(-1)).unsqueeze(-2))
+    return (2 * torch.asinh(chord / denominator)).square()
+
+
+def klein_centroid_reference(points, weights):
+    """Einstein barycenter in Klein coordinates, converted through the ball."""
+    time, space = points[..., :1], points[..., 1:]
+    klein = space / time
+    weighted_mass = weights.unsqueeze(-1) * time.unsqueeze(-3)
+    center = (weighted_mass * klein.unsqueeze(-3)).sum(-2) / weighted_mass.sum(-2)
+    ball = center / (1 + torch.sqrt(1 - center.square().sum(-1, keepdim=True)))
+    denominator = 1 - ball.square().sum(-1, keepdim=True)
+    return torch.cat(((1 + ball.square().sum(-1, keepdim=True)) / denominator,
+                      2 * ball / denominator), dim=-1)
+
+
+def lift_radius_and_gradient():
+    directions = torch.randn(7, 16, dtype=torch.float64)
+    directions = directions / directions.norm(dim=-1, keepdim=True)
+    lengths = torch.tensor([0., .01, .25, 1., 3., 10., 30.],
+                           dtype=torch.float64, requires_grad=True)
+    point = lift(lengths[:, None] * directions)
+    unit = point[:, 0].square() - point[:, 1:].square().sum(-1)
+    torch.testing.assert_close(unit, torch.ones_like(unit), atol=5e-13, rtol=0)
+    radius = torch.asinh(point[:, 1:].norm(dim=-1))
+    torch.testing.assert_close(radius, torch.asinh(lengths), atol=2e-15, rtol=2e-15)
+    gradient = torch.autograd.grad(radius[1:].sum(), lengths)[0][1:]
+    expected = 1 / torch.sqrt(1 + lengths.detach()[1:].square())
+    torch.testing.assert_close(gradient, expected, atol=1e-14, rtol=1e-13)
+    assert (gradient > 0).all(), "large-radius spatial inputs lost radial gradients"
+    assert radius.max() - radius.min() > 4
+    print("Lorentz unit norm, variable radius and non-clipped radial gradients PASS")
+
+
+def centroid_identities():
+    space = torch.randn(2, 4, 7, 16, dtype=torch.float64) * .7
+    points = lift(space)
+    weights = torch.rand(2, 4, 3, 7, dtype=torch.float64).softmax(-1)
+    actual = normalize_sum(weights @ points)
+    expected = klein_centroid_reference(points, weights)
+    torch.testing.assert_close(actual, expected, atol=2e-13, rtol=2e-13)
+
+    constant = points[..., :1, :].expand_as(points)
+    actual = normalize_sum(weights @ constant)
+    expected = points[..., :1, :].expand(-1, -1, 3, -1)
+    torch.testing.assert_close(actual, expected, atol=2e-13, rtol=2e-13)
+
+    selected = torch.nn.functional.one_hot(torch.tensor([1, 4, 6]), 7).double()
+    actual = normalize_sum(selected @ points)
+    torch.testing.assert_close(actual, points[..., [1, 4, 6], :], atol=2e-13, rtol=2e-13)
+
+    opposite = torch.stack((space[..., 0, :], -space[..., 0, :]), dim=-2)
+    center = normalize_sum(lift(opposite).mean(-2))
+    origin = torch.zeros_like(center)
+    origin[..., 0] = 1
+    torch.testing.assert_close(center, origin, atol=1e-14, rtol=0)
+    print("Lorentz centroids agree with Klein barycenters, constants and one-hot weights PASS")
+
+
+def distance_references():
+    q = torch.randn(2, 4, 11, 16, dtype=torch.float64) * 1.2
+    k = torch.randn(2, 4, 7, 16, dtype=torch.float64) * .8
+    actual = pairwise_squared_distance(lift(q), lift(k))
+    expected = poincare_distance_reference(q, k)
+    torch.testing.assert_close(actual, expected, atol=2e-12, rtol=2e-12)
+
+    radial_q = torch.tensor([0., .1, .8, 2., 4.], dtype=torch.float64)
+    radial_k = torch.tensor([.03, .4, 1.3, 3.], dtype=torch.float64)
+    a = torch.zeros(5, 16, dtype=torch.float64)
+    b = torch.zeros(4, 16, dtype=torch.float64)
+    a[:, 0], b[:, 0] = radial_q.sinh(), radial_k.sinh()
+    expected = (radial_q[:, None] - radial_k[None, :]).square()
+    actual = pairwise_squared_distance(lift(a), lift(b))
+    torch.testing.assert_close(actual, expected, atol=2e-11, rtol=2e-11)
+    print("FP64 squared distances agree with Poincare chords and radial geodesics PASS")
+
+
+def float32_distance_range():
+    lengths = torch.tensor([0., 1e-4, .05, .5, 1., 3., 10., 30.])
+    q = torch.randn(2, 4, len(lengths), 16)
+    k = torch.randn_like(q)
+    q = q / q.norm(dim=-1, keepdim=True) * lengths[None, None, :, None]
+    k = k / k.norm(dim=-1, keepdim=True) * lengths[None, None, :, None]
+    cases = [(q, k), (q, q), (q, q + torch.randn_like(q) * 1e-3)]
+    maximum_error = 0.
+    for left, right in cases:
+        actual = pairwise_squared_distance(lift(left), lift(right))
+        expected = poincare_distance_reference(left, right)
+        maximum_error = max(maximum_error, float((actual.double() - expected).abs().max()))
+        assert torch.isfinite(actual).all() and (actual >= 0).all()
+        torch.testing.assert_close(actual.double(), expected, atol=2e-3, rtol=3e-5)
+    print(f"FP32 spatial norm 0..30 squared-distance max absolute error={maximum_error:.3e} PASS")
+
+
+def small_distance_limit():
+    z = torch.cat((torch.tensor([0.], dtype=torch.float64),
+                   torch.logspace(-14, -2, 25, dtype=torch.float64),
+                   torch.tensor([1e-3 - 1e-9, 1e-3, 1e-3 + 1e-9], dtype=torch.float64)))
+    z.requires_grad_()
+    actual = acosh1p_squared(z)
+    expected = 4 * torch.asinh(torch.sqrt(z.detach() / 2)).square()
+    torch.testing.assert_close(actual, expected, atol=3e-15, rtol=2e-13)
+    derivative = torch.autograd.grad(actual.sum(), z)[0]
+    assert derivative[0] == 2 and torch.isfinite(derivative).all()
+    positive_z = z.detach()[1:]
+    expected_derivative = (4 * torch.asinh(torch.sqrt(positive_z / 2))
+                           / torch.sqrt(positive_z * (positive_z + 2)))
+    torch.testing.assert_close(derivative[1:], expected_derivative, atol=2e-12, rtol=2e-12)
+    print("Squared acosh analytic value, derivative and branch-boundary limits PASS")
+
+
+def distance_and_centroid_gradients():
+    q = (torch.randn(1, 2, 3, dtype=torch.float64) * .6).requires_grad_()
+    k = (torch.randn(1, 3, 3, dtype=torch.float64) * .6).requires_grad_()
+    assert torch.autograd.gradcheck(lambda a, b: pairwise_squared_distance(lift(a), lift(b)),
+                                    (q, k), eps=1e-6, atol=2e-6, rtol=2e-4)
+    logits = torch.randn(1, 2, 3, dtype=torch.float64, requires_grad=True)
+    assert torch.autograd.gradcheck(lambda points, scores: normalize_sum(scores.softmax(-1) @ lift(points)),
+                                    (k, logits), eps=1e-6, atol=2e-6, rtol=2e-4)
+
+    for radius in (0., .5, 3., 30.):
+        source = torch.randn(1, 2, 5, 16)
+        source = source / source.norm(dim=-1, keepdim=True) * radius
+        for perturbation in (0., 1e-6, .01):
+            a = source.clone().requires_grad_()
+            b = (source + perturbation * torch.randn_like(source)).requires_grad_()
+            distance = pairwise_squared_distance(lift(a), lift(b))
+            distance.sum().backward()
+            assert torch.isfinite(a.grad).all() and torch.isfinite(b.grad).all()
+            if radius == 0 and perturbation == 0:
+                assert distance.count_nonzero() == 0
+                assert a.grad.count_nonzero() == 0 and b.grad.count_nonzero() == 0
+    print("Noncoincident distance/centroid gradcheck and FP32 coincident gradients PASS")
+
+
+def euclidean_origin_limit():
+    q = torch.randn(2, 3, 5, 16, dtype=torch.float64)
+    k = torch.randn(2, 3, 7, 16, dtype=torch.float64)
+    euclidean = torch.cdist(q, k, compute_mode="donot_use_mm_for_euclid_dist").square()
+    scale = 1e-4
+    intrinsic = pairwise_squared_distance(lift(scale * q), lift(scale * k)) / scale ** 2
+    torch.testing.assert_close(intrinsic, euclidean, atol=2e-5, rtol=2e-6)
+    print("Lorentz spatial lift has the Euclidean metric at the origin PASS")
+
+
+def main():
+    torch.set_num_threads(4)
+    torch.manual_seed(4701)
+    lift_radius_and_gradient()
+    centroid_identities()
+    distance_references()
+    float32_distance_range()
+    small_distance_limit()
+    distance_and_centroid_gradients()
+    euclidean_origin_limit()
 
 
 if __name__ == "__main__":
@@ -283,7 +485,7 @@ from torch.nn import functional as F
 
 from dataset import casa_transforms as transforms
 from train_CASA import (MEAN, STD, learning_rate, loss_function, make_loader,
-                        mask_boundary, boundary_loss, training_losses, SpatialMetrics)
+                        mask_boundary, training_losses, SpatialMetrics)
 
 
 def main():
@@ -342,20 +544,14 @@ def main():
     assert edge[0, 0, 3:13, 4:14].sum() == 64
     assert edge[:, :, 0].sum() == 0 and edge[:, :, -1].sum() == 0
     assert F.adaptive_max_pool2d(edge, (4, 4)).sum() > 0
-    boundary_logits = (torch.zeros(1, 1, 4, 4, requires_grad=True),
-                       torch.zeros(1, 1, 2, 2, requires_grad=True))
     aux = dict(guide_logits=tuple(torch.zeros(1, 1, side, side, requires_grad=True)
-                                 for side in (8, 4, 2, 1)), boundary_logits=boundary_logits)
+                                 for side in (8, 4, 2, 1)))
     outputs = tuple(torch.zeros_like(target, requires_grad=True) for _ in range(4))
-    total, main_loss, guide, boundary = training_losses(outputs, aux, target)
-    assert torch.equal(total, main_loss + .2 * guide + .05 * boundary)
+    total, main_loss, guide = training_losses(outputs, aux, target)
+    assert torch.equal(total, main_loss + .2 * guide)
     total.backward()
     assert all(z.grad is not None and torch.isfinite(z.grad).all() and z.grad.abs().sum() > 0
-               for z in (*outputs, *aux["guide_logits"], *boundary_logits))
-    extreme = tuple(torch.full_like(z, -100, requires_grad=True) for z in boundary_logits)
-    edge_loss = boundary_loss(extreme, target)
-    edge_loss.backward()
-    assert torch.isfinite(edge_loss) and all(torch.isfinite(z.grad).all() for z in extreme)
+               for z in (*outputs, *aux["guide_logits"]))
 
     metric = SpatialMetrics(torch.device("cpu"))
     metric.update(target > 0, target)
@@ -383,266 +579,94 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_pair_geometry.py
-================================================================================
-"""Paired Lorentz geometry: identities, reconstruction and FP32 coincidence gradients."""
-import torch
-
-from model.layers.lorentz_pair_ops import (
-    euclidean_pairwise_distance, lorentz_inner, lorentz_logmap, lorentz_midpoint, lorentz_normalize,
-    pair_midpoint_difference, pairwise_lorentz_distance, parallel_transport_to_origin,
-)
-from model.layers.poincare_ops import aligned_distance, expmap0, to_lorentz
-
-
-def tangent_exp(base, tangent):
-    squared = lorentz_inner(tangent, tangent, keepdim=True).clamp_min(0)
-    norm = squared.clamp_min(1e-12).sqrt()
-    return norm.cosh() * base + (norm.sinh() / norm) * tangent
-
-
-def geometric_identities():
-    torch.manual_seed(31)
-    a = torch.randn(2, 4, 13, 8, dtype=torch.float64)
-    b = torch.randn_like(a)
-    a = a / a.norm(dim=-1, keepdim=True) * torch.linspace(0.01, 2.3, 13).double()[None, None, :, None]
-    b = b / b.norm(dim=-1, keepdim=True) * 1.2
-    x, y = to_lorentz(expmap0(a)), to_lorentz(expmap0(b))
-    midpoint, difference = pair_midpoint_difference(x, y)
-    reversed_midpoint, reversed_difference = pair_midpoint_difference(y, x)
-    direct_log = lorentz_logmap(midpoint, y)
-    direct_difference = parallel_transport_to_origin(midpoint, direct_log)
-    assert torch.allclose(lorentz_inner(midpoint, midpoint), -torch.ones_like(midpoint[..., 0]), atol=2e-10)
-    assert torch.allclose(midpoint, lorentz_normalize(x + y), atol=2e-10, rtol=2e-10)
-    assert torch.equal(midpoint, reversed_midpoint)
-    assert torch.equal(difference, -reversed_difference)
-    assert torch.allclose(difference, direct_difference, atol=2e-10, rtol=2e-10)
-    assert torch.allclose(lorentz_inner(midpoint, direct_log), torch.zeros_like(midpoint[..., 0]), atol=2e-10)
-    assert torch.allclose(difference.norm(dim=-1), aligned_distance(expmap0(a), expmap0(b)) * 0.5,
-                          atol=2e-10, rtol=2e-10)
-    assert torch.allclose(tangent_exp(midpoint, direct_log), y, atol=2e-9, rtol=2e-10)
-    assert torch.allclose(tangent_exp(midpoint, -direct_log), x, atol=2e-9, rtol=2e-10)
-    expected = aligned_distance(expmap0(a).unsqueeze(-2), expmap0(b).unsqueeze(-3))
-    assert torch.allclose(pairwise_lorentz_distance(x, y), expected, atol=2e-10, rtol=2e-10)
-    weights = torch.rand(2, 4, 7, 13, dtype=torch.float64)
-    weights = weights / weights.sum(-1, keepdim=True)
-    centroid = lorentz_normalize(weights @ midpoint)
-    assert torch.allclose(lorentz_inner(centroid, centroid), -torch.ones_like(centroid[..., 0]), atol=2e-10)
-    print("midpoint, Log/PT, half-distance, reconstruction and centroid identities PASS")
-
-
-def finite_float32_gradients():
-    torch.manual_seed(39)
-    for radius in (0.0, 0.5, 2.3):
-        for perturbation in (0.0, 1e-6, 0.1):
-            a = torch.randn(1, 2, 11, 8)
-            a = (a / a.norm(dim=-1, keepdim=True) * radius).requires_grad_()
-            b = (a.detach() + torch.randn_like(a) * perturbation).requires_grad_()
-            x, y = to_lorentz(expmap0(a)), to_lorentz(expmap0(b))
-            midpoint, difference = pair_midpoint_difference(x, y)
-            general_log = lorentz_logmap(x, y)
-            distance = pairwise_lorentz_distance(x, y)
-            assert all(torch.isfinite(t).all() for t in (midpoint, difference, general_log, distance))
-            if perturbation == 0:
-                assert torch.equal(midpoint, x)
-                assert torch.count_nonzero(difference) == 0
-                assert torch.count_nonzero(general_log) == 0
-                assert torch.count_nonzero(distance.diagonal(dim1=-2, dim2=-1)) == 0
-            reference = aligned_distance(expmap0(a), expmap0(b)) * 0.5
-            assert torch.allclose(difference.norm(dim=-1), reference, atol=1e-4, rtol=2e-3)
-            loss = difference.square().mean() + general_log.square().mean() + midpoint.mean() + distance.mean()
-            loss.backward()
-            assert torch.isfinite(a.grad).all() and torch.isfinite(b.grad).all()
-    print("FP32 origin, identical pairs, near-identical pairs and clipping-radius gradients PASS")
-
-
-def pair_derivative_check():
-    torch.manual_seed(43)
-    a = (torch.randn(1, 3, 3, dtype=torch.float64) * 0.2).requires_grad_()
-    b = (torch.randn(1, 3, 3, dtype=torch.float64) * 0.2).requires_grad_()
-
-    def operation(left, right):
-        x, y = to_lorentz(expmap0(left)), to_lorentz(expmap0(right))
-        return pair_midpoint_difference(x, y)
-
-    assert torch.autograd.gradcheck(operation, (a, b), eps=1e-6, atol=2e-6, rtol=2e-4)
-    print("paired geometry derivatives PASS")
-
-
-def distance_derivative_check():
-    torch.manual_seed(47)
-    x = torch.randn(2, 3, 5, 8, dtype=torch.float64, requires_grad=True)
-    y = torch.randn(2, 3, 7, 8, dtype=torch.float64, requires_grad=True)
-    actual = euclidean_pairwise_distance(x, y)
-    expected = torch.cdist(x, y, p=2, compute_mode="donot_use_mm_for_euclid_dist")
-    assert torch.allclose(actual, expected, atol=2e-12, rtol=2e-12)
-    direction = torch.randn_like(actual)
-    actual_grad = torch.autograd.grad((actual * direction).sum(), (x, y))
-    expected_grad = torch.autograd.grad((expected * direction).sum(), (x, y))
-    assert all(torch.allclose(a, e, atol=2e-12, rtol=2e-12)
-               for a, e in zip(actual_grad, expected_grad))
-    assert torch.autograd.gradcheck(euclidean_pairwise_distance, (x, y),
-                                    eps=1e-6, atol=2e-6, rtol=2e-4)
-    same = torch.randn(2, 3, 1, 8).expand(-1, -1, 5, -1).clone().requires_grad_()
-    matching = same.detach().clone().requires_grad_()
-    coincident = euclidean_pairwise_distance(same, matching)
-    coincident.sum().backward()
-    assert torch.count_nonzero(coincident) == 0
-    assert torch.count_nonzero(same.grad) == 0 and torch.count_nonzero(matching.grad) == 0
-    near = (same.detach() + 1e-6 * torch.randn_like(same)).requires_grad_()
-    euclidean_pairwise_distance(same, near).sum().backward()
-    assert torch.isfinite(same.grad).all() and torch.isfinite(near.grad).all()
-    print("direct distance forward/backward equivalence, gradcheck and coincidence gradients PASS")
-
-
-if __name__ == "__main__":
-    geometric_identities()
-    finite_float32_gradients()
-    pair_derivative_check()
-    distance_derivative_check()
-
-================================================================================
 # FILE: models/test_pyramid_context.py
 ================================================================================
-"""Paired token semantics, dense details, gradients and scale priors."""
+"""Compression fidelity, constant fields and cross-scale task gradients."""
 import torch
 
-from model.layers.paired_euclidean_context import PairedEuclideanContext
-from model.layers.paired_hyperbolic_context import PairedHyperbolicContext
-from model.layers.pyramid_context import binomial_highpass, feature_regions, project_tokens, regions
-from model.layers.poincare_ops import expmap0, to_lorentz
-from model.layers.lorentz_pair_ops import lorentz_normalize
+from model.layers.euclidean_context import EuclideanContext
+from model.layers.hyperbolic_context import HyperbolicContext
+from model.layers.pyramid_context import assignments, pool_features, highpass, regions
 
 
-def contrast_semantics():
-    op = PairedEuclideanContext().double()
+def compression_semantics():
     feature = torch.randn(1, 64, 8, 8, dtype=torch.double, requires_grad=True)
-    for level in (0., .01, .5, .99, 1.):
-        probability = torch.full((1, 1, 8, 8), level, dtype=torch.double)
-        mean, contrast = op.prototypes(feature, probability, 1)
-        assert torch.allclose(mean, feature.mean((-2, -1)).unsqueeze(1), atol=1e-12)
-        assert contrast.abs().max() < 1e-12, "constant guide must not create contrast content"
-        value = project_tokens(op.v_contrast, contrast, 4)
-        assert value.abs().max() < 1e-12
     probability = torch.zeros(1, 1, 8, 8, dtype=torch.double)
     probability[..., 0, 0] = 1
-    mean, contrast = op.prototypes(feature, probability, 1)
-    positive = (feature[..., 0, 0].unsqueeze(1) + mean) / 2
-    negative = (feature.flatten(2).sum(-1).unsqueeze(1) - feature[..., 0, 0].unsqueeze(1) + mean) / 64
-    assert torch.allclose(contrast, positive - negative, atol=1e-12)
-    logits = torch.randn(1, 1, 8, 8, dtype=torch.double, requires_grad=True)
-    _, contrast = op.prototypes(feature, logits.sigmoid(), 1)
-    grads = torch.autograd.grad(contrast.square().sum(), (feature, logits))
+    weights, confidence = assignments(probability, 1)
+    prototype = pool_features(feature, weights, 1)
+    assert weights[0, 0, 0, 0] > .9999
+    assert torch.allclose(prototype[:, 0], feature[..., 0, 0], atol=3e-4)
+    assert torch.equal(confidence, torch.ones_like(confidence)), "sparse confident target lost prior mass"
+    for value in (0., .01, .5, .99, 1.):
+        weights, confidence = assignments(torch.full_like(probability, value), 1)
+        assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
+        prototype = pool_features(feature, weights, 1)
+        assert torch.allclose(prototype[:, 0], prototype[:, 1], atol=1e-12)
+        expected = torch.tensor([[max(value, 1e-6), max(1-value, 1e-6)]], dtype=torch.double)
+        assert torch.allclose(confidence, expected, atol=1e-12)
+    logits = torch.randn_like(probability, requires_grad=True)
+    weights, _ = assignments(logits.sigmoid(), 2)
+    pooled = pool_features(feature, weights, 2)
+    grads = torch.autograd.grad(pooled.square().sum(), (feature, logits))
     assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
-    assert binomial_highpass(torch.ones(1, 32, 8, 8)).abs().max() == 0
-    print("mean/contrast shrinkage, zero constant-guide values and assignment gradients PASS")
-
-
-def aligned_hyperbolic_tokens():
-    op = PairedHyperbolicContext().double()
-    midpoint = to_lorentz(expmap0(torch.randn(1, 4, 8, 8, 8, dtype=torch.double) * .1))
-    unsigned = torch.rand(1, 4, 8, 8, 8, dtype=torch.double)
-    feature = torch.randn(1, 64, 8, 8, dtype=torch.double)
-    probability = torch.full((1, 1, 8, 8), .3, dtype=torch.double)
-    weights = op.assignments(probability, 2)
-    km, ku, value = op.compress(midpoint, unsigned, feature, weights, 2)
-    assert torch.allclose(km[:, :, 0::2], km[:, :, 1::2], atol=1e-12)
-    assert torch.allclose(ku[:, :, 0::2], ku[:, :, 1::2], atol=1e-12)
-    assert torch.allclose(value[:, :, 0::2], value[:, :, 1::2], atol=1e-12)
-    probability.zero_()
-    probability[..., 0, 0] = 1
-    weights = op.assignments(probability, 2)
-    km, ku, value = op.compress(midpoint, unsigned, feature, weights, 2)
-    wm = weights[:, 0, 1, :, None]
-    expected_m = lorentz_normalize((regions(midpoint, 2)[:, :, 0] * wm[:, None]).sum(-2))
-    expected_u = (regions(unsigned, 2)[:, :, 0] * wm[:, None]).sum(-2)
-    expected_x = (feature_regions(feature, 2)[:, 0] * wm).sum(-2).unsqueeze(1)
-    expected_v = project_tokens(op.v, expected_x, 4).squeeze(2)
-    assert torch.allclose(km[:, :, 1], expected_m, atol=1e-12)
-    assert torch.allclose(ku[:, :, 1], expected_u, atol=1e-12)
-    assert torch.allclose(value[:, :, 1], expected_v, atol=1e-12)
-    assert weights[0, 0, 1, 0] > .9999, "sparse change weight was diluted"
-    print("uniform/change duplicate tokens and aligned midpoint/difference/value pooling PASS")
-
-
-def scale_priors():
-    e = PairedEuclideanContext()
-    q, k = torch.zeros(1, 4, 3, 16), torch.zeros(1, 4, 112, 16)
-    for bank in range(2):
-        attention = e.attention(q, k, 0, bank)
-        masses = torch.stack([part.sum(-1) for part in attention.split(e.regions_per_scale, -1)], -1)
-        assert torch.allclose(masses, torch.full_like(masses, .25), atol=1e-6)
-        assert torch.allclose(attention.sum(-1), torch.ones_like(attention[..., 0]))
-    h = PairedHyperbolicContext()
-    origin_q, origin_k = torch.zeros(1, 4, 3, 9), torch.zeros(1, 4, 224, 9)
-    origin_q[..., 0] = origin_k[..., 0] = 1
-    attention, _, _ = h.attention(origin_q, torch.zeros(1, 4, 3, 8), origin_k,
-                                   torch.zeros(1, 4, 224, 8), 0)
-    masses = torch.stack([part.sum(-1) for part in attention.split(h.tokens_per_scale, -1)], -1)
-    assert torch.allclose(masses, torch.full_like(masses, .25), atol=1e-6)
-    print("two independent 112-token softmaxes and 224-token source priors PASS")
+    operator = EuclideanContext().double()
+    dense = operator.project_queries(feature)
+    expected = torch.einsum("brtp,bhrpd->bhrtd", weights, regions(dense, 2)).flatten(2, 3)
+    actual = operator.pool_keys(dense, pooled, weights, 2)
+    assert torch.allclose(actual, expected, atol=1e-12), "pool/linear equivalence failed"
+    print("sparse targets, unsupported classes, assignment gradients and pool/linear equivalence PASS")
 
 
 def contexts():
-    sizes, channels = (32, 16, 8, 4), (24, 32, 96, 320)
-    for context_type, expected_count in ((PairedEuclideanContext, 39032), (PairedHyperbolicContext, 26688)):
+    sizes = (32,16,8,4)
+    for context_type in (EuclideanContext, HyperbolicContext):
         op = context_type()
-        assert sum(p.numel() for p in op.parameters()) == expected_count
-        a = [torch.randn(1, c, n, n, requires_grad=True) for c, n in zip(channels, sizes)]
-        b = [torch.randn_like(x, requires_grad=True) for x in a]
-        tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
-        output, auxiliary = op(a, b, tar)
-        assert all(torch.equal(x, y) for x, y in zip(output, tar)), "zero gates must preserve TAR"
-        assert len(auxiliary["guide_logits"]) == 4 and len(auxiliary["boundary_logits"]) == 2
-        op.gamma_context.data.fill_(.1)
-        op.gamma_detail.data.fill_(.1)
+        tar = [torch.randn(1,64,n,n,requires_grad=True) for n in sizes]
+        output, aux = op(tar)
+        assert all(torch.equal(x,y) for x,y in zip(output,tar))
+        assert len(aux['guide_logits']) == 4
+        with torch.no_grad():
+            op.gamma_context.fill_(.1)
+            op.gamma_detail.fill_(.1)
+        constant = torch.randn(1,64,1,1)
+        fields = [constant.expand(1,64,n,n).clone() for n in sizes]
+        output, _ = op(fields)
+        assert all(torch.allclose(x,y,atol=3e-6,rtol=1e-6) for x,y in zip(output,fields)), "constant field changed"
+        assert highpass(torch.ones(1,64,8,8)).abs().max() == 0
         op.collect_diag = True
-        output, _ = op(a, b, tar)
-        exchanged, _ = op(b, a, tar)
-        assert all(torch.allclose(x, y, atol=2e-6, rtol=1e-5) for x, y in zip(output, exchanged))
-        # With TAR held fixed, paired geometry is unordered; TAR itself can remain ordered.
-        if isinstance(op, PairedHyperbolicContext):
-            pair = op.paired_features(a, b, tar)
-            reverse = op.paired_features(b, a, tar)
-            assert all(torch.equal(x, y) for x, y in zip(pair[0], reverse[0]))
-            assert all(torch.equal(x, -y) for x, y in zip(pair[1], reverse[1]))
-            identical = op.paired_features(a, a, tar)
-            assert all(x.abs().max() == 0 for x in identical[1])
-        else:
-            identical = op.paired_features(a, a, tar)
-            assert all(x.abs().max() == 0 for x in identical[0])
-        gradients = torch.autograd.grad(output[0].square().mean(), tar + a + b, retain_graph=True)
-        assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
+        output, _ = op(tar)
+        gradients = torch.autograd.grad(output[0].square().mean(), tar, retain_graph=True)
+        assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients), "cross-scale gradient missing"
         sum(x.square().mean() for x in output).backward()
         for name, parameter in op.named_parameters():
-            if parameter.ndim >= 2:
-                assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
-                assert parameter.grad.abs().sum() > 0, name
-        for index, original in enumerate(tar):
-            diag = op.last_diag[f"stage{index + 1}"]
-            assert diag["finite"] and diag["contexts"] == 224
-            assert diag["context_residual_to_feature_rms"] > 0
-            if index < 2:
-                assert diag["local_residual_to_feature_rms"] > 0
-        print(context_type.__name__, expected_count, "identity/swap/dense detail/cross-scale task gradients PASS")
+            assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
+            assert parameter.grad.abs().sum() > 0, name
+        for i in range(4):
+            diag=op.last_diag[f'stage{i+1}']
+            assert diag['finite'] and diag['contexts']==224
+            assert diag['context_residual_to_feature_rms']>0
+            if i<2:
+                assert diag['local_residual_to_feature_rms']>0
+        # Identical distances and class confidence should not prefer the larger source grid.
+        query=op.project_queries(torch.zeros(1,64,1,3)).flatten(2,3)
+        key=op.project_queries(torch.zeros(1,64,1,224)).flatten(2,3)
+        attention=op.attention(query,key,torch.ones(1,224),0)
+        mass=torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale,-1)],-1)
+        assert torch.allclose(mass,torch.full_like(mass,.25),atol=1e-6)
+        print(context_type.__name__, 'identity, constant preservation, all parameter/cross-scale gradients PASS')
 
 
-def main():
+if __name__ == '__main__':
     torch.set_num_threads(4)
     torch.manual_seed(2333)
-    contrast_semantics()
-    aligned_hyperbolic_tokens()
-    scale_priors()
+    compression_semantics()
     contexts()
-
-
-if __name__ == "__main__":
-    main()
 
 ================================================================================
 # FILE: models/train_CASA.py
 ================================================================================
-"""CASA paired-context training with boundary support and test selection."""
+"""CASA relative-context training with shared supervision and test selection."""
 import argparse
 import copy
 import json
@@ -661,13 +685,11 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_pairbanks_contrastwd0_v3"
+PROTOCOL = "casa_pyramid_40k_relative_adamwctx_v4"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
 GUIDE_WEIGHT = 0.2
-BOUNDARY_WEIGHT = 0.05
-NO_DECAY_PROJECTIONS = {"context.k_contrast.weight", "context.v_contrast.weight"}
 DATA_PROTOCOL = dict(
     color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
     mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
@@ -699,17 +721,10 @@ def mask_boundary(target, radius=1):
     return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
 
 
-def boundary_loss(logits, target):
-    edge = mask_boundary(target)
-    return sum(loss_function((z,), F.adaptive_max_pool2d(edge, z.shape[-2:]))
-               for z in logits)
-
-
 def training_losses(outputs, aux, target):
     main = loss_function(outputs, target)
     guide = guide_loss(aux["guide_logits"], target)
-    boundary = boundary_loss(aux["boundary_logits"], target)
-    return main + GUIDE_WEIGHT * guide + BOUNDARY_WEIGHT * boundary, main, guide, boundary
+    return main + GUIDE_WEIGHT * guide, main, guide
 
 
 class SpatialMetrics:
@@ -797,21 +812,29 @@ def learning_rate(base, epoch, step, total):
 
 def context_decay_names(model):
     return {f"{name}.weight" for name, layer in model.named_modules()
-            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))
-            and f"{name}.weight" not in NO_DECAY_PROJECTIONS}
+            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))}
 
 
-def make_optimizer(model, encoder_lr_mult=0.1):
-    encoder, decay, no_decay = [], [], []
+def make_optimizer(model, encoder_lr_mult=1.0):
+    encoder, body_decay, context_decay, no_decay = [], [], [], []
     decay_names = context_decay_names(model)
     for name, parameter in model.named_parameters():
-        group = (encoder if name.startswith("encoder.") else
-                 no_decay if name.startswith("context.") and name not in decay_names else decay)
-        group.append(parameter)
+        if name.startswith("encoder."):
+            encoder.append(parameter)
+        elif name in decay_names:
+            context_decay.append(parameter)
+        elif name.startswith("context."):
+            no_decay.append(parameter)
+        else:
+            body_decay.append(parameter)
     groups = [dict(params=encoder, weight_decay=1e-4, lr_scale=encoder_lr_mult,
-                   lr=5e-4*encoder_lr_mult, group_name="encoder"),
-              dict(params=decay, weight_decay=1e-4, lr_scale=1.0, group_name="body_decay"),
-              dict(params=no_decay, weight_decay=0.0, lr_scale=1.0, group_name="context_no_decay")]
+                   lr=5e-4*encoder_lr_mult, group_name="encoder", decoupled_weight_decay=False),
+              dict(params=body_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="body_decay", decoupled_weight_decay=False),
+              dict(params=context_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="context_decay", decoupled_weight_decay=True),
+              dict(params=no_decay, weight_decay=0.0, lr_scale=1.0,
+                   group_name="context_no_decay", decoupled_weight_decay=False)]
     return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
 
 
@@ -904,7 +927,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
-    parser.add_argument("--encoder-lr-mult", type=float, default=0.1)
+    parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(4)
@@ -934,12 +957,14 @@ def main():
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, encoder_lr=5e-4*args.encoder_lr_mult,
                     encoder_lr_mult=args.encoder_lr_mult, optimizer="Adam(0.9,0.99),eps=1e-8",
-                    weight_decay=1e-4, context_projection_weight_decay=1e-4, context_other_weight_decay=0.0,
+                    weight_decay=1e-4, body_weight_decay_mode="coupled_l2",
+                    context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                    context_other_weight_decay=0.0,
                     context_projection_decay_parameters=[n for n, _ in model.named_parameters()
                                                          if n in context_decay_names(model)],
-                    no_decay_projections=[n for n, _ in model.named_parameters() if n in NO_DECAY_PROJECTIONS],
                     optimizer_groups=[dict(name=g["group_name"], lr_scale=g["lr_scale"],
-                                           weight_decay=g["weight_decay"], lr=g["lr"])
+                                           weight_decay=g["weight_decay"], lr=g["lr"],
+                                           decoupled_weight_decay=g["decoupled_weight_decay"])
                                       for g in optimizer.param_groups],
                     selection="best test F1 each epoch, ties update", selection_split="test",
                     independent_test=False, evaluation_starts_at_epoch=0,
@@ -948,19 +973,20 @@ def main():
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                    qkv_dim=64, heads=4, pair_dim=32, guide_weight=GUIDE_WEIGHT,
-                    query_key_head_dim=8 if args.module == "hyperbolic" else 16,
-                    value_head_dim=16,
-                    boundary_weight=BOUNDARY_WEIGHT, boundary_scales=[1, 2],
-                    boundary_target="3x3 dilation-minus-erosion, replicate padding, adaptive max pool",
-                    boundary_loss="BCEWithLogits + sigmoid Dice, sum over S1/S2",
+                    qkv_dim=64, heads=4, guide_weight=GUIDE_WEIGHT,
+                    query_key_head_dim=16, value_head_dim=16,
+                    shared_query_key_projection=True,
+                    reliability_prior="class posterior second moment / class mass",
+                    context_readout="attention @ values - query value",
+                    context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
+                    local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
                     warmup_steps=200, evaluation_split="test",
                     precision=dict(input="float32", amp=False, cudnn_tf32=True,
                                    matmul_tf32=False, cudnn_benchmark=True),
-                    context_values={"none": "guide_and_boundary_only",
-                                    "qkv": "paired_mean_contrast_dual_banks_dense_detail",
-                                    "hyperbolic": "paired_midpoint_transport_joint_retrieval_dense_detail"}[args.module],
+                    context_values={"none": "guide_only",
+                                    "qkv": "euclidean_relative_context",
+                                    "hyperbolic": "lorentz_relative_context_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -1002,7 +1028,7 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        epoch_loss, main_sum, guide_sum, boundary_sum, tick = 0.0, 0.0, 0.0, 0.0, time.time()
+        epoch_loss, main_sum, guide_sum, tick = 0.0, 0.0, 0.0, time.time()
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
@@ -1011,7 +1037,7 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss, edge_loss = training_losses(outputs, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -1021,12 +1047,11 @@ def main():
             epoch_loss += float(loss.detach())
             main_sum += float(main_loss.detach())
             guide_sum += float(auxiliary_loss.detach())
-            boundary_sum += float(edge_loss.detach())
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} boundary={boundary_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
         eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
         model.context.collect_diag = False
@@ -1271,15 +1296,15 @@ from model.mobilenet_v2 import mobilenet_v2
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.layers.pyramid_context import AuxiliaryContext
-from model.layers.paired_euclidean_context import PairedEuclideanContext
-from model.layers.paired_hyperbolic_context import PairedHyperbolicContext
+from model.layers.euclidean_context import EuclideanContext
+from model.layers.hyperbolic_context import HyperbolicContext
 
 
 class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none"):
         super().__init__()
-        context_type = {"none": AuxiliaryContext, "hyperbolic": PairedHyperbolicContext,
-                        "qkv": PairedEuclideanContext}[module]
+        context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
+                        "qkv": EuclideanContext}[module]
         self.module = module
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
@@ -1292,11 +1317,11 @@ class CASANet(nn.Module):
 
     def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, auxiliary = self.context(features_a, features_b, self.tar(features_a, features_b))
+        enhanced, auxiliary = self.context(self.tar(features_a, features_b))
         return self.decoder.forward_pyramid(enhanced), auxiliary
 
     def forward(self, a, b, return_aux=False):
-        """Return four probabilities, or raw logits with guide and boundary heads."""
+        """Return four probabilities, or raw logits and change-guide supervision."""
         pyramid, auxiliary = self._decode(a, b)
         logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
                                      mode="bilinear", align_corners=False)
@@ -2074,437 +2099,108 @@ class MultiScaleTAR(nn.Module):
 """Change-aware compressed attention and Poincare geometry."""
 
 ================================================================================
-# FILE: models/model\layers\lorentz_pair_ops.py
+# FILE: models/model\layers\euclidean_context.py
 ================================================================================
-"""Curvature -1 paired geometry in Lorentz coordinates (time coordinate first)."""
-import torch
-
-
-class _DirectPairwiseDistance(torch.autograd.Function):
-    """Direct Euclidean norms with a matrix-based gradient requiring no N×M×D buffer."""
-
-    @staticmethod
-    def forward(ctx, x, y):
-        squared = (x[..., 0, None] - y[..., None, :, 0]).square()
-        for dim in range(1, x.shape[-1]):
-            squared.add_((x[..., dim, None] - y[..., None, :, dim]).square())
-        distance = squared.sqrt_()
-        ctx.save_for_backward(x, y, distance)
-        return distance
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        x, y, distance = ctx.saved_tensors
-        weights = grad_output / distance.clamp_min(torch.finfo(distance.dtype).tiny)
-        weights = torch.where(distance > 0, weights, 0.)
-        grad_x = x * weights.sum(-1, keepdim=True) - weights @ y
-        grad_y = y * weights.sum(-2).unsqueeze(-1) - weights.transpose(-1, -2) @ x
-        return grad_x.sum_to_size(x.shape), grad_y.sum_to_size(y.shape)
-
-
-def euclidean_pairwise_distance(x, y):
-    """Exact pairwise Euclidean norms; use the zero subgradient at coincident points."""
-    return _DirectPairwiseDistance.apply(x, y)
-
-
-def lorentz_inner(x, y, keepdim=False):
-    """Lorentz inner product with arbitrary broadcastable leading dimensions."""
-    value = (x[..., 1:] * y[..., 1:]).sum(-1) - x[..., 0] * y[..., 0]
-    return value.unsqueeze(-1) if keepdim else value
-
-
-def lorentz_normalize(x):
-    """Normalize a positive weighted sum of upper-sheet hyperboloid points."""
-    norm = (-lorentz_inner(x, x, keepdim=True)).clamp_min(1e-8).sqrt()
-    return x / norm
-
-
-def lorentz_midpoint(x, y):
-    """Exact equal-weight two-point Frechet mean, without an iterative solver."""
-    delta = y - x
-    # -<x+y,x+y> = 4 + <y-x,y-x> for unit hyperboloid points.
-    denominator = (4 + lorentz_inner(delta, delta, keepdim=True).clamp_min(0)).sqrt()
-    return (x + y) / denominator
-
-
-def lorentz_logmap(base, target):
-    """Log_base(target), with the analytic coincident-point coefficient limit."""
-    delta = target - base
-    # z = -<base,target>-1; this form avoids subtracting nearly equal products.
-    z = (0.5 * lorentz_inner(delta, delta, keepdim=True)).clamp_min(0)
-    regular_z = z.clamp_min(1e-3)
-    regular = (2 * torch.asinh((regular_z / 2).sqrt()) /
-               (regular_z * (regular_z + 2)).sqrt())
-    series = 1 - z / 3 + 2 * z.square() / 15 - 2 * z.pow(3) / 35
-    coefficient = torch.where(z < 1e-3, series, regular)
-    return coefficient * (delta - z * base)
-
-
-def parallel_transport_to_origin(base, tangent):
-    """Transport an ambient Lorentz tangent to the origin; return spatial coordinates."""
-    return tangent[..., 1:] - (tangent[..., :1] / (base[..., :1] + 1)) * base[..., 1:]
-
-
-def pair_midpoint_difference(x, y):
-    """Return midpoint m and spatial PT_{m->o}(Log_m(y)); swap negates the latter."""
-    midpoint = lorentz_midpoint(x, y)
-    half_difference = (y - x) * 0.5
-    squared = lorentz_inner(half_difference, half_difference, keepdim=True).clamp_min(0)
-    regular_squared = squared.clamp_min(1e-3)
-    root = regular_squared.sqrt()
-    regular = torch.asinh(root) / root
-    series = 1 - squared / 6 + 3 * squared.square() / 40 - 5 * squared.pow(3) / 112
-    coefficient = torch.where(squared < 1e-3, series, regular)
-    tangent = coefficient * half_difference
-    return midpoint, parallel_transport_to_origin(midpoint, tangent)
-
-
-def pairwise_lorentz_distance(x, y):
-    """All-pairs geodesic distances, with finite gradients for coincident points.
-
-    The equivalent Poincare asinh identity avoids cancellation in acosh(-<x,y>)
-    for nearby large Lorentz coordinates. Direct differences keep exact zero distances
-    without materializing a query-by-key-by-channel tensor.
-    """
-    x_time, y_time = x[..., :1] + 1, y[..., :1] + 1
-    x_ball, y_ball = x[..., 1:] / x_time, y[..., 1:] / y_time
-    chord = euclidean_pairwise_distance(x_ball, y_ball)
-    factor = (x_time * y_time.transpose(-1, -2)).sqrt() * 0.5
-    return 2 * torch.asinh(chord * factor)
-
-================================================================================
-# FILE: models/model\layers\paired_euclidean_context.py
-================================================================================
-"""Dense paired differences and separate regional mean/contrast retrieval."""
+"""Euclidean retrieval of reliable change/background prototypes."""
 import math
 
-import torch
-from torch import nn
-
-from model.layers.pyramid_context import (
-    attention_diagnostics, binomial_highpass, channel_norm, feature_regions,
-    merge_heads, project_tokens, residual_diagnostics, source_bias, split_heads,
-)
+from model.layers.pyramid_context import ResidualPyramidContext, project_tokens, split_heads
 
 
-class PairedEuclideanContext(nn.Module):
+class EuclideanContext(ResidualPyramidContext):
     geometry = "euclidean"
-    value_geometry = "euclidean"
 
-    def __init__(self, in_channels=(24, 32, 96, 320), channels=64,
-                 heads=4, grid_sizes=(8, 4, 4, 4)):
-        super().__init__()
-        self.heads = heads
-        self.grid_sizes = tuple(grid_sizes)
-        self.regions_per_scale = tuple(grid ** 2 for grid in self.grid_sizes)
-        self.tokens_per_scale = tuple(2 * count for count in self.regions_per_scale)
-        self.norm = nn.LayerNorm(channels)
-        self.guide = nn.Conv2d(channels, 1, 1)
-        self.input_norm = nn.ModuleList(nn.LayerNorm(c) for c in in_channels)
-        self.pair_proj = nn.ModuleList(nn.Conv2d(c, 32, 1, bias=False) for c in in_channels)
-        self.diff_proj = nn.Conv2d(32, channels, 1, bias=False)
-        self.q = nn.Conv2d(channels, 64, 1, bias=False)
-        self.k_mean = nn.Conv2d(channels, 64, 1, bias=False)
-        self.k_contrast = nn.Conv2d(channels, 64, 1, bias=False)
-        self.v_mean = nn.Conv2d(channels, 32, 1, bias=False)
-        self.v_contrast = nn.Conv2d(channels, 32, 1, bias=False)
-        self.out = nn.Conv2d(64, channels, 1, bias=False)
-        self.scale_bias = nn.Parameter(torch.zeros(2, heads, 4, 4))
-        self.gamma_context = nn.Parameter(torch.zeros(4))
-        self.gamma_detail = nn.Parameter(torch.zeros(2))
-        self.boundary = nn.Conv2d(channels + 64, 1, 1)
-        self.collect_diag = False
-        self.last_diag = {}
+    def project_queries(self, feature):
+        return split_heads(self.qk(feature), self.heads) / math.sqrt(feature.shape[1] // self.heads)
 
-    def paired_features(self, features_a, features_b, tar):
-        differences, normalized, logits = [], [], []
-        for a, b, t, norm, projection in zip(features_a, features_b, tar, self.input_norm, self.pair_proj):
-            difference = (projection(channel_norm(norm, b)) - projection(channel_norm(norm, a))).abs()
-            feature = channel_norm(self.norm, t + self.diff_proj(difference))
-            differences.append(difference)
-            normalized.append(feature)
-            logits.append(self.guide(feature))
-        return differences, normalized, logits
+    def pool_keys(self, query, prototype, weights, grid):
+        # LN precedes compression; the shared linear map commutes with weighted pooling.
+        return project_tokens(self.qk, prototype, self.heads) / math.sqrt(prototype.shape[-1] // self.heads)
 
     @staticmethod
-    def prototypes(feature, probability, grid):
-        cells = feature_regions(feature, grid)
-        membership = feature_regions(probability, grid)
-        mean = cells.mean(-2)
-        changed = ((membership * cells).sum(-2) + mean) / (membership.sum(-2) + 1.)
-        unchanged = (((1 - membership) * cells).sum(-2) + mean) / ((1 - membership).sum(-2) + 1.)
-        return mean, changed - unchanged
+    def squared_distance(query, key):
+        return (query.square().sum(-1, keepdim=True) + key.square().sum(-1).unsqueeze(-2)
+                - 2 * (query @ key.transpose(-1, -2))).clamp_min(0)
 
-    def attention(self, query, key, query_scale, bank):
-        logits = query @ key.transpose(-1, -2) / math.sqrt(query.shape[-1])
-        return (logits + source_bias(self.scale_bias[bank], query_scale, self.regions_per_scale)).softmax(-1)
-
-    def forward(self, features_a, features_b, tar):
-        differences, normalized, guide = self.paired_features(features_a, features_b, tar)
-        prototypes = [self.prototypes(x, g.sigmoid(), grid)
-                      for x, g, grid in zip(normalized, guide, self.grid_sizes)]
-        mean, contrast = (torch.cat(bank, dim=1) for bank in zip(*prototypes))
-        keys = (project_tokens(self.k_mean, mean, self.heads),
-                project_tokens(self.k_contrast, contrast, self.heads))
-        values = (project_tokens(self.v_mean, mean, self.heads),
-                  project_tokens(self.v_contrast, contrast, self.heads))
-        enhanced, boundaries, diagnostics = [], [], {}
-        for index, (original, feature, difference) in enumerate(zip(tar, normalized, differences)):
-            height, width = feature.shape[-2:]
-            query = split_heads(self.q(feature), self.heads).flatten(2, 3)
-            probabilities = [self.attention(query, key, index, bank) for bank, key in enumerate(keys)]
-            content = [merge_heads(probability @ value, height, width)
-                       for probability, value in zip(probabilities, values)]
-            update = self.out(torch.cat(content, dim=1))
-            result = original + self.gamma_context[index] * update
-            local, detail_gamma = None, 0.
-            if index < 2:
-                high = binomial_highpass(difference)
-                boundary = self.boundary(torch.cat((feature, difference, high), dim=1))
-                local = self.diff_proj(difference + boundary.sigmoid() * high)
-                detail_gamma = self.gamma_detail[index]
-                result = result + detail_gamma * local
-                boundaries.append(boundary)
-            enhanced.append(result)
-            if self.collect_diag:
-                with torch.no_grad():
-                    diag = residual_diagnostics(original, update, local, self.gamma_context[index], detail_gamma)
-                    diag.update(queries=height * width, contexts=mean.shape[1] + contrast.shape[1],
-                                contexts_per_bank=mean.shape[1], guide_mean=float(guide[index].sigmoid().mean()),
-                                mean_content_rms=float(content[0].square().mean().sqrt()),
-                                contrast_content_rms=float(content[1].square().mean().sqrt()),
-                                k_mean_weight_rms=float(self.k_mean.weight.square().mean().sqrt()),
-                                k_contrast_weight_rms=float(self.k_contrast.weight.square().mean().sqrt()),
-                                v_mean_weight_rms=float(self.v_mean.weight.square().mean().sqrt()),
-                                v_contrast_weight_rms=float(self.v_contrast.weight.square().mean().sqrt()),
-                                dense_difference_rms=float(difference.square().mean().sqrt()),
-                                mean_prototype_rms=float(prototypes[index][0].square().mean().sqrt()),
-                                contrast_prototype_rms=float(prototypes[index][1].square().mean().sqrt()))
-                    for bank, probability in zip(("mean", "contrast"), probabilities):
-                        diag.update({f"{bank}_{key}": value for key, value in
-                                     attention_diagnostics(probability, self.regions_per_scale).items()})
-                    if index < 2:
-                        diag.update(boundary_mean=float(boundary.sigmoid().mean()),
-                                    detail_highpass_rms=float(high.square().mean().sqrt()))
-                    diagnostics[f"stage{index + 1}"] = diag
-        if self.collect_diag:
-            self.last_diag = diagnostics
-        return enhanced, dict(guide_logits=tuple(guide), boundary_logits=tuple(boundaries))
+    @staticmethod
+    def geometry_diagnostics(query, key):
+        return dict(query_norm_mean=float(query.norm(dim=-1).mean()),
+                    query_norm_max=float(query.norm(dim=-1).max()))
 
 ================================================================================
-# FILE: models/model\layers\paired_hyperbolic_context.py
+# FILE: models/model\layers\hyperbolic_context.py
 ================================================================================
-"""Paired hyperbolic midpoint and common-tangent difference retrieval."""
+"""Shared-coordinate Lorentz Q/K retrieval with Euclidean content refinement."""
 import math
 
 import torch
-from torch import nn
-from torch.nn import functional as F
 
-from model.layers.lorentz_pair_ops import (
-    euclidean_pairwise_distance, lorentz_normalize, pair_midpoint_difference, pairwise_lorentz_distance,
-)
-from model.layers.poincare_ops import RADIUS, expmap0, to_lorentz
-from model.layers.pyramid_context import (
-    attention_diagnostics, binomial_highpass, channel_norm, feature_regions, merge_heads,
-    project_tokens, regions, residual_diagnostics, source_bias, split_heads,
-)
+from model.layers.lorentz_ops import lift, normalize_sum, pairwise_squared_distance
+from model.layers.pyramid_context import ResidualPyramidContext, regions, split_heads
 
 
-class PairedHyperbolicContext(nn.Module):
+class HyperbolicContext(ResidualPyramidContext):
     geometry = "hyperbolic"
-    value_geometry = "euclidean"
 
-    def __init__(self, in_channels=(24, 32, 96, 320), channels=64,
-                 heads=4, grid_sizes=(8, 4, 4, 4)):
-        super().__init__()
-        self.heads = heads
-        self.grid_sizes = tuple(grid_sizes)
-        self.tokens_per_scale = tuple(2 * grid ** 2 for grid in self.grid_sizes)
-        self.norm = nn.LayerNorm(channels)
-        self.guide = nn.Conv2d(channels, 1, 1)
-        self.input_norm = nn.ModuleList(nn.LayerNorm(c) for c in in_channels)
-        self.pair_proj = nn.ModuleList(nn.Conv2d(c, 32, 1, bias=False) for c in in_channels)
-        self.diff_proj = nn.Conv2d(32, channels, 1, bias=False)
-        self.v = nn.Conv2d(channels, 64, 1, bias=False)
-        self.out = nn.Conv2d(64, channels, 1, bias=False)
-        self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
-        self.raw_tau_mid = nn.Parameter(torch.full((heads,), math.log(math.expm1(.2))))
-        self.raw_tau_diff = nn.Parameter(torch.full((heads,), math.log(math.expm1(.2))))
-        self.gamma_context = nn.Parameter(torch.zeros(4))
-        self.gamma_detail = nn.Parameter(torch.zeros(2))
-        self.boundary = nn.Conv2d(channels + 64, 1, 1)
-        self.collect_diag = False
-        self.last_diag = {}
+    def project_queries(self, feature):
+        space = split_heads(self.qk(feature), self.heads) / math.sqrt(feature.shape[1] // self.heads)
+        return lift(space)
 
-    def paired_features(self, features_a, features_b, tar):
-        midpoints, signed, magnitude, normalized, logits, clip_fractions = [], [], [], [], [], []
-        for a, b, t, norm, projection in zip(features_a, features_b, tar, self.input_norm, self.pair_proj):
-            tangent_a = split_heads(projection(channel_norm(norm, a)), self.heads) / math.sqrt(8)
-            tangent_b = split_heads(projection(channel_norm(norm, b)), self.heads) / math.sqrt(8)
-            midpoint, difference = pair_midpoint_difference(to_lorentz(expmap0(tangent_a)),
-                                                           to_lorentz(expmap0(tangent_b)))
-            unsigned = difference.abs()
-            height, width = t.shape[-2:]
-            feature = channel_norm(self.norm, t + self.diff_proj(merge_heads(unsigned.flatten(2, 3), height, width)))
-            midpoints.append(midpoint)
-            signed.append(difference)
-            magnitude.append(unsigned)
-            normalized.append(feature)
-            logits.append(self.guide(feature))
-            if self.collect_diag:
-                clip_fractions.append(((tangent_a.detach().norm(dim=-1) >= 2.3).float().mean()
-                                       + (tangent_b.detach().norm(dim=-1) >= 2.3).float().mean()) / 2)
-        return midpoints, signed, magnitude, normalized, logits, clip_fractions
+    def pool_keys(self, query, prototype, weights, grid):
+        mean = torch.einsum("brtp,bhrpd->bhrtd", weights, regions(query, grid))
+        return normalize_sum(mean).flatten(2, 3)
+
+    squared_distance = staticmethod(pairwise_squared_distance)
 
     @staticmethod
-    def assignments(probability, grid):
-        cells = feature_regions(probability, grid).squeeze(-1)
-        changed = (cells + 1e-6) / (cells.sum(-1, keepdim=True) + cells.shape[-1] * 1e-6)
-        return torch.stack((torch.full_like(changed, 1 / cells.shape[-1]), changed), dim=2)
-
-    def compress(self, midpoint, unsigned, feature, weights, grid):
-        mid_cells, unsigned_cells = regions(midpoint, grid), regions(unsigned, grid)
-        key_mid = lorentz_normalize(torch.einsum("brtp,bhrpd->bhrtd", weights, mid_cells)).flatten(2, 3)
-        key_unsigned = torch.einsum("brtp,bhrpd->bhrtd", weights, unsigned_cells).flatten(2, 3)
-        content = torch.einsum("brtp,brpc->brtc", weights, feature_regions(feature, grid)).flatten(1, 2)
-        return key_mid, key_unsigned, project_tokens(self.v, content, self.heads)
-
-    def attention(self, midpoint, unsigned, key_mid, key_unsigned, query_scale):
-        midpoint_term = -pairwise_lorentz_distance(midpoint, key_mid) / (
-            2 * F.softplus(self.raw_tau_mid).view(1, self.heads, 1, 1))
-        difference_term = -euclidean_pairwise_distance(unsigned, key_unsigned) / F.softplus(
-            self.raw_tau_diff).view(1, self.heads, 1, 1)
-        probability = (midpoint_term + difference_term + source_bias(
-            self.scale_bias, query_scale, self.tokens_per_scale)).softmax(-1)
-        return probability, midpoint_term, difference_term
-
-    def forward(self, features_a, features_b, tar):
-        midpoint, signed, magnitude, normalized, guide, clip_fraction = self.paired_features(features_a, features_b, tar)
-        weights = [self.assignments(g.sigmoid(), grid) for g, grid in zip(guide, self.grid_sizes)]
-        prototypes = [self.compress(m, u, x, w, grid) for m, u, x, w, grid in
-                      zip(midpoint, magnitude, normalized, weights, self.grid_sizes)]
-        key_mid, key_unsigned, values = (torch.cat(bank, dim=2) for bank in zip(*prototypes))
-        enhanced, boundaries, diagnostics = [], [], {}
-        for index, (original, feature, mid, signed_diff, unsigned) in enumerate(
-                zip(tar, normalized, midpoint, signed, magnitude)):
-            height, width = original.shape[-2:]
-            probability, mid_term, diff_term = self.attention(mid.flatten(2, 3), unsigned.flatten(2, 3),
-                                                            key_mid, key_unsigned, index)
-            update = self.out(merge_heads(probability @ values, height, width))
-            result = original + self.gamma_context[index] * update
-            local, detail_gamma = None, 0.
-            unsigned_map = merge_heads(unsigned.flatten(2, 3), height, width)
-            if index < 2:
-                high = binomial_highpass(merge_heads(signed_diff.flatten(2, 3), height, width)).abs()
-                boundary = self.boundary(torch.cat((feature, unsigned_map, high), dim=1))
-                local = self.diff_proj(unsigned_map + boundary.sigmoid() * high)
-                detail_gamma = self.gamma_detail[index]
-                result = result + detail_gamma * local
-                boundaries.append(boundary)
-            enhanced.append(result)
-            if self.collect_diag:
-                with torch.no_grad():
-                    radii = (mid[..., 1:] / (mid[..., :1] + 1)).norm(dim=-1)
-                    diag = residual_diagnostics(original, update, local, self.gamma_context[index], detail_gamma)
-                    diag.update(attention_diagnostics(probability, self.tokens_per_scale))
-                    diag.update(queries=height * width, contexts=key_mid.shape[2],
-                        guide_mean=float(guide[index].sigmoid().mean()),
-                        temperature_mid=F.softplus(self.raw_tau_mid).tolist(),
-                        temperature_diff=F.softplus(self.raw_tau_diff).tolist(),
-                        midpoint_logit_mean=mid_term.mean((0, 2, 3)).tolist(),
-                        midpoint_logit_std=mid_term.std((0, 2, 3), unbiased=False).tolist(),
-                        difference_logit_mean=diff_term.mean((0, 2, 3)).tolist(),
-                        difference_logit_std=diff_term.std((0, 2, 3), unbiased=False).tolist(),
-                        midpoint_logit_key_std=mid_term.std(-1, unbiased=False).mean((0, 2)).tolist(),
-                        difference_logit_key_std=diff_term.std(-1, unbiased=False).mean((0, 2)).tolist(),
-                        radius_mean=float(radii.mean()), radius_max=float(radii.max()),
-                        radius_cv=float(radii.std(unbiased=False) / radii.mean().clamp_min(1e-6)),
-                        query_clip_fraction=float((radii >= RADIUS - 1e-5).float().mean()),
-                        pair_clip_fraction=float(clip_fraction[index]),
-                        signed_difference_rms=float(signed_diff.square().mean().sqrt()),
-                        unsigned_difference_rms=float(unsigned.square().mean().sqrt()),
-                        compressed_difference_rms=float(prototypes[index][1].square().mean().sqrt()),
-                        bank_attention_mass=probability.reshape(probability.shape[0], self.heads,
-                            height * width, -1, 2).sum(-2).mean((0, 2)).tolist())
-                    if index < 2:
-                        diag.update(boundary_mean=float(boundary.sigmoid().mean()),
-                                    detail_highpass_rms=float(high.square().mean().sqrt()))
-                    diagnostics[f"stage{index + 1}"] = diag
-        if self.collect_diag:
-            self.last_diag = diagnostics
-        return enhanced, dict(guide_logits=tuple(guide), boundary_logits=tuple(boundaries))
+    def geometry_diagnostics(query, key):
+        radius = torch.asinh(query[..., 1:].norm(dim=-1))
+        key_radius = torch.asinh(key[..., 1:].norm(dim=-1))
+        error = (query[..., :1].square() - query[..., 1:].square().sum(-1, keepdim=True) - 1).abs()
+        return dict(radius_mean=float(radius.mean()), radius_max=float(radius.max()),
+                    radius_cv=float(radius.std(unbiased=False) / radius.mean().clamp_min(1e-8)),
+                    key_radius_mean=float(key_radius.mean()), manifold_max_error=float(error.max()))
 
 ================================================================================
-# FILE: models/model\layers\poincare_ops.py
+# FILE: models/model\layers\lorentz_ops.py
 ================================================================================
-"""Curvature-one Poincare operations with tangent clipping at radius 2.3."""
-import math
-
+"""Curvature -1 geometry using unconstrained spatial Lorentz coordinates."""
 import torch
 
-RADIUS = math.tanh(2.3)
+
+def lift(space):
+    """The intrinsic radius is asinh(||space||); there is no radial clipping."""
+    return torch.cat(((1 + space.square().sum(-1, keepdim=True)).sqrt(), space), dim=-1)
 
 
-def project(x):
-    norm = torch.linalg.vector_norm(x, dim=-1, keepdim=True).clamp_min(1e-8)
-    return x * (RADIUS / norm).clamp_max(1)
+def normalize_sum(point):
+    """Lorentz centroid of a positive weighted mean of unit hyperboloid points."""
+    norm2 = point[..., :1].square() - point[..., 1:].square().sum(-1, keepdim=True)
+    # Convex weights imply norm2 >= 1. Rebuild time to preserve the unit manifold.
+    return lift(point[..., 1:] / norm2.clamp_min(1).sqrt())
 
 
-def expmap0(v):
-    norm = torch.linalg.vector_norm(v, dim=-1, keepdim=True).clamp_min(1e-8)
-    return v * (norm.clamp_max(2.3).tanh() / norm)
+def acosh1p_squared(z):
+    """Squared geodesic distance with its finite analytic derivative at z=0."""
+    regular_z = z.clamp_min(1e-3)
+    regular = torch.log1p(regular_z + (regular_z * (regular_z + 2)).sqrt()).square()
+    series = 2 * z - z.square() / 3 + 4 * z.pow(3) / 45 - z.pow(4) / 35
+    return torch.where(z <= 1e-3, series, regular)
 
 
-def logmap0(x):
-    norm = torch.linalg.vector_norm(x, dim=-1, keepdim=True).clamp(1e-8, RADIUS)
-    return x * (torch.atanh(norm) / norm)
-
-
-def displacement(x, y):
-    """Clipped Mobius displacement (-y) (+) x, exactly zero for x == y."""
-    delta = x - y
-    delta2 = delta.square().sum(-1, keepdim=True)
-    y2 = y.square().sum(-1, keepdim=True)
-    yd = (y * delta).sum(-1, keepdim=True)
-    denominator = (1 - y2).square() - 2 * (1 - y2) * yd + y2 * delta2
-    return project(((1 - y2) * delta - delta2 * y) / denominator.clamp_min(1e-8))
-
-
-def aligned_distance(x, y):
-    numerator = torch.linalg.vector_norm(x - y, dim=-1)
-    denominator = ((1 - x.square().sum(-1)) * (1 - y.square().sum(-1))).clamp_min(1e-8).sqrt()
-    return 2 * torch.asinh(numerator / denominator)
-
-
-def pairwise_distance(x, y):
-    x2, y2 = x.square().sum(-1), y.square().sum(-1)
-    squared = (x2.unsqueeze(-1) + y2.unsqueeze(-2) - 2 * (x @ y.transpose(-1, -2))).clamp_min(0)
-    denominator = ((1 - x2).unsqueeze(-1) * (1 - y2).unsqueeze(-2)).clamp_min(1e-8)
-    return 2 * (torch.asinh((squared / denominator + 1e-8).sqrt()) - math.asinh(1e-4))
-
-
-def to_lorentz(x):
-    squared = x.square().sum(-1, keepdim=True)
-    denominator = (1 - squared).clamp_min(1e-8)
-    return torch.cat(((1 + squared) / denominator, 2 * x / denominator), dim=-1)
-
-
-def from_lorentz_sum(x):
-    """Normalize a positive Lorentz sum and return its Poincare centroid."""
-    time, space = x[..., :1], x[..., 1:]
-    norm = (time.square() - space.square().sum(-1, keepdim=True)).clamp_min(1e-8).sqrt()
-    return project(space / (time + norm).clamp_min(1e-8))
-
-
-def weighted_centroid(weights, values):
-    """Einstein/Lorentz centroid of manifold values, not a Euclidean mean."""
-    return from_lorentz_sum(weights @ to_lorentz(values))
+def pairwise_squared_distance(query, key):
+    space_q, space_k = query[..., 1:], key[..., 1:]
+    squared_chord = (space_q.square().sum(-1, keepdim=True)
+                     + space_k.square().sum(-1).unsqueeze(-2)
+                     - 2 * (space_q @ space_k.transpose(-1, -2)))
+    time_difference = query[..., :1] - key[..., :1].transpose(-1, -2)
+    z = (0.5 * (squared_chord - time_difference.square())).clamp_min(0)
+    return acosh1p_squared(z)
 
 ================================================================================
 # FILE: models/model\layers\pyramid_context.py
 ================================================================================
-"""Tensor operations and auxiliary supervision for paired pyramid contexts."""
+"""Change-guided compression and query-relative pyramid refinement."""
 import math
 
 import torch
@@ -2517,7 +2213,7 @@ def channel_norm(layer, x):
 
 
 def regions(x, grid):
-    """B,H,height,width,D -> B,H,regions,pixels,D."""
+    """B,heads,height,width,D -> B,heads,regions,pixels,D."""
     batch, heads, height, width, dim = x.shape
     return x.reshape(batch, heads, grid, height // grid, grid, width // grid, dim).permute(
         0, 1, 2, 4, 3, 5, 6).reshape(batch, heads, grid * grid, -1, dim)
@@ -2541,17 +2237,32 @@ def project_tokens(layer, tokens, heads):
     return projected.reshape(projected.shape[0], -1, heads, projected.shape[-1] // heads).transpose(1, 2)
 
 
+def assignments(probability, grid):
+    """Change/background weights and confidence, without penalizing class area."""
+    positive = feature_regions(probability, grid).squeeze(-1)
+    memberships = torch.stack((positive, 1 - positive), dim=2)
+    weights = memberships + 1e-6
+    weights = weights / weights.sum(-1, keepdim=True)
+    confidence = (memberships.square().sum(-1) /
+                  memberships.sum(-1).clamp_min(1e-6)).clamp_min(1e-6)
+    return weights, confidence.flatten(1, 2)
+
+
+def pool_features(feature, weights, grid):
+    return torch.einsum("brtp,brpc->brtc", weights, feature_regions(feature, grid)).flatten(1, 2)
+
+
 def source_bias(bias, query_scale, counts):
-    """Give each source scale equal prior mass before its learned bias."""
     return torch.cat([(bias[:, query_scale, scale] - math.log(count))[:, None].expand(-1, count)
                       for scale, count in enumerate(counts)], dim=-1)[None, :, None]
 
 
-def binomial_highpass(x):
-    kernel = x.new_tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16
-    blurred = F.conv2d(F.pad(x, (1, 1, 1, 1), mode="reflect"),
-                       kernel.expand(x.shape[1], 1, 3, 3), groups=x.shape[1])
-    return x - blurred
+def highpass(x):
+    return x - F.avg_pool2d(F.pad(x, (1, 1, 1, 1), mode="replicate"), 3, 1)
+
+
+def rms(x):
+    return x.square().mean().sqrt()
 
 
 def attention_diagnostics(probability, counts):
@@ -2560,31 +2271,102 @@ def attention_diagnostics(probability, counts):
         entropy=float(-(probability * probability.clamp_min(1e-9).log()).sum(-1).mean()
                       / math.log(probability.shape[-1])),
         scale_mass=torch.stack([p.sum(-1) for p in probability.split(counts, -1)], -1).mean((0, 2)).tolist(),
-        query_attention_tv=float(tv.mean()),
-        query_attention_tv_per_head=tv.mean((0, 2)).tolist())
+        query_attention_tv=float(tv.mean()), query_attention_tv_per_head=tv.mean((0, 2)).tolist())
 
 
-def residual_diagnostics(feature, context, local, gamma_context, gamma_detail):
-    def rms(x):
-        return x.square().mean().sqrt()
-    base = rms(feature).clamp_min(1e-8)
-    context_residual = gamma_context * context
-    local_residual = gamma_detail * local if local is not None else torch.zeros_like(feature)
-    return dict(
-        gamma_context=float(gamma_context), gamma_detail=float(gamma_detail),
-        branch_rms=float(rms(context)), context_rms=float(rms(context)),
-        local_rms=float(rms(local)) if local is not None else 0.,
-        feature_rms=float(base), residual_rms=float(rms(context_residual + local_residual)),
-        residual_to_feature_rms=float(rms(context_residual + local_residual) / base),
-        context_residual_to_feature_rms=float(rms(context_residual) / base),
-        local_residual_to_feature_rms=float(rms(local_residual) / base),
-        finite=bool(torch.isfinite(context).all() and
-                    (local is None or torch.isfinite(local).all())))
+class ResidualPyramidContext(nn.Module):
+    """Shared compression/readout; subclasses define Euclidean or Lorentz keys."""
+    value_geometry = "euclidean"
+
+    def __init__(self, channels=64, heads=4, grid_sizes=(8, 4, 4, 4)):
+        super().__init__()
+        self.heads = heads
+        self.grid_sizes = tuple(grid_sizes)
+        self.tokens_per_scale = tuple(2 * grid ** 2 for grid in grid_sizes)
+        self.norm = nn.LayerNorm(channels)
+        self.guide = nn.Conv2d(channels, 1, 1)
+        self.qk = nn.Conv2d(channels, channels, 1, bias=False)
+        self.v = nn.Conv2d(channels, channels, 1, bias=False)
+        self.out = nn.Conv2d(channels, channels, 1, bias=False)
+        self.local_dw = nn.Conv2d(channels, channels, 3, padding=1, padding_mode="replicate",
+                                  groups=channels, bias=False)
+        self.local_out = nn.Conv2d(channels, channels, 1, bias=False)
+        self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
+        self.raw_temperature = nn.Parameter(torch.full((heads,), math.log(math.expm1(.5))))
+        self.gamma_context = nn.Parameter(torch.zeros(4, channels))
+        self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
+        self.collect_diag = False
+        self.last_diag = {}
+
+    def attention(self, query, key, confidence, query_scale):
+        temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
+        logits = -self.squared_distance(query, key) / (2 * temperature.square())
+        logits = logits + confidence.log()[:, None, None] + source_bias(
+            self.scale_bias, query_scale, self.tokens_per_scale)
+        return logits.softmax(-1)
+
+    def forward(self, tar):
+        normalized = [channel_norm(self.norm, x) for x in tar]
+        guide = [self.guide(x) for x in normalized]
+        compression = [assignments(g.sigmoid(), grid) for g, grid in zip(guide, self.grid_sizes)]
+        prototypes = [pool_features(x, w, grid) for x, (w, _), grid in
+                      zip(normalized, compression, self.grid_sizes)]
+        query = [self.project_queries(x) for x in normalized]
+        keys = [self.pool_keys(q, p, w, grid) for q, p, (w, _), grid in
+                zip(query, prototypes, compression, self.grid_sizes)]
+        key = torch.cat(keys, dim=2)
+        confidence = torch.cat([r for _, r in compression], dim=1)
+        values = project_tokens(self.v, torch.cat(prototypes, dim=1), self.heads)
+        enhanced, diagnostics = [], {}
+        for index, (original, x, q) in enumerate(zip(tar, normalized, query)):
+            height, width = x.shape[-2:]
+            probability = self.attention(q.flatten(2, 3), key, confidence, index)
+            retrieved = merge_heads(probability @ values, height, width)
+            difference = retrieved - self.v(x)
+            update = self.out(difference)
+            context_residual = self.gamma_context[index][None, :, None, None] * update
+            result = original + context_residual
+            local = None
+            local_residual = torch.zeros_like(original)
+            if index < 2:
+                local = self.local_out(self.local_dw(highpass(x)))
+                local_residual = self.gamma_detail[index][None, :, None, None] * local
+                result = result + local_residual
+            enhanced.append(result)
+            if self.collect_diag:
+                with torch.no_grad():
+                    base = rms(original).clamp_min(1e-8)
+                    weights, reliability = compression[index]
+                    diag = dict(
+                        queries=height * width, contexts=key.shape[2],
+                        gamma_context=float(self.gamma_context[index].mean()),
+                        gamma_context_rms=float(rms(self.gamma_context[index])),
+                        gamma_detail=float(self.gamma_detail[index].mean()) if index < 2 else 0.,
+                        gamma_detail_rms=float(rms(self.gamma_detail[index])) if index < 2 else 0.,
+                        context_rms=float(rms(update)), branch_rms=float(rms(update)),
+                        local_rms=float(rms(local)) if local is not None else 0.,
+                        feature_rms=float(base), relative_update_rms=float(rms(difference)),
+                        residual_rms=float(rms(context_residual + local_residual)),
+                        residual_to_feature_rms=float(rms(context_residual + local_residual) / base),
+                        context_residual_to_feature_rms=float(rms(context_residual) / base),
+                        local_residual_to_feature_rms=float(rms(local_residual) / base),
+                        guide_mean=float(guide[index].sigmoid().mean()),
+                        reliability_mean=float(reliability.mean()), reliability_min=float(reliability.min()),
+                        assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
+                        qk_weight_rms=float(rms(self.qk.weight)), v_weight_rms=float(rms(self.v.weight)),
+                        out_weight_rms=float(rms(self.out.weight)),
+                        temperature=F.softplus(self.raw_temperature).tolist(),
+                        finite=bool(torch.isfinite(result).all()))
+                    diag.update(attention_diagnostics(probability, self.tokens_per_scale))
+                    diag.update(self.geometry_diagnostics(q, keys[index]))
+                    diagnostics[f"stage{index + 1}"] = diag
+        if self.collect_diag:
+            self.last_diag = diagnostics
+        return enhanced, dict(guide_logits=tuple(guide))
 
 
 class AuxiliaryContext(nn.Module):
-    """CTRL retains guide and boundary supervision on the TAR representation."""
-
+    """CTRL retains the same change-guide supervision on unmodified TAR features."""
     geometry = "none"
     value_geometry = "euclidean"
     grid_sizes = (8, 4, 4, 4)
@@ -2594,14 +2376,11 @@ class AuxiliaryContext(nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(channels)
         self.guide = nn.Conv2d(channels, 1, 1)
-        self.boundary = nn.Conv2d(channels, 1, 1)
         self.collect_diag = False
         self.last_diag = {}
 
-    def forward(self, features_a, features_b, tar):
-        normalized = [channel_norm(self.norm, x) for x in tar]
-        return list(tar), dict(guide_logits=tuple(self.guide(x) for x in normalized),
-                               boundary_logits=tuple(self.boundary(x) for x in normalized[:2]))
+    def forward(self, tar):
+        return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
 ## METRICS (197 results)
