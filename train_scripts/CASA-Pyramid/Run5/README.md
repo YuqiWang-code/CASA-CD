@@ -28,7 +28,7 @@ bash train_scripts/CASA-Pyramid/Run5/launch.sh
 
 ## 结果收集
 
-历史209条指标逐单元格保留；12项完整TEST收齐后应为221条，其他新增历史同样保留。冻结TXT使用Run5/source_code.tar.gz中的实际源码，current TXT使用工作源码。
+12项完整TEST已收齐，指标表221条；原209条历史单元格完整保留。冻结TXT使用Run5/source_code.tar.gz中的实际源码，current TXT使用工作源码。
 
 ```powershell
 python .codex/status.py --tag CASA-Pyramid --run Run5
@@ -69,3 +69,20 @@ RTX5090、FP32、256×256、batch1、30次预热/100次中位数，CTRL/H/E为3.
 GPU0预约29868MiB（LEVIR双曲、SYSU普通），GPU1预约30656MiB（LEVIR普通/CTRL、SYSU CTRL）。后续按LEVIR→SYSU→WHU→CDD优先补位；实测容量不允许当前再增加双曲任务。初期日志保存在`docs/experiments/CASA-Pyramid/Run5/initial_epochs`，不是完整正式结果。
 
 初期数值与梯度正常不等于最终精度提高；最终收益以同轮CTRL和完整TEST区块判断。每epoch test参与选模，非独立盲测。
+
+## 完成与收集
+
+Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。
+
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 91.0562 | 91.0931 | 91.2324 | +0.037 / +0.176 |
+| SYSU | 82.6402 | 82.3319 | 82.9401 | -0.308 / +0.300 |
+| WHU | 94.3515 | 94.4315 | 94.4922 | +0.080 / +0.141 |
+| CDD | 96.9524 | 96.9051 | 96.8727 | -0.047 / -0.080 |
+
+普通版在LEVIR、SYSU、WHU相对同轮CTRL提高0.176、0.300、0.141个百分点，CDD降低0.080个百分点；双曲版在LEVIR、WHU提高0.037、0.080个百分点，在SYSU、CDD降低0.308、0.047个百分点。普通版四库均高于双曲版。相对Run4，普通版LEVIR/SYSU绝对F1略升、WHU/CDD下降；双曲版四库均降低，同轮净收益也减弱。Run5数值稳定，但尚未证明平方选择与自身竞争优于Run4的组合。Run4继续保留为正向基线。
+
+117份日志与JSON已下载至`outputs/CASA-Pyramid/Run5`；指标表共221条正式记录，原209条历史单元格完整保留。Run5冻结TXT来自该轮`source_code.tar.gz`内实际运行源码，current TXT来自工作源码。完整日志、逐轮CSV、曲线、实际best_epoch及模块诊断见`docs/experiments/CASA-Pyramid/Run5`。
+
+[完整记录](../../../docs/experiments/CASA-Pyramid/Run5/README.md) · [结果分析](../../../docs/experiments/CASA-Pyramid/Run5/analysis.md)。本轮已完成，不重复启动。

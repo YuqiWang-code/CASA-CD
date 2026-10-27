@@ -1,6 +1,6 @@
 # ChatGPT 项目设置
 
-_CASA-CD 项目指令，更新于 2026-10-27。_
+_CASA-CD 项目指令，更新于 2026-10-28。_
 
 ## 名称
 
@@ -44,13 +44,20 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-Run4的12项正式结果已收集，作为正向基线保留；指标表209条。双曲/普通相对CTRL的F1增益为LEVIR +0.168/+0.195、SYSU +0.459/+0.576、WHU +0.419/+0.536个百分点，CDD +0.023/−0.015个百分点。完整数据见[Run4记录](experiments/CASA-Pyramid/Run4/README.md)。
+Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。
 
-Run5使用平方类别分配、二阶支持度和自身候选竞争，保留Run4共同协议、主体及局部分支，不增加参数。每库固定128张val的同权干预确认建筑库检索有效；稀疏区域原型混合仍可改善。逐项证据与局限见[Run5设计](temporary/CASA-Pyramid_Run5_design.md)。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 91.0562 | 91.0931 | 91.2324 | +0.037 / +0.176 |
+| SYSU | 82.6402 | 82.3319 | 82.9401 | -0.308 / +0.300 |
+| WHU | 94.3515 | 94.4315 | 94.4922 | +0.080 / +0.141 |
+| CDD | 96.9524 | 96.9051 | 96.8727 | -0.047 / -0.080 |
 
-四个train/val短训已通过：LEVIR两版各6epoch、SYSU两版各4epoch，主损失下降且任务梯度有效。正式队列于2026-10-27 12:54:33 CST启动，源码基线`b2ebe9c`，supervisor PID 1912750。两卡首批5项已完成至少3个训练及评价epoch，主损失下降，未见NaN、OOM或非有限梯度。正式结果0/12，历史指标209条保持不变。实时状态以`.codex/STATE.md`和服务器pipeline_status为准。正式12项收齐后指标表预计221条；探针不写入正式指标。
+普通版在LEVIR、SYSU、WHU相对同轮CTRL提高0.176、0.300、0.141个百分点，CDD降低0.080个百分点；双曲版在LEVIR、WHU提高0.037、0.080个百分点，在SYSU、CDD降低0.308、0.047个百分点。普通版四库均高于双曲版。相对Run4，普通版LEVIR/SYSU绝对F1略升、WHU/CDD下降；双曲版四库均降低，同轮净收益也减弱。Run5数值稳定，但尚未证明平方选择与自身竞争优于Run4的组合。Run4继续保留为正向基线。
 
-历史Run1–3结构、记录与冻结源码由各轮归档维护，不作为当前工作实现。
+117份日志与JSON已下载至`outputs/CASA-Pyramid/Run5`；指标表共221条正式记录，原209条历史单元格完整保留。Run5冻结TXT来自该轮`source_code.tar.gz`内实际运行源码，current TXT来自工作源码。完整日志、逐轮CSV、曲线、实际best_epoch及模块诊断见`docs/experiments/CASA-Pyramid/Run5`。
+
+当前Run5队列已结束，两卡空闲，不重启历史队列。长期规则与工作实现见README、AGENTS及models说明。
 
 ## 建议放入项目来源
 
@@ -67,6 +74,8 @@ Run5使用平方类别分配、二阶支持度和自身候选竞争，保留Run4
 ## GitHub上的完整训练记录
 
 [CASA-Pyramid/Run4完整记录](experiments/CASA-Pyramid/Run4/README.md)保存12项正式日志、逐轮表格、曲线、模块诊断及成功探针；[结果分析](experiments/CASA-Pyramid/Run4/analysis.md)比较同轮CTRL与两模块。
+
+[CASA-Pyramid/Run5完整记录](experiments/CASA-Pyramid/Run5/README.md)提供12项完整日志、逐轮曲线、诊断及正式测试；[结果分析](experiments/CASA-Pyramid/Run5/analysis.md)对照同轮CTRL和Run4。
 
 文献与官方来源见[文献索引](参考文献/文献索引.md)及[Run5调研](参考文献/Run5_原型选择与自参照检索/README.md)。
 

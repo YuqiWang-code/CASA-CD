@@ -1,14 +1,25 @@
 # 当前状态
 
-更新：2026-10-27。
+更新：2026-10-28。
 
-## CASA-Pyramid / Run5
+## CASA-Pyramid / Run5 已完成
 
-协议`casa_pyramid_40k_selective_selfref_v5`；平方类别选择与二阶支持度、自身候选和224原型联合softmax，回写`ΣA(Vj−Vi)`。Run4主体、几何、局部分支与共同训练设置保持；H/E参数训练2.064537M、部署1.953222M。
+Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。
 
-模型/几何/梯度/部署、同步增强、优化器与调度检查通过。LEVIR H/E各6epoch、SYSU H/E各4epoch真实train/val短训通过，正式队列于2026-10-27 12:54:33 CST启动，源码基线`b2ebe9c`，supervisor PID 1912750。两卡首批5项已完成至少3个训练及评价epoch，主损失下降，未见NaN、OOM或非有限梯度。正式结果0/12，历史指标209条保持不变。不得重复启动队列。四库各三组共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位；正式从MobileNetV2预训练重新初始化。每epoch test F1选模，非独立盲测。
+源码基线`b2ebe9c`，协议`casa_pyramid_40k_selective_selfref_v5`。平方类别选择、二阶支持度、自身候选和224原型联合softmax，回写`ΣA(Vj−Vi)`；共同协议保持Run4。每epoch test F1选模，非独立盲测。
 
-脚本`train_scripts/CASA-Pyramid/Run5`，日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run5`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run5`。运行源码与环境已归档，首期观察见startup_health.json。Run4已收集并保留，指标209条；Run5完成应221条。原型和同权干预见本地`outputs/CASA-Pyramid/Run5/analysis`及`docs/temporary/CASA-Pyramid_Run5_design.md`。当前无本轮自动化。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 91.0562 | 91.0931 | 91.2324 | +0.037 / +0.176 |
+| SYSU | 82.6402 | 82.3319 | 82.9401 | -0.308 / +0.300 |
+| WHU | 94.3515 | 94.4315 | 94.4922 | +0.080 / +0.141 |
+| CDD | 96.9524 | 96.9051 | 96.8727 | -0.047 / -0.080 |
+
+普通版在LEVIR、SYSU、WHU相对同轮CTRL提高0.176、0.300、0.141个百分点，CDD降低0.080个百分点；双曲版在LEVIR、WHU提高0.037、0.080个百分点，在SYSU、CDD降低0.308、0.047个百分点。普通版四库均高于双曲版。相对Run4，普通版LEVIR/SYSU绝对F1略升、WHU/CDD下降；双曲版四库均降低，同轮净收益也减弱。Run5数值稳定，但尚未证明平方选择与自身竞争优于Run4的组合。Run4继续保留为正向基线。
+
+117份日志与JSON已下载至`outputs/CASA-Pyramid/Run5`；指标表共221条正式记录，原209条历史单元格完整保留。Run5冻结TXT来自该轮`source_code.tar.gz`内实际运行源码，current TXT来自工作源码。完整日志、逐轮CSV、曲线、实际best_epoch及模块诊断见`docs/experiments/CASA-Pyramid/Run5`。
+
+服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run5`；权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run5`。本轮已结束，不重复启动；当前无本轮自动化。
 
 ## CASA-Pyramid / Run4 已完成
 

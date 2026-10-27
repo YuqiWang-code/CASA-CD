@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前开发与实验轮次 **CASA-Pyramid / Run5**，协议`casa_pyramid_40k_selective_selfref_v5`。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前实现 **CASA-Pyramid / Run5（12项已完成）**，协议`casa_pyramid_40k_selective_selfref_v5`。**Run4作为正向基线完整保留**。
 
 ## 项目定位与固定研究原则
 
@@ -80,7 +80,18 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 
 <!-- CASA_PYRAMID_RUN5_RESULTS_START -->
 
-正式队列于2026-10-27 12:54:33 CST启动，源码基线`b2ebe9c`，supervisor PID 1912750。两卡首批5项已完成至少3个训练及评价epoch，主损失下降，未见NaN、OOM或非有限梯度。正式结果0/12，历史指标209条保持不变。
+Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。
+
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 91.0562 | 91.0931 | 91.2324 | +0.037 / +0.176 |
+| SYSU | 82.6402 | 82.3319 | 82.9401 | -0.308 / +0.300 |
+| WHU | 94.3515 | 94.4315 | 94.4922 | +0.080 / +0.141 |
+| CDD | 96.9524 | 96.9051 | 96.8727 | -0.047 / -0.080 |
+
+普通版在LEVIR、SYSU、WHU相对同轮CTRL提高0.176、0.300、0.141个百分点，CDD降低0.080个百分点；双曲版在LEVIR、WHU提高0.037、0.080个百分点，在SYSU、CDD降低0.308、0.047个百分点。普通版四库均高于双曲版。相对Run4，普通版LEVIR/SYSU绝对F1略升、WHU/CDD下降；双曲版四库均降低，同轮净收益也减弱。Run5数值稳定，但尚未证明平方选择与自身竞争优于Run4的组合。Run4继续保留为正向基线。
+
+[完整日志与曲线](docs/experiments/CASA-Pyramid/Run5/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run5/analysis.md) · [冻结源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run5.txt)
 
 <!-- CASA_PYRAMID_RUN5_RESULTS_END -->
 
@@ -118,8 +129,8 @@ RTX5090、256×256、FP32 batch1，30预热/100次中位数的Run4 CTRL/H/E推�
 | CASA-Pyramid Run1 | TAR后128KV跨尺度检索；初步验证结构，四库收益不一致 | [完整记录](docs/experiments/CASA-Pyramid/Run1/README.md) |
 | 早期CASA与CASA-WDMF | 模块、优化与几何经验保留在各轮冻结TXT | [历史快照](docs/temporary/) / [指标表](docs/experiment_metrics.xlsx) |
 
-已收集正式指标209条，Run4原始源码与全部历史记录保留。Run5新增12条收齐后应为221条；如有其他新增记录全部保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
+已收集正式指标221条，原209条历史记录逐单元格保留。Run4原始源码与全部历史记录保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
 
 ## 已知限制
 
-当前单seed且test参与选模；小幅差异需要进一步复核。Run5平方分配仍可能放大guide高分误报，自身竞争也不是独立可靠性估计；同类单原型不能表示任意多种外观。SYSU长期泛化与双曲几何额外收益仍需正式结果判断。详细证据与方案边界集中在Run5设计文档中。
+当前单seed且test参与选模；小幅差异需要进一步复核。Run5平方分配仍可能放大guide高分误报，自身竞争也不是独立可靠性估计；同类单原型不能表示任意多种外观。SYSU长期泛化不足仍存在，本轮双曲几何未表现出额外精度优势。详细证据与方案边界集中在Run5设计文档中。
