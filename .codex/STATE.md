@@ -6,9 +6,9 @@
 
 协议`casa_pyramid_40k_selective_selfref_v5`；平方类别选择与二阶支持度、自身候选和224原型联合softmax，回写`ΣA(Vj−Vi)`。Run4主体、几何、局部分支与共同训练设置保持；H/E参数训练2.064537M、部署1.953222M。
 
-模型/几何/梯度/部署、同步增强、优化器与调度检查通过。LEVIR H/E各6epoch、SYSU H/E各4epoch真实train/val短训通过，正式队列准备启动。四库各三组共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位；正式从MobileNetV2预训练重新初始化。每epoch test F1选模，非独立盲测。
+模型/几何/梯度/部署、同步增强、优化器与调度检查通过。LEVIR H/E各6epoch、SYSU H/E各4epoch真实train/val短训通过，正式队列于2026-10-27 12:54:33 CST启动，源码基线`b2ebe9c`，supervisor PID 1912750。两卡首批5项已完成至少3个训练及评价epoch，主损失下降，未见NaN、OOM或非有限梯度。正式结果0/12，历史指标209条保持不变。不得重复启动队列。四库各三组共12项，优先LEVIR→SYSU→WHU→CDD，两GPU按实测显存补位；正式从MobileNetV2预训练重新初始化。每epoch test F1选模，非独立盲测。
 
-脚本`train_scripts/CASA-Pyramid/Run5`，日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run5`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run5`。Run4已收集并保留，指标209条；Run5完成应221条。原型和同权干预见本地`outputs/CASA-Pyramid/Run5/analysis`及`docs/temporary/CASA-Pyramid_Run5_design.md`。当前无本轮自动化。
+脚本`train_scripts/CASA-Pyramid/Run5`，日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run5`，权重`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run5`。运行源码与环境已归档，首期观察见startup_health.json。Run4已收集并保留，指标209条；Run5完成应221条。原型和同权干预见本地`outputs/CASA-Pyramid/Run5/analysis`及`docs/temporary/CASA-Pyramid_Run5_design.md`。当前无本轮自动化。
 
 ## CASA-Pyramid / Run4 已完成
 

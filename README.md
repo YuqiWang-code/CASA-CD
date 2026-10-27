@@ -80,7 +80,7 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 
 <!-- CASA_PYRAMID_RUN5_RESULTS_START -->
 
-四个train/val健康短训已通过：LEVIR两版各6epoch、SYSU两版各4epoch。正式队列准备启动。
+正式队列于2026-10-27 12:54:33 CST启动，源码基线`b2ebe9c`，supervisor PID 1912750。两卡首批5项已完成至少3个训练及评价epoch，主损失下降，未见NaN、OOM或非有限梯度。正式结果0/12，历史指标209条保持不变。
 
 <!-- CASA_PYRAMID_RUN5_RESULTS_END -->
 

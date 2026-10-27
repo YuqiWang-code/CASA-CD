@@ -1,0 +1,1615 @@
+{
+  "protocol": "casa_pyramid_40k_selective_selfref_v5",
+  "code_baseline": "b2ebe9c",
+  "started": "2026-10-27 12:54:33",
+  "observed": "2026-10-27T13:00:35+08:00",
+  "passed": true,
+  "supervisor_pid": 1912750,
+  "formal_experiments": 12,
+  "active_experiments": 5,
+  "gpus": [
+    {
+      "index": 0,
+      "memory_used_mib": 29445,
+      "memory_total_mib": 32607,
+      "utilization_percent": 97
+    },
+    {
+      "index": 1,
+      "memory_used_mib": 30482,
+      "memory_total_mib": 32607,
+      "utilization_percent": 93
+    }
+  ],
+  "runs": [
+    {
+      "name": "M1_HYPER_QKV/LEVIR-CD-256",
+      "placement": {
+        "pid": 1912752,
+        "physical_gpu": 0,
+        "logical_gpu": 0,
+        "reserved_mib": 16916,
+        "started": "2026-10-27 12:54:33"
+      },
+      "active_pid": 1912752,
+      "physical_gpu": 0,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 9.5,
+      "steps": 1110,
+      "target_steps": 40182,
+      "train_batches": 222,
+      "total_epochs": 181,
+      "finished_train_epochs": 5,
+      "recent_train": [
+        {
+          "epoch": 0.0,
+          "loss": 2.218169,
+          "main": 1.957505,
+          "guide": 1.303318,
+          "lr": 0.00049752,
+          "encoder_lr": 0.00049752
+        },
+        {
+          "epoch": 1.0,
+          "loss": 1.359481,
+          "main": 1.262497,
+          "guide": 0.484918,
+          "lr": 0.00049504,
+          "encoder_lr": 0.00049504
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.195351,
+          "main": 1.121367,
+          "guide": 0.369918,
+          "lr": 0.00049255,
+          "encoder_lr": 0.00049255
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.104714,
+          "main": 1.037414,
+          "guide": 0.336499,
+          "lr": 0.00049006,
+          "encoder_lr": 0.00049006
+        },
+        {
+          "epoch": 4.0,
+          "loss": 1.081009,
+          "main": 1.017089,
+          "guide": 0.319604,
+          "lr": 0.00048756,
+          "encoder_lr": 0.00048756
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 0,
+          "total_epochs": 181,
+          "Loss": 1.586708,
+          "Recall": 0.826004,
+          "Precision": 0.827906,
+          "OA": 0.982389,
+          "F1": 0.826954,
+          "IoU": 0.704963,
+          "Kappa": 0.817676,
+          "t": 71.3
+        },
+        {
+          "epoch": 1,
+          "total_epochs": 181,
+          "Loss": 1.416615,
+          "Recall": 0.864645,
+          "Precision": 0.835727,
+          "OA": 0.984447,
+          "F1": 0.84994,
+          "IoU": 0.73904,
+          "Kappa": 0.841741,
+          "t": 68.5
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 181,
+          "Loss": 1.343855,
+          "Recall": 0.828384,
+          "Precision": 0.890641,
+          "OA": 0.986076,
+          "F1": 0.858385,
+          "IoU": 0.751904,
+          "Kappa": 0.851073,
+          "t": 72.1
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 181,
+          "Loss": 1.301474,
+          "Recall": 0.828869,
+          "Precision": 0.907925,
+          "OA": 0.987,
+          "F1": 0.866598,
+          "IoU": 0.764599,
+          "Kappa": 0.85978,
+          "t": 72.0
+        },
+        {
+          "epoch": 4,
+          "total_epochs": 181,
+          "Loss": 1.279711,
+          "Recall": 0.848103,
+          "Precision": 0.900769,
+          "OA": 0.987502,
+          "F1": 0.873643,
+          "IoU": 0.775636,
+          "Kappa": 0.867075,
+          "t": 65.7
+        }
+      ],
+      "best_validation": {
+        "epoch": 4,
+        "total_epochs": 181,
+        "Loss": 1.279711,
+        "Recall": 0.848103,
+        "Precision": 0.900769,
+        "OA": 0.987502,
+        "F1": 0.873643,
+        "IoU": 0.775636,
+        "Kappa": 0.867075,
+        "t": 65.7
+      },
+      "mean_epoch_seconds_last20": 69.92,
+      "last_module_diagnostics": {
+        "stage1": {
+          "queries": 4096,
+          "contexts": 224,
+          "gamma_context": 0.003822996746748686,
+          "gamma_context_rms": 0.0606331005692482,
+          "gamma_detail": -0.008586348034441471,
+          "gamma_detail_rms": 0.10266129672527313,
+          "context_rms": 2.1624915599823,
+          "branch_rms": 2.1624915599823,
+          "local_rms": 0.3775312900543213,
+          "feature_rms": 1.6200282573699951,
+          "relative_update_rms": 0.5243206024169922,
+          "residual_rms": 0.1583581566810608,
+          "residual_to_feature_rms": 0.09775024652481079,
+          "context_residual_to_feature_rms": 0.0938456803560257,
+          "local_residual_to_feature_rms": 0.027273474261164665,
+          "guide_mean": 0.11347582191228867,
+          "reliability_mean": 0.5488909482955933,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19192883372306824,
+          "self_value_rms": 0.9441813826560974,
+          "self_subtraction_rms": 0.5644842386245728,
+          "retrieved_spatial_rms": 0.02261419966816902,
+          "retrieved_self_cosine": 0.3724665343761444,
+          "assignment_tv": 0.7499344348907471,
+          "qk_weight_rms": 0.057177118957042694,
+          "v_weight_rms": 0.09513353556394577,
+          "out_weight_rms": 0.11666681617498398,
+          "temperature": [
+            0.544477641582489,
+            0.5402331948280334,
+            0.5414268374443054,
+            0.5405697226524353
+          ],
+          "finite": true,
+          "entropy": 0.8798044919967651,
+          "scale_mass": [
+            [
+              0.23973794281482697,
+              0.26736462116241455,
+              0.25054436922073364,
+              0.24235305190086365
+            ],
+            [
+              0.2531525492668152,
+              0.2764083445072174,
+              0.22943726181983948,
+              0.24100187420845032
+            ],
+            [
+              0.2596980333328247,
+              0.27289241552352905,
+              0.2479516863822937,
+              0.21945787966251373
+            ],
+            [
+              0.2433161437511444,
+              0.26682621240615845,
+              0.23418593406677246,
+              0.25567173957824707
+            ]
+          ],
+          "context_mass_mean": 0.5939773321151733,
+          "context_mass_min": 0.2581045627593994,
+          "context_mass_max": 0.6823791265487671,
+          "context_mass_std": 0.035134054720401764,
+          "self_mass_mean": 0.4060226380825043,
+          "query_attention_tv": 0.04805413633584976,
+          "query_attention_tv_per_head": [
+            0.038634635508060455,
+            0.056280724704265594,
+            0.04895070195198059,
+            0.048350490629673004
+          ],
+          "radius_mean": 0.44165724515914917,
+          "radius_max": 0.8932898044586182,
+          "radius_cv": 0.19421042501926422,
+          "key_radius_mean": 0.3089819550514221,
+          "manifold_max_error": 3.5762786865234375e-07
+        },
+        "stage2": {
+          "queries": 1024,
+          "contexts": 224,
+          "gamma_context": -0.005281045101583004,
+          "gamma_context_rms": 0.05273168161511421,
+          "gamma_detail": -0.012669207528233528,
+          "gamma_detail_rms": 0.10478491336107254,
+          "context_rms": 1.4111874103546143,
+          "branch_rms": 1.4111874103546143,
+          "local_rms": 0.34544816613197327,
+          "feature_rms": 2.4069249629974365,
+          "relative_update_rms": 0.44073379039764404,
+          "residual_rms": 0.09282363951206207,
+          "residual_to_feature_rms": 0.03856524080038071,
+          "context_residual_to_feature_rms": 0.034952953457832336,
+          "local_residual_to_feature_rms": 0.016197338700294495,
+          "guide_mean": 0.12746983766555786,
+          "reliability_mean": 0.6193881034851074,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19219395518302917,
+          "self_value_rms": 0.810280978679657,
+          "self_subtraction_rms": 0.48652184009552,
+          "retrieved_spatial_rms": 0.01963566429913044,
+          "retrieved_self_cosine": 0.42114952206611633,
+          "assignment_tv": 0.8121569752693176,
+          "qk_weight_rms": 0.057177118957042694,
+          "v_weight_rms": 0.09513353556394577,
+          "out_weight_rms": 0.11666681617498398,
+          "temperature": [
+            0.544477641582489,
+            0.5402331948280334,
+            0.5414268374443054,
+            0.5405697226524353
+          ],
+          "finite": true,
+          "entropy": 0.8760464787483215,
+          "scale_mass": [
+            [
+              0.22561298310756683,
+              0.27181246876716614,
+              0.24486884474754333,
+              0.2577056884765625
+            ],
+            [
+              0.23486486077308655,
+              0.28648409247398376,
+              0.23977626860141754,
+              0.23887479305267334
+            ],
+            [
+              0.2411607801914215,
+              0.2937072515487671,
+              0.24093052744865417,
+              0.22420147061347961
+            ],
+            [
+              0.2336193025112152,
+              0.27238351106643677,
+              0.24092495441436768,
+              0.25307226181030273
+            ]
+          ],
+          "context_mass_mean": 0.5996776819229126,
+          "context_mass_min": 0.37233614921569824,
+          "context_mass_max": 0.674872636795044,
+          "context_mass_std": 0.03271254897117615,
+          "self_mass_mean": 0.400322288274765,
+          "query_attention_tv": 0.04538501054048538,
+          "query_attention_tv_per_head": [
+            0.03447890281677246,
+            0.055392440408468246,
+            0.045433856546878815,
+            0.04623483866453171
+          ],
+          "radius_mean": 0.43447697162628174,
+          "radius_max": 0.8629775047302246,
+          "radius_cv": 0.22112450003623962,
+          "key_radius_mean": 0.30674421787261963,
+          "manifold_max_error": 2.384185791015625e-07
+        },
+        "stage3": {
+          "queries": 256,
+          "contexts": 224,
+          "gamma_context": 0.0030113831162452698,
+          "gamma_context_rms": 0.02090669609606266,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 1.4269906282424927,
+          "branch_rms": 1.4269906282424927,
+          "local_rms": 0.0,
+          "feature_rms": 3.8682286739349365,
+          "relative_update_rms": 0.421325147151947,
+          "residual_rms": 0.03193902596831322,
+          "residual_to_feature_rms": 0.008256757631897926,
+          "context_residual_to_feature_rms": 0.008256757631897926,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.11057780683040619,
+          "reliability_mean": 0.5818095803260803,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19319607317447662,
+          "self_value_rms": 0.8163748383522034,
+          "self_subtraction_rms": 0.48335784673690796,
+          "retrieved_spatial_rms": 0.028941184282302856,
+          "retrieved_self_cosine": 0.5069521069526672,
+          "assignment_tv": 0.712272047996521,
+          "qk_weight_rms": 0.057177118957042694,
+          "v_weight_rms": 0.09513353556394577,
+          "out_weight_rms": 0.11666681617498398,
+          "temperature": [
+            0.544477641582489,
+            0.5402331948280334,
+            0.5414268374443054,
+            0.5405697226524353
+          ],
+          "finite": true,
+          "entropy": 0.8762568831443787,
+          "scale_mass": [
+            [
+              0.2431125044822693,
+              0.2642061114311218,
+              0.2728607654571533,
+              0.21982063353061676
+            ],
+            [
+              0.2376578450202942,
+              0.2712467312812805,
+              0.2707611620426178,
+              0.2203342169523239
+            ],
+            [
+              0.2524191439151764,
+              0.2688356339931488,
+              0.27834391593933105,
+              0.20040127635002136
+            ],
+            [
+              0.23522688448429108,
+              0.2665384113788605,
+              0.2704465389251709,
+              0.22778813540935516
+            ]
+          ],
+          "context_mass_mean": 0.5968197584152222,
+          "context_mass_min": 0.2791050374507904,
+          "context_mass_max": 0.6727355718612671,
+          "context_mass_std": 0.043858978897333145,
+          "self_mass_mean": 0.40318021178245544,
+          "query_attention_tv": 0.057819925248622894,
+          "query_attention_tv_per_head": [
+            0.042861104011535645,
+            0.07402781397104263,
+            0.059823572635650635,
+            0.054567210376262665
+          ],
+          "radius_mean": 0.4545024037361145,
+          "radius_max": 0.8344370722770691,
+          "radius_cv": 0.22990931570529938,
+          "key_radius_mean": 0.3902803361415863,
+          "manifold_max_error": 2.384185791015625e-07
+        },
+        "stage4": {
+          "queries": 64,
+          "contexts": 224,
+          "gamma_context": 0.004125458188354969,
+          "gamma_context_rms": 0.09504721313714981,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 3.9831371307373047,
+          "branch_rms": 3.9831371307373047,
+          "local_rms": 0.0,
+          "feature_rms": 4.043643474578857,
+          "relative_update_rms": 0.7580729722976685,
+          "residual_rms": 0.4436664283275604,
+          "residual_to_feature_rms": 0.10971947014331818,
+          "context_residual_to_feature_rms": 0.10971947014331818,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.09905311465263367,
+          "reliability_mean": 0.5102441310882568,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.20654729008674622,
+          "self_value_rms": 1.173770546913147,
+          "self_subtraction_rms": 0.7538924813270569,
+          "retrieved_spatial_rms": 0.025555234402418137,
+          "retrieved_self_cosine": 0.15867576003074646,
+          "assignment_tv": 0.4803166389465332,
+          "qk_weight_rms": 0.057177118957042694,
+          "v_weight_rms": 0.09513353556394577,
+          "out_weight_rms": 0.11666681617498398,
+          "temperature": [
+            0.544477641582489,
+            0.5402331948280334,
+            0.5414268374443054,
+            0.5405697226524353
+          ],
+          "finite": true,
+          "entropy": 0.8798941969871521,
+          "scale_mass": [
+            [
+              0.25674137473106384,
+              0.30010390281677246,
+              0.21997198462486267,
+              0.22318275272846222
+            ],
+            [
+              0.2639707326889038,
+              0.2679140567779541,
+              0.23354271054267883,
+              0.23457249999046326
+            ],
+            [
+              0.2536643445491791,
+              0.265166699886322,
+              0.22916392982006073,
+              0.2520049810409546
+            ],
+            [
+              0.2713990807533264,
+              0.26951223611831665,
+              0.2352912575006485,
+              0.22379738092422485
+            ]
+          ],
+          "context_mass_mean": 0.6249562501907349,
+          "context_mass_min": 0.3619022071361542,
+          "context_mass_max": 0.7090025544166565,
+          "context_mass_std": 0.05582882836461067,
+          "self_mass_mean": 0.37504374980926514,
+          "query_attention_tv": 0.04118762165307999,
+          "query_attention_tv_per_head": [
+            0.03120841085910797,
+            0.04601914435625076,
+            0.05585627257823944,
+            0.03166666254401207
+          ],
+          "radius_mean": 0.4670594334602356,
+          "radius_max": 0.9344519376754761,
+          "radius_cv": 0.35077783465385437,
+          "key_radius_mean": 0.4462330639362335,
+          "manifold_max_error": 3.5762786865234375e-07
+        }
+      },
+      "errors": [],
+      "main_first_last": [
+        1.957505,
+        1.017089
+      ]
+    },
+    {
+      "name": "M2_CA_QKV/LEVIR-CD-256",
+      "placement": {
+        "pid": 1912790,
+        "physical_gpu": 1,
+        "logical_gpu": 0,
+        "reserved_mib": 12952,
+        "started": "2026-10-27 12:54:35"
+      },
+      "active_pid": 1912790,
+      "physical_gpu": 1,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 11.7,
+      "steps": 1332,
+      "target_steps": 40182,
+      "train_batches": 222,
+      "total_epochs": 181,
+      "finished_train_epochs": 6,
+      "recent_train": [
+        {
+          "epoch": 1.0,
+          "loss": 1.344218,
+          "main": 1.247974,
+          "guide": 0.481219,
+          "lr": 0.00049504,
+          "encoder_lr": 0.00049504
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.186107,
+          "main": 1.112098,
+          "guide": 0.370044,
+          "lr": 0.00049255,
+          "encoder_lr": 0.00049255
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.108426,
+          "main": 1.040762,
+          "guide": 0.338318,
+          "lr": 0.00049006,
+          "encoder_lr": 0.00049006
+        },
+        {
+          "epoch": 4.0,
+          "loss": 1.07469,
+          "main": 1.010881,
+          "guide": 0.319049,
+          "lr": 0.00048756,
+          "encoder_lr": 0.00048756
+        },
+        {
+          "epoch": 5.0,
+          "loss": 1.039374,
+          "main": 0.97756,
+          "guide": 0.309069,
+          "lr": 0.00048507,
+          "encoder_lr": 0.00048507
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 1,
+          "total_epochs": 181,
+          "Loss": 1.364778,
+          "Recall": 0.85365,
+          "Precision": 0.856836,
+          "OA": 0.985278,
+          "F1": 0.85524,
+          "IoU": 0.747091,
+          "Kappa": 0.847485,
+          "t": 56.9
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 181,
+          "Loss": 1.308472,
+          "Recall": 0.829234,
+          "Precision": 0.897154,
+          "OA": 0.986458,
+          "F1": 0.861858,
+          "IoU": 0.75725,
+          "Kappa": 0.85475,
+          "t": 57.0
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 181,
+          "Loss": 1.310463,
+          "Recall": 0.824004,
+          "Precision": 0.911175,
+          "OA": 0.986942,
+          "F1": 0.8654,
+          "IoU": 0.762735,
+          "Kappa": 0.858556,
+          "t": 56.7
+        },
+        {
+          "epoch": 4,
+          "total_epochs": 181,
+          "Loss": 1.253355,
+          "Recall": 0.864584,
+          "Precision": 0.889422,
+          "OA": 0.987626,
+          "F1": 0.876827,
+          "IoU": 0.78067,
+          "Kappa": 0.870314,
+          "t": 56.9
+        },
+        {
+          "epoch": 5,
+          "total_epochs": 181,
+          "Loss": 1.286949,
+          "Recall": 0.906282,
+          "Precision": 0.832678,
+          "OA": 0.985949,
+          "F1": 0.867922,
+          "IoU": 0.766664,
+          "Kappa": 0.860516,
+          "t": 56.9
+        }
+      ],
+      "best_validation": {
+        "epoch": 4,
+        "total_epochs": 181,
+        "Loss": 1.253355,
+        "Recall": 0.864584,
+        "Precision": 0.889422,
+        "OA": 0.987626,
+        "F1": 0.876827,
+        "IoU": 0.78067,
+        "Kappa": 0.870314,
+        "t": 56.9
+      },
+      "mean_epoch_seconds_last20": 57.533,
+      "last_module_diagnostics": {
+        "stage1": {
+          "queries": 4096,
+          "contexts": 224,
+          "gamma_context": 0.005597388371825218,
+          "gamma_context_rms": 0.0684048980474472,
+          "gamma_detail": -0.007247705012559891,
+          "gamma_detail_rms": 0.11963701993227005,
+          "context_rms": 2.1838741302490234,
+          "branch_rms": 2.1838741302490234,
+          "local_rms": 0.40505102276802063,
+          "feature_rms": 1.5309616327285767,
+          "relative_update_rms": 0.5241118669509888,
+          "residual_rms": 0.18396857380867004,
+          "residual_to_feature_rms": 0.1201653704047203,
+          "context_residual_to_feature_rms": 0.11477941274642944,
+          "local_residual_to_feature_rms": 0.035606369376182556,
+          "guide_mean": 0.1044536679983139,
+          "reliability_mean": 0.5340898036956787,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19100895524024963,
+          "self_value_rms": 0.9237368702888489,
+          "self_subtraction_rms": 0.5437840819358826,
+          "retrieved_spatial_rms": 0.02583392709493637,
+          "retrieved_self_cosine": 0.29366427659988403,
+          "assignment_tv": 0.737007200717926,
+          "qk_weight_rms": 0.056808747351169586,
+          "v_weight_rms": 0.0957493931055069,
+          "out_weight_rms": 0.1170601025223732,
+          "temperature": [
+            0.5401945114135742,
+            0.5372549295425415,
+            0.5374172925949097,
+            0.5419186949729919
+          ],
+          "finite": true,
+          "entropy": 0.8800719976425171,
+          "scale_mass": [
+            [
+              0.2410522997379303,
+              0.2611292898654938,
+              0.24269121885299683,
+              0.2551271915435791
+            ],
+            [
+              0.2638331651687622,
+              0.2623898386955261,
+              0.22838884592056274,
+              0.24538812041282654
+            ],
+            [
+              0.2615290582180023,
+              0.26165080070495605,
+              0.2435871660709381,
+              0.2332330048084259
+            ],
+            [
+              0.24135664105415344,
+              0.25802120566368103,
+              0.23249973356723785,
+              0.26812243461608887
+            ]
+          ],
+          "context_mass_mean": 0.582834005355835,
+          "context_mass_min": 0.2639017105102539,
+          "context_mass_max": 0.6750274300575256,
+          "context_mass_std": 0.03651934489607811,
+          "self_mass_mean": 0.4171660542488098,
+          "query_attention_tv": 0.05075160413980484,
+          "query_attention_tv_per_head": [
+            0.04516516253352165,
+            0.05910050496459007,
+            0.051668040454387665,
+            0.047072719782590866
+          ],
+          "query_norm_mean": 0.44297051429748535,
+          "query_norm_max": 0.968440592288971
+        },
+        "stage2": {
+          "queries": 1024,
+          "contexts": 224,
+          "gamma_context": -0.004521491937339306,
+          "gamma_context_rms": 0.05537805333733559,
+          "gamma_detail": -0.02162277325987816,
+          "gamma_detail_rms": 0.11987040191888809,
+          "context_rms": 1.781237244606018,
+          "branch_rms": 1.781237244606018,
+          "local_rms": 0.39464741945266724,
+          "feature_rms": 2.266911745071411,
+          "relative_update_rms": 0.46433576941490173,
+          "residual_rms": 0.1219283863902092,
+          "residual_to_feature_rms": 0.05378612130880356,
+          "context_residual_to_feature_rms": 0.04893892630934715,
+          "local_residual_to_feature_rms": 0.022464703768491745,
+          "guide_mean": 0.1493605673313141,
+          "reliability_mean": 0.6215122938156128,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19138438999652863,
+          "self_value_rms": 0.8471094965934753,
+          "self_subtraction_rms": 0.4915883541107178,
+          "retrieved_spatial_rms": 0.027222847566008568,
+          "retrieved_self_cosine": 0.3487214744091034,
+          "assignment_tv": 0.8184802532196045,
+          "qk_weight_rms": 0.056808747351169586,
+          "v_weight_rms": 0.0957493931055069,
+          "out_weight_rms": 0.1170601025223732,
+          "temperature": [
+            0.5401945114135742,
+            0.5372549295425415,
+            0.5374172925949097,
+            0.5419186949729919
+          ],
+          "finite": true,
+          "entropy": 0.8729498386383057,
+          "scale_mass": [
+            [
+              0.22068551182746887,
+              0.2825547456741333,
+              0.241229847073555,
+              0.25552988052368164
+            ],
+            [
+              0.2252211719751358,
+              0.30304938554763794,
+              0.24427001178264618,
+              0.22745943069458008
+            ],
+            [
+              0.23602768778800964,
+              0.30668479204177856,
+              0.24298754334449768,
+              0.2142999768257141
+            ],
+            [
+              0.2266085147857666,
+              0.2785837650299072,
+              0.2423332929611206,
+              0.25247442722320557
+            ]
+          ],
+          "context_mass_mean": 0.576938807964325,
+          "context_mass_min": 0.27948644757270813,
+          "context_mass_max": 0.6660463809967041,
+          "context_mass_std": 0.03930523619055748,
+          "self_mass_mean": 0.42306119203567505,
+          "query_attention_tv": 0.05820972099900246,
+          "query_attention_tv_per_head": [
+            0.05121290683746338,
+            0.06933943927288055,
+            0.056217536330223083,
+            0.05606900155544281
+          ],
+          "query_norm_mean": 0.4612409174442291,
+          "query_norm_max": 0.9835445284843445
+        },
+        "stage3": {
+          "queries": 256,
+          "contexts": 224,
+          "gamma_context": 0.002700026147067547,
+          "gamma_context_rms": 0.0279145035892725,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 1.5202687978744507,
+          "branch_rms": 1.5202687978744507,
+          "local_rms": 0.0,
+          "feature_rms": 3.7280123233795166,
+          "relative_update_rms": 0.42717456817626953,
+          "residual_rms": 0.045137953013181686,
+          "residual_to_feature_rms": 0.012107780203223228,
+          "context_residual_to_feature_rms": 0.012107780203223228,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.11825507134199142,
+          "reliability_mean": 0.582244336605072,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.1918172985315323,
+          "self_value_rms": 0.8364458680152893,
+          "self_subtraction_rms": 0.4836435914039612,
+          "retrieved_spatial_rms": 0.03751895949244499,
+          "retrieved_self_cosine": 0.4928871989250183,
+          "assignment_tv": 0.7188210487365723,
+          "qk_weight_rms": 0.056808747351169586,
+          "v_weight_rms": 0.0957493931055069,
+          "out_weight_rms": 0.1170601025223732,
+          "temperature": [
+            0.5401945114135742,
+            0.5372549295425415,
+            0.5374172925949097,
+            0.5419186949729919
+          ],
+          "finite": true,
+          "entropy": 0.8733314275741577,
+          "scale_mass": [
+            [
+              0.241639643907547,
+              0.266603022813797,
+              0.28025099635124207,
+              0.21150633692741394
+            ],
+            [
+              0.23319748044013977,
+              0.2770536541938782,
+              0.2760477066040039,
+              0.21370117366313934
+            ],
+            [
+              0.24629926681518555,
+              0.267525851726532,
+              0.27993810176849365,
+              0.20623679459095
+            ],
+            [
+              0.23115798830986023,
+              0.2647537291049957,
+              0.26518628001213074,
+              0.2389020174741745
+            ]
+          ],
+          "context_mass_mean": 0.5839579105377197,
+          "context_mass_min": 0.29572948813438416,
+          "context_mass_max": 0.6649775505065918,
+          "context_mass_std": 0.04583697021007538,
+          "self_mass_mean": 0.4160420298576355,
+          "query_attention_tv": 0.07164730131626129,
+          "query_attention_tv_per_head": [
+            0.06206924468278885,
+            0.08458878099918365,
+            0.07356671243906021,
+            0.06636445969343185
+          ],
+          "query_norm_mean": 0.4644976854324341,
+          "query_norm_max": 0.9653658270835876
+        },
+        "stage4": {
+          "queries": 64,
+          "contexts": 224,
+          "gamma_context": 0.004351917654275894,
+          "gamma_context_rms": 0.09382829070091248,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 4.339520454406738,
+          "branch_rms": 4.339520454406738,
+          "local_rms": 0.0,
+          "feature_rms": 4.0588178634643555,
+          "relative_update_rms": 0.8113256692886353,
+          "residual_rms": 0.4801645874977112,
+          "residual_to_feature_rms": 0.11830158531665802,
+          "context_residual_to_feature_rms": 0.11830158531665802,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.11652316153049469,
+          "reliability_mean": 0.5247514247894287,
+          "reliability_min": 9.999999974752427e-07,
+          "retrieved_rms": 0.19735640287399292,
+          "self_value_rms": 1.3218492269515991,
+          "self_subtraction_rms": 0.8257459998130798,
+          "retrieved_spatial_rms": 0.03632170706987381,
+          "retrieved_self_cosine": 0.2528119683265686,
+          "assignment_tv": 0.47965651750564575,
+          "qk_weight_rms": 0.056808747351169586,
+          "v_weight_rms": 0.0957493931055069,
+          "out_weight_rms": 0.1170601025223732,
+          "temperature": [
+            0.5401945114135742,
+            0.5372549295425415,
+            0.5374172925949097,
+            0.5419186949729919
+          ],
+          "finite": true,
+          "entropy": 0.8765417337417603,
+          "scale_mass": [
+            [
+              0.2640919089317322,
+              0.28417155146598816,
+              0.2043456882238388,
+              0.24739086627960205
+            ],
+            [
+              0.26401254534721375,
+              0.24438977241516113,
+              0.22438348829746246,
+              0.26721417903900146
+            ],
+            [
+              0.26037830114364624,
+              0.23279961943626404,
+              0.22150039672851562,
+              0.2853216826915741
+            ],
+            [
+              0.27229374647140503,
+              0.25176864862442017,
+              0.23912754654884338,
+              0.236810103058815
+            ]
+          ],
+          "context_mass_mean": 0.5948259830474854,
+          "context_mass_min": 0.15812599658966064,
+          "context_mass_max": 0.7094537019729614,
+          "context_mass_std": 0.09530889242887497,
+          "self_mass_mean": 0.40517401695251465,
+          "query_attention_tv": 0.06520963460206985,
+          "query_attention_tv_per_head": [
+            0.048397280275821686,
+            0.07482712715864182,
+            0.0937000960111618,
+            0.04391402378678322
+          ],
+          "query_norm_mean": 0.5119779109954834,
+          "query_norm_max": 1.243311882019043
+        }
+      },
+      "errors": [],
+      "main_first_last": [
+        1.958774,
+        0.97756
+      ]
+    },
+    {
+      "name": "M0_CTRL/LEVIR-CD-256",
+      "placement": {
+        "pid": 1912837,
+        "physical_gpu": 1,
+        "logical_gpu": 0,
+        "reserved_mib": 8852,
+        "started": "2026-10-27 12:54:37"
+      },
+      "active_pid": 1912837,
+      "physical_gpu": 1,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 8.0,
+      "steps": 1332,
+      "target_steps": 40182,
+      "train_batches": 222,
+      "total_epochs": 181,
+      "finished_train_epochs": 6,
+      "recent_train": [
+        {
+          "epoch": 1.0,
+          "loss": 1.361071,
+          "main": 1.264102,
+          "guide": 0.484842,
+          "lr": 0.00049504,
+          "encoder_lr": 0.00049504
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.189222,
+          "main": 1.115112,
+          "guide": 0.370551,
+          "lr": 0.00049255,
+          "encoder_lr": 0.00049255
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.115669,
+          "main": 1.048004,
+          "guide": 0.33832,
+          "lr": 0.00049006,
+          "encoder_lr": 0.00049006
+        },
+        {
+          "epoch": 4.0,
+          "loss": 1.077351,
+          "main": 1.013404,
+          "guide": 0.319738,
+          "lr": 0.00048756,
+          "encoder_lr": 0.00048756
+        },
+        {
+          "epoch": 5.0,
+          "loss": 1.033059,
+          "main": 0.971381,
+          "guide": 0.308392,
+          "lr": 0.00048507,
+          "encoder_lr": 0.00048507
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 1,
+          "total_epochs": 181,
+          "Loss": 1.410084,
+          "Recall": 0.846834,
+          "Precision": 0.851474,
+          "OA": 0.984672,
+          "F1": 0.849148,
+          "IoU": 0.737843,
+          "Kappa": 0.841074,
+          "t": 56.8
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 181,
+          "Loss": 1.3166,
+          "Recall": 0.834991,
+          "Precision": 0.893271,
+          "OA": 0.986512,
+          "F1": 0.863149,
+          "IoU": 0.759245,
+          "Kappa": 0.856063,
+          "t": 57.3
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 181,
+          "Loss": 1.311321,
+          "Recall": 0.840544,
+          "Precision": 0.895125,
+          "OA": 0.98686,
+          "F1": 0.866976,
+          "IoU": 0.765188,
+          "Kappa": 0.860072,
+          "t": 56.9
+        },
+        {
+          "epoch": 4,
+          "total_epochs": 181,
+          "Loss": 1.252917,
+          "Recall": 0.856538,
+          "Precision": 0.897018,
+          "OA": 0.987682,
+          "F1": 0.87631,
+          "IoU": 0.779851,
+          "Kappa": 0.869832,
+          "t": 57.1
+        },
+        {
+          "epoch": 5,
+          "total_epochs": 181,
+          "Loss": 1.267815,
+          "Recall": 0.889295,
+          "Precision": 0.855153,
+          "OA": 0.986687,
+          "F1": 0.87189,
+          "IoU": 0.772877,
+          "Kappa": 0.864872,
+          "t": 57.3
+        }
+      ],
+      "best_validation": {
+        "epoch": 4,
+        "total_epochs": 181,
+        "Loss": 1.252917,
+        "Recall": 0.856538,
+        "Precision": 0.897018,
+        "OA": 0.987682,
+        "F1": 0.87631,
+        "IoU": 0.779851,
+        "Kappa": 0.869832,
+        "t": 57.1
+      },
+      "mean_epoch_seconds_last20": 57.833,
+      "last_module_diagnostics": {},
+      "errors": [],
+      "main_first_last": [
+        1.960305,
+        0.971381
+      ]
+    },
+    {
+      "name": "M2_CA_QKV/SYSU-CD-256",
+      "placement": {
+        "pid": 1912881,
+        "physical_gpu": 0,
+        "logical_gpu": 0,
+        "reserved_mib": 12952,
+        "started": "2026-10-27 12:54:39"
+      },
+      "active_pid": 1912881,
+      "physical_gpu": 0,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 8.9,
+      "steps": 1300,
+      "target_steps": 40125,
+      "train_batches": 375,
+      "total_epochs": 107,
+      "finished_train_epochs": 3,
+      "recent_train": [
+        {
+          "epoch": 0.0,
+          "loss": 2.723287,
+          "main": 2.410699,
+          "guide": 1.562937,
+          "lr": 0.0004958,
+          "encoder_lr": 0.0004958
+        },
+        {
+          "epoch": 1.0,
+          "loss": 2.100257,
+          "main": 1.867498,
+          "guide": 1.163796,
+          "lr": 0.00049159,
+          "encoder_lr": 0.00049159
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.876689,
+          "main": 1.658138,
+          "guide": 1.092752,
+          "lr": 0.00048738,
+          "encoder_lr": 0.00048738
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 0,
+          "total_epochs": 107,
+          "Loss": 2.370652,
+          "Recall": 0.7644,
+          "Precision": 0.844732,
+          "OA": 0.911304,
+          "F1": 0.802561,
+          "IoU": 0.670231,
+          "Kappa": 0.74555,
+          "t": 107.1
+        },
+        {
+          "epoch": 1,
+          "total_epochs": 107,
+          "Loss": 2.096801,
+          "Recall": 0.803893,
+          "Precision": 0.835719,
+          "OA": 0.916486,
+          "F1": 0.819497,
+          "IoU": 0.694193,
+          "Kappa": 0.765199,
+          "t": 96.3
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 107,
+          "Loss": 2.164544,
+          "Recall": 0.79283,
+          "Precision": 0.840416,
+          "OA": 0.91564,
+          "F1": 0.81593,
+          "IoU": 0.689089,
+          "Kappa": 0.761271,
+          "t": 105.1
+        }
+      ],
+      "best_validation": {
+        "epoch": 1,
+        "total_epochs": 107,
+        "Loss": 2.096801,
+        "Recall": 0.803893,
+        "Precision": 0.835719,
+        "OA": 0.916486,
+        "F1": 0.819497,
+        "IoU": 0.694193,
+        "Kappa": 0.765199,
+        "t": 96.3
+      },
+      "mean_epoch_seconds_last20": 102.833,
+      "last_module_diagnostics": {
+        "stage1": {
+          "queries": 4096,
+          "contexts": 224,
+          "gamma_context": 0.0011895737843587995,
+          "gamma_context_rms": 0.04528195038437843,
+          "gamma_detail": 0.014575665816664696,
+          "gamma_detail_rms": 0.08943123370409012,
+          "context_rms": 1.6683881282806396,
+          "branch_rms": 1.6683881282806396,
+          "local_rms": 0.3733137249946594,
+          "feature_rms": 1.4440280199050903,
+          "relative_update_rms": 0.43056079745292664,
+          "residual_rms": 0.07873023301362991,
+          "residual_to_feature_rms": 0.054521262645721436,
+          "context_residual_to_feature_rms": 0.05091644451022148,
+          "local_residual_to_feature_rms": 0.024593044072389603,
+          "guide_mean": 0.2226070761680603,
+          "reliability_mean": 0.47381842136383057,
+          "reliability_min": 4.305279435357079e-05,
+          "retrieved_rms": 0.18963688611984253,
+          "self_value_rms": 1.0532257556915283,
+          "self_subtraction_rms": 0.5085054039955139,
+          "retrieved_spatial_rms": 0.046428024768829346,
+          "retrieved_self_cosine": 0.5131453275680542,
+          "assignment_tv": 0.6112810373306274,
+          "qk_weight_rms": 0.06080646067857742,
+          "v_weight_rms": 0.09230881184339523,
+          "out_weight_rms": 0.1114441305398941,
+          "temperature": [
+            0.5280495285987854,
+            0.5311014652252197,
+            0.5267287492752075,
+            0.5322896242141724
+          ],
+          "finite": true,
+          "entropy": 0.8874223828315735,
+          "scale_mass": [
+            [
+              0.2509763836860657,
+              0.26704126596450806,
+              0.22635431587696075,
+              0.2556280493736267
+            ],
+            [
+              0.2569769620895386,
+              0.27229487895965576,
+              0.24150624871253967,
+              0.22922194004058838
+            ],
+            [
+              0.2606367766857147,
+              0.26455456018447876,
+              0.2544933557510376,
+              0.22031529247760773
+            ],
+            [
+              0.24344033002853394,
+              0.25980812311172485,
+              0.2444528192281723,
+              0.2522987127304077
+            ]
+          ],
+          "context_mass_mean": 0.4751386046409607,
+          "context_mass_min": 0.12487498670816422,
+          "context_mass_max": 0.6003094911575317,
+          "context_mass_std": 0.05290908366441727,
+          "self_mass_mean": 0.5248613357543945,
+          "query_attention_tv": 0.13539017736911774,
+          "query_attention_tv_per_head": [
+            0.15701620280742645,
+            0.12596258521080017,
+            0.09888604283332825,
+            0.15969587862491608
+          ],
+          "query_norm_mean": 0.5863609313964844,
+          "query_norm_max": 1.3421329259872437
+        },
+        "stage2": {
+          "queries": 1024,
+          "contexts": 224,
+          "gamma_context": 0.002158140065148473,
+          "gamma_context_rms": 0.041277315467596054,
+          "gamma_detail": 0.04205555096268654,
+          "gamma_detail_rms": 0.18286290764808655,
+          "context_rms": 1.5306189060211182,
+          "branch_rms": 1.5306189060211182,
+          "local_rms": 0.4562565088272095,
+          "feature_rms": 1.646045446395874,
+          "relative_update_rms": 0.41386833786964417,
+          "residual_rms": 0.1024220660328865,
+          "residual_to_feature_rms": 0.06222311034798622,
+          "context_residual_to_feature_rms": 0.03751871734857559,
+          "local_residual_to_feature_rms": 0.05852476879954338,
+          "guide_mean": 0.2556836009025574,
+          "reliability_mean": 0.5434731245040894,
+          "reliability_min": 0.00012946163769811392,
+          "retrieved_rms": 0.18327388167381287,
+          "self_value_rms": 0.9648159742355347,
+          "self_subtraction_rms": 0.4646959900856018,
+          "retrieved_spatial_rms": 0.053467728197574615,
+          "retrieved_self_cosine": 0.4097890555858612,
+          "assignment_tv": 0.7185923457145691,
+          "qk_weight_rms": 0.06080646067857742,
+          "v_weight_rms": 0.09230881184339523,
+          "out_weight_rms": 0.1114441305398941,
+          "temperature": [
+            0.5280495285987854,
+            0.5311014652252197,
+            0.5267287492752075,
+            0.5322896242141724
+          ],
+          "finite": true,
+          "entropy": 0.8815129995346069,
+          "scale_mass": [
+            [
+              0.23414170742034912,
+              0.2834157645702362,
+              0.2261536717414856,
+              0.2562888562679291
+            ],
+            [
+              0.24265411496162415,
+              0.291164368391037,
+              0.24014055728912354,
+              0.22604098916053772
+            ],
+            [
+              0.23810803890228271,
+              0.2894590497016907,
+              0.2520332336425781,
+              0.2203996479511261
+            ],
+            [
+              0.2268144190311432,
+              0.280765563249588,
+              0.24597252905368805,
+              0.24644747376441956
+            ]
+          ],
+          "context_mass_mean": 0.4749920964241028,
+          "context_mass_min": 0.1238132044672966,
+          "context_mass_max": 0.5926030874252319,
+          "context_mass_std": 0.05954620614647865,
+          "self_mass_mean": 0.525007963180542,
+          "query_attention_tv": 0.14926481246948242,
+          "query_attention_tv_per_head": [
+            0.18456046283245087,
+            0.1302441507577896,
+            0.11438557505607605,
+            0.16786907613277435
+          ],
+          "query_norm_mean": 0.594693660736084,
+          "query_norm_max": 1.513974905014038
+        },
+        "stage3": {
+          "queries": 256,
+          "contexts": 224,
+          "gamma_context": 0.0058953179977834225,
+          "gamma_context_rms": 0.043037544935941696,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 1.2610946893692017,
+          "branch_rms": 1.2610946893692017,
+          "local_rms": 0.0,
+          "feature_rms": 2.228945732116699,
+          "relative_update_rms": 0.3799101412296295,
+          "residual_rms": 0.053738683462142944,
+          "residual_to_feature_rms": 0.024109462276101112,
+          "context_residual_to_feature_rms": 0.024109462276101112,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.22499561309814453,
+          "reliability_mean": 0.5363542437553406,
+          "reliability_min": 4.5456294174073264e-05,
+          "retrieved_rms": 0.1872616857290268,
+          "self_value_rms": 0.8911867737770081,
+          "self_subtraction_rms": 0.43953949213027954,
+          "retrieved_spatial_rms": 0.0607062429189682,
+          "retrieved_self_cosine": 0.4967438578605652,
+          "assignment_tv": 0.678066611289978,
+          "qk_weight_rms": 0.06080646067857742,
+          "v_weight_rms": 0.09230881184339523,
+          "out_weight_rms": 0.1114441305398941,
+          "temperature": [
+            0.5280495285987854,
+            0.5311014652252197,
+            0.5267287492752075,
+            0.5322896242141724
+          ],
+          "finite": true,
+          "entropy": 0.8752136826515198,
+          "scale_mass": [
+            [
+              0.22364480793476105,
+              0.2605634033679962,
+              0.25483569502830505,
+              0.2609560787677765
+            ],
+            [
+              0.23556636273860931,
+              0.26390600204467773,
+              0.26471734046936035,
+              0.2358102798461914
+            ],
+            [
+              0.23252597451210022,
+              0.2563999891281128,
+              0.2838658094406128,
+              0.22720828652381897
+            ],
+            [
+              0.2202056646347046,
+              0.2529352903366089,
+              0.25740355253219604,
+              0.2694554924964905
+            ]
+          ],
+          "context_mass_mean": 0.47649243474006653,
+          "context_mass_min": 0.11094759404659271,
+          "context_mass_max": 0.6003218293190002,
+          "context_mass_std": 0.07261087000370026,
+          "self_mass_mean": 0.5235075950622559,
+          "query_attention_tv": 0.16121435165405273,
+          "query_attention_tv_per_head": [
+            0.19214636087417603,
+            0.14566510915756226,
+            0.11752090603113174,
+            0.18952497839927673
+          ],
+          "query_norm_mean": 0.6299690008163452,
+          "query_norm_max": 1.4368202686309814
+        },
+        "stage4": {
+          "queries": 64,
+          "contexts": 224,
+          "gamma_context": 0.004001061897724867,
+          "gamma_context_rms": 0.09933284670114517,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "context_rms": 2.410046339035034,
+          "branch_rms": 2.410046339035034,
+          "local_rms": 0.0,
+          "feature_rms": 2.3320491313934326,
+          "relative_update_rms": 0.5400131940841675,
+          "residual_rms": 0.3049757778644562,
+          "residual_to_feature_rms": 0.13077588379383087,
+          "context_residual_to_feature_rms": 0.13077588379383087,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.1851830780506134,
+          "reliability_mean": 0.47066447138786316,
+          "reliability_min": 6.459536962211132e-05,
+          "retrieved_rms": 0.21340487897396088,
+          "self_value_rms": 1.0468024015426636,
+          "self_subtraction_rms": 0.5205719470977783,
+          "retrieved_spatial_rms": 0.06338563561439514,
+          "retrieved_self_cosine": 0.15992818772792816,
+          "assignment_tv": 0.44292575120925903,
+          "qk_weight_rms": 0.06080646067857742,
+          "v_weight_rms": 0.09230881184339523,
+          "out_weight_rms": 0.1114441305398941,
+          "temperature": [
+            0.5280495285987854,
+            0.5311014652252197,
+            0.5267287492752075,
+            0.5322896242141724
+          ],
+          "finite": true,
+          "entropy": 0.864595353603363,
+          "scale_mass": [
+            [
+              0.24622727930545807,
+              0.2780338227748871,
+              0.28563904762268066,
+              0.19009986519813538
+            ],
+            [
+              0.2369377762079239,
+              0.274161696434021,
+              0.28896671533584595,
+              0.19993381202220917
+            ],
+            [
+              0.22566473484039307,
+              0.2816570997238159,
+              0.27518752217292786,
+              0.21749064326286316
+            ],
+            [
+              0.22684064507484436,
+              0.2733319401741028,
+              0.30809104442596436,
+              0.1917363405227661
+            ]
+          ],
+          "context_mass_mean": 0.49975112080574036,
+          "context_mass_min": 0.1846209019422531,
+          "context_mass_max": 0.6260634064674377,
+          "context_mass_std": 0.07358050346374512,
+          "self_mass_mean": 0.500248908996582,
+          "query_attention_tv": 0.1570737212896347,
+          "query_attention_tv_per_head": [
+            0.16769278049468994,
+            0.15451963245868683,
+            0.13831695914268494,
+            0.1677655130624771
+          ],
+          "query_norm_mean": 0.7315617799758911,
+          "query_norm_max": 1.3946053981781006
+        }
+      },
+      "errors": [],
+      "main_first_last": [
+        2.410699,
+        1.658138
+      ]
+    },
+    {
+      "name": "M0_CTRL/SYSU-CD-256",
+      "placement": {
+        "pid": 1912923,
+        "physical_gpu": 1,
+        "logical_gpu": 0,
+        "reserved_mib": 8852,
+        "started": "2026-10-27 12:54:41"
+      },
+      "active_pid": 1912923,
+      "physical_gpu": 1,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 18.4,
+      "steps": 1300,
+      "target_steps": 40125,
+      "train_batches": 375,
+      "total_epochs": 107,
+      "finished_train_epochs": 3,
+      "recent_train": [
+        {
+          "epoch": 0.0,
+          "loss": 2.726236,
+          "main": 2.413648,
+          "guide": 1.562939,
+          "lr": 0.0004958,
+          "encoder_lr": 0.0004958
+        },
+        {
+          "epoch": 1.0,
+          "loss": 2.109517,
+          "main": 1.876706,
+          "guide": 1.164058,
+          "lr": 0.00049159,
+          "encoder_lr": 0.00049159
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.890794,
+          "main": 1.672595,
+          "guide": 1.090994,
+          "lr": 0.00048738,
+          "encoder_lr": 0.00048738
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 0,
+          "total_epochs": 107,
+          "Loss": 2.360397,
+          "Recall": 0.765964,
+          "Precision": 0.843469,
+          "OA": 0.911285,
+          "F1": 0.80285,
+          "IoU": 0.670635,
+          "Kappa": 0.745787,
+          "t": 102.8
+        },
+        {
+          "epoch": 1,
+          "total_epochs": 107,
+          "Loss": 2.13054,
+          "Recall": 0.780735,
+          "Precision": 0.845001,
+          "OA": 0.914518,
+          "F1": 0.811597,
+          "IoU": 0.682932,
+          "Kappa": 0.756427,
+          "t": 97.5
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 107,
+          "Loss": 2.316935,
+          "Recall": 0.756178,
+          "Precision": 0.849104,
+          "OA": 0.910809,
+          "F1": 0.799951,
+          "IoU": 0.666599,
+          "Kappa": 0.74281,
+          "t": 97.1
+        }
+      ],
+      "best_validation": {
+        "epoch": 1,
+        "total_epochs": 107,
+        "Loss": 2.13054,
+        "Recall": 0.780735,
+        "Precision": 0.845001,
+        "OA": 0.914518,
+        "F1": 0.811597,
+        "IoU": 0.682932,
+        "Kappa": 0.756427,
+        "t": 97.5
+      },
+      "mean_epoch_seconds_last20": 99.133,
+      "last_module_diagnostics": {},
+      "errors": [],
+      "main_first_last": [
+        2.413648,
+        1.672595
+      ]
+    }
+  ]
+}
