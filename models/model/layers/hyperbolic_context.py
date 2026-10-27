@@ -1,4 +1,4 @@
-"""Shared-coordinate Lorentz Q/K retrieval with Euclidean content refinement."""
+"""Lorentz prototype retrieval relative to each query's own geometric point."""
 import math
 
 import torch

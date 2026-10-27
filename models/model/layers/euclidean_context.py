@@ -1,4 +1,4 @@
-"""Euclidean retrieval of reliable change/background prototypes."""
+"""Euclidean retrieval with selective prototypes and a dense self reference."""
 import math
 
 from model.layers.pyramid_context import ResidualPyramidContext, project_tokens, split_heads

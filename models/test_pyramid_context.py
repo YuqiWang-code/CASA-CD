@@ -14,19 +14,23 @@ def compression_semantics():
     prototype = pool_features(feature, weights, 1)
     assert weights[0, 0, 0, 0] > .9999
     assert torch.allclose(prototype[:, 0], feature[..., 0, 0], atol=3e-4)
-    assert torch.equal(confidence, torch.ones_like(confidence)), "sparse confident target lost prior mass"
+    assert torch.allclose(confidence, torch.ones_like(confidence), atol=1e-9, rtol=0), "sparse confident target lost prior mass"
     for value in (0., .01, .5, .99, 1.):
         weights, confidence = assignments(torch.full_like(probability, value), 1)
         assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
         prototype = pool_features(feature, weights, 1)
         assert torch.allclose(prototype[:, 0], prototype[:, 1], atol=1e-12)
-        expected = torch.tensor([[max(value, 1e-6), max(1-value, 1e-6)]], dtype=torch.double)
+        expected = torch.tensor([[max(value**2, 1e-6), max((1-value)**2, 1e-6)]], dtype=torch.double)
         assert torch.allclose(confidence, expected, atol=1e-12)
     logits = torch.randn_like(probability, requires_grad=True)
     weights, _ = assignments(logits.sigmoid(), 2)
     pooled = pool_features(feature, weights, 2)
     grads = torch.autograd.grad(pooled.square().sum(), (feature, logits))
     assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
+    sparse = torch.full_like(probability,.05)
+    sparse[...,0,0]=.6
+    sharpened,_=assignments(sparse,1)
+    assert .69 < sharpened[0,0,0,0] < .70
     operator = EuclideanContext().double()
     dense = operator.project_queries(feature)
     expected = torch.einsum("brtp,bhrpd->bhrtd", weights, regions(dense, 2)).flatten(2, 3)
@@ -70,7 +74,15 @@ def contexts():
         key=op.project_queries(torch.zeros(1,64,1,224)).flatten(2,3)
         attention=op.attention(query,key,torch.ones(1,224),0)
         mass=torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale,-1)],-1)
-        assert torch.allclose(mass,torch.full_like(mass,.25),atol=1e-6)
+        assert torch.allclose(mass,torch.full_like(mass,.2),atol=1e-6)
+        # With no matching prototype, the self candidate receives nearly all mass.
+        remote=op.project_queries(torch.full((1,64,1,224),100.)).flatten(2,3)
+        remote_attention=op.attention(query,remote,torch.ones(1,224),0)
+        assert remote_attention.sum(-1).max()<1e-4
+        # Uniformly ambiguous pairs have half the total prior of confident pairs.
+        uncertain=op.attention(query,key,torch.full((1,224),.25),0).sum(-1)
+        confident=op.attention(query,key,torch.tensor([1.,1e-6]).repeat(112)[None],0).sum(-1)
+        assert torch.all(uncertain < confident)
         print(context_type.__name__, 'identity, constant preservation, all parameter/cross-scale gradients PASS')
 
 

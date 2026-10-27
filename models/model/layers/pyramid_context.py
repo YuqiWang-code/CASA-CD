@@ -1,4 +1,4 @@
-"""Change-guided compression and query-relative pyramid refinement."""
+"""Selective change prototypes and self-referenced pyramid retrieval."""
 import math
 
 import torch
@@ -36,13 +36,12 @@ def project_tokens(layer, tokens, heads):
 
 
 def assignments(probability, grid):
-    """Change/background weights and confidence, without penalizing class area."""
+    """Sharpen class membership within each region and measure class support."""
     positive = feature_regions(probability, grid).squeeze(-1)
     memberships = torch.stack((positive, 1 - positive), dim=2)
-    weights = memberships + 1e-6
+    weights = (memberships + 1e-6).square()
     weights = weights / weights.sum(-1, keepdim=True)
-    confidence = (memberships.square().sum(-1) /
-                  memberships.sum(-1).clamp_min(1e-6)).clamp_min(1e-6)
+    confidence = (weights * memberships.square()).sum(-1).clamp_min(1e-6)
     return weights, confidence.flatten(1, 2)
 
 
@@ -64,17 +63,25 @@ def rms(x):
 
 
 def attention_diagnostics(probability, counts):
-    tv = (probability - probability.mean(-2, keepdim=True)).abs().sum(-1) / 2
+    mass = probability.sum(-1, keepdim=True)
+    conditional = probability / mass.clamp_min(1e-8)
+    tv = (conditional - conditional.mean(-2, keepdim=True)).abs().sum(-1) / 2
     return dict(
-        entropy=float(-(probability * probability.clamp_min(1e-9).log()).sum(-1).mean()
+        entropy=float(-(conditional * conditional.clamp_min(1e-9).log()).sum(-1).mean()
                       / math.log(probability.shape[-1])),
-        scale_mass=torch.stack([p.sum(-1) for p in probability.split(counts, -1)], -1).mean((0, 2)).tolist(),
+        scale_mass=torch.stack([p.sum(-1) for p in conditional.split(counts, -1)], -1).mean((0, 2)).tolist(),
+        context_mass_mean=float(mass.mean()), context_mass_min=float(mass.min()),
+        context_mass_max=float(mass.max()), context_mass_std=float(mass.std(unbiased=False)),
+        self_mass_mean=float((1-mass).mean()),
         query_attention_tv=float(tv.mean()), query_attention_tv_per_head=tv.mean((0, 2)).tolist())
 
 
 class ResidualPyramidContext(nn.Module):
     """Shared compression/readout; subclasses define Euclidean or Lorentz keys."""
     value_geometry = "euclidean"
+    compression_power = 2
+    support_power = 2
+    self_reference = True
 
     def __init__(self, channels=64, heads=4, grid_sizes=(8, 4, 4, 4)):
         super().__init__()
@@ -101,7 +108,9 @@ class ResidualPyramidContext(nn.Module):
         logits = -self.squared_distance(query, key) / (2 * temperature.square())
         logits = logits + confidence.log()[:, None, None] + source_bias(
             self.scale_bias, query_scale, self.tokens_per_scale)
-        return logits.softmax(-1)
+        # The query's own key has distance zero and unit support. Its value is
+        # retained locally; a shared softmax makes context adoption query-specific.
+        return torch.cat((logits, torch.zeros_like(logits[..., :1])), -1).softmax(-1)[..., :-1]
 
     def forward(self, tar):
         normalized = [channel_norm(self.norm, x) for x in tar]
@@ -120,7 +129,10 @@ class ResidualPyramidContext(nn.Module):
             height, width = x.shape[-2:]
             probability = self.attention(q.flatten(2, 3), key, confidence, index)
             retrieved = merge_heads(probability @ values, height, width)
-            difference = retrieved - self.v(x)
+            own_value = self.v(x)
+            mass = probability.sum(-1, keepdim=True)
+            mass_map = merge_heads(mass.expand(-1, -1, -1, x.shape[1] // self.heads), height, width)
+            difference = retrieved - mass_map * own_value
             update = self.out(difference)
             context_residual = self.gamma_context[index][None, :, None, None] * update
             result = original + context_residual
@@ -150,6 +162,10 @@ class ResidualPyramidContext(nn.Module):
                         local_residual_to_feature_rms=float(rms(local_residual) / base),
                         guide_mean=float(guide[index].sigmoid().mean()),
                         reliability_mean=float(reliability.mean()), reliability_min=float(reliability.min()),
+                        retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
+                        self_subtraction_rms=float(rms(mass_map * own_value)),
+                        retrieved_spatial_rms=float(rms(retrieved-retrieved.mean((-2,-1),keepdim=True))),
+                        retrieved_self_cosine=float(F.cosine_similarity(retrieved.flatten(1),own_value.flatten(1)).mean()),
                         assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
                         qk_weight_rms=float(rms(self.qk.weight)), v_weight_rms=float(rms(self.v.weight)),
                         out_weight_rms=float(rms(self.out.weight)),
@@ -169,6 +185,9 @@ class AuxiliaryContext(nn.Module):
     value_geometry = "euclidean"
     grid_sizes = (8, 4, 4, 4)
     tokens_per_scale = (0, 0, 0, 0)
+    compression_power = 0
+    support_power = 0
+    self_reference = False
 
     def __init__(self, channels=64):
         super().__init__()

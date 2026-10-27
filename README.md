@@ -1,55 +1,49 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run4**，协议`casa_pyramid_40k_relative_adamwctx_v4`。
+普通RGB双时相影像的全监督遥感二值变化检测。当前开发与实验轮次 **CASA-Pyramid / Run5**，协议`casa_pyramid_40k_selective_selfref_v5`。**Run4作为正向基线完整保留**。
 
-## 项目定位与研究原则
+## 项目定位与固定研究原则
 
-在LEVIR、SYSU、WHU、CDD四库研究检测精度与轻量推理，贡献聚焦双曲QKV和变化感知压缩QKV。保持完整Q、压缩KV；结构简洁、问题明确，新增机制应能通过对照验证。避免无关组件和特殊激活函数堆叠，准确率、部署参数、计算、实测延迟与显存共同评价。单seed的小差异不作为稳定领先证据。有效性优先于绝对最少参数，允许有依据的小幅参数增长。项目F1目标为LEVIR≥92%、SYSU≥84%、WHU≥95%、CDD≥97.5%；这些是研究目标，不是统一评价协议下已核实的SOTA界限。
+本项目面向211高校硕士的小论文研究，目标是在LEVIR、SYSU、WHU、CDD四库取得有竞争力的精度，同时控制推理参数、计算、延迟与显存。贡献聚焦两个独立版本：双曲压缩QKV、普通变化感知上下文压缩QKV，保持完整Q空间位置，仅压缩KV。
 
-同轮三组使用相同骨干、增强、损失、预算和选模规则。当前按每epoch的test F1选模，最终test复测属于**test参与选模的结果**，不能称独立盲测，也不能将与历史val选模的差异全部归因于模块。结构诊断与短训使用train/val，测试阈值固定0.5。
+项目F1努力目标为LEVIR≥92%、SYSU≥84%、WHU≥95%、CDD≥97.5%。这些数值是研究目标，不是已核实的统一SOTA界限。先证明模块有效、机制连贯、收益可归因，再争取领先指标。有效性优先于绝对最低参数，允许为有用表征小幅增参；参数目标≤5M，当前部署约2M。较少参数不等于更快推理。
 
-## 模型
+结构须对应可验证的实际问题，保持简洁。避免无关组件、特殊激活函数和额外几何运算堆叠；不将损失、剪枝或量化包装成主要创新。修改前核对日志、运行源码与历史经验，修改后审查公式、卷积/池化、融合/残差、维度与前后梯度，并用真实数据短训检查。
+
+同轮三组使用相同骨干、增强、损失、训练预算和选模规则。当前按每epoch的test F1选模，最终复测属于**test参与选模的结果**，不能称独立盲测。结构设计与干预使用train/val；阈值固定0.5，不按测试成绩选seed。单seed小差异不作为稳定领先证据，跨协议涨幅与模块收益分别解释。
+
+文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
+
+## Run5模型
 
 ```text
-双时相RGB A / B
-  → 共享MobileNetV2原生四尺度24/32/96/320通道
-  → TAR：时相融合，统一64通道
-  → 变化引导的跨尺度相对上下文
-      共享LN与Q/K投影；Q保留全部5440个位置
-      网格8/4/4/4，每区域变化/背景两原型，共224个KV
-      普通E：欧氏压缩原型与平方欧氏距离
-      双曲H：直接Lorentz映射与质心压缩，平方测地距离
-      两版V均为欧式，回写 out(Attention·V − Vquery)
-      S1/S2：未压缩高通差异 → DW3×3 → PW1×1
-      原始TAR + 逐通道上下文残差 + 逐通道局部残差
-  → DCR逐级解码 → 共享预测头
-      训练四级logits深监督，推理仅最终一级概率
+双时相RGB A/B → 共享MobileNetV2原生四尺度 → TAR至64通道
+  ├─ 原TAR残差
+  └─ 共享LN
+       ├─ 完整Q：5440个位置，4头×16维
+       ├─ 变化/背景概率平方选择 → 128/32/32/32个KV
+       │    普通：池化后投影K/V，欧氏距离
+       │    双曲：直接Lorentz映射与质心K，欧式V，测地距离
+       └─ 每个Q的自身候选 + 224个原型 → 联合softmax
+            → Σ A_ij(V_j−V_i) → 输出投影与逐通道残差
+  + 细两层高通DW3×3/PW1×1局部残差
+  → DCR逐级解码 → 共享预测头，训练四级/推理一级
 ```
 
-普通版先对LN特征按预测变化/背景概率压缩，再进行共享K/V线性投影。类别可信度采用`Σp²/Σp`，保留稀疏但明确的变化；不存在可靠变化时，低质量原型的注意力先验降低。来源尺度另按token数量校正，不强迫跨尺度注意力均分。
+Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)²/Σ(m+eps)²`，m分别为p与1−p。类别支持度为`Σw·m²`；均匀模糊区域的两原型总支持低于明确区域。Q自身以距离0、支持度1加入softmax，压缩内容的总权重可小于1；检索不匹配时减少写回，原TAR与局部细节继续保留。新增机制不增加可学习参数。
 
-双曲版在共同TAR坐标中用`(sqrt(1+||z||²),z)`直接构造曲率−1的Lorentz点。半径`asinh(||z||)`可变，无硬裁剪；完整Q经同权Lorentz质心压缩得到K，V保持欧式。只用一个平方测地距离检索，近重合点使用解析极限保证梯度有限。两版共享压缩与回写规则，参数量匹配，几何收益由同轮对照判断。
+双曲曲率固定−1，直接坐标`(sqrt(1+||z||²),z)`无硬半径裁剪，K使用Lorentz归一化质心，V保持欧式。两版共享压缩、支持度和自参照规则；几何作用通过同轮比较验证。没有把四尺度直接解释为语义层次。
 
-相对回写抵消常量内容广播；细两层局部高通分支保留压缩以外的空间细节。全部残差gamma按通道零初始化，投影与卷积正常初始化。CTRL只保留相同guide辅助监督，不含上下文与局部分支。
+| 变体 | 训练参数 | 折叠部署参数 | context参数 |
+|---|---:|---:|---:|
+| M0_CTRL | 2,047,125 | 1,935,810 | 193 |
+| M1_HYPER_QKV | 2,064,537 | 1,953,222 | 17,605 |
+| M2_CA_QKV | 2,064,537 | 1,953,222 | 17,605 |
 
-| 数据集特征 | 本轮设计目的 |
-|---|---|
-| [LEVIR](https://justchenhao.github.io/LEVIR/)：建筑变化与不同尺寸目标 | 细尺度128KV、不按类别面积降权，局部高通补充边界 |
-| [WHU](https://gpcv.whu.edu.cn/data/building_dataset.html)：建筑轮廓与区域完整性 | 原始TAR保留，检索内容仅作相对修正，检查边界和内部召回 |
-| [SYSU](https://github.com/liumency/SYSU-CD)：建筑、地表、植被等多类变化 | 变化/背景可信度压缩，观察误报/漏检与后期泛化 |
-| [CDD](https://isprs-archives.copernicus.org/articles/XLII-2/565/2018/)：季节外观差异 | 共享跨尺度坐标与局部差异互补，保持同步几何增强 |
-
-| 变体 | 训练参数 | 折叠部署参数 | context参数 | FP32 batch1延迟 |
-|---|---:|---:|---:|---:|
-| M0_CTRL | 2,047,125 | 1,935,810 | 193 | 3.83 ms |
-| M1_HYPER_QKV | 2,064,537 | 1,953,222 | 17,605 | 6.79 ms |
-| M2_CA_QKV | 2,064,537 | 1,953,222 | 17,605 | 5.78 ms |
-
-RTX5090、256×256、FP32、30次预热后100次中位数，随机权重架构测量。参数轻量不等于与CTRL同速。
-
-实现见[models](models/README.md)，来源见[SOURCES](models/SOURCES.md)。[文献索引](docs/参考文献/文献索引.md) · [Run4定向调研](docs/参考文献/Run4_压缩与双曲检索/README.md) · [Run4设计与历史经验](docs/temporary/CASA-Pyramid_Run4_design.md)。
+完整公式、逐条问题核实及四库验证干预见[Run5设计](docs/temporary/CASA-Pyramid_Run5_design.md)。实现与来源见[models](models/README.md)、[SOURCES](models/SOURCES.md)，论文见[Run5调研](docs/参考文献/Run5_原型选择与自参照检索/README.md)。
 
 ## 固定训练与评价设置
+
 
 | 设置 | 值 |
 |---|---|
@@ -80,281 +74,52 @@ RTX5090、256×256、FP32、30次预热后100次中位数，随机权重架构�
 | WHU-CD-256 | 5,947 / 743 / 744 | 217 / 40,145 |
 | CDD-CD-256 | 10,000 / 2,998 / 3,000 | 129 / 40,248 |
 
-## 当前实验：CASA-Pyramid / Run4（已完成）
+## 当前实验：CASA-Pyramid / Run5
 
-四库各CTRL、双曲、普通共12项。优先LEVIR→SYSU→WHU→CDD，两卡按实测显存补位。数学、压缩、主任务梯度、预处理与部署检查已通过；四项LEVIR/SYSU真实数据短训已通过。启动记录见[Run4说明](train_scripts/CASA-Pyramid/Run4/README.md)。
+四库各CTRL、双曲、普通，共12项；LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存和1GiB留量并行补位。正式权重从MobileNetV2预训练全新初始化，不继承Run4或探针权重。共同优化、增强与损失保持Run4设置。
 
-共同协议恢复全网5e-4与`main+0.2·guide`，保持三组一致。与Run3的跨轮差异同时包含共同协议变化；模块收益以同轮CTRL衡量。
+<!-- CASA_PYRAMID_RUN5_RESULTS_START -->
 
-<!-- CASA_PYRAMID_RUN4_RESULTS_START -->
+四个train/val健康短训已通过：LEVIR两版各6epoch、SYSU两版各4epoch。正式队列准备启动。
 
-状态更新：2026-10-27 07:15:28 CST；队列 `complete`；正式结果 **12/12**。
-
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 90.95 | 83.40 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 91.12 | 83.68 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.14 | 83.73 |
-| SYSU | `M0_CTRL` | 完成 | 82.32 | 69.95 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 82.78 | 70.61 |
-| SYSU | `M2_CA_QKV` | 完成 | 82.89 | 70.78 |
-| WHU | `M0_CTRL` | 完成 | 94.19 | 89.02 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.61 | 89.77 |
-| WHU | `M2_CA_QKV` | 完成 | 94.72 | 89.98 |
-| CDD | `M0_CTRL` | 完成 | 96.91 | 94.01 |
-| CDD | `M1_HYPER_QKV` | 完成 | 96.94 | 94.06 |
-| CDD | `M2_CA_QKV` | 完成 | 96.90 | 93.99 |
-
-<!-- CASA_PYRAMID_RUN4_RESULTS_END -->
-
-Run4于2026-10-26 13:40:12 CST启动，2026-10-26 22:40:40 CST完成，历时9小时00分28秒。12/12项正式训练及测试完成，无失败；调度器已退出。全部部署折叠检查通过，最大绝对差3.815e-06，二值差均为0。
-
-相对同轮CTRL，双曲/普通模块在LEVIR提高0.168/0.195个百分点，SYSU提高0.459/0.576个百分点，WHU提高0.419/0.536个百分点；CDD为+0.023/−0.015个百分点。两个模块在前三库均有收益，CDD基本持平；普通版在前三库略高于双曲版。SYSU普通版最佳epoch仍为3，后期泛化仍是薄弱项。本轮恢复共同学习率和损失设置，跨轮提升不能全部归因于模块；单seed及test参与选模的限制保持明确。
-
-125份日志与JSON已下载至`outputs/CASA-Pyramid/Run4`；指标表共209条正式记录，原197条历史记录逐单元格保留。Run4冻结TXT使用实际`source_code.tar.gz`中的源码，current TXT使用当前工作源码。完整日志、逐轮CSV、曲线及模块诊断已发布至`docs/experiments/CASA-Pyramid/Run4`。
-
-[完整训练记录](docs/experiments/CASA-Pyramid/Run4/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run4/analysis.md)
-
-
-## 历史实验：CASA-Pyramid / Run3（已完成）
-
-四数据集各CTRL、双曲H、普通E，共12项，优先LEVIR→SYSU→WHU→CDD，两张GPU按实测显存并行。实现和检查见[Run3说明](train_scripts/CASA-Pyramid/Run3/README.md)，设计依据见[模块设计](docs/temporary/CASA-Pyramid_Run3_design.md)。正式训练从MobileNetV2预训练重新初始化，不使用历史或探针权重。
-
-<!-- CASA_PYRAMID_RUN3_RESULTS_START -->
-
-状态更新：2026-10-26 12:28:42 CST；队列 `complete`；正式结果 **12/12**。
-
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 90.50 | 82.65 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 90.50 | 82.64 |
-| LEVIR | `M2_CA_QKV` | 完成 | 90.54 | 82.71 |
-| SYSU | `M0_CTRL` | 完成 | 81.93 | 69.39 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 82.29 | 69.91 |
-| SYSU | `M2_CA_QKV` | 完成 | 82.19 | 69.76 |
-| WHU | `M0_CTRL` | 完成 | 94.63 | 89.82 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.35 | 89.30 |
-| WHU | `M2_CA_QKV` | 完成 | 94.36 | 89.32 |
-| CDD | `M0_CTRL` | 完成 | 95.31 | 91.04 |
-| CDD | `M1_HYPER_QKV` | 完成 | 95.46 | 91.32 |
-| CDD | `M2_CA_QKV` | 完成 | 95.52 | 91.42 |
-
-<!-- CASA_PYRAMID_RUN3_RESULTS_END -->
-
-Run3于2026-10-26 02:57:17 CST启动，11:53:44 CST完成，历时8小时56分27秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差5.513e-6，二值差均为0。
-
-相对同轮CTRL，双曲/普通模块在SYSU的F1提高0.360/0.258个百分点，CDD提高0.152/0.206个百分点；LEVIR为−0.006/+0.033个百分点，WHU为−0.285/−0.276个百分点。两个模块相对Run2在四库均降低，CTRL在LEVIR、SYSU、CDD也降低；共同训练设置与模块变化需要分别归因。
-
-SYSU出现明确的后期泛化不足：CTRL与普通版最佳epoch为3、双曲为33，训练损失继续下降而test选模损失上升。普通对比K/V保持有效幅度和随query变化的检索，未复现归零；双曲最粗层在LEVIR/WHU的最佳checkpoint诊断中约75%输入对触发裁剪，但半径差异和检索仍有效。该层约99%注意力留在本尺度，跨尺度利用有限。CDD三组最佳均为最后一轮，当前40K预算尚不能证明已达到平台。
-
-日志与JSON已下载至`outputs/CASA-Pyramid/Run3`；指标表197条正式记录，原185条历史单元格保留。Run3冻结TXT使用`source_code.tar.gz`内实际模型源码，current TXT使用当前工作源码。完整日志、逐轮表格、曲线、最佳epoch、模块诊断及环境已导出至`docs/experiments/CASA-Pyramid/Run3`。
-
-[完整训练记录](docs/experiments/CASA-Pyramid/Run3/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run3/analysis.md)
+<!-- CASA_PYRAMID_RUN5_RESULTS_END -->
 
 ```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run3
-python train_scripts/CASA-Pyramid/Run3/collect_results.py
-python tools/export_training_records.py --tag CASA-Pyramid --run Run3
-```
-
-日志与源码归档：`outputs/CASA-Pyramid/Run3`；服务器同名日志目录，checkpoint在`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run3`。
-
-源码基线`0f714f5`，正式队列于2026-10-26 02:57:17 CST启动。LEVIR普通8epoch、双曲3epoch及SYSU两版各4epoch健康短训通过，分支及任务梯度有效；普通对比K/V采用WD0。SYSU CTRL的12epoch骨干学习率对照中，倍率0.1/1.0最佳val F1为80.5987/80.0503%，后四轮平均79.2011/79.1474%；采用0.1作为共同协议，短训不证明长期泛化已解决。
-
-## Run3 实测开销
-
-RTX5090，256×256、FP32；训练batch32测6步，前2步预热。部署为折叠后单输出predict、batch1、30预热/100同步计时，随机权重。cuDNN TF32开、matmul TF32关。FLOPs只统计支持的卷积和矩阵乘；双曲逐元素几何与直接距离运算未完整计入。
-
-| 变体 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
-|---|---:|---:|---:|---:|
-| none | 8202 | 54.51 | 3.69 | 1.735 |
-| hyperbolic | 14870 | 148.28 | 8.67 | 2.037 |
-| qkv | 9426 | 69.72 | 5.95 | 2.136 |
-
-双曲版以更高的实际计算开销换取成对几何表示；参数少于普通版，但推理更慢。是否值得由同轮精度与开销共同判断。
-
-## Run3 诊断依据与适用范围
-
-固定SYSU验证集前256张的Run2诊断中，CTRL/普通/双曲的F1为87.60/87.03/87.53%，内部召回为89.72/85.57/85.07%，1像素边界F1为31.27/37.47/36.65%。旧模块已改善边界，薄弱项更集中在变化区域内部。去掉可靠度先验未改善这个子集；关闭context反而使两个模块下降约1.5～1.6个百分点，因此旧模块并未失活。Run3用成对表示和独立信息通路检验内部信息保留问题。
-
-分析产物位于`outputs/CASA-Pyramid/Run3/analysis`。这是固定验证子集与同权重干预，不是完整正式对照；小目标样本量有限。新结构与骨干LR共同变化，跨轮收益不可归因于单项；几何贡献仍需同协议专门消融。
-
-## 历史 CASA-Pyramid / Run2
-
-Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28秒；源码基线`9f515ef`。12/12项正式训练及测试完成，无失败，调度器已退出。2026-10-26核查两张GPU空闲。全部部署折叠检查通过，最大绝对差3.934e-6，二值差均为0。 配置与初期观察见[Run2说明](train_scripts/CASA-Pyramid/Run2/README.md)。
-
-相对同轮CTRL，双曲/普通模块在LEVIR的F1分别提高0.185/0.148个百分点，WHU提高0.212/0.345个百分点；SYSU分别降低0.529/0.832个百分点；CDD双曲提高0.021个百分点、普通降低0.044个百分点。本轮呈现数据集相关的收益，SYSU是共同薄弱项；单seed微小差异不作为稳定提升证据。所有结果均为test参与选模后的复测。
-
-<!-- CASA_PYRAMID_RUN2_RESULTS_START -->
-
-状态更新：2026-10-26 00:19:21 CST；队列 `complete`；正式结果 **12/12**。
-
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 90.98 | 83.45 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 91.16 | 83.76 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.13 | 83.70 |
-| SYSU | `M0_CTRL` | 完成 | 83.37 | 71.48 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 82.84 | 70.70 |
-| SYSU | `M2_CA_QKV` | 完成 | 82.54 | 70.26 |
-| WHU | `M0_CTRL` | 完成 | 94.35 | 89.31 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.56 | 89.69 |
-| WHU | `M2_CA_QKV` | 完成 | 94.70 | 89.93 |
-| CDD | `M0_CTRL` | 完成 | 96.91 | 94.00 |
-| CDD | `M1_HYPER_QKV` | 完成 | 96.93 | 94.04 |
-| CDD | `M2_CA_QKV` | 完成 | 96.87 | 93.92 |
-
-<!-- CASA_PYRAMID_RUN2_RESULTS_END -->
-
-```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run2
-python train_scripts/CASA-Pyramid/Run2/collect_results.py
-python tools/export_training_records.py --tag CASA-Pyramid --run Run2
-```
-
-源码、日志和JSON：`outputs/CASA-Pyramid/Run2`；服务器日志根`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run2`，checkpoint根`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run2`。指标表共185条正式记录，原173条逐单元格保留，本轮新增12条。独立val选模的两项LEVIR结果另存`Run2_val`（CTRL F1 90.8261%、普通90.8842%）；历史冻结TXT与其运行源码对应。
-
-## Run2 推理开销
-
-RTX5090，256×256，FP32；训练batch32实测6步、前2步预热。推理为折叠后predict()单输出、batch1、30预热/100同步计时、随机权重；cuDNN TF32开、matmul TF32关。FLOPs仅含支持的卷积和矩阵乘，未计双曲逐元素运算。
-
-| 模式 | batch32峰值保留显存(MiB) | 同步训练步(ms) | 单输出推理(ms) | 已统计GFLOPs |
-|---|---:|---:|---:|---:|
-| none | 8200 | 54.01 | 3.68 | 1.734 |
-| hyperbolic | 13518 | 103.80 | 6.42 | 2.165 |
-| qkv | 11966 | 81.53 | 5.47 | 2.156 |
-
-## 历史 CASA-Pyramid / Run1
-
-原128-token、双曲V版本的完整结果与源码已冻结。
-
-
-
-四库各双曲、普通和CTRL，共12项。LEVIR→SYSU→WHU→CDD优先，两张GPU按实测显存与留量补位，允许跨库填空。正式训练于2026-10-24 15:03:59 CST启动，源码基线`5730d13`，全部12项训练与测试于当天22:30:52 CST完成，总耗时7小时26分53秒。模型和训练脚本见[Run1说明](train_scripts/CASA-Pyramid/Run1/README.md)。
-
-<!-- CASA_PYRAMID_RUN1_RESULTS_START -->
-
-状态更新：2026-10-24 23:37:37 CST；队列 `complete`；正式结果 **12/12**。
-
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 90.96 | 83.41 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 90.99 | 83.46 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.15 | 83.73 |
-| SYSU | `M0_CTRL` | 完成 | 81.22 | 68.37 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 81.58 | 68.88 |
-| SYSU | `M2_CA_QKV` | 完成 | 81.93 | 69.39 |
-| WHU | `M0_CTRL` | 完成 | 94.08 | 88.82 |
-| WHU | `M1_HYPER_QKV` | 完成 | 93.97 | 88.62 |
-| WHU | `M2_CA_QKV` | 完成 | 93.78 | 88.30 |
-| CDD | `M0_CTRL` | 完成 | 96.80 | 93.80 |
-| CDD | `M1_HYPER_QKV` | 完成 | 96.75 | 93.70 |
-| CDD | `M2_CA_QKV` | 完成 | 96.75 | 93.71 |
-
-<!-- CASA_PYRAMID_RUN1_RESULTS_END -->
-
-本轮相对CTRL，双曲/普通模块在LEVIR分别提高0.031/0.191个百分点，在SYSU提高0.359/0.714个百分点；WHU分别降低0.114/0.297个百分点，CDD降低0.052/0.045个百分点。普通版在LEVIR与SYSU高于双曲版，本轮尚未证明双曲几何具有稳定精度优势。两个模块部署参数均为1.952266M，精度与开销需共同评价。全部实验部署折叠检查通过，二值预测差异均为0。日志与JSON已下载至outputs/CASA-Pyramid/Run1，冻结TXT使用实际运行源码归档，Run1收集完成时指标表共有171条正式记录。
-
-三种模型折叠检查的首级误差均约5.96e-8，二值差异为0。探针不计入正式指标。本轮同时改变编码器融合、注意力位置和评分监督，与历史轮次的总体比较不能单独归因于几何；主要机制比较使用本轮三组共同协议。
-
-## Run1 推理开销
-
-RTX5090，256×256双时相输入、batch1、四级输出；折叠后30次预热、100次同步测量，随机权重。输入/权重为FP32，cuDNN允许TF32，矩阵乘TF32关闭。FLOPs仅含profiler支持的卷积/矩阵乘，双曲逐元素开销未计入。
-
-| 变体 | 训练参数 | 部署参数 | 已统计GFLOPs | 中位延迟(ms) |
-|---|---:|---:|---:|---:|
-| none | 2,047,125 | 1,935,810 | 1.734 | 3.81 |
-| hyperbolic | 2,063,581 | 1,952,266 | 2.113 | 7.54 |
-| qkv | 2,063,581 | 1,952,266 | 2.100 | 5.53 |
-
-## 完整训练记录
-
-[CASA-Pyramid/Run2公开记录](docs/experiments/CASA-Pyramid/Run2/README.md)包含12项完整日志、逐epoch训练/test选模曲线、实际最佳epoch、模块诊断、正式结果、探针及环境。Run2冻结TXT来自实际训练源码归档；current TXT对应当前models。
-
-[CASA-Pyramid/Run1公开记录](docs/experiments/CASA-Pyramid/Run1/README.md)包含12项完整train_log.txt、逐epoch训练/验证CSV、实际最佳epoch、模块诊断CSV/JSONL、四库完整曲线、四项成功探针及运行环境。诊断为当轮验证首个batch的实际数值；epoch从0开始。源码输出语句与实际训练记录分别保留。
-
-```powershell
-python tools/export_training_records.py --tag CASA-Pyramid --run Run1
-```
-
-## 操作与产物
-
-```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run1
-python train_scripts/CASA-Pyramid/Run1/collect_results.py
+python .codex/status.py --tag CASA-Pyramid --run Run5
+python train_scripts/CASA-Pyramid/Run5/collect_results.py
 python tools/models_to_txt.py --tag CASA-Pyramid --run current
 ```
 
-| 内容 | 位置 |
-|---|---|
-| 当前模型与入口 | models/，models/train_CASA.py |
-| 本轮脚本 | train_scripts/CASA-Pyramid/Run1/ |
-| 本轮日志与源码归档 | /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run1/ |
-| 本轮checkpoint | /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run1/ |
-| 本地产物 | outputs/CASA-Pyramid/Run1/ |
-| 数据 | /share_datasets/CD/<dataset>/{A,B,label,list}/ |
-| 预训练 | /home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth |
-| 正式指标 | docs/experiment_metrics.xlsx |
-| 当前/冻结快照 | docs/temporary/models_and_metrics_CASA-Pyramid_current.txt、models_and_metrics_CASA-Pyramid_Run1.txt |
+[Run5脚本与状态](train_scripts/CASA-Pyramid/Run5/README.md)。本地输出`outputs/CASA-Pyramid/Run5`；服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run5`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run5`。
 
-指标表目前173条，全部既有记录逐单元格保留。仅完整TEST RESULTS区块可入表，另有新增一并保留。冻结快照使用本轮实际运行源码；历史CASA/Run6与Run7快照不覆盖。Git提交源码、说明、指标、规定快照与docs/experiments中的公开训练记录。连接和状态见[.codex](.codex/README.md)。
+## 保留基线：CASA-Pyramid / Run4
 
-## 历史 CASA / Run7
+2026-10-26完成12/12，历时9小时00分28秒，源码基线`eb3babe`。训练数值稳定，部署折叠全部通过、二值差为0。两版在LEVIR、SYSU、WHU均比同轮CTRL提高，CDD基本持平。
 
-原MobileNetV2+HFEA、编码器四层独立QKV的12项已完成并收集，模型源码基线2e60998，结果提交09e45ae。其延迟为CTRL5.86ms、双曲17.35ms、普通9.02ms（RTX5090，256×256，batch1；FP32输入/权重，cuDNN允许TF32，30预热/100同步调用），仅适用于旧结构。
+| 数据集 | CTRL F1 (%) | 双曲 F1 (%) | 普通 F1 (%) | 双曲/普通相对CTRL (pp) |
+|---|---:|---:|---:|---:|
+| LEVIR | 90.9482 | 91.1166 | 91.1429 | +0.168 / +0.195 |
+| SYSU | 82.3165 | 82.7753 | 82.8930 | +0.459 / +0.576 |
+| WHU | 94.1891 | 94.6085 | 94.7247 | +0.419 / +0.536 |
+| CDD | 96.9150 | 96.9384 | 96.8998 | +0.023 / −0.015 |
 
-<!-- CASA_RUN7_RESULTS_START -->
+Run4是正向结果，普通版在前三库略高于双曲版。SYSU后期训练损失下降而选模损失上升仍存在，普通版最佳epoch为3。较大残差和跨尺度交互未自动带来更多收益；固定val干预确认建筑库检索与局部支路均有作用，原型内容纯度仍有改善空间。
 
-状态更新：2026-10-24 12:45:34 CST；队列 `complete`；正式结果 **12/12**。
+RTX5090、256×256、FP32 batch1，30预热/100次中位数的Run4 CTRL/H/E推理延迟为3.83/6.79/5.78ms。相同测量设置下，Run5 CTRL/H/E为3.75/6.83/5.84ms，参数量不变。
 
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 91.01 | 83.51 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 91.54 | 84.40 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.33 | 84.04 |
-| SYSU | `M0_CTRL` | 完成 | 82.29 | 69.91 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 80.79 | 67.77 |
-| SYSU | `M2_CA_QKV` | 完成 | 81.14 | 68.27 |
-| WHU | `M0_CTRL` | 完成 | 93.99 | 88.66 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.57 | 89.70 |
-| WHU | `M2_CA_QKV` | 完成 | 94.55 | 89.67 |
-| CDD | `M0_CTRL` | 完成 | 97.43 | 94.99 |
-| CDD | `M1_HYPER_QKV` | 完成 | 97.47 | 95.06 |
-| CDD | `M2_CA_QKV` | 完成 | 97.47 | 95.06 |
+[Run4完整日志、曲线与诊断](docs/experiments/CASA-Pyramid/Run4/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run4/analysis.md) · [冻结源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run4.txt) · [配置说明](train_scripts/CASA-Pyramid/Run4/README.md)
 
-<!-- CASA_RUN7_RESULTS_END -->
+## 历史版本
 
-CASA/Run7相对CTRL，双曲/普通模块在LEVIR分别提高0.527/0.316个百分点，在WHU提高0.581/0.561个百分点；CDD均提高约0.038个百分点。SYSU分别降低1.504/1.151个百分点，仍需解决该数据集上的性能损失。上述为单seed结果，CDD的小幅差异尚需重复实验验证。
+| 轮次 | 保留结论 | 完整材料 |
+|---|---|---|
+| CASA-Pyramid Run3 | 配对双库、双曲差异检索；SYSU/CDD小幅收益，建筑库效果不足，共同LR/loss同时变化 | [记录与分析](docs/experiments/CASA-Pyramid/Run3/README.md) |
+| CASA-Pyramid Run2 | 224KV、共享Q/K与欧式V；LEVIR/WHU受益，SYSU下降 | [记录与分析](docs/experiments/CASA-Pyramid/Run2/README.md) |
+| CASA-Pyramid Run1 | TAR后128KV跨尺度检索；初步验证结构，四库收益不一致 | [完整记录](docs/experiments/CASA-Pyramid/Run1/README.md) |
+| 早期CASA与CASA-WDMF | 模块、优化与几何经验保留在各轮冻结TXT | [历史快照](docs/temporary/) / [指标表](docs/experiment_metrics.xlsx) |
 
-启动、健康探针与初期损失见[Run7说明](train_scripts/CASA/Run7/README.md)。Run6四库特征、完整验证支路诊断和Run7机制依据见[分析报告](docs/temporary/CASA_Run6_analysis_Run7_design.md)。
-
-## 历史 CASA / Run6
-
-四库各运行双曲、普通QKV和CTRL，共12项。优先级为 **LEVIR→SYSU→WHU→CDD**，两张GPU按实测显存预算并行补位。启动时GPU0运行两项双曲实验，GPU1运行普通模块和两项CTRL，共五路。
-
-两模块各通过3个LEVIR epoch、4个SYSU epoch的真实数据健康训练。正式训练从全新初始化开始，使用MobileNetV2预训练权重。运行源码基线为 `a946963`，本轮源码保存在日志根目录的 `source_code.tar.gz`。
-
-<!-- CASA_RUN6_RESULTS_START -->
-
-状态更新：2026-10-24 02:02:52 CST；队列 `complete`；正式结果 **12/12**。
-
-| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
-|---|---|---|---:|---:|
-| LEVIR | `M0_CTRL` | 完成 | 91.55 | 84.42 |
-| LEVIR | `M1_HYPER_QKV` | 完成 | 91.05 | 83.57 |
-| LEVIR | `M2_CA_QKV` | 完成 | 91.62 | 84.53 |
-| SYSU | `M0_CTRL` | 完成 | 82.42 | 70.09 |
-| SYSU | `M1_HYPER_QKV` | 完成 | 80.83 | 67.83 |
-| SYSU | `M2_CA_QKV` | 完成 | 82.39 | 70.05 |
-| WHU | `M0_CTRL` | 完成 | 93.44 | 87.69 |
-| WHU | `M1_HYPER_QKV` | 完成 | 94.73 | 89.99 |
-| WHU | `M2_CA_QKV` | 完成 | 94.16 | 88.97 |
-| CDD | `M0_CTRL` | 完成 | 97.43 | 94.99 |
-| CDD | `M1_HYPER_QKV` | 完成 | 97.45 | 95.03 |
-| CDD | `M2_CA_QKV` | 完成 | 97.47 | 95.07 |
-
-<!-- CASA_RUN6_RESULTS_END -->
+已收集正式指标209条，Run4原始源码与全部历史记录保留。Run5新增12条收齐后应为221条；如有其他新增记录全部保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
 
 ## 已知限制
 
-当前实验为seed2333，尚不能主张稳定普适提升。变化评分的预测误差会影响原型，两个原型可在无变化区域接近；注意力熵或gamma单项不能作为失活定论，需结合任务梯度、支路贡献和验证数据。TAR是有序时相融合，整网不保证严格时相交换不变或相同输入恒零。本轮逐epoch模块诊断取test首个batch；test参与checkpoint选择，最终复测不是独立盲测。
+当前单seed且test参与选模；小幅差异需要进一步复核。Run5平方分配仍可能放大guide高分误报，自身竞争也不是独立可靠性估计；同类单原型不能表示任意多种外观。SYSU长期泛化与双曲几何额外收益仍需正式结果判断。详细证据与方案边界集中在Run5设计文档中。

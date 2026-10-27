@@ -1,105 +1,68 @@
 # CASA-Pyramid
 
-共享MobileNetV2原生四尺度（24/32/96/320通道）→ TAR时相融合至64通道 → 跨尺度上下文修正 → DCR → 共享预测头。context接收四层TAR变化特征；骨干结束于320通道，不使用HFEA。训练四级深监督，`predict()`输出最终一级变化概率。
-
-当前工作源码对应Run4，协议`casa_pyramid_40k_relative_adamwctx_v4`，脚本位于`train_scripts/CASA-Pyramid/Run4/`。设计见[Run4设计文档](../docs/temporary/CASA-Pyramid_Run4_design.md)，参考材料见[文献索引](../docs/参考文献/文献索引.md)。历史冻结快照保持对应轮次实现。
+当前工作源码对应Run5，协议`casa_pyramid_40k_selective_selfref_v5`。共享MobileNetV2原生24/32/96/320通道→TAR至64通道→选择性跨尺度上下文→DCR→共享预测头。保持完整Q与压缩KV；Run4实际源码保存在其归档与冻结TXT中。
 
 ## 文件组织
 
 | 文件 | 职责 |
 |---|---|
-| `model/casa_net.py` | 骨干、TAR、context、DCR与预测头的数据流 |
-| `model/layers/pyramid_context.py` | 变化/背景压缩、可靠性与尺度先验、欧式V、相对回写和细层局部分支 |
-| `model/layers/euclidean_context.py` | 共享Q/K投影、欧氏距离检索 |
-| `model/layers/hyperbolic_context.py` | 直接Lorentz映射、流形K池化、双曲距离检索 |
-| `model/layers/lorentz_ops.py` | 曲率−1的映射、归一化质心与平方测地距离 |
-| `train_CASA.py` | 训练协议、选模、诊断及部署检查 |
-| `profile_CASA.py` | 实际配置的训练显存及步耗时测量 |
+| `model/casa_net.py` | 共享骨干、TAR、context、DCR与预测头 |
+| `model/layers/pyramid_context.py` | 平方概率压缩、支持度、自参照注意力、欧式内容与细层局部残差 |
+| `model/layers/euclidean_context.py` | 完整欧氏Q、池化后K投影、平方欧氏距离 |
+| `model/layers/hyperbolic_context.py` | 直接Lorentz映射、质心K、平方测地距离 |
+| `model/layers/lorentz_ops.py` | 曲率−1几何与同点平方距离解析极限 |
+| `train_CASA.py` | 固定训练、test选模、损失、诊断与部署检查 |
+| `profile_CASA.py` | 同配置batch32训练显存与步耗时 |
 
-## 共同输入与压缩
+## 内容压缩
 
-四层TAR共用通道LayerNorm，`X_s=LN(T_s)`。Q/K使用同一个无bias的64→64投影，四尺度共享，拆为4头×16维并除以√16。保留全部5440个query位置，只有K/V压缩。
-
-| 尺度 | 分辨率 | 区域网格 | 每区域像素数 | 变化/背景token |
-|---|---|---|---:|---:|
-| S1 | 64×64 | 8×8 | 64 | 64＋64=128 |
-| S2 | 32×32 | 4×4 | 64 | 16＋16=32 |
-| S3 | 16×16 | 4×4 | 16 | 16＋16=32 |
-| S4 | 8×8 | 4×4 | 4 | 16＋16=32 |
-
-共享guide从X预测变化概率p。每区域对`m=p`和`m=1−p`分别构造一个原型：
+四层TAR共用通道LayerNorm：`X=LN(T)`；guide预测p。四尺度分辨率64²/32²/16²/8²，网格8/4/4/4，每区域变化和背景各一个原型，共128/32/32/32=224KV。完整Q为5440个位置、4头×16维；共享Q/K无bias投影，除以√16。
 
 ```text
-w_i = (m_i + 1e−6) / Σ_j(m_j + 1e−6)
+m = p 或 1−p
+w_i = (m_i+eps)² / Σ_l(m_l+eps)²
 P = Σ_i w_i X_i
-r = Σ_i m_i² / max(Σ_i m_i, 1e−6)
+r = max(Σ_i w_i m_i², eps), eps=1e−6
+V = W_v P
 ```
 
-r是按类别概率加权的置信度，不是面积占比；少量高置信变化不因面积小而直接降低prior。分配权重和prior保留梯度。224个token联合检索：
+固定概率平方降低区域内大量低分背景的累计混入，不增加特征激活函数。r是二阶类别支持度；若p整区相同，两原型总支持为p²+(1−p)²，模糊p=.5时低于明确类别。分配和支持度保留梯度；LN在池化前，无bias线性投影可与同权池化交换。支持度仍依赖guide，不能当作独立正确性证据。
+
+## 普通与双曲检索
+
+普通：`Q=W_qk X/√16`，`K=W_qk P/√16`，距离为平方欧氏距离。双曲：先将密集投影z提升为`L(z)=(sqrt(1+||z||²),z)`，再按w构造Lorentz归一化质心K；半径`asinh(||z||)`可变且无硬裁剪。检索使用平方测地距离，近同点用同一公式的解析级数保留有限导数。V保持欧式。Lorentz归一化质心不称一般精确Fréchet均值。
 
 ```text
-logit(q,k) = −d(q,k)² / (2 tau_head²)
-             + log(max(r_k,1e−6))
-             + scale_bias[head,query_scale,source_scale]
-             − log(source_token_count)
-A = softmax(logit)
+l_ij = −d(Q_i,K_j)²/(2 tau_head²) + log(r_j)
+       + scale_bias[head,query_scale,source_scale] − log(M_source)
+A_i = softmax([l_i1,...,l_i224,0])
+g_i = Σ_j=1..224 A_ij
+U_i = W_out(Σ_j A_ij V_j − g_i W_v X_i)
 ```
 
-温度为每头一个softplus正参数，初值0.5。数量先验修正128/32/32/32布局的token数偏差，内容与可学习尺度偏置仍决定实际偏好。
+末项为query自身：K=Q、V=W_vX，距离0、支持1，因此logit固定0。自身和压缩内容竞争，g_i由图像、位置与head共同决定。回写等价于联合读出减自身V；减项须乘g_i。所有内容相同则修正为零，候选远或支持低时可减少改写。不是另一个共享全局KV，跨尺度原型仍为224个。
 
-## 内容回写与局部细节
-
-V为欧式64维，先池化X，再做无bias线性投影。完整query使用同一个V投影，回写检索内容相对当前内容的差值：
+## 残差与细节
 
 ```text
-U_s = W_out(reshape(A_s @ V) − W_V X_s)
 T'_s = T_s + gamma_context[s] ⊙ U_s
+S1/S2另加 gamma_detail[s] ⊙ PW1(DW3(X_s−Avg3(X_s)))
 ```
 
-常量内容的修正为零；一般输入下的实际幅度仍由学习决定。S1/S2增加局部高频分支，平均滤波和深度卷积均使用replicate padding：
+平均滤波及DW3使用replicate padding。gamma_context为4×64，gamma_detail为2×64，均零初始化；投影与卷积正常初始化。CTRL保留相同LN/guide监督，TAR直接进入DCR。TAR与DCR保持Run4结构重参数化及SiLU；三组共同路径初始化一致。
 
-```text
-H_s = X_s − AvgPool3×3(X_s)
-L_s = PW1×1(DW3×3(H_s))
-T'_s = T'_s + gamma_detail[s] ⊙ L_s
-```
+两模块训练2.064537M、部署1.953222M、context17,605参数；CTRL为2.047125M、1.935810M、193参数。Run5机制不增加可学习参数；运行效率单独实测。
 
-该高通来自TAR变化特征，不是RGB梯度或额外A/B绝对差分。没有独立边界预测头和边界辅助损失。`gamma_context`为4×64、`gamma_detail`为2×64，逐通道零初始化；支路卷积和输出投影正常初始化，初始输出等于TAR。
+## 训练、诊断与检查
 
-## 普通QKV
+Run4共同协议保持：RGB256、batch32、seed2333、Adam全网lr5e−4，betas(.9,.99)、eps1e−8，200warmup后poly^.9，40K整epoch取整。context Conv/Linear权重解耦WD1e−4，其余context WD0；encoder/body保留耦合L2 WD1e−4。四级BCEWithLogits+Dice加.2倍四级guide面积标签BCE，无边界辅助损失。
 
-`euclidean_context.py`采用共享Q/K坐标的平方欧氏距离。完整Q由X密集投影；K先池化X再投影。LN在池化前，同一组权重下池化与无bias线性投影交换等价。
+RGB ImageNet归一化，标签gray≥128；同步裁剪、水平/垂直翻转、90°旋转与时相交换，评估无随机增强。每epoch test/F1选模并复测，test参与选模，非独立盲测。完整设置见[根README](../README.md)。
 
-变化与背景原型进入同一个224-token softmax。没有独立对比差分库，也不通过两个独立softmax分别广播均值与对比内容。
+`forward`返回四级概率，`return_aux=True`返回四级logits及guide_logits；`predict`输出一级概率。部署在eval折叠TAR/DCR，strict_fp32_fold_v1检查首级差≤2e−4并记录全部四级和二值差。
 
-## 双曲QKV
+日志保留残差、权重、梯度与几何诊断，并新增上下文采用量g、self质量、检索V和自身V的幅度/余弦、读出空间差异。entropy、scale_mass与query_attention_tv均基于**给定采用上下文后的条件分布**；实际采用比例另看context_mass。首batch诊断不能代替全split任务指标。
 
-`hyperbolic_context.py`把共享投影输出z作为Lorentz空间坐标：
+测试覆盖稀疏/模糊区域、压缩投影交换、零初始化、常量保持、自参照拒绝、跨尺度与全部参数梯度、Lorentz数值及部署折叠。LEVIR每模块6epoch、SYSU每模块4epoch真实train/val短训用于检查健康，正式从预训练骨干全新初始化。
 
-```text
-x = (sqrt(1 + ||z||²), z)
-<x,x>_L = −1
-radius(x) = asinh(||z||)
-```
-
-曲率固定−1；不逐token单位化投影输出，不做径向硬裁剪。每个K使用与V一致的变化/背景权重，将密集Lorentz点加权求和后归一化。该操作是Lorentz归一化质心，不称任意多点的精确Fréchet均值。
-
-检索仅使用平方测地距离`acosh(−<q,k>_L)²`。实现从空间弦差与时间差计算`cosh(d)−1`，在同点附近使用解析级数，使平方距离零点导数有限。V保持欧式内容，不做输出Log映射。实际几何范围通过半径、流形误差及任务梯度诊断记录。
-
-## 训练与数据
-
-- `forward(a,b)`返回四级概率；`return_aux=True`返回四级分割logits与四层`guide_logits`。`predict()`只计算最终一级预测；TAR/DCR在eval下折叠。
-- 四级主损失均为BCEWithLogits＋sigmoid Dice，求和；guide为面积平均标签BCE，权重0.2。CTRL保留同样的LN与guide监督，TAR直接进入DCR。
-- 256×256、batch32、seed2333、40K目标按整epoch上取整。Adam基础LR5e−4，预训练骨干倍率1.0，betas(0.9,0.99)、eps1e−8；前200步warmup、poly指数0.9。三组共同设置一致。
-- context内全部Conv2d/Linear权重使用独立参数组：`decoupled_weight_decay=True`、WD1e−4，即衰减按`weight *= 1−lr·wd`作用于参数，不进入Adam梯度矩估计。LN、bias、温度、gamma及尺度偏置WD0；encoder与body保留原Adam耦合L2衰减WD1e−4。实现使用服务器PyTorch2.14的[Adam参数组接口](https://docs.pytorch.org/docs/2.14/generated/torch.optim.Adam.html)。FP32训练，AMP关闭。
-- RGB双线性缩放、标签最近邻；标签灰度≥128。像素除255，再用ImageNet均值`[0.485,0.456,0.406]`、标准差`[0.229,0.224,0.225]`归一化。
-- 训练：0.5概率裁剪四边各0～8像素后恢复；水平/垂直各0.5概率翻转；等概率0/90/180/270°旋转；0.5概率时相交换。空间变换同步，不做独立光度扰动。评价仅缩放和归一化；训练shuffle、drop_last，评价保留全部样本。
-- 每epoch在test选最高F1权重，相同更新，结束复测best；结果属于test参与选模，非独立盲测。训练/验证材料优先用于机制诊断。
-
-## 诊断与效率
-
-正式训练前，LEVIR的双曲/普通模块各短训6个完整epoch，SYSU各4个完整epoch，在val评价并检查损失、任务梯度和分支状态；短训不计正式指标，正式训练从预训练权重全新初始化。
-
-两版记录context/local残差RMS及相对TAR幅度、guide概率、原型可靠性、两类分配差异、Q/K与V权重RMS、温度、注意力熵、来源尺度质量及query差异。双曲另记录query/key半径、半径CV和流形误差。每epoch模块诊断取评价首个batch，边界及内部指标按全split累计；单个熵、gamma或幅度不能独立证明模块失活或贡献为正。
-
-参数、显存和延迟以本轮测量为准，不沿用历史结构数值。目标是低开销下的有效、可归因提升；允许为有用表征增加少量参数，不以极端压参替代精度验证。
+[Run5逐项核实与设计](../docs/temporary/CASA-Pyramid_Run5_design.md) · [来源](SOURCES.md) · [脚本](../train_scripts/CASA-Pyramid/Run5/README.md)

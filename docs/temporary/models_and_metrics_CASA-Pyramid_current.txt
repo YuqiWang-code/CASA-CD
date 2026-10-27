@@ -71,6 +71,9 @@ def main():
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
+                      compression_power=model.context.compression_power,
+                      support_power=model.context.support_power,
+                      self_reference=model.context.self_reference,
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                       context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
                       body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
@@ -597,19 +600,23 @@ def compression_semantics():
     prototype = pool_features(feature, weights, 1)
     assert weights[0, 0, 0, 0] > .9999
     assert torch.allclose(prototype[:, 0], feature[..., 0, 0], atol=3e-4)
-    assert torch.equal(confidence, torch.ones_like(confidence)), "sparse confident target lost prior mass"
+    assert torch.allclose(confidence, torch.ones_like(confidence), atol=1e-9, rtol=0), "sparse confident target lost prior mass"
     for value in (0., .01, .5, .99, 1.):
         weights, confidence = assignments(torch.full_like(probability, value), 1)
         assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
         prototype = pool_features(feature, weights, 1)
         assert torch.allclose(prototype[:, 0], prototype[:, 1], atol=1e-12)
-        expected = torch.tensor([[max(value, 1e-6), max(1-value, 1e-6)]], dtype=torch.double)
+        expected = torch.tensor([[max(value**2, 1e-6), max((1-value)**2, 1e-6)]], dtype=torch.double)
         assert torch.allclose(confidence, expected, atol=1e-12)
     logits = torch.randn_like(probability, requires_grad=True)
     weights, _ = assignments(logits.sigmoid(), 2)
     pooled = pool_features(feature, weights, 2)
     grads = torch.autograd.grad(pooled.square().sum(), (feature, logits))
     assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
+    sparse = torch.full_like(probability,.05)
+    sparse[...,0,0]=.6
+    sharpened,_=assignments(sparse,1)
+    assert .69 < sharpened[0,0,0,0] < .70
     operator = EuclideanContext().double()
     dense = operator.project_queries(feature)
     expected = torch.einsum("brtp,bhrpd->bhrtd", weights, regions(dense, 2)).flatten(2, 3)
@@ -653,7 +660,15 @@ def contexts():
         key=op.project_queries(torch.zeros(1,64,1,224)).flatten(2,3)
         attention=op.attention(query,key,torch.ones(1,224),0)
         mass=torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale,-1)],-1)
-        assert torch.allclose(mass,torch.full_like(mass,.25),atol=1e-6)
+        assert torch.allclose(mass,torch.full_like(mass,.2),atol=1e-6)
+        # With no matching prototype, the self candidate receives nearly all mass.
+        remote=op.project_queries(torch.full((1,64,1,224),100.)).flatten(2,3)
+        remote_attention=op.attention(query,remote,torch.ones(1,224),0)
+        assert remote_attention.sum(-1).max()<1e-4
+        # Uniformly ambiguous pairs have half the total prior of confident pairs.
+        uncertain=op.attention(query,key,torch.full((1,224),.25),0).sum(-1)
+        confident=op.attention(query,key,torch.tensor([1.,1e-6]).repeat(112)[None],0).sum(-1)
+        assert torch.all(uncertain < confident)
         print(context_type.__name__, 'identity, constant preservation, all parameter/cross-scale gradients PASS')
 
 
@@ -685,7 +700,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_relative_adamwctx_v4"
+PROTOCOL = "casa_pyramid_40k_selective_selfref_v5"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -976,8 +991,11 @@ def main():
                     qkv_dim=64, heads=4, guide_weight=GUIDE_WEIGHT,
                     query_key_head_dim=16, value_head_dim=16,
                     shared_query_key_projection=True,
-                    reliability_prior="class posterior second moment / class mass",
-                    context_readout="attention @ values - query value",
+                    compression_power=model.context.compression_power,
+                    support_power=model.context.support_power,
+                    self_reference=model.context.self_reference,
+                    reliability_prior="sharpened-membership weighted class posterior square",
+                    context_readout="sum_j context_attention_ij * (value_j - query_value_i); self logit 0",
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
@@ -2101,7 +2119,7 @@ class MultiScaleTAR(nn.Module):
 ================================================================================
 # FILE: models/model\layers\euclidean_context.py
 ================================================================================
-"""Euclidean retrieval of reliable change/background prototypes."""
+"""Euclidean retrieval with selective prototypes and a dense self reference."""
 import math
 
 from model.layers.pyramid_context import ResidualPyramidContext, project_tokens, split_heads
@@ -2130,7 +2148,7 @@ class EuclideanContext(ResidualPyramidContext):
 ================================================================================
 # FILE: models/model\layers\hyperbolic_context.py
 ================================================================================
-"""Shared-coordinate Lorentz Q/K retrieval with Euclidean content refinement."""
+"""Lorentz prototype retrieval relative to each query's own geometric point."""
 import math
 
 import torch
@@ -2200,7 +2218,7 @@ def pairwise_squared_distance(query, key):
 ================================================================================
 # FILE: models/model\layers\pyramid_context.py
 ================================================================================
-"""Change-guided compression and query-relative pyramid refinement."""
+"""Selective change prototypes and self-referenced pyramid retrieval."""
 import math
 
 import torch
@@ -2238,13 +2256,12 @@ def project_tokens(layer, tokens, heads):
 
 
 def assignments(probability, grid):
-    """Change/background weights and confidence, without penalizing class area."""
+    """Sharpen class membership within each region and measure class support."""
     positive = feature_regions(probability, grid).squeeze(-1)
     memberships = torch.stack((positive, 1 - positive), dim=2)
-    weights = memberships + 1e-6
+    weights = (memberships + 1e-6).square()
     weights = weights / weights.sum(-1, keepdim=True)
-    confidence = (memberships.square().sum(-1) /
-                  memberships.sum(-1).clamp_min(1e-6)).clamp_min(1e-6)
+    confidence = (weights * memberships.square()).sum(-1).clamp_min(1e-6)
     return weights, confidence.flatten(1, 2)
 
 
@@ -2266,17 +2283,25 @@ def rms(x):
 
 
 def attention_diagnostics(probability, counts):
-    tv = (probability - probability.mean(-2, keepdim=True)).abs().sum(-1) / 2
+    mass = probability.sum(-1, keepdim=True)
+    conditional = probability / mass.clamp_min(1e-8)
+    tv = (conditional - conditional.mean(-2, keepdim=True)).abs().sum(-1) / 2
     return dict(
-        entropy=float(-(probability * probability.clamp_min(1e-9).log()).sum(-1).mean()
+        entropy=float(-(conditional * conditional.clamp_min(1e-9).log()).sum(-1).mean()
                       / math.log(probability.shape[-1])),
-        scale_mass=torch.stack([p.sum(-1) for p in probability.split(counts, -1)], -1).mean((0, 2)).tolist(),
+        scale_mass=torch.stack([p.sum(-1) for p in conditional.split(counts, -1)], -1).mean((0, 2)).tolist(),
+        context_mass_mean=float(mass.mean()), context_mass_min=float(mass.min()),
+        context_mass_max=float(mass.max()), context_mass_std=float(mass.std(unbiased=False)),
+        self_mass_mean=float((1-mass).mean()),
         query_attention_tv=float(tv.mean()), query_attention_tv_per_head=tv.mean((0, 2)).tolist())
 
 
 class ResidualPyramidContext(nn.Module):
     """Shared compression/readout; subclasses define Euclidean or Lorentz keys."""
     value_geometry = "euclidean"
+    compression_power = 2
+    support_power = 2
+    self_reference = True
 
     def __init__(self, channels=64, heads=4, grid_sizes=(8, 4, 4, 4)):
         super().__init__()
@@ -2303,7 +2328,9 @@ class ResidualPyramidContext(nn.Module):
         logits = -self.squared_distance(query, key) / (2 * temperature.square())
         logits = logits + confidence.log()[:, None, None] + source_bias(
             self.scale_bias, query_scale, self.tokens_per_scale)
-        return logits.softmax(-1)
+        # The query's own key has distance zero and unit support. Its value is
+        # retained locally; a shared softmax makes context adoption query-specific.
+        return torch.cat((logits, torch.zeros_like(logits[..., :1])), -1).softmax(-1)[..., :-1]
 
     def forward(self, tar):
         normalized = [channel_norm(self.norm, x) for x in tar]
@@ -2322,7 +2349,10 @@ class ResidualPyramidContext(nn.Module):
             height, width = x.shape[-2:]
             probability = self.attention(q.flatten(2, 3), key, confidence, index)
             retrieved = merge_heads(probability @ values, height, width)
-            difference = retrieved - self.v(x)
+            own_value = self.v(x)
+            mass = probability.sum(-1, keepdim=True)
+            mass_map = merge_heads(mass.expand(-1, -1, -1, x.shape[1] // self.heads), height, width)
+            difference = retrieved - mass_map * own_value
             update = self.out(difference)
             context_residual = self.gamma_context[index][None, :, None, None] * update
             result = original + context_residual
@@ -2352,6 +2382,10 @@ class ResidualPyramidContext(nn.Module):
                         local_residual_to_feature_rms=float(rms(local_residual) / base),
                         guide_mean=float(guide[index].sigmoid().mean()),
                         reliability_mean=float(reliability.mean()), reliability_min=float(reliability.min()),
+                        retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
+                        self_subtraction_rms=float(rms(mass_map * own_value)),
+                        retrieved_spatial_rms=float(rms(retrieved-retrieved.mean((-2,-1),keepdim=True))),
+                        retrieved_self_cosine=float(F.cosine_similarity(retrieved.flatten(1),own_value.flatten(1)).mean()),
                         assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
                         qk_weight_rms=float(rms(self.qk.weight)), v_weight_rms=float(rms(self.v.weight)),
                         out_weight_rms=float(rms(self.out.weight)),
@@ -2371,6 +2405,9 @@ class AuxiliaryContext(nn.Module):
     value_geometry = "euclidean"
     grid_sizes = (8, 4, 4, 4)
     tokens_per_scale = (0, 0, 0, 0)
+    compression_power = 0
+    support_power = 0
+    self_reference = False
 
     def __init__(self, channels=64):
         super().__init__()

@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_relative_adamwctx_v4"
+PROTOCOL = "casa_pyramid_40k_selective_selfref_v5"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -308,8 +308,11 @@ def main():
                     qkv_dim=64, heads=4, guide_weight=GUIDE_WEIGHT,
                     query_key_head_dim=16, value_head_dim=16,
                     shared_query_key_projection=True,
-                    reliability_prior="class posterior second moment / class mass",
-                    context_readout="attention @ values - query value",
+                    compression_power=model.context.compression_power,
+                    support_power=model.context.support_power,
+                    self_reference=model.context.self_reference,
+                    reliability_prior="sharpened-membership weighted class posterior square",
+                    context_readout="sum_j context_attention_ij * (value_j - query_value_i); self logit 0",
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
