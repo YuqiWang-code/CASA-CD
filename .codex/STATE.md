@@ -2,13 +2,24 @@
 
 更新：2026-10-28。
 
-## CASA-Pyramid / Run6 启动检查
+## CASA-Pyramid / Run6 正式训练中
 
 协议`casa_pyramid_40k_taskgeometry_v6`，入口`models/train_CASA.py`，唯一调度器`train_scripts/CASA-Pyramid/Run6/pipeline.py`。用户最新授权仅物理GPU0，四库各双曲/CTRL共8项，优先LEVIR→SYSU→WHU→CDD，按实测显存与1GiB留量并行。普通QKV保持Run5，不纳入本轮。
 
-模型已同步服务器，Run5源码与产物保留。双曲采用占比半径、同内容K/V、448个双子原型、1头32维和独立内容门控；训练/部署2.058474/1.947159M。模型/梯度/部署检查及显存profile通过，LEVIR6轮/SYSU4轮真实train/val探针均通过，正在归档并启动正式队列。从MobileNetV2预训练全新初始化，不复用探针或Run5权重。每epoch test F1选模，非独立盲测。当前正式指标221条，本轮8项全部收集后至少229条。
+模型已同步服务器，Run5源码与产物保留。双曲采用占比半径、同内容K/V、448个双子原型、1头32维和独立内容门控；训练/部署2.058474/1.947159M。模型/梯度/部署检查及显存profile通过，LEVIR6轮/SYSU4轮真实train/val探针均通过。正式队列于2026-10-28 10:16:28 CST启动，源码基线`9bef162`，supervisor PID2241913；初期活动项均完成至少3个训练及test选模epoch，无异常。从MobileNetV2预训练全新初始化，不复用探针或Run5权重。每epoch test F1选模，非独立盲测。当前正式指标221条，本轮8项全部收集后至少229条。
 
-日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run6`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run6`；本地`outputs/CASA-Pyramid/Run6`。分析入口`models/analyze_hyperbolic.py`仅使用train/val。GPU1未授权本轮训练。
+日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run6`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run6`；本地`outputs/CASA-Pyramid/Run6`。分析入口`models/analyze_hyperbolic.py`仅使用train/val。GPU1未授权本轮训练。当前各项PID及物理GPU以实时pipeline_status.json为准；已有唯一队列，不重复启动。
+
+Run6于2026-10-28 10:16:28 CST启动，源码基线`9bef162`。截至2026-10-28T10:22:04+08:00，队列正常，正式结果0/8；初期各活动实验至少完成3个训练及test选模epoch，未见非有限损失、异常退出或整体分支失活。
+
+| 实验 | 物理GPU / PID | 已完成epoch | 最近主训练损失 | 最近test选模F1(%) |
+|---|---|---:|---:|---:|
+| M1_HYPER_QKV/LEVIR-CD-256 | 0 / 2241915 | 5 | 1.0124 | 87.31 |
+| M0_CTRL/LEVIR-CD-256 | 0 / 2241946 | 6 | 0.9818 | 86.65 |
+| M0_CTRL/SYSU-CD-256 | 0 / 2241973 | 3 | 1.6636 | 80.43 |
+
+两项train/val健康探针均通过，正式实验从预训练骨干全新初始化。GPU0当前显存30460MiB，利用率83%；GPU1没有运行本轮训练。初期诊断和短训只能说明当前训练正常，四库精度与泛化结论待完整正式结果。
+
 
 ## CASA-Pyramid / Run5 已完成
 

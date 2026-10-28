@@ -1,0 +1,17 @@
+{
+  "code_baseline": "9bef16281864494cc66551014aae9422fecc8857",
+  "protocol": "casa_pyramid_40k_taskgeometry_v6",
+  "source_archive": "source_code.tar.gz",
+  "target_experiments": 8,
+  "physical_gpus": [
+    0
+  ],
+  "variants": [
+    "M1_HYPER_QKV",
+    "M0_CTRL"
+  ],
+  "evaluation_split": "test",
+  "independent_test": false,
+  "initialization": "MobileNetV2 pretrained; fresh modules; no earlier or probe checkpoint reuse",
+  "optimizer": "Adam: context Conv/Linear weight decoupled WD1e-4; encoder/body coupled L2 WD1e-4; other context WD0"
+}
