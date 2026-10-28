@@ -2,6 +2,14 @@
 
 更新：2026-10-28。
 
+## CASA-Pyramid / Run6 启动检查
+
+协议`casa_pyramid_40k_taskgeometry_v6`，入口`models/train_CASA.py`，唯一调度器`train_scripts/CASA-Pyramid/Run6/pipeline.py`。用户最新授权仅物理GPU0，四库各双曲/CTRL共8项，优先LEVIR→SYSU→WHU→CDD，按实测显存与1GiB留量并行。普通QKV保持Run5，不纳入本轮。
+
+模型已同步服务器，Run5源码与产物保留。双曲采用占比半径、同内容K/V、448个双子原型、1头32维和独立内容门控；训练/部署2.058474/1.947159M。模型/梯度/部署检查及显存profile通过，LEVIR6轮/SYSU4轮真实train/val探针均通过，正在归档并启动正式队列。从MobileNetV2预训练全新初始化，不复用探针或Run5权重。每epoch test F1选模，非独立盲测。当前正式指标221条，本轮8项全部收集后至少229条。
+
+日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run6`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run6`；本地`outputs/CASA-Pyramid/Run6`。分析入口`models/analyze_hyperbolic.py`仅使用train/val。GPU1未授权本轮训练。
+
 ## CASA-Pyramid / Run5 已完成
 
 Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。

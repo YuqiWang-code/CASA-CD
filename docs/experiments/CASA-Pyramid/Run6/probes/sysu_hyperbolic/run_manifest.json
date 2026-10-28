@@ -1,0 +1,116 @@
+{
+  "protocol": "casa_pyramid_40k_taskgeometry_v6",
+  "module": "hyperbolic",
+  "dataset": "SYSU-CD-256",
+  "epochs": 4,
+  "batch_size": 32,
+  "scheduler_total": 40125,
+  "guide_weight": 0.2,
+  "encoder_lr_mult": 1.0,
+  "evaluation_split": "val",
+  "context_projection_weight_decay_mode": "decoupled",
+  "context_projection_weight_decay": 0.0001,
+  "body_weight_decay_mode": "coupled_l2",
+  "optimizer_groups": [
+    {
+      "name": "encoder",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "body_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "context_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": true
+    },
+    {
+      "name": "context_no_decay",
+      "weight_decay": 0.0,
+      "decoupled_weight_decay": false
+    }
+  ],
+  "projection_decay_parameters": [
+    "context.appearance.weight",
+    "context.gate.weight",
+    "context.guide.weight",
+    "context.local_dw.weight",
+    "context.local_out.weight",
+    "context.out.weight",
+    "context.qk.weight",
+    "context.v.weight"
+  ],
+  "initial_projection_weight_rms": {
+    "scale_bias": 0.0,
+    "gamma_context": 0.0,
+    "gamma_detail": 0.0,
+    "guide.weight": 0.07500811519889829,
+    "qk.weight": 0.07179383506079416,
+    "v.weight": 0.07271570375430722,
+    "out.weight": 0.10210439725186872,
+    "appearance.weight": 0.06771575131117731,
+    "gate.weight": 0.07392592766385549,
+    "local_dw.weight": 0.1949297986583066,
+    "local_out.weight": 0.07152004265595
+  },
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "seed": 2333,
+  "grid_sizes": [
+    8,
+    4,
+    4,
+    4
+  ],
+  "contexts_per_scale": [
+    256,
+    64,
+    64,
+    64
+  ],
+  "joint_contexts": 448,
+  "compression_power": 2,
+  "support_power": 1,
+  "self_reference": false,
+  "qk_geometry": "hyperbolic",
+  "value_geometry": "euclidean",
+  "heads": 1,
+  "head_dim": 32,
+  "radius_mode": "asinh(1 + supervised_change_occupancy)",
+  "key_mode": "project_same_pooled_content_as_values_then_lift",
+  "readout_mode": "learned_gate_times_conditional_context_minus_query_value"
+}

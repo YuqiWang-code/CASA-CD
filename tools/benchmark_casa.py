@@ -13,6 +13,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--models-dir',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--modules',nargs='+',choices=('none','hyperbolic','qkv'),
+                        default=('none','hyperbolic','qkv'))
     args=parser.parse_args()
     sys.path.insert(0,str(args.models_dir.resolve()))
     from model.casa_net import CASANet
@@ -23,7 +25,7 @@ def main():
     torch.manual_seed(2333)
     a,b=(torch.randn(1,3,256,256,device='cuda') for _ in range(2))
     results={}
-    for mode in ('none','hyperbolic','qkv'):
+    for mode in args.modules:
         model=CASANet(module=mode).cuda().eval()
         training_params=sum(p.numel() for p in model.parameters())
         model.switch_to_deploy()

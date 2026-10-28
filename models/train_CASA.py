@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_selective_selfref_v5"
+PROTOCOL = "casa_pyramid_40k_taskgeometry_v6"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -305,14 +305,20 @@ def main():
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                    qkv_dim=64, heads=4, guide_weight=GUIDE_WEIGHT,
-                    query_key_head_dim=16, value_head_dim=16,
+                    qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
+                    heads=model.context.heads if args.module != "none" else 0, guide_weight=GUIDE_WEIGHT,
+                    query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
+                    value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
-                    reliability_prior="sharpened-membership weighted class posterior square",
-                    context_readout="sum_j context_attention_ij * (value_j - query_value_i); self logit 0",
+                    reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
+                                       "hyperbolic": "weighted class occupancy; no entropy penalty"}[args.module],
+                    context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
+                                     "hyperbolic": "learned correction gate independent of log-partition"}[args.module],
+                    hyperbolic_radius="asinh(1 + supervised_change_occupancy)" if args.module == "hyperbolic" else None,
+                    hyperbolic_key="lift_of_shared_pooled_content" if args.module == "hyperbolic" else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
@@ -321,7 +327,7 @@ def main():
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
                                     "qkv": "euclidean_relative_context",
-                                    "hyperbolic": "lorentz_relative_context_euclidean_values"}[args.module],
+                                    "hyperbolic": "occupancy_radius_subtype_keys_and_gated_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)

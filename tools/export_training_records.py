@@ -141,12 +141,13 @@ def main():
     destination = ROOT / 'docs/experiments' / args.tag / args.run
     (destination / 'curves').mkdir(parents=True, exist_ok=True)
     state = json.loads((source / 'pipeline_status.json').read_text())
+    variants = {name: VARIANTS[name] for name in state.get('variants', VARIANTS)}
     if state['status'] != 'complete':
         raise RuntimeError('export requires a completed queue')
     summary, table = [], []
     for dataset in DATASETS:
         records = {}
-        for variant in VARIANTS:
+        for variant in variants:
             original = source / variant / dataset
             published = destination / variant / dataset
             text = (original / 'train_log.txt').read_text(encoding='utf-8')
@@ -202,7 +203,9 @@ def main():
     for filename in ('validation.log', 'startup_health.json'):
         if (source / filename).exists():
             shutil.copyfile(source / filename, destination / filename)
-    for name in ('levir_hyperbolic', 'levir_qkv', 'sysu_hyperbolic', 'sysu_qkv'):
+    probe_names = [path.name for path in sorted((source / 'probes').iterdir())
+                   if (path / 'health_result.json').exists()]
+    for name in probe_names:
         published = destination / 'probes' / name
         published.mkdir(parents=True, exist_ok=True)
         for filename in ('probe.log', 'run_manifest.json', 'health_history.json', 'health_result.json'):
@@ -210,7 +213,7 @@ def main():
     baseline = json.loads((source / source_record).read_text())
     source_commit = baseline['code_baseline'] if source_record == 'source_manifest.json' else baseline['model_training_commit']
     started = min(json.loads((source / variant / dataset / 'placement.json').read_text())['started']
-                  for dataset in DATASETS for variant in VARIANTS)
+                  for dataset in DATASETS for variant in variants)
     evaluation_name = 'test选模' if selection_split == 'test' else '验证'
     selection_note = ('每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。'
                       'test参与checkpoint选择，最终数值不属于独立盲测。'
@@ -235,7 +238,7 @@ def main():
                          '内部统计排除GT膨胀2像素减腐蚀2像素的边界带，无正类内部时Recall为空。')
     readme = f'''# {args.tag} / {args.run} 完整训练记录
 
-协议`{state['protocol']}`，模型/训练源码基线`{source_commit}`。本目录保存12项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/{args.tag}/{args.run}`。本轮于{started} CST启动，{state['updated']} CST完成。
+协议`{state['protocol']}`，模型/训练源码基线`{source_commit}`。本目录保存{len(summary)}项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/{args.tag}/{args.run}`。本轮于{started} CST启动，{state['updated']} CST完成。
 
 ## 正式结果与最佳epoch
 
@@ -254,7 +257,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 - MODULE-DIAG来自当轮{evaluation_name}的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
 - `result.json`保留完整精度的正式测试与实际最佳epoch；`run_manifest.json`、`evaluation_manifest.json`和`deploy_check.json`给出配置及折叠检查，`placement.json`记录物理GPU。`arch.json`记录结构配置。
 - 根目录的`environment.json`、`{source_record}`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`{inference_record}`记录显存和推理测量。
-- `probes/`保存四项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
+- `probes/`保存{len(probe_names)}项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
 
 ## 完整训练与{evaluation_name}曲线
 

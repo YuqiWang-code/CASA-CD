@@ -2,7 +2,6 @@
 import torch
 
 from model.layers.euclidean_context import EuclideanContext
-from model.layers.hyperbolic_context import HyperbolicContext
 from model.layers.pyramid_context import assignments, pool_features, highpass, regions
 
 
@@ -41,7 +40,7 @@ def compression_semantics():
 
 def contexts():
     sizes = (32,16,8,4)
-    for context_type in (EuclideanContext, HyperbolicContext):
+    for context_type in (EuclideanContext,):
         op = context_type()
         tar = [torch.randn(1,64,n,n,requires_grad=True) for n in sizes]
         output, aux = op(tar)

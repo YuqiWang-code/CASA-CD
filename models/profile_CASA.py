@@ -18,6 +18,8 @@ def main():
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv"),
+                        default=("none", "hyperbolic", "qkv"))
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -26,7 +28,7 @@ def main():
     image, target = next(iter(make_loader(args.dataset_root, "train")))
     image, target = image.cuda().float(), target.cuda().float()
     results = {}
-    for variant in ["none", "hyperbolic", "qkv"]:
+    for variant in args.modules:
         torch.manual_seed(2333)
         model = CASANet(args.pretrained, variant).cuda().train()
         optimizer = make_optimizer(model)
@@ -63,6 +65,9 @@ def main():
                       support_power=model.context.support_power,
                       self_reference=model.context.self_reference,
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
+                      heads=model.context.heads if variant != "none" else 0,
+                      qkv_dim=model.context.qk.out_channels if variant != "none" else 0,
+                      hyperbolic_radius=model.context.radius_mode if variant == "hyperbolic" else None,
                       context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
                       body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
                       optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],
