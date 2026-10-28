@@ -1,0 +1,139 @@
+{
+  "protocol": "casa_pyramid_40k_retrieval_v7",
+  "passed": true,
+  "selected_arm": "direct_geometry",
+  "formal_metrics": false,
+  "seed": 2333,
+  "screening_split": "val",
+  "screening_epochs": 12,
+  "physical_gpu": 0,
+  "criterion": "Finite task gradients and complete paired train/val screening; select direct projected geometry among 224-KV hyperbolic candidates for its higher two-dataset mean best validation F1 and half the Run6 token budget.",
+  "rationale": [
+    "Shared pooled content for K and V; full queries; 224 prototypes in one 32D space.",
+    "Conditional geometry routing is separated from content adoption.",
+    "Class-retrieval supervision connects routing to area-label discrimination.",
+    "Positive best-validation differences against matched CTRL on both screening datasets."
+  ],
+  "limitations": [
+    "Single-seed, 12-epoch architecture selection on the same validation sets is not an independent effectiveness test.",
+    "Compared with Run6, LEVIR best F1 differs by +0.027pp and SYSU by -0.228pp; this is a reduced-cost candidate, not a demonstrated accuracy improvement over Run6.",
+    "The final-three-epoch SYSU F1 remains below CTRL; late generalization is unresolved.",
+    "The fixed LEVIR subset does not show a positive global-branch contribution at this early checkpoint.",
+    "The auxiliary class names do not guarantee prototype-content purity; the content gate and geometric metric need full-run assessment."
+  ],
+  "results": {
+    "ctrl": {
+      "LEVIR": {
+        "best_val_f1": 0.8938395317096706,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.8902676727103258,
+        "peak_reserved_mib": 8220.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8059142668868512,
+        "best_epoch": 7,
+        "last_three_val_f1": 0.7939012408479069,
+        "peak_reserved_mib": 8220.0
+      }
+    },
+    "run6": {
+      "LEVIR": {
+        "best_val_f1": 0.8946386528711238,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.8906169267779728,
+        "peak_reserved_mib": 11858.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8144824107603817,
+        "best_epoch": 7,
+        "last_three_val_f1": 0.7906323985327067,
+        "peak_reserved_mib": 11858.0
+      }
+    },
+    "scale_restore": {
+      "LEVIR": {
+        "best_val_f1": 0.8934672949143768,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.889950589797157,
+        "peak_reserved_mib": 11938.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.812726338122872,
+        "best_epoch": 4,
+        "last_three_val_f1": 0.782510193152986,
+        "peak_reserved_mib": 11938.0
+      }
+    },
+    "lean_half": {
+      "LEVIR": {
+        "best_val_f1": 0.895403154892164,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.8911117049366561,
+        "peak_reserved_mib": 10626.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8101873401760269,
+        "best_epoch": 6,
+        "last_three_val_f1": 0.7896144629628633,
+        "peak_reserved_mib": 10626.0
+      }
+    },
+    "geometry_supervised": {
+      "LEVIR": {
+        "best_val_f1": 0.8939072422405927,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.8886248595324262,
+        "peak_reserved_mib": 10466.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8088615699926834,
+        "best_epoch": 12,
+        "last_three_val_f1": 0.7936624866227092,
+        "peak_reserved_mib": 10466.0
+      }
+    },
+    "geometry_euclidean": {
+      "LEVIR": {
+        "best_val_f1": 0.894257509756925,
+        "best_epoch": 12,
+        "last_three_val_f1": 0.8912005924628188,
+        "peak_reserved_mib": 9406.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8107868029536565,
+        "best_epoch": 5,
+        "last_three_val_f1": 0.8041159148688446,
+        "peak_reserved_mib": 9406.0
+      }
+    },
+    "direct_geometry": {
+      "LEVIR": {
+        "best_val_f1": 0.894910369681119,
+        "best_epoch": 11,
+        "last_three_val_f1": 0.8904409307045817,
+        "peak_reserved_mib": 10420.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8122070965229711,
+        "best_epoch": 7,
+        "last_three_val_f1": 0.7904097918153189,
+        "peak_reserved_mib": 10420.0
+      }
+    },
+    "direct_euclidean": {
+      "LEVIR": {
+        "best_val_f1": 0.8953575794464266,
+        "best_epoch": 12,
+        "last_three_val_f1": 0.8899244167109193,
+        "peak_reserved_mib": 9360.0
+      },
+      "SYSU": {
+        "best_val_f1": 0.8045328111086307,
+        "best_epoch": 7,
+        "last_three_val_f1": 0.7924653544373355,
+        "peak_reserved_mib": 9360.0
+      }
+    }
+  },
+  "initialization": "Fresh pretrained MobileNetV2 and freshly initialized modules; probe checkpoints excluded"
+}

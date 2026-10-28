@@ -4,7 +4,7 @@
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
 ================================================================================
-## MODELS CODE (22 files)
+## MODELS CODE (23 files)
 ================================================================================
 
 ================================================================================
@@ -23,6 +23,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Subset
 
 from model.casa_net import CASANet
+from model.layers.lorentz_ops import lift
 from train_CASA import make_loader, mask_boundary
 
 
@@ -36,12 +37,21 @@ def intervention(context, mode):
         with torch.no_grad():
             context.gamma_context.zero_()
     elif mode == 'fixed_radius':
-        context.geometric_point = lambda projected, occupancy: point(projected, torch.full_like(occupancy, .5))
+        def equalize_radius(projected):
+            space = point(projected)[..., 1:]
+            norm = space.norm(dim=-1, keepdim=True)
+            radial = torch.asinh(norm)
+            positions = tuple(range(2, radial.ndim - 1))
+            nonzero = (norm > 0).sum(positions, keepdim=True).clamp_min(1)
+            mean_radius = radial.sum(positions, keepdim=True) / nonzero
+            # Origins retain their zero vector; the full-position mean is preserved.
+            return lift(F.normalize(space, dim=-1) * mean_radius.sinh())
+        context.geometric_point = equalize_radius
     elif mode == 'fixed_direction':
-        def radial_only(projected, occupancy):
+        def radial_only(projected):
             direction = torch.zeros_like(projected)
-            direction[..., 0] = 1
-            return point(direction, occupancy)
+            direction[..., 0] = projected.norm(dim=-1)
+            return point(direction)
         context.geometric_point = radial_only
     elif mode == 'gate_open':
         context.gate.forward = lambda x: x.new_full((x.shape[0], context.heads, *x.shape[-2:]), 20.)
@@ -84,11 +94,15 @@ def analyze(model, loader, device):
     modes = ('baseline', 'context_off', 'fixed_radius', 'fixed_direction', 'gate_open', 'euclidean_metric')
     counts = {mode: [0, 0, 0, 0] for mode in modes}
     groups = {}
-    captured_gate, captured_occupancy = [], []
+    captured_gate, captured_radius = [], []
+    project_queries = model.context.project_queries
+    def capture_queries(feature):
+        query = project_queries(feature)
+        captured_radius.append(torch.asinh(query[..., 1:].norm(dim=-1)).mean(1, keepdim=True))
+        return query
+    model.context.project_queries = capture_queries
     hooks = [model.context.gate.register_forward_hook(
-        lambda module, inputs, output: captured_gate.append(output.sigmoid().mean(1, keepdim=True))),
-        model.context.guide.register_forward_hook(
-            lambda module, inputs, output: captured_occupancy.append(output.sigmoid()))]
+        lambda module, inputs, output: captured_gate.append(output.sigmoid().mean(1, keepdim=True)))]
     diagnostics = None
     try:
         with torch.inference_mode():
@@ -97,13 +111,13 @@ def analyze(model, loader, device):
                 predictions = {}
                 for mode in modes:
                     captured_gate.clear()
-                    captured_occupancy.clear()
+                    captured_radius.clear()
                     model.context.collect_diag = mode == 'baseline' and diagnostics is None
                     with intervention(model.context, mode):
                         prediction = model.predict(image[:, :3], image[:, 3:]) > .5
                     if mode == 'baseline':
                         gates = [g.clone() for g in captured_gate]
-                        occupancy = [p.clone() for p in captured_occupancy]
+                        radii = [radius.clone() for radius in captured_radius]
                         if diagnostics is None:
                             diagnostics = model.diagnostics()
                     truth = target > .5
@@ -122,12 +136,13 @@ def analyze(model, loader, device):
                 for name, mask in masks.items():
                     group = groups.setdefault(name, dict(pixels=0, gate_sum=[0.]*4, radius_sum=[0.]*4))
                     group['pixels'] += int(mask.sum())
-                    for index, (gate, p) in enumerate(zip(gates, occupancy)):
+                    for index, (gate, radius) in enumerate(zip(gates, radii)):
                         gate = F.interpolate(gate, target.shape[-2:], mode='bilinear', align_corners=False)
-                        radius = F.interpolate(torch.asinh(1+p), target.shape[-2:], mode='bilinear', align_corners=False)
+                        radius = F.interpolate(radius, target.shape[-2:], mode='bilinear', align_corners=False)
                         group['gate_sum'][index] += float((gate * mask).sum())
                         group['radius_sum'][index] += float((radius * mask).sum())
     finally:
+        model.context.project_queries = project_queries
         for hook in hooks:
             hook.remove()
         model.context.collect_diag = False
@@ -137,7 +152,10 @@ def analyze(model, loader, device):
         group['mean_radius_by_stage'] = [x/count if count else None for x in group.pop('radius_sum')]
     return dict(interventions={mode: score(value) for mode, value in counts.items()},
                 pixel_groups=groups, first_batch_diagnostics=diagnostics,
-                radius_scope='guide-derived occupancy radius; zero-direction points are exceptional',
+                radius_scope='Actual dense Lorentz queries: asinh(norm(Q_spatial)), averaged over heads at each stage; bilinear resize for pixel groups',
+                intervention_definitions=dict(
+                    fixed_radius='For each sample/head, set nonorigin positions to their mean intrinsic radius; origins stay at zero and the all-position mean is preserved. Each query stage and the joint key bank are equalized separately.',
+                    fixed_direction='Preserve every projected norm and intrinsic radius; place all spatial directions on the first coordinate axis.'),
                 interpretation='Frozen-weight sensitivity and pixel associations; not retrained ablations')
 
 
@@ -190,7 +208,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, GUIDE_WEIGHT, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, auxiliary_weights, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -236,7 +254,7 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      guide_weight=GUIDE_WEIGHT, encoder_lr_mult=1.0,
+                      auxiliary_weights=auxiliary_weights(variant), encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
@@ -755,12 +773,129 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: models/test_hyperbolic_context.py
+# FILE: models/test_direct_geometry.py
 ================================================================================
-"""Occupancy radii, pooled-content keys, subtypes and independent adoption."""
+"""Direct projected geometry, class evidence and inference checks."""
+import math
+
 import torch
 
-from model.layers.hyperbolic_context import HyperbolicContext, subtype_assignments
+from model.casa_net import CASANet
+from model.layers.hyperbolic_context import HyperbolicContext
+from model.layers.pyramid_context import project_tokens
+from train_CASA import guide_loss, training_losses, loss_function
+
+
+def manifold_and_radius():
+    op = HyperbolicContext().double()
+    projected = torch.randn(2, 1, 7, 32, dtype=torch.double)
+    point = op.geometric_point(projected)
+    space = projected / math.sqrt(32)
+    assert torch.equal(point[..., 1:], space)
+    assert torch.allclose(point[..., 0].square() - point[..., 1:].square().sum(-1),
+                          torch.ones_like(point[..., 0]), atol=1e-12)
+    radius = torch.asinh(point[..., 1:].norm(dim=-1))
+    assert torch.allclose(radius, torch.asinh(projected.norm(dim=-1) / math.sqrt(32)), atol=1e-12)
+    larger = torch.asinh(op.geometric_point(4 * projected)[..., 1:].norm(dim=-1))
+    assert (larger > radius).all()
+    zeros = torch.zeros_like(projected)
+    origin = op.geometric_point(zeros)
+    assert torch.equal(origin[..., 0], torch.ones_like(origin[..., 0]))
+    assert torch.equal(origin[..., 1:], zeros)
+    for initial in (projected, zeros):
+        query = initial.clone().requires_grad_()
+        key = initial.clone().requires_grad_()
+        diagonal = op.squared_distance(op.geometric_point(query), op.geometric_point(key)).diagonal(dim1=-2, dim2=-1)
+        assert diagonal.abs().max() < 1e-12
+        gradients = torch.autograd.grad(diagonal.sum(), (query, key))
+        assert all(torch.isfinite(g).all() and g.abs().max() < 1e-12 for g in gradients)
+    print("Lorentz constraint, projected-radius sensitivity and finite zero-distance gradients PASS")
+
+
+def content_and_guide_independence():
+    op = HyperbolicContext().double()
+    mean, delta = torch.randn(1, 3, 64, dtype=torch.double), torch.randn(1, 3, 64, dtype=torch.double)
+    pooled_a = torch.stack((mean + delta, mean - delta), -2).mean(-2)
+    pooled_b = torch.stack((mean + 5 * delta, mean - 5 * delta), -2).mean(-2)
+    key_a, occupancy_a = op.project_keys(pooled_a)
+    key_b, _ = op.project_keys(pooled_b)
+    assert torch.allclose(key_a, key_b, atol=1e-12)
+    assert torch.allclose(project_tokens(op.v, pooled_a, op.heads), project_tokens(op.v, pooled_b, op.heads), atol=1e-12)
+    field = torch.randn(1, 64, 4, 4, dtype=torch.double)
+    query_a = op.project_queries(field)
+    with torch.no_grad():
+        op.guide.weight.zero_()
+        op.guide.bias.fill_(4.)
+    query_b = op.project_queries(field)
+    key_c, occupancy_c = op.project_keys(pooled_a)
+    assert torch.equal(query_a, query_b) and torch.equal(key_a, key_c)
+    assert not torch.equal(occupancy_a, occupancy_c)
+    print("Shared pooled K/V content and Q/K coordinates independent of guide parameters PASS")
+
+
+def evidence_and_fields():
+    op = HyperbolicContext()
+    assert op.tokens_per_scale == (128, 32, 32, 32)
+    assert sum(p.numel() for p in op.parameters()) == 11477
+    sizes = (16, 8, 4, 4)
+    tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
+    output, auxiliary = op(tar, return_aux=True)
+    assert all(torch.equal(a, b) for a, b in zip(output, tar))
+    target = torch.zeros(1, 1, 64, 64)
+    target[..., 16:48, 16:48] = 1
+    geometry_loss = guide_loss(auxiliary["geometric_logits"], target)
+    gradients = torch.autograd.grad(geometry_loss, (op.qk.weight, *tar), retain_graph=True)
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
+    logit = torch.randn(1, 1, 6, 224)
+    evidence = op.geometric_change_logit(logit, 2, 3)
+    expected = logit[..., ::2].logsumexp(-1) - logit[..., 1::2].logsumexp(-1)
+    assert torch.equal(evidence, expected.reshape(1, 1, 2, 3))
+    predictions = tuple(torch.randn_like(target) for _ in range(4))
+    loss, _, auxiliary_loss = training_losses(predictions, auxiliary, target)
+    expected_auxiliary = .5 * (guide_loss(auxiliary["guide_logits"], target) + geometry_loss)
+    assert torch.equal(auxiliary_loss, expected_auxiliary)
+    assert torch.equal(loss, loss_function(predictions, target) + .2 * expected_auxiliary)
+    with torch.no_grad():
+        op.gamma_context.fill_(.1)
+        op.gamma_detail.fill_(.1)
+        constant = torch.randn(1, 64, 1, 1)
+        fields = [constant.expand(1, 64, n, n).clone() for n in sizes]
+        enhanced, _ = op(fields)
+        assert all(torch.allclose(a, b, atol=3e-6) for a, b in zip(fields, enhanced))
+        zeros = [torch.zeros_like(x) for x in fields]
+        enhanced, _ = op(zeros)
+        assert all(torch.equal(a, b) for a, b in zip(zeros, enhanced))
+    print("224 prototypes, geometric-evidence QK/TAR gradients, 0.1/0.1 loss, constant/zero fields PASS")
+
+
+def inference_path():
+    model = CASANet(module="hyperbolic").eval()
+    def prohibited(*args):
+        raise AssertionError("predict must not compute geometric auxiliary logits")
+    model.context.geometric_change_logit = prohibited
+    with torch.no_grad():
+        result = model.predict(torch.randn(1, 3, 128, 128), torch.randn(1, 3, 128, 128))
+        _, auxiliary = model(torch.randn(1, 3, 128, 128), torch.randn(1, 3, 128, 128), return_aux=True)
+        assert "geometric_logits" not in auxiliary
+    assert result.shape == (1, 1, 128, 128) and torch.isfinite(result).all()
+    print("Prediction and evaluation exclude geometric auxiliary logsumexp PASS")
+
+
+if __name__ == "__main__":
+    torch.manual_seed(2333)
+    torch.set_num_threads(4)
+    manifold_and_radius()
+    content_and_guide_independence()
+    evidence_and_fields()
+    inference_path()
+
+================================================================================
+# FILE: models/test_hyperbolic_context.py
+================================================================================
+"""Projected radii, class prototypes and independent adoption."""
+import torch
+
+from model.layers.hyperbolic_context import HyperbolicContext, class_assignments
 from model.layers.pyramid_context import channel_norm, pool_features, project_tokens
 from model.layers.lorentz_ops import pairwise_squared_distance
 
@@ -768,27 +903,24 @@ from model.layers.lorentz_ops import pairwise_squared_distance
 def compression_and_geometry():
     op = HyperbolicContext().double()
     p = torch.full((1, 1, 8, 8), .5, dtype=torch.double, requires_grad=True)
-    appearance = torch.linspace(.05, .95, 64, dtype=torch.double).reshape_as(p).requires_grad_()
     x = torch.randn(1, 64, 8, 8, dtype=torch.double, requires_grad=True)
-    weights, support = subtype_assignments(p, appearance, 1)
-    assert weights.shape == (1, 1, 4, 64)
+    weights, support = class_assignments(p, 1)
+    assert weights.shape == (1, 1, 2, 64)
     assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
     assert torch.allclose(support, torch.full_like(support, .5))
     prototype = pool_features(x, weights, 1)
-    assert not torch.allclose(prototype[:, 0], prototype[:, 1])
     loss = prototype[:, 0].square().mean()
-    gradients = torch.autograd.grad(loss, (x, p, appearance))
+    gradients = torch.autograd.grad(loss, (x, p))
     assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
     sparse = torch.full_like(p, .05)
     sparse[..., 0, 0] = .6
-    sparse_weights, _ = subtype_assignments(sparse, torch.full_like(p, .5), 1)
+    sparse_weights, _ = class_assignments(sparse, 1)
     assert .69 < sparse_weights[0, 0, 0, 0] < .70
     q = torch.randn(1, op.heads, 12, op.head_dim, dtype=torch.double)
-    occupancy = torch.linspace(0, 1, 12, dtype=torch.double).reshape(1, 1, 12, 1)
-    points = op.geometric_point(q, occupancy)
+    points = op.geometric_point(q)
     radius = torch.asinh(points[..., 1:].norm(dim=-1))
-    assert torch.allclose(radius, torch.asinh(1 + occupancy[..., 0]).expand_as(radius), atol=1e-12)
-    assert torch.allclose(points, op.geometric_point(3 * q, occupancy), atol=1e-12)
+    assert torch.allclose(radius, torch.asinh(q.norm(dim=-1) / op.head_dim ** .5), atol=1e-12)
+    assert (torch.asinh(op.geometric_point(3 * q)[..., 1:].norm(dim=-1)) > radius).all()
     assert torch.allclose(points[..., 0].square() - points[..., 1:].square().sum(-1), torch.ones_like(radius), atol=2e-14)
     # K and V depend on the same P, without a separate region-scatter statistic.
     mean = torch.randn(1, 1, 64, dtype=torch.double)
@@ -797,18 +929,18 @@ def compression_and_geometry():
     large = torch.cat((mean + 5 * delta, mean - 5 * delta), 1).mean(1, keepdim=True)
     assert torch.allclose(op.project_keys(two)[0], op.project_keys(large)[0], atol=1e-12)
     assert torch.allclose(project_tokens(op.v, two, op.heads), project_tokens(op.v, large, op.heads), atol=1e-12)
-    print('Occupancy radius, scatter invariance, sparse targets, two subtypes and gradients PASS')
+    print('Projected radius, scatter invariance, sparse targets, class prototypes and gradients PASS')
 
 
 def independent_adoption():
     op = HyperbolicContext().double()
     feature = torch.randn(1, 64, 2, 2, dtype=torch.double)
     p = op.guide(feature).sigmoid()
-    query = op.project_queries(feature, p).flatten(2, 3)
-    prototypes = torch.randn(1, 448, 64, dtype=torch.double)
+    query = op.project_queries(feature).flatten(2, 3)
+    prototypes = torch.randn(1, 224, 64, dtype=torch.double)
     key, p_key = op.project_keys(prototypes)
     value = project_tokens(op.v, prototypes, op.heads)
-    support = torch.ones(1, 448, dtype=torch.double)
+    support = torch.ones(1, 224, dtype=torch.double)
     attention = op.attention(query, key, support, 0)
     update, gate, *_ = op.readout(feature, attention, value, p, p_key)
     with torch.no_grad():
@@ -818,7 +950,7 @@ def independent_adoption():
     assert torch.allclose(shifted, attention, atol=1e-14)
     assert torch.allclose(shifted_gate, gate, atol=1e-14)
     assert torch.allclose(update, shifted_update, atol=1e-14)
-    # A single available fine-scale prototype is not divided by 256 at readout.
+    # A single available fine-scale prototype retains its conditional attention mass.
     rare = torch.zeros_like(attention)
     rare[..., 0] = 1
     with torch.no_grad():
@@ -826,7 +958,7 @@ def independent_adoption():
         op.gate.bias.zero_()
     _, rare_gate, *_ = op.readout(feature, rare, value, p, p_key)
     assert torch.equal(rare_gate, torch.full_like(rare_gate, .5))
-    radial_flat = HyperbolicContext.geometric_point(query[..., 1:], torch.full_like(query[..., :1], .5))
+    radial_flat = HyperbolicContext.geometric_point(torch.nn.functional.normalize(query[..., 1:], dim=-1) * op.head_dim ** .5)
     assert (pairwise_squared_distance(query, key) - pairwise_squared_distance(radial_flat, key)).abs().max() > 1e-4
     print('Common logit shift invariance, rare-match adoption and radial sensitivity PASS')
 
@@ -856,10 +988,8 @@ def module():
         assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
         assert parameter.grad.abs().sum() > 0, name
     for index, stage in enumerate(op.last_diag.values()):
-        assert stage['contexts'] == 448 and stage['finite']
+        assert stage['contexts'] == 224 and stage['finite']
         assert 0 < stage['context_mass_mean'] < 1
-        if sizes[index] > op.grid_sizes[index]:
-            assert stage['subtype_separation_rms'] > 0
         assert stage['adoption_source'] == 'learned_value_correction_gate'
     print('Identity, constant/zero fields, all parameter and cross-scale gradients PASS')
 
@@ -989,7 +1119,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_taskgeometry_v6"
+PROTOCOL = "casa_pyramid_40k_retrieval_v7"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -1028,7 +1158,14 @@ def mask_boundary(target, radius=1):
 def training_losses(outputs, aux, target):
     main = loss_function(outputs, target)
     guide = guide_loss(aux["guide_logits"], target)
+    if "geometric_logits" in aux:
+        guide = .5 * guide + .5 * guide_loss(aux["geometric_logits"], target)
     return main + GUIDE_WEIGHT * guide, main, guide
+
+
+def auxiliary_weights(module):
+    return dict(guide=.1, geometric_retrieval=.1) if module == "hyperbolic" else dict(
+        guide=GUIDE_WEIGHT, geometric_retrieval=0.)
 
 
 class SpatialMetrics:
@@ -1278,7 +1415,8 @@ def main():
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
-                    heads=model.context.heads if args.module != "none" else 0, guide_weight=GUIDE_WEIGHT,
+                    heads=model.context.heads if args.module != "none" else 0,
+                    auxiliary_weights=auxiliary_weights(args.module),
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
@@ -1289,7 +1427,7 @@ def main():
                                        "hyperbolic": "weighted class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
                                      "hyperbolic": "learned correction gate independent of log-partition"}[args.module],
-                    hyperbolic_radius="asinh(1 + supervised_change_occupancy)" if args.module == "hyperbolic" else None,
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module == "hyperbolic" else None,
                     hyperbolic_key="lift_of_shared_pooled_content" if args.module == "hyperbolic" else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
@@ -1299,7 +1437,7 @@ def main():
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
                                     "qkv": "euclidean_relative_context",
-                                    "hyperbolic": "occupancy_radius_subtype_keys_and_gated_euclidean_values"}[args.module],
+                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -1341,7 +1479,8 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        epoch_loss, main_sum, guide_sum, tick = 0.0, 0.0, 0.0, time.time()
+        epoch_loss, main_sum, auxiliary_sum, tick = 0.0, 0.0, 0.0, time.time()
+        guide_sum, retrieval_sum = 0.0, 0.0
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
@@ -1359,12 +1498,17 @@ def main():
             optimizer.step()
             epoch_loss += float(loss.detach())
             main_sum += float(main_loss.detach())
-            guide_sum += float(auxiliary_loss.detach())
+            auxiliary_sum += float(auxiliary_loss.detach())
+            with torch.no_grad():
+                raw_guide = guide_loss(auxiliary["guide_logits"], target)
+                guide_sum += float(raw_guide)
+                if args.module == "hyperbolic":
+                    retrieval_sum += float(2 * auxiliary_loss.detach() - raw_guide)
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
         eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
         model.context.collect_diag = False
@@ -1628,14 +1772,18 @@ class CASANet(nn.Module):
             torch.manual_seed(2333)
             self.context = context_type()
 
-    def _decode(self, a, b):
+    def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, auxiliary = self.context(self.tar(features_a, features_b))
+        tar = self.tar(features_a, features_b)
+        if self.module == "hyperbolic":
+            enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+        else:
+            enhanced, auxiliary = self.context(tar)
         return self.decoder.forward_pyramid(enhanced), auxiliary
 
     def forward(self, a, b, return_aux=False):
         """Return four probabilities, or raw logits and change-guide supervision."""
-        pyramid, auxiliary = self._decode(a, b)
+        pyramid, auxiliary = self._decode(a, b, return_aux=return_aux)
         logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
                                      mode="bilinear", align_corners=False)
                        for x in pyramid)
@@ -2457,26 +2605,24 @@ from model.layers.pyramid_context import (
 )
 
 
-def subtype_assignments(probability, appearance, grid):
-    """Two appearance representatives per class; posterior denotes area occupancy."""
+def class_assignments(probability, grid):
+    """One change and one background representative per spatial region."""
     positive = feature_regions(probability, grid).squeeze(-1)
-    subtype = feature_regions(appearance, grid).squeeze(-1)
-    classes = torch.stack((positive, 1 - positive), dim=2)
-    modes = torch.stack((subtype, 1 - subtype), dim=2)
-    weights = (classes.unsqueeze(3) + 1e-6).square() * (modes.unsqueeze(2) + 1e-6)
+    membership = torch.stack((positive, 1 - positive), dim=2)
+    weights = (membership + 1e-6).square()
     weights = weights / weights.sum(-1, keepdim=True)
-    support = (weights * classes.unsqueeze(3)).sum(-1)
-    return weights.flatten(2, 3), support.flatten(1).clamp_min(1e-6)
+    support = (weights * membership).sum(-1)
+    return weights, support.flatten(1).clamp_min(1e-6)
 
 
 class HyperbolicContext(nn.Module):
-    """Pooled K/V content, supervised occupancy radius, independently gated readout."""
+    """Direct projected geometry, pooled K/V content and independently gated readout."""
     geometry = "hyperbolic"
     value_geometry = "euclidean"
     compression_power = 2
     support_power = 1
     self_reference = False
-    radius_mode = "asinh(1 + supervised_change_occupancy)"
+    radius_mode = "asinh(norm(projected_features) / sqrt(head_dim))"
     key_mode = "project_same_pooled_content_as_values_then_lift"
     readout_mode = "learned_gate_times_conditional_context_minus_query_value"
     squared_distance = staticmethod(pairwise_squared_distance)
@@ -2486,14 +2632,13 @@ class HyperbolicContext(nn.Module):
         self.heads = heads
         self.head_dim = head_dim
         self.grid_sizes = tuple(grid_sizes)
-        self.tokens_per_scale = tuple(4 * grid ** 2 for grid in grid_sizes)
+        self.tokens_per_scale = tuple(2 * grid ** 2 for grid in grid_sizes)
         width = heads * head_dim
         self.norm = nn.LayerNorm(channels)
         self.guide = nn.Conv2d(channels, 1, 1)
         self.qk = nn.Conv2d(channels, width, 1, bias=False)
         self.v = nn.Conv2d(channels, width, 1, bias=False)
         self.out = nn.Conv2d(width, channels, 1, bias=False)
-        self.appearance = nn.Conv2d(channels, 1, 1)
         self.gate = nn.Conv2d(2 * width + 2, heads, 1)
         nn.init.zeros_(self.gate.bias)
         self.local_dw = nn.Conv2d(channels, channels, 3, padding=1,
@@ -2507,28 +2652,36 @@ class HyperbolicContext(nn.Module):
         self.last_diag = {}
 
     @staticmethod
-    def geometric_point(projected, occupancy):
-        # A unit spatial baseline preserves directions for background prototypes.
-        # Zero projected content has no direction and maps to the Lorentz origin.
-        direction = F.normalize(projected, dim=-1, eps=1e-6)
-        return lift((1 + occupancy) * direction)
+    def geometric_point(projected):
+        """Lift unnormalized projections; their norm determines intrinsic radius."""
+        return lift(projected / math.sqrt(projected.shape[-1]))
 
-    def project_queries(self, feature, occupancy):
-        direction = split_heads(self.qk(feature), self.heads)
-        occupancy = occupancy.permute(0, 2, 3, 1).unsqueeze(1)
-        return self.geometric_point(direction, occupancy)
+    def project_queries(self, feature):
+        projected = split_heads(self.qk(feature), self.heads)
+        return self.geometric_point(projected)
 
     def project_keys(self, prototype):
-        direction = project_tokens(self.qk, prototype, self.heads)
+        projected = project_tokens(self.qk, prototype, self.heads)
         occupancy = F.linear(prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
-        return self.geometric_point(direction, occupancy[:, None]), occupancy
+        return self.geometric_point(projected), occupancy
 
-    def attention(self, query, key, support, query_scale):
+    def attention_logits(self, query, key, support, query_scale):
         temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
         logits = -self.squared_distance(query, key) / (2 * temperature.square())
         logits = logits + support.log()[:, None, None] + source_bias(
             self.scale_bias, query_scale, self.tokens_per_scale)
-        return logits.softmax(-1)
+        return logits
+
+    def attention(self, query, key, support, query_scale):
+        return self.attention_logits(query, key, support, query_scale).softmax(-1)
+
+    @staticmethod
+    def geometric_change_logit(logits, height, width):
+        """Log odds of change versus background evidence across all prototypes."""
+        # Each region contributes its change prototype, then its background prototype.
+        positive, background = logits.reshape(*logits.shape[:-1], -1, 2).unbind(-1)
+        evidence = positive.logsumexp(-1) - background.logsumexp(-1)
+        return evidence.mean(1).reshape(logits.shape[0], 1, height, width)
 
     def readout(self, feature, probability, values, occupancy, prototype_occupancy):
         height, width = feature.shape[-2:]
@@ -2542,22 +2695,24 @@ class HyperbolicContext(nn.Module):
         gated = gate_map * discrepancy
         return self.out(gated), gate, retrieved, own_value, discrepancy, gated
 
-    def forward(self, tar):
+    def forward(self, tar, return_aux=False):
         normalized = [channel_norm(self.norm, x) for x in tar]
         guide = [self.guide(x) for x in normalized]
         occupancy = [g.sigmoid() for g in guide]
-        compression = [subtype_assignments(p, self.appearance(x).sigmoid(), grid)
-                       for x, p, grid in zip(normalized, occupancy, self.grid_sizes)]
+        compression = [class_assignments(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
         prototypes = [pool_features(x, weights, grid)
                       for x, (weights, _), grid in zip(normalized, compression, self.grid_sizes)]
         prototype = torch.cat(prototypes, dim=1)
         key, prototype_occupancy = self.project_keys(prototype)
         values = project_tokens(self.v, prototype, self.heads)
         support = torch.cat([item[1] for item in compression], dim=1)
-        enhanced, diagnostics = [], {}
+        enhanced, diagnostics, geometric_logits = [], {}, []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
-            query = self.project_queries(x, p)
-            probability = self.attention(query.flatten(2, 3), key, support, index)
+            query = self.project_queries(x)
+            logits = self.attention_logits(query.flatten(2, 3), key, support, index)
+            probability = logits.softmax(-1)
+            if return_aux:
+                geometric_logits.append(self.geometric_change_logit(logits, *x.shape[-2:]))
             update, gate, retrieved, own_value, discrepancy, gated = self.readout(
                 x, probability, values, p, prototype_occupancy)
             context_residual = self.gamma_context[index][None, :, None, None] * update
@@ -2582,8 +2737,6 @@ class HyperbolicContext(nn.Module):
                     local_direction = regions(direction_q.reshape(*query.shape[:-1], -1), self.grid_sizes[index])
                     mean_direction = torch.einsum("brtp,bhrpd->bhrtd", weights, local_direction)
                     variance = (1 - mean_direction.square().sum(-1)).clamp_min(0)
-                    pairs = prototypes[index].reshape(x.shape[0], -1, 2, 2, x.shape[1])
-                    separation = (pairs[..., 0, :] - pairs[..., 1, :]).square().mean(-1).sqrt()
                     diag = dict(
                         queries=x.shape[-2] * x.shape[-1], contexts=key.shape[2],
                         gamma_context=float(self.gamma_context[index].mean()),
@@ -2613,8 +2766,6 @@ class HyperbolicContext(nn.Module):
                         radial_gap_attention_mean=float((probability * radial).sum(-1).mean()),
                         angular_gap_attention_mean=float((probability * angular).sum(-1).mean()),
                         prototype_direction_variance_mean=float(variance.mean()),
-                        subtype_separation_rms=float(separation.mean()),
-                        subtype_duplicate_fraction=float((separation < 1e-3).float().mean()),
                         finite=bool(torch.isfinite(result).all()))
                     diag.update(attention_diagnostics(probability, self.tokens_per_scale))
                     diag.pop("self_mass_mean")
@@ -2624,7 +2775,10 @@ class HyperbolicContext(nn.Module):
                     diagnostics[f"stage{index+1}"] = diag
         if self.collect_diag:
             self.last_diag = diagnostics
-        return enhanced, dict(guide_logits=tuple(guide))
+        auxiliary = dict(guide_logits=tuple(guide))
+        if return_aux:
+            auxiliary["geometric_logits"] = tuple(geometric_logits)
+        return enhanced, auxiliary
 
 ================================================================================
 # FILE: models/model\layers\lorentz_ops.py

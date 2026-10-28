@@ -1,0 +1,720 @@
+{
+  "code_baseline": "8a54fa2",
+  "protocol": "casa_pyramid_40k_retrieval_v7",
+  "started_cst": "2026-10-28 16:00:08",
+  "observed": "2026-10-28T16:07:07+08:00",
+  "initial_observation_passed": true,
+  "formal_results": 0,
+  "target": 8,
+  "observation": "All three initial jobs completed at least three train and evaluation epochs; finite losses and geometric diagnostics, no recorded process errors or CUDA OOM.",
+  "limitation": "Early numerical health and learning progress do not establish final accuracy or resolve late SYSU generalization.",
+  "queue": {
+    "status": "running",
+    "protocol": "casa_pyramid_40k_retrieval_v7",
+    "completed": [],
+    "active": {
+      "2274059": "M1_HYPER_QKV/LEVIR-CD-256",
+      "2274086": "M0_CTRL/LEVIR-CD-256",
+      "2274118": "M0_CTRL/SYSU-CD-256"
+    },
+    "active_gpus": {
+      "2274059": 0,
+      "2274086": 0,
+      "2274118": 0
+    },
+    "failed": [],
+    "variants": [
+      "M1_HYPER_QKV",
+      "M0_CTRL"
+    ],
+    "selected_arm": "direct_geometry",
+    "gpu_budget_mib": {
+      "0": 30914
+    },
+    "variant_reserved_mib": {
+      "M1_HYPER_QKV": 11198,
+      "M0_CTRL": 8852
+    },
+    "dataset_priority": [
+      "LEVIR-CD-256",
+      "SYSU-CD-256",
+      "WHU-CD-256",
+      "CDD-CD-256"
+    ],
+    "active_reserved_mib": {
+      "2274059": 11198,
+      "2274086": 8852,
+      "2274118": 8852
+    },
+    "updated": "2026-10-28 16:00:12"
+  },
+  "runs": [
+    {
+      "name": "M1_HYPER_QKV/LEVIR-CD-256",
+      "placement": {
+        "pid": 2274059,
+        "physical_gpu": 0,
+        "logical_gpu": 0,
+        "reserved_mib": 11198,
+        "started": "2026-10-28 16:00:08"
+      },
+      "active_pid": 2274059,
+      "physical_gpu": 0,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 12.1,
+      "steps": 1500,
+      "target_steps": 40182,
+      "train_batches": 222,
+      "total_epochs": 181,
+      "finished_train_epochs": 6,
+      "recent_train": [
+        {
+          "epoch": 1.0,
+          "loss": 1.364345,
+          "main": 1.264851,
+          "auxiliary": 0.49747,
+          "guide": 0.511754,
+          "retrieval": 0.483187,
+          "lr": 0.00049504,
+          "encoder_lr": 0.00049504
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.194663,
+          "main": 1.11859,
+          "auxiliary": 0.380366,
+          "guide": 0.391628,
+          "retrieval": 0.369103,
+          "lr": 0.00049255,
+          "encoder_lr": 0.00049255
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.099432,
+          "main": 1.031191,
+          "auxiliary": 0.341203,
+          "guide": 0.350877,
+          "retrieval": 0.33153,
+          "lr": 0.00049006,
+          "encoder_lr": 0.00049006
+        },
+        {
+          "epoch": 4.0,
+          "loss": 1.066175,
+          "main": 1.001811,
+          "auxiliary": 0.321822,
+          "guide": 0.331424,
+          "retrieval": 0.31222,
+          "lr": 0.00048756,
+          "encoder_lr": 0.00048756
+        },
+        {
+          "epoch": 5.0,
+          "loss": 1.049806,
+          "main": 0.987332,
+          "auxiliary": 0.312368,
+          "guide": 0.322083,
+          "retrieval": 0.302654,
+          "lr": 0.00048507,
+          "encoder_lr": 0.00048507
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 1,
+          "total_epochs": 181,
+          "Loss": 1.390515,
+          "Recall": 0.848457,
+          "Precision": 0.854762,
+          "OA": 0.984936,
+          "F1": 0.851598,
+          "IoU": 0.74155,
+          "Kappa": 0.843663,
+          "t": 61.5
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 181,
+          "Loss": 1.326423,
+          "Recall": 0.830136,
+          "Precision": 0.891122,
+          "OA": 0.98618,
+          "F1": 0.859549,
+          "IoU": 0.753692,
+          "Kappa": 0.852291,
+          "t": 58.3
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 181,
+          "Loss": 1.344948,
+          "Recall": 0.822604,
+          "Precision": 0.911174,
+          "OA": 0.986878,
+          "F1": 0.864627,
+          "IoU": 0.761535,
+          "Kappa": 0.857751,
+          "t": 62.1
+        },
+        {
+          "epoch": 4,
+          "total_epochs": 181,
+          "Loss": 1.254011,
+          "Recall": 0.856267,
+          "Precision": 0.895879,
+          "OA": 0.987608,
+          "F1": 0.875625,
+          "IoU": 0.778766,
+          "Kappa": 0.869108,
+          "t": 62.3
+        },
+        {
+          "epoch": 5,
+          "total_epochs": 181,
+          "Loss": 1.295838,
+          "Recall": 0.908655,
+          "Precision": 0.827664,
+          "OA": 0.985708,
+          "F1": 0.866271,
+          "IoU": 0.76409,
+          "Kappa": 0.858739,
+          "t": 62.4
+        }
+      ],
+      "best_validation": {
+        "epoch": 4,
+        "total_epochs": 181,
+        "Loss": 1.254011,
+        "Recall": 0.856267,
+        "Precision": 0.895879,
+        "OA": 0.987608,
+        "F1": 0.875625,
+        "IoU": 0.778766,
+        "Kappa": 0.869108,
+        "t": 62.3
+      },
+      "mean_epoch_seconds_last20": 61.167,
+      "last_module_diagnostics": {
+        "stage1": {
+          "queries": 4096,
+          "contexts": 224,
+          "gamma_context": 0.017989881336688995,
+          "gamma_context_rms": 0.07349447160959244,
+          "gamma_detail": 0.015173627063632011,
+          "gamma_detail_rms": 0.10693520307540894,
+          "feature_rms": 1.4905441999435425,
+          "context_rms": 0.9069451689720154,
+          "branch_rms": 0.9069451689720154,
+          "local_rms": 0.457003116607666,
+          "relative_update_rms": 0.8963890671730042,
+          "gated_difference_rms": 0.44138357043266296,
+          "ungated_projection_rms": 2.3697447776794434,
+          "residual_rms": 0.09096096456050873,
+          "residual_to_feature_rms": 0.06102534011006355,
+          "context_residual_to_feature_rms": 0.048149947077035904,
+          "local_residual_to_feature_rms": 0.03752002492547035,
+          "guide_mean": 0.07551072537899017,
+          "class_support_mean": 0.5973643660545349,
+          "class_support_min": 0.00038001834764145315,
+          "retrieved_rms": 0.5791599154472351,
+          "self_value_rms": 1.013845682144165,
+          "retrieved_spatial_rms": 0.20790903270244598,
+          "retrieved_self_cosine": 0.47347506880760193,
+          "qk_weight_rms": 0.10458965599536896,
+          "v_weight_rms": 0.10461810976266861,
+          "out_weight_rms": 0.15707935392856598,
+          "temperature": [
+            0.4601830840110779
+          ],
+          "radius_mean": 0.8910636305809021,
+          "radius_max": 1.4627569913864136,
+          "radius_cv": 0.1487174779176712,
+          "key_radius_mean": 0.7609131932258606,
+          "radial_gap_attention_mean": 0.19953592121601105,
+          "angular_gap_attention_mean": 0.5168222188949585,
+          "prototype_direction_variance_mean": 0.4609116315841675,
+          "finite": true,
+          "entropy": 0.8495036363601685,
+          "scale_mass": [
+            [
+              0.3202117085456848,
+              0.16117152571678162,
+              0.24203814566135406,
+              0.2765786051750183
+            ]
+          ],
+          "context_mass_mean": 0.510981559753418,
+          "context_mass_min": 0.014320139773190022,
+          "context_mass_max": 0.9936584830284119,
+          "context_mass_std": 0.2563159763813019,
+          "query_attention_tv": 0.2286396324634552,
+          "query_attention_tv_per_head": [
+            0.2286396324634552
+          ],
+          "adoption_source": "learned_value_correction_gate"
+        },
+        "stage2": {
+          "queries": 1024,
+          "contexts": 224,
+          "gamma_context": 0.011225387454032898,
+          "gamma_context_rms": 0.05076196789741516,
+          "gamma_detail": 0.0202957633882761,
+          "gamma_detail_rms": 0.15000997483730316,
+          "feature_rms": 2.2270612716674805,
+          "context_rms": 1.1305350065231323,
+          "branch_rms": 1.1305350065231323,
+          "local_rms": 0.5071486830711365,
+          "relative_update_rms": 0.7401175498962402,
+          "gated_difference_rms": 0.511139988899231,
+          "ungated_projection_rms": 1.698566198348999,
+          "residual_rms": 0.10269919782876968,
+          "residual_to_feature_rms": 0.04611422121524811,
+          "context_residual_to_feature_rms": 0.026447288691997528,
+          "local_residual_to_feature_rms": 0.03772971034049988,
+          "guide_mean": 0.11636168509721756,
+          "class_support_mean": 0.6716262102127075,
+          "class_support_min": 0.00033407239243388176,
+          "retrieved_rms": 0.6009737253189087,
+          "self_value_rms": 0.9844158291816711,
+          "retrieved_spatial_rms": 0.22632268071174622,
+          "retrieved_self_cosine": 0.6502185463905334,
+          "qk_weight_rms": 0.10458965599536896,
+          "v_weight_rms": 0.10461810976266861,
+          "out_weight_rms": 0.15707935392856598,
+          "temperature": [
+            0.4601830840110779
+          ],
+          "radius_mean": 0.992655873298645,
+          "radius_max": 1.4134889841079712,
+          "radius_cv": 0.1282489001750946,
+          "key_radius_mean": 0.7609131932258606,
+          "radial_gap_attention_mean": 0.24521219730377197,
+          "angular_gap_attention_mean": 0.40754202008247375,
+          "prototype_direction_variance_mean": 0.3664289712905884,
+          "finite": true,
+          "entropy": 0.7978097200393677,
+          "scale_mass": [
+            [
+              0.20334520936012268,
+              0.3332556486129761,
+              0.2658136487007141,
+              0.19758553802967072
+            ]
+          ],
+          "context_mass_mean": 0.6620274782180786,
+          "context_mass_min": 0.039877768605947495,
+          "context_mass_max": 0.997530996799469,
+          "context_mass_std": 0.2183998078107834,
+          "query_attention_tv": 0.26140278577804565,
+          "query_attention_tv_per_head": [
+            0.26140278577804565
+          ],
+          "adoption_source": "learned_value_correction_gate"
+        },
+        "stage3": {
+          "queries": 256,
+          "contexts": 224,
+          "gamma_context": 0.008387163281440735,
+          "gamma_context_rms": 0.04121767356991768,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "feature_rms": 3.782264232635498,
+          "context_rms": 0.9898072481155396,
+          "branch_rms": 0.9898072481155396,
+          "local_rms": 0.0,
+          "relative_update_rms": 0.7142145037651062,
+          "gated_difference_rms": 0.4838680028915405,
+          "ungated_projection_rms": 1.7066686153411865,
+          "residual_rms": 0.041230931878089905,
+          "residual_to_feature_rms": 0.010901124216616154,
+          "context_residual_to_feature_rms": 0.010901124216616154,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.10152396559715271,
+          "class_support_mean": 0.6160861849784851,
+          "class_support_min": 0.00023234175750985742,
+          "retrieved_rms": 0.6456348299980164,
+          "self_value_rms": 1.0491489171981812,
+          "retrieved_spatial_rms": 0.2989989221096039,
+          "retrieved_self_cosine": 0.756929874420166,
+          "qk_weight_rms": 0.10458965599536896,
+          "v_weight_rms": 0.10461810976266861,
+          "out_weight_rms": 0.15707935392856598,
+          "temperature": [
+            0.4601830840110779
+          ],
+          "radius_mean": 0.8839353919029236,
+          "radius_max": 1.2989054918289185,
+          "radius_cv": 0.18396833539009094,
+          "key_radius_mean": 0.7609131932258606,
+          "radial_gap_attention_mean": 0.16300532221794128,
+          "angular_gap_attention_mean": 0.3609071373939514,
+          "prototype_direction_variance_mean": 0.2281161993741989,
+          "finite": true,
+          "entropy": 0.8011379241943359,
+          "scale_mass": [
+            [
+              0.19855773448944092,
+              0.28604015707969666,
+              0.3283785581588745,
+              0.18702355027198792
+            ]
+          ],
+          "context_mass_mean": 0.6540058851242065,
+          "context_mass_min": 0.01395534910261631,
+          "context_mass_max": 0.9953705668449402,
+          "context_mass_std": 0.28549039363861084,
+          "query_attention_tv": 0.22713322937488556,
+          "query_attention_tv_per_head": [
+            0.22713322937488556
+          ],
+          "adoption_source": "learned_value_correction_gate"
+        },
+        "stage4": {
+          "queries": 64,
+          "contexts": 224,
+          "gamma_context": -0.01945248432457447,
+          "gamma_context_rms": 0.1020222008228302,
+          "gamma_detail": 0.0,
+          "gamma_detail_rms": 0.0,
+          "feature_rms": 4.1569929122924805,
+          "context_rms": 3.1767594814300537,
+          "branch_rms": 3.1767594814300537,
+          "local_rms": 0.0,
+          "relative_update_rms": 1.0153721570968628,
+          "gated_difference_rms": 0.9490575194358826,
+          "ungated_projection_rms": 3.3331241607666016,
+          "residual_rms": 0.3732316195964813,
+          "residual_to_feature_rms": 0.08978404104709625,
+          "context_residual_to_feature_rms": 0.08978404104709625,
+          "local_residual_to_feature_rms": 0.0,
+          "guide_mean": 0.12409954518079758,
+          "class_support_mean": 0.5730577111244202,
+          "class_support_min": 0.00017748621758073568,
+          "retrieved_rms": 0.6057810187339783,
+          "self_value_rms": 1.2953214645385742,
+          "retrieved_spatial_rms": 0.2270815223455429,
+          "retrieved_self_cosine": 0.6693700551986694,
+          "qk_weight_rms": 0.10458965599536896,
+          "v_weight_rms": 0.10461810976266861,
+          "out_weight_rms": 0.15707935392856598,
+          "temperature": [
+            0.4601830840110779
+          ],
+          "radius_mean": 0.8496232032775879,
+          "radius_max": 1.2203869819641113,
+          "radius_cv": 0.10565219819545746,
+          "key_radius_mean": 0.7609131932258606,
+          "radial_gap_attention_mean": 0.15166133642196655,
+          "angular_gap_attention_mean": 0.3077940046787262,
+          "prototype_direction_variance_mean": 0.09852902591228485,
+          "finite": true,
+          "entropy": 0.8269086480140686,
+          "scale_mass": [
+            [
+              0.23702120780944824,
+              0.22489725053310394,
+              0.19450104236602783,
+              0.3435804843902588
+            ]
+          ],
+          "context_mass_mean": 0.8060355186462402,
+          "context_mass_min": 0.13518711924552917,
+          "context_mass_max": 0.9990424513816833,
+          "context_mass_std": 0.2693038880825043,
+          "query_attention_tv": 0.2011660486459732,
+          "query_attention_tv_per_head": [
+            0.2011660486459732
+          ],
+          "adoption_source": "learned_value_correction_gate"
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "M0_CTRL/LEVIR-CD-256",
+      "placement": {
+        "pid": 2274086,
+        "physical_gpu": 0,
+        "logical_gpu": 0,
+        "reserved_mib": 8852,
+        "started": "2026-10-28 16:00:10"
+      },
+      "active_pid": 2274086,
+      "physical_gpu": 0,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 9.4,
+      "steps": 1554,
+      "target_steps": 40182,
+      "train_batches": 222,
+      "total_epochs": 181,
+      "finished_train_epochs": 7,
+      "recent_train": [
+        {
+          "epoch": 2.0,
+          "loss": 1.19572,
+          "main": 1.121627,
+          "auxiliary": 0.370466,
+          "guide": 0.370466,
+          "retrieval": 0.0,
+          "lr": 0.00049255,
+          "encoder_lr": 0.00049255
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.097817,
+          "main": 1.030481,
+          "auxiliary": 0.336678,
+          "guide": 0.336678,
+          "retrieval": 0.0,
+          "lr": 0.00049006,
+          "encoder_lr": 0.00049006
+        },
+        {
+          "epoch": 4.0,
+          "loss": 1.070331,
+          "main": 1.006465,
+          "auxiliary": 0.319329,
+          "guide": 0.319329,
+          "retrieval": 0.0,
+          "lr": 0.00048756,
+          "encoder_lr": 0.00048756
+        },
+        {
+          "epoch": 5.0,
+          "loss": 1.032723,
+          "main": 0.970923,
+          "auxiliary": 0.308999,
+          "guide": 0.308999,
+          "retrieval": 0.0,
+          "lr": 0.00048507,
+          "encoder_lr": 0.00048507
+        },
+        {
+          "epoch": 6.0,
+          "loss": 1.010931,
+          "main": 0.950805,
+          "auxiliary": 0.300632,
+          "guide": 0.300632,
+          "retrieval": 0.0,
+          "lr": 0.00048257,
+          "encoder_lr": 0.00048257
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 2,
+          "total_epochs": 181,
+          "Loss": 1.291801,
+          "Recall": 0.840466,
+          "Precision": 0.886795,
+          "OA": 0.986407,
+          "F1": 0.863009,
+          "IoU": 0.759029,
+          "Kappa": 0.855863,
+          "t": 57.2
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 181,
+          "Loss": 1.304963,
+          "Recall": 0.842973,
+          "Precision": 0.900269,
+          "OA": 0.987243,
+          "F1": 0.870679,
+          "IoU": 0.770976,
+          "Kappa": 0.863978,
+          "t": 57.2
+        },
+        {
+          "epoch": 4,
+          "total_epochs": 181,
+          "Loss": 1.340122,
+          "Recall": 0.855739,
+          "Precision": 0.876489,
+          "OA": 0.986508,
+          "F1": 0.865989,
+          "IoU": 0.763652,
+          "Kappa": 0.858887,
+          "t": 57.5
+        },
+        {
+          "epoch": 5,
+          "total_epochs": 181,
+          "Loss": 1.242164,
+          "Recall": 0.8875,
+          "Precision": 0.86195,
+          "OA": 0.987028,
+          "F1": 0.874538,
+          "IoU": 0.777049,
+          "Kappa": 0.8677,
+          "t": 57.2
+        },
+        {
+          "epoch": 6,
+          "total_epochs": 181,
+          "Loss": 1.182803,
+          "Recall": 0.866009,
+          "Precision": 0.90132,
+          "OA": 0.988344,
+          "F1": 0.883312,
+          "IoU": 0.79101,
+          "Kappa": 0.87718,
+          "t": 57.9
+        }
+      ],
+      "best_validation": {
+        "epoch": 6,
+        "total_epochs": 181,
+        "Loss": 1.182803,
+        "Recall": 0.866009,
+        "Precision": 0.90132,
+        "OA": 0.988344,
+        "F1": 0.883312,
+        "IoU": 0.79101,
+        "Kappa": 0.87718,
+        "t": 57.9
+      },
+      "mean_epoch_seconds_last20": 57.9,
+      "last_module_diagnostics": {},
+      "errors": []
+    },
+    {
+      "name": "M0_CTRL/SYSU-CD-256",
+      "placement": {
+        "pid": 2274118,
+        "physical_gpu": 0,
+        "logical_gpu": 0,
+        "reserved_mib": 8852,
+        "started": "2026-10-28 16:00:12"
+      },
+      "active_pid": 2274118,
+      "physical_gpu": 0,
+      "alive": true,
+      "complete_test": false,
+      "status": "running",
+      "evaluation_split": "test",
+      "independent_test": false,
+      "log_age_seconds": 11.5,
+      "steps": 1500,
+      "target_steps": 40125,
+      "train_batches": 375,
+      "total_epochs": 107,
+      "finished_train_epochs": 4,
+      "recent_train": [
+        {
+          "epoch": 0.0,
+          "loss": 2.722421,
+          "main": 2.409804,
+          "auxiliary": 1.563086,
+          "guide": 1.563086,
+          "retrieval": 0.0,
+          "lr": 0.0004958,
+          "encoder_lr": 0.0004958
+        },
+        {
+          "epoch": 1.0,
+          "loss": 2.099486,
+          "main": 1.867057,
+          "auxiliary": 1.162147,
+          "guide": 1.162147,
+          "retrieval": 0.0,
+          "lr": 0.00049159,
+          "encoder_lr": 0.00049159
+        },
+        {
+          "epoch": 2.0,
+          "loss": 1.880137,
+          "main": 1.662251,
+          "auxiliary": 1.089429,
+          "guide": 1.089429,
+          "retrieval": 0.0,
+          "lr": 0.00048738,
+          "encoder_lr": 0.00048738
+        },
+        {
+          "epoch": 3.0,
+          "loss": 1.707745,
+          "main": 1.499022,
+          "auxiliary": 1.043614,
+          "guide": 1.043614,
+          "retrieval": 0.0,
+          "lr": 0.00048316,
+          "encoder_lr": 0.00048316
+        }
+      ],
+      "recent_validation": [
+        {
+          "epoch": 0,
+          "total_epochs": 107,
+          "Loss": 2.350851,
+          "Recall": 0.758879,
+          "Precision": 0.847199,
+          "OA": 0.910859,
+          "F1": 0.800611,
+          "IoU": 0.667515,
+          "Kappa": 0.743432,
+          "t": 107.1
+        },
+        {
+          "epoch": 1,
+          "total_epochs": 107,
+          "Loss": 2.207746,
+          "Recall": 0.754026,
+          "Precision": 0.855985,
+          "OA": 0.912075,
+          "F1": 0.801777,
+          "IoU": 0.669139,
+          "Kappa": 0.745577,
+          "t": 98.1
+        },
+        {
+          "epoch": 2,
+          "total_epochs": 107,
+          "Loss": 2.268035,
+          "Recall": 0.769423,
+          "Precision": 0.846104,
+          "OA": 0.91262,
+          "F1": 0.805944,
+          "IoU": 0.674963,
+          "Kappa": 0.749723,
+          "t": 97.8
+        },
+        {
+          "epoch": 3,
+          "total_epochs": 107,
+          "Loss": 2.024264,
+          "Recall": 0.818412,
+          "Precision": 0.837647,
+          "OA": 0.919768,
+          "F1": 0.827918,
+          "IoU": 0.706365,
+          "Kappa": 0.775616,
+          "t": 98.6
+        }
+      ],
+      "best_validation": {
+        "epoch": 3,
+        "total_epochs": 107,
+        "Loss": 2.024264,
+        "Recall": 0.818412,
+        "Precision": 0.837647,
+        "OA": 0.919768,
+        "F1": 0.827918,
+        "IoU": 0.706365,
+        "Kappa": 0.775616,
+        "t": 98.6
+      },
+      "mean_epoch_seconds_last20": 100.4,
+      "last_module_diagnostics": {},
+      "errors": []
+    }
+  ]
+}

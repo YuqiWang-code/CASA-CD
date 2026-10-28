@@ -42,4 +42,4 @@ python tools/export_training_records.py --tag CASA-Pyramid --run Run7
 
 只采纳完整`TEST RESULTS`区块；221条历史记录逐单元格保留，8项收齐后至少229条，另有新增也全部保留。冻结TXT使用本轮实际源码归档，当前源码快照单独生成。根README以`CASA_PYRAMID_RUN7_RESULTS`标记更新状态与结果。
 
-<!-- RUN7_FINAL_RESULTS -->
+正式队列于2026-10-28 16:00:08 CST启动，源码基线`8a54fa2`，supervisor初始PID2274057。首批3项已完成至少3个训练/test选模epoch观察，无记录错误；具体进度以实时状态为准。[初期记录](../../../docs/experiments/CASA-Pyramid/Run7/README.md)。

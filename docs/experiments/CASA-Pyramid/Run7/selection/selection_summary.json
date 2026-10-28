@@ -1,0 +1,1184 @@
+{
+  "as_of_cst": "2026-10-28T16:01:16.280104+08:00",
+  "protocol": {
+    "seed": 2333,
+    "planned_epochs": 12,
+    "training_split": "train",
+    "evaluation_split": "val",
+    "batch_size": 32,
+    "workers": 1,
+    "lr_total": "40K rounded to complete epochs",
+    "formal_result": false,
+    "precision": "FP32, cuDNN TF32 enabled, matmul TF32 disabled",
+    "common_initialization": "seeded shared body; context seed2333",
+    "paired_data": "independent fixed generator shared by sampler and worker seeds"
+  },
+  "candidates": {
+    "ctrl": {
+      "description": "\u65e0\u4e0a\u4e0b\u6587CTRL\uff0c0.2 guide",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.8938395317096706,
+            "precision": 0.8991630606977331,
+            "recall": 0.8885787858257431,
+            "boundary_1px_f1": 0.7834055138875865,
+            "boundary_2px_f1": 0.8841849433077994,
+            "main_loss": 0.8934304016130464,
+            "train_loss": 0.9488782308123134,
+            "reported_aux_loss": 0.277239138982049,
+            "validation_loss": 0.8923143334686756
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8234289971774813,
+            "precision": 0.8112309221622164,
+            "recall": 0.8359996278762889,
+            "boundary_1px_f1": 0.5734656559949596,
+            "boundary_2px_f1": 0.7130177311592323,
+            "main_loss": 1.9378905392981864,
+            "train_loss": 2.1934495874353357,
+            "reported_aux_loss": 1.2777952680716644,
+            "validation_loss": 1.3619262613356113
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8884698680297798,
+            "precision": 0.88923802210064,
+            "recall": 0.8877031589322799,
+            "boundary_1px_f1": 0.788810499978697,
+            "boundary_2px_f1": 0.8840382230590985,
+            "main_loss": 0.8828088549880294,
+            "train_loss": 0.9372504882447354,
+            "reported_aux_loss": 0.27220817353274374,
+            "validation_loss": 0.9665702730417252
+          },
+          "last3": {
+            "f1": 0.8902676727103258,
+            "precision": 0.8921853431172222,
+            "recall": 0.8883715375572309,
+            "boundary_1px_f1": 0.7832186192371801,
+            "boundary_2px_f1": 0.8824676984975869,
+            "main_loss": 0.8990539743735626,
+            "train_loss": 0.9544815000471052,
+            "reported_aux_loss": 0.27713762755105803,
+            "validation_loss": 0.929375180353721
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2047125,
+          "context_parameters": 193,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/run6/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/ctrl/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.0,
+            "last3": 0.0
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 7,
+            "step": 2625,
+            "f1": 0.8059142668868512,
+            "precision": 0.8010539492559777,
+            "recall": 0.8108340442339707,
+            "boundary_1px_f1": 0.2321656452106777,
+            "boundary_2px_f1": 0.3241910002702324,
+            "main_loss": 1.221999973456065,
+            "train_loss": 1.415578931649526,
+            "reported_aux_loss": 0.9678947973251343,
+            "validation_loss": 2.1778815317153932
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.7880310869084539,
+            "precision": 0.777143038785644,
+            "recall": 0.799228683585421,
+            "boundary_1px_f1": 0.16753516497380525,
+            "boundary_2px_f1": 0.24106704573159177,
+            "main_loss": 2.4119465459187825,
+            "train_loss": 2.7262813097635905,
+            "reported_aux_loss": 1.5716738017400105,
+            "validation_loss": 2.3010917415618897
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.7986022040781557,
+            "precision": 0.8185823191892289,
+            "recall": 0.7795743200328246,
+            "boundary_1px_f1": 0.2462795198052515,
+            "boundary_2px_f1": 0.3401563235136357,
+            "main_loss": 0.9817565573056539,
+            "train_loss": 1.162349660396576,
+            "reported_aux_loss": 0.9029655041694641,
+            "validation_loss": 2.249136685848236
+          },
+          "last3": {
+            "f1": 0.7939012408479069,
+            "precision": 0.8433420143342896,
+            "recall": 0.7507875248192103,
+            "boundary_1px_f1": 0.24204255409712175,
+            "boundary_2px_f1": 0.3347680869678589,
+            "main_loss": 1.0145246126386855,
+            "train_loss": 1.1971123944918314,
+            "reported_aux_loss": 0.9129389031728109,
+            "validation_loss": 2.2379719111124676
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2047125,
+          "context_parameters": 193,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/run6/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/ctrl/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.0,
+            "last3": 0.0
+          }
+        }
+      }
+    },
+    "run6": {
+      "description": "Run6\u53cc\u66f2\uff0c448 KV\uff0c0.2 guide",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.8946386528711238,
+            "precision": 0.9008274786560088,
+            "recall": 0.8885344008453365,
+            "boundary_1px_f1": 0.7872253204445284,
+            "boundary_2px_f1": 0.8882479571433418,
+            "main_loss": 0.8892889672571475,
+            "train_loss": 0.9450622998379372,
+            "reported_aux_loss": 0.2788666666628004,
+            "validation_loss": 0.8694538325071335
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8213940848976283,
+            "precision": 0.830756430272864,
+            "recall": 0.8122405254045081,
+            "boundary_1px_f1": 0.5741864951470719,
+            "boundary_2px_f1": 0.7137307748072078,
+            "main_loss": 1.935731087718998,
+            "train_loss": 2.1912653854301385,
+            "reported_aux_loss": 1.2776714743257642,
+            "validation_loss": 1.399958299472928
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8914765951442528,
+            "precision": 0.9140319246682175,
+            "recall": 0.8700077549437398,
+            "boundary_1px_f1": 0.7890517298667221,
+            "boundary_2px_f1": 0.8836408764168998,
+            "main_loss": 0.8830835378921784,
+            "train_loss": 0.937917095315349,
+            "reported_aux_loss": 0.27416779449931133,
+            "validation_loss": 0.9153656084090471
+          },
+          "last3": {
+            "f1": 0.8906169267779728,
+            "precision": 0.9039668374346135,
+            "recall": 0.8777512178054653,
+            "boundary_1px_f1": 0.7816069693994427,
+            "boundary_2px_f1": 0.8810173590700529,
+            "main_loss": 0.9005957261936085,
+            "train_loss": 0.9564746988786234,
+            "reported_aux_loss": 0.27939486625540005,
+            "validation_loss": 0.9089415439714988
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2058474,
+          "context_parameters": 11542,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/run6/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/run6/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.07991211614531979,
+            "last3": 0.034925406764696465
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 7,
+            "step": 2625,
+            "f1": 0.8144824107603817,
+            "precision": 0.8271558985765638,
+            "recall": 0.8021915383729163,
+            "boundary_1px_f1": 0.24001158344456291,
+            "boundary_2px_f1": 0.3337234864479606,
+            "main_loss": 1.2123446466128032,
+            "train_loss": 1.407506156285604,
+            "reported_aux_loss": 0.9758075529734294,
+            "validation_loss": 2.055411660671234
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.783451598878143,
+            "precision": 0.7825652825651218,
+            "recall": 0.7843400445920995,
+            "boundary_1px_f1": 0.16709035537223546,
+            "boundary_2px_f1": 0.23965213562249293,
+            "main_loss": 2.407751495997111,
+            "train_loss": 2.7222435461680092,
+            "reported_aux_loss": 1.5724602336883544,
+            "validation_loss": 2.3467258400917053
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.7984064255996859,
+            "precision": 0.8315489868699211,
+            "recall": 0.7678046014481271,
+            "boundary_1px_f1": 0.2435447229478847,
+            "boundary_2px_f1": 0.3366004158976789,
+            "main_loss": 0.9739388472239177,
+            "train_loss": 1.1570980285008747,
+            "reported_aux_loss": 0.9157958938280741,
+            "validation_loss": 2.1715188612937926
+          },
+          "last3": {
+            "f1": 0.7906323985327066,
+            "precision": 0.8481047234726122,
+            "recall": 0.7412385637960794,
+            "boundary_1px_f1": 0.24093409911483127,
+            "boundary_2px_f1": 0.332603260389671,
+            "main_loss": 1.0094432431326972,
+            "train_loss": 1.1946078524589538,
+            "reported_aux_loss": 0.9258230388959249,
+            "validation_loss": 2.233441992441813
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2058474,
+          "context_parameters": 11542,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/run6/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/run6/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.8568143873530554,
+            "last3": -0.32688423152003043
+          }
+        }
+      }
+    },
+    "scale_restore": {
+      "description": "Run6\u53cc\u66f2\uff0c\u6062\u590d\u5199\u56de\u7279\u5f81\u5c3a\u5ea6",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.8934672949143768,
+            "precision": 0.8930879261152609,
+            "recall": 0.8938471054600959,
+            "boundary_1px_f1": 0.7801295731534786,
+            "boundary_2px_f1": 0.8821254456436288,
+            "main_loss": 0.8824824390110669,
+            "train_loss": 0.938080211748948,
+            "reported_aux_loss": 0.27798886684415575,
+            "validation_loss": 0.8798861317336559
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8174257666011077,
+            "precision": 0.8253725265197984,
+            "recall": 0.8096306885565946,
+            "boundary_1px_f1": 0.565433604539729,
+            "boundary_2px_f1": 0.7053786495432419,
+            "main_loss": 1.9346806616396517,
+            "train_loss": 2.1899743751362637,
+            "reported_aux_loss": 1.2764685596968677,
+            "validation_loss": 1.3897229321300983
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8875697256411457,
+            "precision": 0.8907661270277207,
+            "recall": 0.8843963003520597,
+            "boundary_1px_f1": 0.7859678994555297,
+            "boundary_2px_f1": 0.8820118255816682,
+            "main_loss": 0.8866850204832919,
+            "train_loss": 0.9417622183357273,
+            "reported_aux_loss": 0.275386000639415,
+            "validation_loss": 0.9266879316419363
+          },
+          "last3": {
+            "f1": 0.889950589797157,
+            "precision": 0.8958930334311549,
+            "recall": 0.8841794649277795,
+            "boundary_1px_f1": 0.7806449608205654,
+            "boundary_2px_f1": 0.8802604752898819,
+            "main_loss": 0.9019739106073752,
+            "train_loss": 0.9579577694784055,
+            "reported_aux_loss": 0.2799192997585009,
+            "validation_loss": 0.9121519712110361
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2058474,
+          "context_parameters": 11542,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/scale_restore/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/scale_restore/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": -0.037223679529374554,
+            "last3": -0.03170829131687869
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 4,
+            "step": 1500,
+            "f1": 0.812726338122872,
+            "precision": 0.8337101166066635,
+            "recall": 0.7927730277499471,
+            "boundary_1px_f1": 0.2231414004710625,
+            "boundary_2px_f1": 0.3120430992602915,
+            "main_loss": 1.5154925834337871,
+            "train_loss": 1.7272883021036785,
+            "reported_aux_loss": 1.0589785997072856,
+            "validation_loss": 2.0299793004989626
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.7848071754674675,
+            "precision": 0.7817300223144049,
+            "recall": 0.7879087699346439,
+            "boundary_1px_f1": 0.16873926686464674,
+            "boundary_2px_f1": 0.24135870831038103,
+            "main_loss": 2.4089562228520713,
+            "train_loss": 2.723164431254069,
+            "reported_aux_loss": 1.5710410464604696,
+            "validation_loss": 2.3030534882545473
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.8018714113886756,
+            "precision": 0.8247350758979225,
+            "recall": 0.7802413375518285,
+            "boundary_1px_f1": 0.2523153446891353,
+            "boundary_2px_f1": 0.3457803953412559,
+            "main_loss": 0.9874384333292643,
+            "train_loss": 1.1742787135442099,
+            "reported_aux_loss": 0.934201373577118,
+            "validation_loss": 2.179480104446411
+          },
+          "last3": {
+            "f1": 0.7825101931529861,
+            "precision": 0.8495295186155968,
+            "recall": 0.7271385215985909,
+            "boundary_1px_f1": 0.240540060028582,
+            "boundary_2px_f1": 0.33126645397390553,
+            "main_loss": 1.0258141108618841,
+            "train_loss": 1.2147321678797405,
+            "reported_aux_loss": 0.9445902804268731,
+            "validation_loss": 2.3567456235885618
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_40k_taskgeometry_v6",
+          "parameters": 2058474,
+          "context_parameters": 11542,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/scale_restore/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/scale_restore/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.6812071236020789,
+            "last3": -1.139104769492083
+          }
+        }
+      }
+    },
+    "lean_half": {
+      "description": "224 KV\u53cc\u66f2\uff0c\u4ec50.1 guide",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.895403154892164,
+            "precision": 0.8975981685106779,
+            "recall": 0.8932189692173804,
+            "boundary_1px_f1": 0.7872423892269242,
+            "boundary_2px_f1": 0.887061876383842,
+            "main_loss": 0.8998740814827584,
+            "train_loss": 0.9295718240308332,
+            "reported_aux_loss": 0.2969774240040564,
+            "validation_loss": 0.875574316829443
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8134663024281135,
+            "precision": 0.7840653870960845,
+            "recall": 0.8451582022733274,
+            "boundary_1px_f1": 0.5363604919191584,
+            "boundary_2px_f1": 0.6776634646432839,
+            "main_loss": 1.9297854331162598,
+            "train_loss": 2.0829905652785086,
+            "reported_aux_loss": 1.5320513524987676,
+            "validation_loss": 1.4085297957062721
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8889676968658543,
+            "precision": 0.8832652322976956,
+            "recall": 0.8947443922239976,
+            "boundary_1px_f1": 0.7755825423795496,
+            "boundary_2px_f1": 0.8746379162297507,
+            "main_loss": 0.8860801890626684,
+            "train_loss": 0.9151466228403486,
+            "reported_aux_loss": 0.2906643316015467,
+            "validation_loss": 0.9304728005081415
+          },
+          "last3": {
+            "f1": 0.8911117049366561,
+            "precision": 0.8923004027530029,
+            "recall": 0.889988334443512,
+            "boundary_1px_f1": 0.7798967108573276,
+            "boundary_2px_f1": 0.8803921190266284,
+            "main_loss": 0.8961811989277333,
+            "train_loss": 0.9256918975361832,
+            "reported_aux_loss": 0.2951069829297495,
+            "validation_loss": 0.9087972138077021
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_lean224_guide_half_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/lean_half/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/lean_half/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.15636231824934788,
+            "last3": 0.08440322263303379
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 6,
+            "step": 2250,
+            "f1": 0.8101873401760269,
+            "precision": 0.8402232665372357,
+            "recall": 0.7822248309546008,
+            "boundary_1px_f1": 0.2390985521650277,
+            "boundary_2px_f1": 0.33014281048640853,
+            "main_loss": 1.3085355644226073,
+            "train_loss": 1.4132844171524048,
+            "reported_aux_loss": 1.0474885323842367,
+            "validation_loss": 2.094471672534943
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.7873560941262554,
+            "precision": 0.7666986651369527,
+            "recall": 0.8091576322662324,
+            "boundary_1px_f1": 0.1687469356402882,
+            "boundary_2px_f1": 0.24273571166814234,
+            "main_loss": 2.4113650067647296,
+            "train_loss": 2.580916610399882,
+            "reported_aux_loss": 1.6955160477956137,
+            "validation_loss": 2.315447783946991
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.8028415061339464,
+            "precision": 0.8517389191774782,
+            "recall": 0.7592536831433414,
+            "boundary_1px_f1": 0.250919326119908,
+            "boundary_2px_f1": 0.3461268717179877,
+            "main_loss": 0.9952874463399252,
+            "train_loss": 1.0919917081197104,
+            "reported_aux_loss": 0.9670426184336345,
+            "validation_loss": 2.1608896913528444
+          },
+          "last3": {
+            "f1": 0.7896144629628632,
+            "precision": 0.8512511230452298,
+            "recall": 0.7366685650398086,
+            "boundary_1px_f1": 0.243364519884431,
+            "boundary_2px_f1": 0.3358308090773975,
+            "main_loss": 1.0295003412564596,
+            "train_loss": 1.1271888943248325,
+            "reported_aux_loss": 0.9768855271869236,
+            "validation_loss": 2.2730862959225973
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_lean224_guide_half_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/lean_half/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/lean_half/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.42730732891756995,
+            "last3": -0.42867778850437244
+          }
+        }
+      }
+    },
+    "geometry_supervised": {
+      "description": "224 KV\u5360\u7528\u7387\u534a\u5f84\u53cc\u66f2\uff0c0.1 guide+0.1\u51e0\u4f55\u5206\u7c7b",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.8939072422405927,
+            "precision": 0.8866941208692561,
+            "recall": 0.9012388025571049,
+            "boundary_1px_f1": 0.785190050270033,
+            "boundary_2px_f1": 0.8865914150702497,
+            "main_loss": 0.8835320155899804,
+            "train_loss": 0.9384369603148451,
+            "reported_aux_loss": 0.2745247226846111,
+            "validation_loss": 0.875357324257493
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8193410283622269,
+            "precision": 0.8688465022390416,
+            "recall": 0.7751730304075847,
+            "boundary_1px_f1": 0.597077506357483,
+            "boundary_2px_f1": 0.7319028637099863,
+            "main_loss": 1.9386858548130002,
+            "train_loss": 2.1903498500317067,
+            "reported_aux_loss": 1.2583199704552557,
+            "validation_loss": 1.3948460537940264
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8874911930847712,
+            "precision": 0.8876181288832047,
+            "recall": 0.8873644127618161,
+            "boundary_1px_f1": 0.7801427187725503,
+            "boundary_2px_f1": 0.8789822301372294,
+            "main_loss": 0.8756257139884673,
+            "train_loss": 0.9295325373207126,
+            "reported_aux_loss": 0.26953412062144494,
+            "validation_loss": 0.9233252536505461
+          },
+          "last3": {
+            "f1": 0.8886248595324262,
+            "precision": 0.8910353929392704,
+            "recall": 0.886403566705972,
+            "boundary_1px_f1": 0.7803142595567607,
+            "boundary_2px_f1": 0.8808936916297327,
+            "main_loss": 0.8946620473811576,
+            "train_loss": 0.9496537257243205,
+            "reported_aux_loss": 0.27495839838330094,
+            "validation_loss": 0.9149183842043082
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_geometry_supervised_224_candidate",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/geometry_supervised/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/geometry_supervised/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.006771053092213819,
+            "last3": -0.16428131778996047
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.8088615699926834,
+            "precision": 0.8266137611438963,
+            "recall": 0.7918559473209764,
+            "boundary_1px_f1": 0.25144536982035853,
+            "boundary_2px_f1": 0.34686783612249206,
+            "main_loss": 0.9779857509930928,
+            "train_loss": 1.1587813803354898,
+            "reported_aux_loss": 0.903978140672048,
+            "validation_loss": 2.0934068007469175
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.785604368273226,
+            "precision": 0.7800710975259549,
+            "recall": 0.7912168189127419,
+            "boundary_1px_f1": 0.16813314581511166,
+            "boundary_2px_f1": 0.24140267519203443,
+            "main_loss": 2.4132663555145264,
+            "train_loss": 2.726254150390625,
+            "reported_aux_loss": 1.564939001719157,
+            "validation_loss": 2.318689365386963
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.8088615699926834,
+            "precision": 0.8266137611438963,
+            "recall": 0.7918559473209764,
+            "boundary_1px_f1": 0.25144536982035853,
+            "boundary_2px_f1": 0.34686783612249206,
+            "main_loss": 0.9779857509930928,
+            "train_loss": 1.1587813803354898,
+            "reported_aux_loss": 0.903978140672048,
+            "validation_loss": 2.0934068007469175
+          },
+          "last3": {
+            "f1": 0.7936624866227092,
+            "precision": 0.8556171512139014,
+            "recall": 0.742281842155971,
+            "boundary_1px_f1": 0.24043019753167158,
+            "boundary_2px_f1": 0.3322714511425006,
+            "main_loss": 1.0094353762202792,
+            "train_loss": 1.1927626083162095,
+            "reported_aux_loss": 0.9166361553404067,
+            "validation_loss": 2.2021738481521607
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_geometry_supervised_224_candidate",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/geometry_supervised/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/geometry_supervised/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.2947303105832244,
+            "last3": -0.02387542251977015
+          }
+        }
+      }
+    },
+    "geometry_euclidean": {
+      "description": "\u4e0egeometry_supervised\u5339\u914d\u7684\u6b27\u6c0f\u8ddd\u79bb\u5bf9\u7167",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.894257509756925,
+            "precision": 0.89892428829443,
+            "recall": 0.8896390542376983,
+            "boundary_1px_f1": 0.788251997091597,
+            "boundary_2px_f1": 0.8853742427878982,
+            "main_loss": 0.8831348907840144,
+            "train_loss": 0.9381209703179093,
+            "reported_aux_loss": 0.27493039719961787,
+            "validation_loss": 0.8986812178045511
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8166630117079607,
+            "precision": 0.8270430358877203,
+            "recall": 0.806540428680759,
+            "boundary_1px_f1": 0.5525049611650421,
+            "boundary_2px_f1": 0.6953572310916296,
+            "main_loss": 1.9386274889782742,
+            "train_loss": 2.1911480561033025,
+            "reported_aux_loss": 1.2626028436798233,
+            "validation_loss": 1.3737792931497097
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.894257509756925,
+            "precision": 0.89892428829443,
+            "recall": 0.8896390542376983,
+            "boundary_1px_f1": 0.788251997091597,
+            "boundary_2px_f1": 0.8853742427878982,
+            "main_loss": 0.8831348907840144,
+            "train_loss": 0.9381209703179093,
+            "reported_aux_loss": 0.27493039719961787,
+            "validation_loss": 0.8986812178045511
+          },
+          "last3": {
+            "f1": 0.8912005924628189,
+            "precision": 0.8947699283336012,
+            "recall": 0.8878112215645768,
+            "boundary_1px_f1": 0.780716844767978,
+            "boundary_2px_f1": 0.8816218441211195,
+            "main_loss": 0.8975410132973759,
+            "train_loss": 0.9534035647237623,
+            "reported_aux_loss": 0.27931276162912894,
+            "validation_loss": 0.9084932648887237
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_geometry_euclidean_224_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/geometry_euclidean/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/geometry_euclidean/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.04179780472544081,
+            "last3": 0.09329197524930999
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 5,
+            "step": 1875,
+            "f1": 0.8107868029536565,
+            "precision": 0.812917130677073,
+            "recall": 0.8086677300910978,
+            "boundary_1px_f1": 0.22791540839700913,
+            "boundary_2px_f1": 0.31716832898653396,
+            "main_loss": 1.3766135160128277,
+            "train_loss": 1.5857300141652426,
+            "reported_aux_loss": 1.0455824871063233,
+            "validation_loss": 2.066441307067871
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.7804486110350956,
+            "precision": 0.7710345058929986,
+            "recall": 0.7900955668043588,
+            "boundary_1px_f1": 0.1694666178027677,
+            "boundary_2px_f1": 0.24294391178498295,
+            "main_loss": 2.4149345871607464,
+            "train_loss": 2.7305529419581096,
+            "reported_aux_loss": 1.5780917453765868,
+            "validation_loss": 2.3525658020973204
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.8056027829059995,
+            "precision": 0.8312793436521341,
+            "recall": 0.7814650032944217,
+            "boundary_1px_f1": 0.24184197467734797,
+            "boundary_2px_f1": 0.3342521906632984,
+            "main_loss": 0.9884536838531495,
+            "train_loss": 1.1764770455360412,
+            "reported_aux_loss": 0.9401167984008789,
+            "validation_loss": 2.136965446949005
+          },
+          "last3": {
+            "f1": 0.8041159148688446,
+            "precision": 0.8478108827194765,
+            "recall": 0.7650564195765854,
+            "boundary_1px_f1": 0.24195539365561206,
+            "boundary_2px_f1": 0.33496833935959996,
+            "main_loss": 1.017975813017951,
+            "train_loss": 1.2083601859410604,
+            "reported_aux_loss": 0.9519218567742241,
+            "validation_loss": 2.1234834225972494
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_geometry_euclidean_224_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/geometry_euclidean/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/geometry_euclidean/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.48725360668052664,
+            "last3": 1.0214674020937675
+          }
+        }
+      }
+    },
+    "direct_geometry": {
+      "description": "224 KV\u76f4\u63a5\u6295\u5f71\u53cc\u66f2\uff0c0.1 guide+0.1\u51e0\u4f55\u5206\u7c7b",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 11,
+            "step": 2442,
+            "f1": 0.894910369681119,
+            "precision": 0.8948133732403463,
+            "recall": 0.8950075063878485,
+            "boundary_1px_f1": 0.7848759556792929,
+            "boundary_2px_f1": 0.8863560488018938,
+            "main_loss": 0.880133783495104,
+            "train_loss": 0.9356603815748885,
+            "reported_aux_loss": 0.27763298167301725,
+            "validation_loss": 0.8666104096919298
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8219480321556237,
+            "precision": 0.8357174574398618,
+            "recall": 0.8086251024405006,
+            "boundary_1px_f1": 0.5816283352762202,
+            "boundary_2px_f1": 0.719994254492476,
+            "main_loss": 1.9342482170543156,
+            "train_loss": 2.1954395991187914,
+            "reported_aux_loss": 1.3059569060265481,
+            "validation_loss": 1.363389976322651
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8869515970633984,
+            "precision": 0.8924541467196742,
+            "recall": 0.8815166028232735,
+            "boundary_1px_f1": 0.7885223122360533,
+            "boundary_2px_f1": 0.8840381384863779,
+            "main_loss": 0.8860780956508877,
+            "train_loss": 0.9410094175789807,
+            "reported_aux_loss": 0.2746566131643884,
+            "validation_loss": 0.9646371863782406
+          },
+          "last3": {
+            "f1": 0.8904409307045817,
+            "precision": 0.8935642755840434,
+            "recall": 0.8873518666073544,
+            "boundary_1px_f1": 0.7820392370132985,
+            "boundary_2px_f1": 0.8824281042625427,
+            "main_loss": 0.8909969469448468,
+            "train_loss": 0.9465775739502262,
+            "reported_aux_loss": 0.2779031349262139,
+            "validation_loss": 0.9119297688206037
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_direct_geometry_224_candidate",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/direct_geometry/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/direct_geometry/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.10708379714484684,
+            "last3": 0.017325799425593758
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 7,
+            "step": 2625,
+            "f1": 0.8122070965229711,
+            "precision": 0.8037145821732147,
+            "recall": 0.8208811229665605,
+            "boundary_1px_f1": 0.23621405590538014,
+            "boundary_2px_f1": 0.3289922228523116,
+            "main_loss": 1.2150233251253764,
+            "train_loss": 1.402644683678945,
+            "reported_aux_loss": 0.938106785138448,
+            "validation_loss": 2.0804033999443052
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.7852819894164351,
+            "precision": 0.7929700204460517,
+            "recall": 0.7777417184136047,
+            "boundary_1px_f1": 0.16951118701778692,
+            "boundary_2px_f1": 0.24350148874789854,
+            "main_loss": 2.408337952295939,
+            "train_loss": 2.729427027066549,
+            "reported_aux_loss": 1.605445367495219,
+            "validation_loss": 2.299029508113861
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.7962831933033279,
+            "precision": 0.8282291427791469,
+            "recall": 0.7667102284890688,
+            "boundary_1px_f1": 0.24210808773809392,
+            "boundary_2px_f1": 0.3351905256060753,
+            "main_loss": 0.973156444867452,
+            "train_loss": 1.1464756808280945,
+            "reported_aux_loss": 0.8665961731274923,
+            "validation_loss": 2.235691767215729
+          },
+          "last3": {
+            "f1": 0.7904097918153188,
+            "precision": 0.8460471417635316,
+            "recall": 0.7429825368688773,
+            "boundary_1px_f1": 0.23976793048092085,
+            "boundary_2px_f1": 0.33183934914109087,
+            "main_loss": 1.0085213904910617,
+            "train_loss": 1.184125081539154,
+            "reported_aux_loss": 0.8780184471872118,
+            "validation_loss": 2.2653283081054685
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_direct_geometry_224_candidate",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/direct_geometry/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/direct_geometry/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.6292829636119879,
+            "last3": -0.3491449032588134
+          }
+        }
+      }
+    },
+    "direct_euclidean": {
+      "description": "\u4e0edirect_geometry\u5339\u914d\u7684\u6b27\u6c0f\u8ddd\u79bb\u5bf9\u7167",
+      "datasets": {
+        "LEVIR": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8953575794464266,
+            "precision": 0.901444056184375,
+            "recall": 0.8893528598840359,
+            "boundary_1px_f1": 0.7890466544212685,
+            "boundary_2px_f1": 0.886718999555834,
+            "main_loss": 0.8894522772715973,
+            "train_loss": 0.9444930317165615,
+            "reported_aux_loss": 0.275203783132203,
+            "validation_loss": 0.8894028477370739
+          },
+          "first": {
+            "epoch": 1,
+            "step": 222,
+            "f1": 0.8242596176581101,
+            "precision": 0.8219294547647099,
+            "recall": 0.8266031499842705,
+            "boundary_1px_f1": 0.5818216749321228,
+            "boundary_2px_f1": 0.7208246783702972,
+            "main_loss": 1.93551341961096,
+            "train_loss": 2.196296778885094,
+            "reported_aux_loss": 1.303916846041207,
+            "validation_loss": 1.3388934023678303
+          },
+          "last": {
+            "epoch": 12,
+            "step": 2664,
+            "f1": 0.8953575794464266,
+            "precision": 0.901444056184375,
+            "recall": 0.8893528598840359,
+            "boundary_1px_f1": 0.7890466544212685,
+            "boundary_2px_f1": 0.886718999555834,
+            "main_loss": 0.8894522772715973,
+            "train_loss": 0.9444930317165615,
+            "reported_aux_loss": 0.275203783132203,
+            "validation_loss": 0.8894028477370739
+          },
+          "last3": {
+            "f1": 0.8899244167109193,
+            "precision": 0.9000951071471758,
+            "recall": 0.8801204288796006,
+            "boundary_1px_f1": 0.7794793820816222,
+            "boundary_2px_f1": 0.8803412729520271,
+            "main_loss": 0.9046836599215373,
+            "train_loss": 0.9606147260816248,
+            "reported_aux_loss": 0.2796553346040371,
+            "validation_loss": 0.9175826571881771
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_direct_euclidean_224_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/direct_euclidean/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/direct_euclidean/LEVIR/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": 0.1518047736756012,
+            "last3": -0.03432559994065443
+          }
+        },
+        "SYSU": {
+          "status": "complete",
+          "epochs_completed": 12,
+          "epochs_planned": 12,
+          "best": {
+            "epoch": 7,
+            "step": 2625,
+            "f1": 0.8045328111086307,
+            "precision": 0.8255404085968683,
+            "recall": 0.7845679592247717,
+            "boundary_1px_f1": 0.23007192732380521,
+            "boundary_2px_f1": 0.3212960524488801,
+            "main_loss": 1.2154589734077454,
+            "train_loss": 1.4036162888209025,
+            "reported_aux_loss": 0.9407865688006083,
+            "validation_loss": 2.13054247379303
+          },
+          "first": {
+            "epoch": 1,
+            "step": 375,
+            "f1": 0.787891208258413,
+            "precision": 0.7735605483800172,
+            "recall": 0.8027629816457387,
+            "boundary_1px_f1": 0.17177102002363703,
+            "boundary_2px_f1": 0.24597272199253054,
+            "main_loss": 2.4068099222183226,
+            "train_loss": 2.7266077706019085,
+            "reported_aux_loss": 1.5989892355600992,
+            "validation_loss": 2.3041226387023928
+          },
+          "last": {
+            "epoch": 12,
+            "step": 4500,
+            "f1": 0.7982135641045731,
+            "precision": 0.8388157529998961,
+            "recall": 0.7613606399030648,
+            "boundary_1px_f1": 0.24159127758429697,
+            "boundary_2px_f1": 0.3317757952370224,
+            "main_loss": 0.9770569944381714,
+            "train_loss": 1.1506875411669413,
+            "reported_aux_loss": 0.8681527358690898,
+            "validation_loss": 2.176789465904236
+          },
+          "last3": {
+            "f1": 0.7924653544373355,
+            "precision": 0.8494325947299046,
+            "recall": 0.7437806603770505,
+            "boundary_1px_f1": 0.2405518351859799,
+            "boundary_2px_f1": 0.3316030102483816,
+            "main_loss": 1.0174373642603558,
+            "train_loss": 1.1935477294392056,
+            "reported_aux_loss": 0.8805518227153355,
+            "validation_loss": 2.2215888247489928
+          },
+          "last3_epochs": [
+            10,
+            11,
+            12
+          ],
+          "health_passed": true,
+          "source_protocol": "casa_pyramid_run7_direct_euclidean_224_control",
+          "parameters": 2058409,
+          "context_parameters": 11477,
+          "source_models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/direct_euclidean/models",
+          "best_checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/direct_euclidean/SYSU/best_model.pth",
+          "delta_vs_ctrl_pp": {
+            "best": -0.1381455778220464,
+            "last3": -0.1435886410571463
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Single seed and 12-epoch val screening; not full-budget or final metrics.",
+    "Finite outputs and nonzero gradients are health evidence, not accuracy effectiveness.",
+    "Repeated candidate selection on the same val creates selection bias; small differences are not statistical proof.",
+    "Reported guide_loss is a blended guide/geometric loss for geometry-supervised arms and pure guide loss for other arms; compare main loss and val segmentation loss across arms."
+  ]
+}

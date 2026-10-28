@@ -2,13 +2,13 @@
 
 更新：2026-10-28。
 
-## CASA-Pyramid / Run7 部署检查完成
+## CASA-Pyramid / Run7 训练中
 
 用户授权停止Run6、仅GPU0短训优化双曲，然后重新训练四库双曲/CTRL共8项。Run6于2026-10-28 12:46 CST停止，0/8完整结果，日志/checkpoint/源码归档保留，不恢复。指标表221条历史记录。
 
 16项完整train/val短训已完成：8个候选/对照各LEVIR与SYSU 12epoch、batch32、seed2333、40K学习率预算、相同共同路径初始化与独立数据随机流。选定direct_geometry，224KV、1×32直接Lorentz投影、同P K/V、独立内容门控，双曲辅助0.1guide+0.1类别检索。LEVIR/SYSU最佳val F1为89.4910/81.2207%，CTRL为89.3840/80.5914%；这是候选选择，非正式指标或稳定领先结论。对照和检索内容证据在docs/experiments/CASA-Pyramid/Run7/selection。
 
-工作models及服务器已统一协议`casa_pyramid_40k_retrieval_v7`。最终模型、几何、任务梯度、常量场、折叠及8项GPU0调度检查通过，validation.log含[VALIDATION-PASS]。profile.json双曲/CTRL峰值reserved为10438/8220MiB，额外进程开销760/632MiB。正式队列尚未启动；启动前确认实时pipeline_status.json，避免重复。
+工作models及服务器已统一协议`casa_pyramid_40k_retrieval_v7`。最终模型、几何、任务梯度、常量场、折叠及8项GPU0调度检查通过，validation.log含[VALIDATION-PASS]。profile.json双曲/CTRL峰值reserved为10438/8220MiB，额外进程开销760/632MiB。正式队列于2026-10-28 16:00:08 CST启动，supervisor PID2274057，源码基线8a54fa2；不得重复启动。首批LEVIR双曲PID2274059、LEVIR CTRL PID2274086、SYSU CTRL PID2274118均完成至少3个训练/test选模epoch，未记录NaN、OOM或进程错误。GPU0约29.1GiB，后续自动补位；所有PID以实时状态为准。
 
 Run7日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run7`；唯一正式调度器`train_scripts/CASA-Pyramid/Run7/pipeline.py`。四库优先LEVIR→SYSU→WHU→CDD，按显存补位，fresh预训练初始化，不复用短训权重；每epoch test F1选模，最终复测非独立盲测。普通QKV保持Run5结构。
 

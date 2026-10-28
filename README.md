@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前轮次 **CASA-Pyramid / Run6（GPU0，8项）**，协议`casa_pyramid_40k_taskgeometry_v6`。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run7（GPU0，双曲/CTRL四库8项）**。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
 
-本轮双曲版采用**任务几何与独立采用门控**：占比半径、同内容K/V、双子原型与独立内容门控；普通QKV保持Run5结构。双曲部署1.947159M，448KV、一个32维空间；与CTRL开展四库同协议对照，尚无正式结果。[逐项设计与检查](models/HYPERBOLIC_DESIGN.md)。下方Run5结构、参数和结果均指已归档的实际训练实现。
+双曲版采用**同内容原型与类别检索监督**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
 
 ## 项目定位与固定研究原则
 
@@ -16,44 +16,57 @@
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run6
+## 当前实验：CASA-Pyramid / Run7
 
-四库各双曲、CTRL，共8项，仅使用物理GPU0，LEVIR→SYSU→WHU→CDD优先，按实测显存与1GiB留量并行补位。普通QKV保持Run5结构，本轮不训练；共同训练设置不变，正式从MobileNetV2预训练全新初始化。
+协议`casa_pyramid_40k_retrieval_v7`。四库各双曲/CTRL共8项，物理GPU0；LEVIR→SYSU→WHU→CDD优先，按实测显存与1GiB留量补位。正式训练从MobileNetV2预训练全新初始化。
 
 ```text
 A/B → 共享MobileNetV2 → 四级TAR → LN
-  ├─ 完整Q：共享方向投影，半径asinh(1+p)
-  └─ 变化/背景各两个外观子原型 → 同内容P → K与欧式V
-       四尺度256/64/64/64，共448KV
+  ├─ 完整Q：共享32维投影 → Lorentz提升
+  └─ 变化/背景区域压缩 → 同一内容P → K与欧式V
+       四尺度128/32/32/32，共224KV
   → 双曲条件检索AV → 内容门控g → W_out[g(AV−V_query)]
   + 原TAR残差 + 细两层局部高通 → DCR → 共享预测头
+  训练辅助：变化/背景注意力总权重的log-odds → 面积标签BCE
 ```
+
+Q/K均由`W_qkY/√32`直接提升，半径由投影范数学习；不预设置信度或语义层级。K/V使用同一P，取消密集点质心。类别检索辅助监督复用注意力logits；采用量由内容门控学习。双曲为主损失＋0.1 guide＋0.1检索BCE，CTRL为主损失＋0.2 guide。骨干、增强、优化器与40K预算相同；同轮收益包含检索结构和辅助监督。
 
 | 变体 | 训练参数M | 部署参数M | context参数 |
 |---|---:|---:|---:|
-| 双曲 | 2.058474 | 1.947159 | 11,542 |
+| 双曲 | 2.058409 | 1.947094 | 11,477 |
 | CTRL | 2.047125 | 1.935810 | 193 |
+
+16项LEVIR/SYSU完整train/val短训均完成12epoch。选定双曲的最佳val F1为89.4910%/81.2207%，CTRL为89.3840%/80.5914%；相对差值+0.107/+0.629pp。同结构欧式度量对照为89.5358%/80.4533%。旧Run6为89.4639%/81.4482%，新候选减少一半KV，SYSU最佳值略低。固定LEVIR子集在此阶段未观察到全局分支收益；SYSU后期泛化仍需完整训练验证。单seed短训和验证筛选不作为正式精度结论。
+
+<!-- CASA_PYRAMID_RUN7_RESULTS_START -->
+
+Run7于2026-10-28 16:00:08 CST启动，源码基线`8a54fa2`。队列运行中，正式结果0/8；首批LEVIR双曲、LEVIR CTRL、SYSU CTRL均完成至少3个训练及test选模epoch，无NaN、显存或进程错误。GPU0实测约29.1GiB，空闲容量按优先级自动补位。
+
+| 实验 | 已完成训练epoch | 最新已完成test选模F1 (%) | PID |
+|---|---:|---:|---:|
+| M1_HYPER_QKV/LEVIR-CD-256 | 6 | 86.6271 | 2274059 |
+| M0_CTRL/LEVIR-CD-256 | 7 | 88.3312 | 2274086 |
+| M0_CTRL/SYSU-CD-256 | 4 | 82.7918 | 2274118 |
+
+[初期记录与效率](docs/experiments/CASA-Pyramid/Run7/README.md)。指标表221条历史记录保持；探针、当前选模值不入表。
+
+<!-- CASA_PYRAMID_RUN7_RESULTS_END -->
+
+```powershell
+python .codex/status.py --tag CASA-Pyramid --run Run7
+python train_scripts/CASA-Pyramid/Run7/collect_results.py
+```
+
+[Run7脚本](train_scripts/CASA-Pyramid/Run7/README.md) · [筛选证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run7`。
+
+### Run6停止记录
 
 <!-- CASA_PYRAMID_RUN6_RESULTS_START -->
 
-Run6于2026-10-28 10:16:28 CST启动，源码基线`9bef162`。截至2026-10-28T10:22:04+08:00，队列正常，正式结果0/8；初期各活动实验至少完成3个训练及test选模epoch，未见非有限损失、异常退出或整体分支失活。
-
-| 实验 | 物理GPU / PID | 已完成epoch | 最近主训练损失 | 最近test选模F1(%) |
-|---|---|---:|---:|---:|
-| M1_HYPER_QKV/LEVIR-CD-256 | 0 / 2241915 | 5 | 1.0124 | 87.31 |
-| M0_CTRL/LEVIR-CD-256 | 0 / 2241946 | 6 | 0.9818 | 86.65 |
-| M0_CTRL/SYSU-CD-256 | 0 / 2241973 | 3 | 1.6636 | 80.43 |
-
-两项train/val健康探针均通过，正式实验从预训练骨干全新初始化。GPU0当前显存30460MiB，利用率83%；GPU1没有运行本轮训练。初期诊断和短训只能说明当前训练正常，四库精度与泛化结论待完整正式结果。
+Run6于2026-10-28 12:46 CST停止，正式结果0/8；LEVIR双曲/CTRL完成138/162个epoch、SYSU CTRL完成95个epoch，源码、日志和checkpoint保留。停止项不计入指标表。[运行脚本](train_scripts/CASA-Pyramid/Run6/README.md)。
 
 <!-- CASA_PYRAMID_RUN6_RESULTS_END -->
-
-```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run6
-python train_scripts/CASA-Pyramid/Run6/collect_results.py
-```
-
-[Run6脚本与状态](train_scripts/CASA-Pyramid/Run6/README.md)。服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run6`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run6`，本地`outputs/CASA-Pyramid/Run6`。
 
 ## Run5归档训练模型
 
@@ -100,7 +113,7 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 | Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
 | 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
-| 评分损失 | 四尺度面积平均标签的BCEWithLogits求和×0.2，各组一致 |
+| 辅助损失 | 双曲：0.1 guide＋0.1类别检索BCE；CTRL/普通：0.2 guide；均为四尺度面积标签 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
 | 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
 | 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |

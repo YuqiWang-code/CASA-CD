@@ -1,0 +1,19 @@
+{
+  "code_baseline": "8a54fa27676717b1962dc646f7c743baef7ba3a1",
+  "protocol": "casa_pyramid_40k_retrieval_v7",
+  "selected_arm": "direct_geometry",
+  "source_archive": "source_code.tar.gz",
+  "target_experiments": 8,
+  "physical_gpus": [
+    0
+  ],
+  "variants": [
+    "M1_HYPER_QKV",
+    "M0_CTRL"
+  ],
+  "evaluation_split": "test",
+  "independent_test": false,
+  "initialization": "Fresh MobileNetV2 pretrained encoder and seeded new layers; no probe weights",
+  "selection_evidence": "selection_decision.json",
+  "optimizer": "Adam: context Conv/Linear weights decoupled WD1e-4; body coupled L2 WD1e-4; other context WD0"
+}

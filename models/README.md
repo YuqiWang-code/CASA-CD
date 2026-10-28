@@ -41,6 +41,8 @@ RGB256、batch32、seed2333、40K完整epoch；Adam lr5e−4、betas(.9,.99)、e
 
 ## 已知限制
 
+RTX5090、双时相256输入、batch1、FP32，cuDNN TF32开启、matmul TF32关闭，30次预热/100次中位数：CTRL 3.863ms、54.76MiB峰值allocated；双曲6.918ms、73.90MiB。测量使用随机权重结构，完整记录见[Run7效率](../docs/experiments/CASA-Pyramid/Run7/inference_benchmark.json)。
+
 原型的变化/背景类别名来自guide分配，不保证P纯净。半径变化、非零梯度和注意力差异不能单独证明双曲关系有效。相对CTRL的收益同时包含结构与辅助监督的影响，几何贡献需要同结构欧式度量对照；短训用于选择候选，完整精度及效率以正式测量为准。
 
 [设计与公式](HYPERBOLIC_DESIGN.md) · [Run7](../train_scripts/CASA-Pyramid/Run7/README.md) · [来源](SOURCES.md)

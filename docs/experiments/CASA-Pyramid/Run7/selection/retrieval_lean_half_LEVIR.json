@@ -1,0 +1,822 @@
+{
+  "stages": {
+    "stage1": {
+      "queries": 524288,
+      "guide": {
+        "all": {
+          "count": 524288,
+          "mae": 0.0484563566057924,
+          "mse": 0.02344894768013263,
+          "bce": 0.09767569628599322,
+          "mean_probability": 0.03525508330411788,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 22123,
+          "mae": 0.6161844059337533,
+          "mse": 0.4540612404097112,
+          "bce": 1.5894886664677434,
+          "mean_probability": 0.3183133199581724,
+          "mean_gt_occupancy": 0.9331662749175067
+        },
+        "background": {
+          "count": 502165,
+          "mae": 0.02344496067958789,
+          "mse": 0.0044782194293456,
+          "bce": 0.03195351664517621,
+          "mean_probability": 0.02278488452583257,
+          "mean_gt_occupancy": 0.0020953023408640586
+        },
+        "mixed": {
+          "count": 10134,
+          "mae": 0.3638151600744639,
+          "mse": 0.19930394601674425,
+          "bce": 1.2680768615682039,
+          "mean_probability": 0.14662921963768946,
+          "mean_gt_occupancy": 0.48703621472271563
+        }
+      },
+      "nominal_change_mass": {
+        "all": {
+          "count": 524288,
+          "mae": 0.05378002133477355,
+          "mse": 0.023678844854137505,
+          "bce": 0.10674302091381248,
+          "mean_probability": 0.04291019043411726,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 22123,
+          "mae": 0.5903935414630637,
+          "mse": 0.45661163236498237,
+          "bce": 1.6541234325188512,
+          "mean_probability": 0.3464921286776029,
+          "mean_gt_occupancy": 0.9331662749175067
+        },
+        "background": {
+          "count": 502165,
+          "mae": 0.03013938348506646,
+          "mse": 0.004605886646969685,
+          "bce": 0.038572804260046736,
+          "mean_probability": 0.029535815040052295,
+          "mean_gt_occupancy": 0.0020953023408640586
+        },
+        "mixed": {
+          "count": 10134,
+          "mae": 0.362418511640082,
+          "mse": 0.19995045339439813,
+          "bce": 1.2374912364969477,
+          "mean_probability": 0.1628277605429449,
+          "mean_gt_occupancy": 0.48703621472271563
+        }
+      },
+      "retrieved_gt_occupancy": {
+        "all": {
+          "count": 524288,
+          "mae": 0.04563789980071464,
+          "mse": 0.021717670536925127,
+          "bce": 0.08814696379400079,
+          "mean_probability": 0.034044723797158505,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 22123,
+          "mae": 0.6055179361679014,
+          "mse": 0.4442012353581092,
+          "bce": 1.4685263463860436,
+          "mean_probability": 0.3296674385555857,
+          "mean_gt_occupancy": 0.9331662749175067
+        },
+        "background": {
+          "count": 502165,
+          "mae": 0.020972249975355902,
+          "mse": 0.003105055351599471,
+          "bce": 0.027334017688470158,
+          "mean_probability": 0.021020993910366943,
+          "mean_gt_occupancy": 0.0020953023408640586
+        },
+        "mixed": {
+          "count": 10134,
+          "mae": 0.3338379897066709,
+          "mse": 0.17475072346997722,
+          "bce": 1.0509788454352191,
+          "mean_probability": 0.19260588475934134,
+          "mean_gt_occupancy": 0.48703621472271563
+        }
+      },
+      "nominal_vs_actual_mae": 0.025540378771438554,
+      "prototypes": {
+        "change": {
+          "count": 8192,
+          "mean_true_change_occupancy": 0.0792991172420443,
+          "mean_content_purity": 0.9831018913537264,
+          "mean_nominal_class_agreement": 0.0792991172420443,
+          "wrong_majority_fraction": 0.9163818359375
+        },
+        "background": {
+          "count": 8192,
+          "mean_true_change_occupancy": 0.03190786833692982,
+          "mean_content_purity": 0.9753915509209037,
+          "mean_nominal_class_agreement": 0.9680921332910657,
+          "wrong_majority_fraction": 0.02197265625
+        },
+        "all": {
+          "count": 16384,
+          "mean_content_purity": 0.979246721137315,
+          "mean_nominal_class_agreement": 0.523695625266555
+        }
+      }
+    },
+    "stage2": {
+      "queries": 131072,
+      "guide": {
+        "all": {
+          "count": 131072,
+          "mae": 0.022939789950840738,
+          "mse": 0.00846209078497221,
+          "bce": 0.051689203524447384,
+          "mean_probability": 0.037318251602806655,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 5474,
+          "mae": 0.2890749893940632,
+          "mse": 0.1471550638822864,
+          "bce": 0.703524921139684,
+          "mean_probability": 0.6197469317550279,
+          "mean_gt_occupancy": 0.8850417884545122
+        },
+        "background": {
+          "count": 125598,
+          "mae": 0.01134068740341005,
+          "mse": 0.00241736607013043,
+          "bce": 0.02327992377297201,
+          "mean_probability": 0.011933973229319364,
+          "mean_gt_occupancy": 0.004613429353970605
+        },
+        "mixed": {
+          "count": 5504,
+          "mae": 0.22309899195084815,
+          "mse": 0.09129954443443848,
+          "bce": 0.7750272592547466,
+          "mean_probability": 0.3362234384744591,
+          "mean_gt_occupancy": 0.4755007721656977
+        }
+      },
+      "nominal_change_mass": {
+        "all": {
+          "count": 131072,
+          "mae": 0.038818568392934516,
+          "mse": 0.013211553674254735,
+          "bce": 0.08075069679894475,
+          "mean_probability": 0.039306994160697606,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 5474,
+          "mae": 0.4063572498195957,
+          "mse": 0.25564352781731886,
+          "bce": 1.083613770993569,
+          "mean_probability": 0.48583134258088373,
+          "mean_gt_occupancy": 0.8850417884545122
+        },
+        "background": {
+          "count": 125598,
+          "mae": 0.02279994753806785,
+          "mse": 0.0026455205649764616,
+          "bce": 0.037042417462160894,
+          "mean_probability": 0.019845901760722297,
+          "mean_gt_occupancy": 0.004613429353970605
+        },
+        "mixed": {
+          "count": 5504,
+          "mae": 0.33253759323684623,
+          "mse": 0.17690953554120178,
+          "bce": 1.1399819567612064,
+          "mean_probability": 0.15861252968551165,
+          "mean_gt_occupancy": 0.4755007721656977
+        }
+      },
+      "retrieved_gt_occupancy": {
+        "all": {
+          "count": 131072,
+          "mae": 0.035813069041393586,
+          "mse": 0.013168885479700122,
+          "bce": 0.07129468028144632,
+          "mean_probability": 0.03428515580991265,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 5474,
+          "mae": 0.4465911625752193,
+          "mse": 0.26356178050612333,
+          "bce": 1.0331413696592164,
+          "mean_probability": 0.440395918345512,
+          "mean_gt_occupancy": 0.8850417884545122
+        },
+        "background": {
+          "count": 125598,
+          "mae": 0.0179099234180225,
+          "mse": 0.0022558876025473014,
+          "bce": 0.02937403841092359,
+          "mean_probability": 0.016585428791012102,
+          "mean_gt_occupancy": 0.004613429353970605
+        },
+        "mixed": {
+          "count": 5504,
+          "mae": 0.31454614252411267,
+          "mse": 0.15939637709916313,
+          "bce": 0.9688108083466805,
+          "mean_probability": 0.18134077636420634,
+          "mean_gt_occupancy": 0.4755007721656977
+        }
+      },
+      "nominal_vs_actual_mae": 0.02081048526451923,
+      "prototypes": {
+        "change": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.1373008716836921,
+          "mean_content_purity": 0.9717867048457265,
+          "mean_nominal_class_agreement": 0.1373008716836921,
+          "wrong_majority_fraction": 0.84521484375
+        },
+        "background": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.01632417413566145,
+          "mean_content_purity": 0.9842481515370309,
+          "mean_nominal_class_agreement": 0.9836758249439299,
+          "wrong_majority_fraction": 0.00146484375
+        },
+        "all": {
+          "count": 4096,
+          "mean_content_purity": 0.9780174281913787,
+          "mean_nominal_class_agreement": 0.560488348313811
+        }
+      }
+    },
+    "stage3": {
+      "queries": 32768,
+      "guide": {
+        "all": {
+          "count": 32768,
+          "mae": 0.013665254461291569,
+          "mse": 0.0028788065766169523,
+          "bce": 0.04766104741847971,
+          "mean_probability": 0.03956186281542256,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 1322,
+          "mae": 0.14976940091252722,
+          "mse": 0.044518655637438856,
+          "bce": 0.5413590742305778,
+          "mean_probability": 0.6907112809851252,
+          "mean_gt_occupancy": 0.801401758698941
+        },
+        "background": {
+          "count": 31446,
+          "mae": 0.007943392170108794,
+          "mse": 0.0011282538685330444,
+          "bce": 0.02690582286064743,
+          "mean_probability": 0.012187330893386465,
+          "mean_gt_occupancy": 0.009431595035934617
+        },
+        "mixed": {
+          "count": 2529,
+          "mae": 0.11835429377582465,
+          "mse": 0.02994304973073842,
+          "bce": 0.553499980814282,
+          "mean_probability": 0.39371600500017057,
+          "mean_gt_occupancy": 0.44564612989323843
+        }
+      },
+      "nominal_change_mass": {
+        "all": {
+          "count": 32768,
+          "mae": 0.032705590580075494,
+          "mse": 0.006302267114795437,
+          "bce": 0.07315990528435756,
+          "mean_probability": 0.059727004212060564,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 1322,
+          "mae": 0.16771353620460958,
+          "mse": 0.05276870890519186,
+          "bce": 0.6147010394119851,
+          "mean_probability": 0.8211316631870195,
+          "mean_gt_occupancy": 0.801401758698941
+        },
+        "background": {
+          "count": 31446,
+          "mae": 0.02702981292582268,
+          "mse": 0.004348802888919201,
+          "bce": 0.05039334103718074,
+          "mean_probability": 0.027717306343813548,
+          "mean_gt_occupancy": 0.009431595035934617
+        },
+        "mixed": {
+          "count": 2529,
+          "mae": 0.17300537748029549,
+          "mse": 0.05427133962408949,
+          "bce": 0.6764698540410584,
+          "mean_probability": 0.44648479911697214,
+          "mean_gt_occupancy": 0.44564612989323843
+        }
+      },
+      "retrieved_gt_occupancy": {
+        "all": {
+          "count": 32768,
+          "mae": 0.025697259866802824,
+          "mse": 0.004754917589139316,
+          "bce": 0.060361868586514385,
+          "mean_probability": 0.04580135638724414,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 1322,
+          "mae": 0.19258498870478816,
+          "mse": 0.058857231237890766,
+          "bce": 0.5869073311983912,
+          "mean_probability": 0.6390281478774349,
+          "mean_gt_occupancy": 0.801401758698941
+        },
+        "background": {
+          "count": 31446,
+          "mae": 0.018681245826103955,
+          "mse": 0.0024804388432368347,
+          "bce": 0.0382257272148645,
+          "mean_probability": 0.020861910405242226,
+          "mean_gt_occupancy": 0.009431595035934617
+        },
+        "mixed": {
+          "count": 2529,
+          "mae": 0.1494215622902603,
+          "mse": 0.040028381375966406,
+          "bce": 0.5846248933946695,
+          "mean_probability": 0.3648953556536836,
+          "mean_gt_occupancy": 0.44564612989323843
+        }
+      },
+      "nominal_vs_actual_mae": 0.027517839615029516,
+      "prototypes": {
+        "change": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.11869751923222793,
+          "mean_content_purity": 0.9586243703961372,
+          "mean_nominal_class_agreement": 0.11869751923222793,
+          "wrong_majority_fraction": 0.8564453125
+        },
+        "background": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.01519261088606072,
+          "mean_content_purity": 0.9853468462824821,
+          "mean_nominal_class_agreement": 0.9848073897883296,
+          "wrong_majority_fraction": 0.0009765625
+        },
+        "all": {
+          "count": 4096,
+          "mean_content_purity": 0.9719856083393097,
+          "mean_nominal_class_agreement": 0.5517524545102788
+        }
+      }
+    },
+    "stage4": {
+      "queries": 8192,
+      "guide": {
+        "all": {
+          "count": 8192,
+          "mae": 0.012374790407103597,
+          "mse": 0.0020021120808539376,
+          "bce": 0.066493350241028,
+          "mean_probability": 0.03845951061889513,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 294,
+          "mae": 0.11812206515155378,
+          "mse": 0.029730192309062726,
+          "bce": 0.6682125172082723,
+          "mean_probability": 0.5991388778265591,
+          "mean_gt_occupancy": 0.6897786458333334
+        },
+        "background": {
+          "count": 7898,
+          "mae": 0.008438388941559365,
+          "mse": 0.0009699450022146128,
+          "bce": 0.04409458661879833,
+          "mean_probability": 0.017588437694223923,
+          "mean_gt_occupancy": 0.017246751551025577
+        },
+        "mixed": {
+          "count": 1014,
+          "mae": 0.08150238748569215,
+          "mse": 0.01416627101297176,
+          "bce": 0.5171353360772547,
+          "mean_probability": 0.2926716989733054,
+          "mean_gt_occupancy": 0.32841199765779094
+        }
+      },
+      "nominal_change_mass": {
+        "all": {
+          "count": 8192,
+          "mae": 0.027199886039227295,
+          "mse": 0.004605728279032408,
+          "bce": 0.08289066470625579,
+          "mean_probability": 0.05013122280462312,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 294,
+          "mae": 0.1842806203937044,
+          "mse": 0.07002121471399629,
+          "bce": 0.7868008831246419,
+          "mean_probability": 0.5821016282350028,
+          "mean_gt_occupancy": 0.6897786458333334
+        },
+        "background": {
+          "count": 7898,
+          "mae": 0.021352616363332605,
+          "mse": 0.00217066205823228,
+          "bce": 0.056687878657255344,
+          "mean_probability": 0.030328829895464902,
+          "mean_gt_occupancy": 0.017246751551025577
+        },
+        "mixed": {
+          "count": 1014,
+          "mae": 0.12168529082119053,
+          "mse": 0.031226135239873262,
+          "bce": 0.5638043557840065,
+          "mean_probability": 0.3110316419327371,
+          "mean_gt_occupancy": 0.32841199765779094
+        }
+      },
+      "retrieved_gt_occupancy": {
+        "all": {
+          "count": 8192,
+          "mae": 0.02528426773713477,
+          "mse": 0.005196814298192698,
+          "bce": 0.07981208534486081,
+          "mean_probability": 0.03880928869588729,
+          "mean_gt_occupancy": 0.04138302803039551
+        },
+        "foreground": {
+          "count": 294,
+          "mae": 0.268074718779143,
+          "mse": 0.09989182855350148,
+          "bce": 0.8395908088482893,
+          "mean_probability": 0.4220731612041491,
+          "mean_gt_occupancy": 0.6897786458333334
+        },
+        "background": {
+          "count": 7898,
+          "mae": 0.016246486956386426,
+          "mse": 0.0016718289612642618,
+          "bce": 0.05152961576901782,
+          "mean_probability": 0.02454243904820066,
+          "mean_gt_occupancy": 0.017246751551025577
+        },
+        "mixed": {
+          "count": 1014,
+          "mae": 0.1350060538850317,
+          "mse": 0.03481638307708683,
+          "bce": 0.5688136645558871,
+          "mean_probability": 0.24756865901574016,
+          "mean_gt_occupancy": 0.32841199765779094
+        }
+      },
+      "nominal_vs_actual_mae": 0.023736159384498023,
+      "prototypes": {
+        "change": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.07958443625011569,
+          "mean_content_purity": 0.9468800476752222,
+          "mean_nominal_class_agreement": 0.07958443625011569,
+          "wrong_majority_fraction": 0.912109375
+        },
+        "background": {
+          "count": 2048,
+          "mean_true_change_occupancy": 0.024792305360733735,
+          "mean_content_purity": 0.9759193104691803,
+          "mean_nominal_class_agreement": 0.9752076943404973,
+          "wrong_majority_fraction": 0.00244140625
+        },
+        "all": {
+          "count": 4096,
+          "mean_content_purity": 0.9613996790722013,
+          "mean_nominal_class_agreement": 0.5273960652953065
+        }
+      }
+    }
+  },
+  "segmentation": {
+    "full": {
+      "tp": 307239,
+      "fp": 32032,
+      "fn": 39907,
+      "tn": 8009430,
+      "F1": 0.8951963602300059,
+      "IoU": 0.8102764400888237,
+      "precision": 0.9055858001420694,
+      "recall": 0.8850426045525513
+    },
+    "context_off": {
+      "tp": 307333,
+      "fp": 31803,
+      "fn": 39813,
+      "tn": 8009659,
+      "F1": 0.8956463960879055,
+      "IoU": 0.8110141470224226,
+      "precision": 0.9062234619739573,
+      "recall": 0.8853133839940543
+    }
+  },
+  "full_context_relative_to_off": {
+    "corrected_fn": 592,
+    "corrected_fp": 456,
+    "new_fn": 686,
+    "new_fp": 685,
+    "corrected": 1048,
+    "harmed": 1371
+  },
+  "models_dir": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/candidates/lean_half/models",
+  "checkpoint": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/selection/lean_half/LEVIR/best_model.pth",
+  "dataset": "/share_datasets/CD/LEVIR-CD-256",
+  "split": "val",
+  "sample_indices": [
+    0,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+    72,
+    80,
+    88,
+    96,
+    104,
+    112,
+    120,
+    128,
+    136,
+    144,
+    153,
+    161,
+    169,
+    177,
+    185,
+    193,
+    201,
+    209,
+    217,
+    225,
+    233,
+    241,
+    249,
+    257,
+    265,
+    273,
+    281,
+    289,
+    298,
+    306,
+    314,
+    322,
+    330,
+    338,
+    346,
+    354,
+    362,
+    370,
+    378,
+    386,
+    394,
+    402,
+    410,
+    418,
+    426,
+    434,
+    443,
+    451,
+    459,
+    467,
+    475,
+    483,
+    491,
+    499,
+    507,
+    515,
+    523,
+    531,
+    539,
+    547,
+    555,
+    563,
+    571,
+    579,
+    588,
+    596,
+    604,
+    612,
+    620,
+    628,
+    636,
+    644,
+    652,
+    660,
+    668,
+    676,
+    684,
+    692,
+    700,
+    708,
+    716,
+    724,
+    733,
+    741,
+    749,
+    757,
+    765,
+    773,
+    781,
+    789,
+    797,
+    805,
+    813,
+    821,
+    829,
+    837,
+    845,
+    853,
+    861,
+    869,
+    878,
+    886,
+    894,
+    902,
+    910,
+    918,
+    926,
+    934,
+    942,
+    950,
+    958,
+    966,
+    974,
+    982,
+    990,
+    998,
+    1006,
+    1014,
+    1023
+  ],
+  "sample_names": [
+    "val_10_10.png",
+    "val_10_2.png",
+    "val_1_10.png",
+    "val_1_11.png",
+    "val_1_15.png",
+    "val_12_10.png",
+    "val_12_2.png",
+    "val_1_2.png",
+    "val_13_1.png",
+    "val_13_9.png",
+    "val_14_16.png",
+    "val_14_8.png",
+    "val_15_15.png",
+    "val_15_7.png",
+    "val_16_14.png",
+    "val_16_6.png",
+    "val_17_13.png",
+    "val_17_5.png",
+    "val_18_12.png",
+    "val_18_5.png",
+    "val_19_12.png",
+    "val_19_4.png",
+    "val_20_11.png",
+    "val_20_3.png",
+    "val_21_10.png",
+    "val_21_1.png",
+    "val_21_5.png",
+    "val_22_11.png",
+    "val_22_3.png",
+    "val_23_10.png",
+    "val_23_2.png",
+    "val_2_3.png",
+    "val_24_1.png",
+    "val_24_9.png",
+    "val_25_16.png",
+    "val_25_8.png",
+    "val_26_15.png",
+    "val_26_8.png",
+    "val_27_15.png",
+    "val_27_7.png",
+    "val_28_14.png",
+    "val_28_6.png",
+    "val_29_13.png",
+    "val_29_5.png",
+    "val_30_12.png",
+    "val_30_4.png",
+    "val_31_11.png",
+    "val_3_12.png",
+    "val_3_16.png",
+    "val_32_12.png",
+    "val_32_4.png",
+    "val_33_11.png",
+    "val_33_3.png",
+    "val_34_10.png",
+    "val_34_2.png",
+    "val_35_10.png",
+    "val_35_2.png",
+    "val_3_5.png",
+    "val_36_1.png",
+    "val_36_9.png",
+    "val_37_16.png",
+    "val_37_8.png",
+    "val_38_15.png",
+    "val_38_7.png",
+    "val_39_14.png",
+    "val_39_6.png",
+    "val_40_13.png",
+    "val_40_5.png",
+    "val_41_12.png",
+    "val_41_2.png",
+    "val_41_6.png",
+    "val_42_13.png",
+    "val_42_5.png",
+    "val_43_13.png",
+    "val_43_5.png",
+    "val_44_12.png",
+    "val_44_4.png",
+    "val_45_11.png",
+    "val_45_3.png",
+    "val_46_10.png",
+    "val_46_2.png",
+    "val_4_6.png",
+    "val_47_1.png",
+    "val_47_9.png",
+    "val_48_16.png",
+    "val_48_8.png",
+    "val_49_15.png",
+    "val_49_7.png",
+    "val_50_14.png",
+    "val_50_6.png",
+    "val_51_13.png",
+    "val_51_3.png",
+    "val_51_8.png",
+    "val_52_15.png",
+    "val_52_7.png",
+    "val_53_14.png",
+    "val_53_6.png",
+    "val_54_13.png",
+    "val_54_5.png",
+    "val_55_12.png",
+    "val_55_4.png",
+    "val_56_11.png",
+    "val_56_3.png",
+    "val_57_10.png",
+    "val_57_2.png",
+    "val_5_7.png",
+    "val_58_1.png",
+    "val_58_9.png",
+    "val_59_16.png",
+    "val_59_9.png",
+    "val_60_16.png",
+    "val_60_8.png",
+    "val_61_15.png",
+    "val_6_14.png",
+    "val_61_9.png",
+    "val_62_16.png",
+    "val_62_8.png",
+    "val_63_15.png",
+    "val_63_7.png",
+    "val_64_14.png",
+    "val_64_6.png",
+    "val_6_8.png",
+    "val_7_16.png",
+    "val_7_8.png",
+    "val_8_16.png",
+    "val_8_8.png",
+    "val_9_16.png",
+    "val_9_9.png"
+  ],
+  "samples": 128,
+  "batch_size": 1,
+  "physical_gpu": 0,
+  "threshold": 0.5,
+  "definitions": {
+    "query_target": "area-averaged GT at each feature resolution",
+    "groups": "foreground: occupancy >= 0.5; background: occupancy < 0.5; mixed: 0 < occupancy < 1",
+    "guide": "image-derived guide sigmoid at the query position",
+    "nominal_change_mass": "attention summed over even-indexed nominal change prototypes, averaged over heads",
+    "retrieved_gt_occupancy": "same attention applied to same-weight pooled GT, averaged over heads",
+    "prototype_content_purity": "max(actual change occupancy, 1 - occupancy)",
+    "prototype_nominal_agreement": "actual change occupancy for change tokens; 1 - occupancy for background tokens",
+    "context_off": "zero global gamma only; local branch remains enabled",
+    "label_use": "GT enters post-forward analysis only, never model forward",
+    "interpretation": "frozen-weight val diagnostics; not retrained ablations"
+  }
+}
