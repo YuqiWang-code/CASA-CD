@@ -19,17 +19,17 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 【研究原则】贡献聚焦两个独立实验版本：双曲压缩QKV和普通变化感知上下文压缩QKV。保持完整Q空间位置，仅压缩KV，分别验证设计及收益。结构应简单、问题明确、机制有依据，避免无关组件堆叠或特殊激活函数，使提升可归因于核心机制。不把loss、剪枝或量化包装成主要创新，不按测试结果挑选阈值或seed。诊断、选样和结构设计优先使用训练/验证材料；当前按用户指定的测试集选模协议，每epoch评价test并以最高F1选权重，结果须注明不属于独立盲测。历史独立val选模与当前test选模分别标识；跨协议差异不能直接作为模块收益。SOTA或稳定提升须有一致评价口径及足够证据支持。
 
-【当前模型】Run5正式实验已完成，实际实现由归档保持。工作双曲版为尚未正式训练的任务几何候选，普通版保持Run5。共享MobileNetV2原生四尺度24/32/96/320通道，经TAR统一64通道，在DCR前做跨尺度相对上下文。两版保留完整5440Q；普通224KV、4头16维；工作双曲448KV、1头32维；网格(8,4,4,4)。共享TAR通道LN与Q/K投影，不使用HFEA。结构与来源见models/README.md、models/SOURCES.md和docs/temporary/CASA-Pyramid_Run5_design.md。
+【当前模型】工作源码为CASA-Pyramid/Run7，普通QKV保持Run5。共享MobileNetV2原生四尺度24/32/96/320通道，经TAR统一64通道，在DCR前做跨尺度相对上下文；完整5440Q。双曲224KV、1头32维；普通224KV、4头16维；网格(8,4,4,4)。不使用HFEA。结构与来源见models/README.md、models/SOURCES.md和models/HYPERBOLIC_DESIGN.md。
 
 【普通模块】euclidean_context.py与pyramid_context.py。X=LN(T)，完整Q=WqkX/√16。每区域按(p+eps)²和(1−p+eps)²分别归一化池化X，K=WqkP/√16，V=WvP；同层同区域两个原型共224token。类别支持度r=Σw·p²（背景同理），它不是独立正确性概率，logits=−欧氏距离²/(2τ²)+log(r)+尺度bias−log(源尺度token数)。每个query的自身候选logit为0，与224个原型联合softmax。V与输出均无bias；令g为压缩原型总权重，回写out(AV−g·WvX)，减少不匹配内容采用并保持常量场。S1/S2另由X−avg3(X)经DW3×3及PW1×1产生局部细节残差。逐通道gamma零初始化，卷积正常初始化。
 
-【双曲模块】工作实现见models/HYPERBOLIC_DESIGN.md。每区域变化/背景各两个外观子原型，平方类权重、一阶占比支持度。Q/K方向为共享投影归一化，空间范数1+p，p为已有面积变化标签监督的guide预测；非零方向半径asinh(1+p)，不称置信度或语义层次。K与欧式V从同一内容P构造，不使用密集流形点质心。双曲条件softmax只决定路由；66→1内容门控读取本地V、检索差值及本地/上下文占比，采用量不读取绝对距离或log-partition。保留原TAR及细两层局部残差。训练/部署参数2.058474/1.947159M，尚无正式精度结果。
+【双曲模块】每区域变化/背景各一个原型，平方类别分配、一阶占比支持度，共224KV。Q/K共享投影后除√32，直接Lorentz提升；半径asinh(||z||)可学习，不预设置信或层级含义。K和欧式V从同一压缩内容P构造，不使用密集流形点质心。条件softmax负责路由，66→1内容门控读取本地V、检索差值及本地/上下文占比；保留原TAR及细两层局部残差。变化/背景注意力logits的logsumexp差接受面积标签BCE监督，训练与评价分别记录；推理不计算辅助输出。训练/部署2.058409/1.947094M、context11477参数。
 
-【训练协议】当前CASA-Pyramid/Run6协议casa_pyramid_40k_taskgeometry_v6，仅双曲和CTRL共8项，物理GPU0；普通QKV保持Run5结构，本轮不训练。共同设置：256×256、batch32、seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice；四级guide用面积平均标签BCE，权重.2。无边界辅助训练目标，保留边界/内部评估统计。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重。共同设置保持Run4，结构差异在同轮CTRL及普通/双曲间比较。
+【训练协议】当前CASA-Pyramid/Run7协议casa_pyramid_40k_retrieval_v7，仅双曲和CTRL共8项，物理GPU0；普通QKV保持Run5结构，本轮不训练。共同设置：256×256、batch32、seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice；四级辅助监督使用面积标签；双曲为.1guide+.1类别检索BCE，CTRL/普通为.2guide。无边界辅助训练目标，保留边界/内部评估统计。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重。优化、增强与预算保持共同设置；同轮双曲/CTRL差异包含结构及辅助监督，几何贡献参考匹配欧式短训对照。
 
 【数据处理】按RGB读取，图像双线性缩放至256×256，标签最近邻；像素除255，RGB均值[0.485,0.456,0.406]、标准差[0.229,0.224,0.225]。训练开启0.5概率裁剪四边各0～8像素后恢复、水平/垂直各0.5概率翻转、等概率0/90/180/270度旋转、0.5概率时相交换。A/B与标签空间变换同步，增强后归一化，不添加独立光度扰动。评价不增强，保留全部样本；训练shuffle并drop_last。LEVIR/WHU重点观察小建筑与边界，SYSU关注多类地表变化及伪变化，CDD关注季节/光照差异；这些是分析方向，精度收益须由实际结果验证。
 
-【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回四级seg_logits和四级guide_logits；predict只输出第一级。CTRL训练/部署2.047125/1.935810M，普通模块2.064537/1.953222M、context17605；工作双曲2.058474/1.947159M、context11542参数。Run5在RTX5090、FP32、batch1下延迟CTRL/H/E为3.75/6.83/5.84ms；工作双曲候选约6.91ms、峰值allocated102.11MiB（30次预热、100次中位数，随机权重结构测量）。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级阈值2e-4。检查稀疏原型、低支持类别、常量场、跨尺度任务梯度、Lorentz单位约束/距离/质心/零距离梯度及部署一致性。TAR有序时相融合，整网不承诺严格交换不变或相同输入恒零。
+【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回四级seg_logits和四级guide_logits；predict只输出第一级。CTRL训练/部署2.047125/1.935810M，普通模块2.064537/1.953222M、context17605；工作双曲2.058409/1.947094M、context11477参数。Run5在RTX5090、FP32、batch1下延迟CTRL/H/E为3.75/6.83/5.84ms；当前Run7效率以对应inference_benchmark.json为准，不沿用Run6测量。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级阈值2e-4。检查稀疏原型、低支持类别、常量场、跨尺度任务梯度、Lorentz单位约束/距离/质心/零距离梯度及部署一致性。TAR有序时相融合，整网不承诺严格交换不变或相同输入恒零。
 
 【证据与诊断】区分直接事实、证据支持的推断、待验证假设和缺失信息。正式指标只取同一train_log.txt最后一个完整的“=== TEST RESULTS ===”到“=== END TEST RESULTS ===”区块，不能拿验证行、探针或checkpoint名字代替。报告Recall/Precision/OA/F1/IoU/Kappa及参数、计算与实测效率，说明单位和统计范围。FLOPs若遗漏双曲逐元素运算必须注明；延迟注明硬件、输入、batch、精度和测量方法。单seed或微小差异不称稳定普适增益。诊断每query上下文采用量、检索内容空间变化、self减项、context/local残差、两类原型内容与Q/K、V权重RMS、gamma、半径CV、裁剪、方向/距离分布、注意力及压缩前后信息，结合分支输出、任务梯度、验证消融和同轮CTRL区分失活、泛化与选模差异；熵高或gamma小不能单独判定失活。
 
@@ -37,14 +37,14 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 【环境与操作】本地F:\Code_Repositories_2\CursorCode\CASA-CD；服务器RSML-3，项目/home/yqwang/projects/CASA-CD，环境casacd，两张RTX5090。数据/share_datasets/CD；日志/home/yqwang/outputs/CASA-CD/<tag>/<Run>，checkpoint /share_datasets/yqwang/checkpoints/CASA-CD/<tag>/<Run>；预训练pretrained_weight/mobilenet_v2-b0353104.pth。环境激活及依赖路径以.codex/SERVER.md和对应run_one.sh为准。连接用.codex/ssh.py或.codex/status.py，仅从.vscode/sftp.json读取连接信息，不展示凭据；现主线不依赖SS2D或selective_scan kernel。
 
-【训练与结果管理】启动、停止、续训、改协议按用户授权；先查实时队列和GPU，不重复启动、不停止无关进程，不覆盖活动源码。脚本放train_scripts/<tag>/<Run>/，pipeline.py为该轮唯一调度器，placement记录物理GPU。Run6最新授权仅物理GPU0，按实测显存与1GiB留量并行补位，优先LEVIR→SYSU→WHU→CDD，可跨库填空；不沿用历史两卡授权。新失败保留日志/权重并查原因，不擅自重启。精确续训检查optimizer、步数和随机状态，缺失时说明轨迹差异。日志、样本和特征放outputs/<tag>/<Run>/，分析放analysis子目录。使用项目tools及该轮collector汇表，逐单元格保留全部历史；冻结TXT用实际运行源码，current TXT用当前源码。按用户任务更新README并提交推送，Git只含源码、文档、指标表与规定快照，数据、权重、outputs、凭据不提交。自动化由桌面应用工具管理，不把工具目录当作自动化状态。
+【训练与结果管理】启动、停止、续训、改协议按用户授权；先查实时队列和GPU，不重复启动、不停止无关进程，不覆盖活动源码。脚本放train_scripts/<tag>/<Run>/，pipeline.py为该轮唯一调度器，placement记录物理GPU。Run7最新授权仅物理GPU0，按实测显存与1GiB留量并行补位，优先LEVIR→SYSU→WHU→CDD，可跨库填空；不沿用历史两卡授权。新失败保留日志/权重并查原因，不擅自重启。精确续训检查optimizer、步数和随机状态，缺失时说明轨迹差异。日志、样本和特征放outputs/<tag>/<Run>/，分析放analysis子目录。使用项目tools及该轮collector汇表，逐单元格保留全部历史；冻结TXT用实际运行源码，current TXT用当前源码。按用户任务更新README并提交推送，Git只含源码、文档、指标表与规定快照，数据、权重、outputs、凭据不提交。自动化由桌面应用工具管理，不把工具目录当作自动化状态。
 
 【研究协作】读相关材料后围绕真实薄弱点给出机制、依据、最小改动及必要对照，说明如何验证和什么结果会否定假设。多个方案合理时选一个并解释取舍，不强制每次列候选、证据表或大清单。文献优先2024–2026年相关高水平工作，基础理论可引用更早原始文献；核实题名、年份、venue与官方代码，区分会议/期刊和发表/预印本，不虚构引用。避免过度防御、兼容框架及无用开关，不新增哈希/校验和。只运行会影响下一步判断的检查，授权范围内直接推进。交付文字只呈现准确的最终内容，注意事项集中说明，不加入生成署名或试错叙事。
 ```
 
 ## 当前状态摘要
 
-Run6已部署任务几何双曲版，模型与显存检查通过，LEVIR6轮/SYSU4轮健康探针均通过；正式队列于2026-10-28 10:16:28 CST启动，仅GPU0、双曲/CTRL四库8项，源码基线9bef162，初期3epoch观察通过。Run5原始产物与源码归档保留。半径、角向、度量、门控与上下文干预入口为models/analyze_hyperbolic.py，仅用train/val。
+Run6已于2026-10-28 12:46 CST停止，0/8正式结果，日志/权重/源码保留。Run7已完成16项LEVIR/SYSU完整train/val配对短训，选定224KV直接投影双曲候选；正式模型检查通过，准备仅GPU0启动8项。单seed短训支持继续验证，不证明完整训练提升。实时状态以.codex/STATE.md及Run7队列为准。
 
 Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9小时15分49秒。12/12项正式训练及测试完成，无失败；调度器已退出，两张GPU空闲。全部部署折叠检查通过，最大绝对差3.457e-06，二值差均为0。
 
@@ -59,7 +59,7 @@ Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9�
 
 117份日志与JSON已下载至`outputs/CASA-Pyramid/Run5`；指标表共221条正式记录，原209条历史单元格完整保留。Run5冻结TXT来自该轮`source_code.tar.gz`内实际运行源码，current TXT来自工作源码。完整日志、逐轮CSV、曲线、实际best_epoch及模块诊断见`docs/experiments/CASA-Pyramid/Run5`。
 
-Run5队列已结束，不重启历史队列；当前轮次以Run6实时状态为准。长期规则与工作实现见README、AGENTS及models说明。
+Run5队列已结束，不重启历史队列；当前轮次以Run7实时状态为准。长期规则与工作实现见README、AGENTS及models说明。
 
 ## 建议放入项目来源
 

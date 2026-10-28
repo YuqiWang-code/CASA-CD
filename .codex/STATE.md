@@ -2,24 +2,17 @@
 
 更新：2026-10-28。
 
-## CASA-Pyramid / Run6 正式训练中
+## CASA-Pyramid / Run7 部署检查完成
 
-协议`casa_pyramid_40k_taskgeometry_v6`，入口`models/train_CASA.py`，唯一调度器`train_scripts/CASA-Pyramid/Run6/pipeline.py`。用户最新授权仅物理GPU0，四库各双曲/CTRL共8项，优先LEVIR→SYSU→WHU→CDD，按实测显存与1GiB留量并行。普通QKV保持Run5，不纳入本轮。
+用户授权停止Run6、仅GPU0短训优化双曲，然后重新训练四库双曲/CTRL共8项。Run6于2026-10-28 12:46 CST停止，0/8完整结果，日志/checkpoint/源码归档保留，不恢复。指标表221条历史记录。
 
-模型已同步服务器，Run5源码与产物保留。双曲采用占比半径、同内容K/V、448个双子原型、1头32维和独立内容门控；训练/部署2.058474/1.947159M。模型/梯度/部署检查及显存profile通过，LEVIR6轮/SYSU4轮真实train/val探针均通过。正式队列于2026-10-28 10:16:28 CST启动，源码基线`9bef162`，supervisor PID2241913；初期活动项均完成至少3个训练及test选模epoch，无异常。从MobileNetV2预训练全新初始化，不复用探针或Run5权重。每epoch test F1选模，非独立盲测。当前正式指标221条，本轮8项全部收集后至少229条。
+16项完整train/val短训已完成：8个候选/对照各LEVIR与SYSU 12epoch、batch32、seed2333、40K学习率预算、相同共同路径初始化与独立数据随机流。选定direct_geometry，224KV、1×32直接Lorentz投影、同P K/V、独立内容门控，双曲辅助0.1guide+0.1类别检索。LEVIR/SYSU最佳val F1为89.4910/81.2207%，CTRL为89.3840/80.5914%；这是候选选择，非正式指标或稳定领先结论。对照和检索内容证据在docs/experiments/CASA-Pyramid/Run7/selection。
 
-日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run6`；checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run6`；本地`outputs/CASA-Pyramid/Run6`。分析入口`models/analyze_hyperbolic.py`仅使用train/val。GPU1未授权本轮训练。当前各项PID及物理GPU以实时pipeline_status.json为准；已有唯一队列，不重复启动。
+工作models及服务器已统一协议`casa_pyramid_40k_retrieval_v7`。最终模型、几何、任务梯度、常量场、折叠及8项GPU0调度检查通过，validation.log含[VALIDATION-PASS]。profile.json双曲/CTRL峰值reserved为10438/8220MiB，额外进程开销760/632MiB。正式队列尚未启动；启动前确认实时pipeline_status.json，避免重复。
 
-Run6于2026-10-28 10:16:28 CST启动，源码基线`9bef162`。截至2026-10-28T10:22:04+08:00，队列正常，正式结果0/8；初期各活动实验至少完成3个训练及test选模epoch，未见非有限损失、异常退出或整体分支失活。
+Run7日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7`，checkpoint`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run7`；唯一正式调度器`train_scripts/CASA-Pyramid/Run7/pipeline.py`。四库优先LEVIR→SYSU→WHU→CDD，按显存补位，fresh预训练初始化，不复用短训权重；每epoch test F1选模，最终复测非独立盲测。普通QKV保持Run5结构。
 
-| 实验 | 物理GPU / PID | 已完成epoch | 最近主训练损失 | 最近test选模F1(%) |
-|---|---|---:|---:|---:|
-| M1_HYPER_QKV/LEVIR-CD-256 | 0 / 2241915 | 5 | 1.0124 | 87.31 |
-| M0_CTRL/LEVIR-CD-256 | 0 / 2241946 | 6 | 0.9818 | 86.65 |
-| M0_CTRL/SYSU-CD-256 | 0 / 2241973 | 3 | 1.6636 | 80.43 |
-
-两项train/val健康探针均通过，正式实验从预训练骨干全新初始化。GPU0当前显存30460MiB，利用率83%；GPU1没有运行本轮训练。初期诊断和短训只能说明当前训练正常，四库精度与泛化结论待完整正式结果。
-
+GPU1另有独立CASA-MoE训练，使用models_v1，本轮不使用或停止。旧短训launcher均已完成，不重启；活动PID以实时状态为准。
 
 ## CASA-Pyramid / Run5 已完成
 

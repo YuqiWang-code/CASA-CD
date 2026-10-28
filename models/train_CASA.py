@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_taskgeometry_v6"
+PROTOCOL = "casa_pyramid_40k_retrieval_v7"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -56,7 +56,14 @@ def mask_boundary(target, radius=1):
 def training_losses(outputs, aux, target):
     main = loss_function(outputs, target)
     guide = guide_loss(aux["guide_logits"], target)
+    if "geometric_logits" in aux:
+        guide = .5 * guide + .5 * guide_loss(aux["geometric_logits"], target)
     return main + GUIDE_WEIGHT * guide, main, guide
+
+
+def auxiliary_weights(module):
+    return dict(guide=.1, geometric_retrieval=.1) if module == "hyperbolic" else dict(
+        guide=GUIDE_WEIGHT, geometric_retrieval=0.)
 
 
 class SpatialMetrics:
@@ -306,7 +313,8 @@ def main():
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
-                    heads=model.context.heads if args.module != "none" else 0, guide_weight=GUIDE_WEIGHT,
+                    heads=model.context.heads if args.module != "none" else 0,
+                    auxiliary_weights=auxiliary_weights(args.module),
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
@@ -317,7 +325,7 @@ def main():
                                        "hyperbolic": "weighted class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
                                      "hyperbolic": "learned correction gate independent of log-partition"}[args.module],
-                    hyperbolic_radius="asinh(1 + supervised_change_occupancy)" if args.module == "hyperbolic" else None,
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module == "hyperbolic" else None,
                     hyperbolic_key="lift_of_shared_pooled_content" if args.module == "hyperbolic" else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
@@ -327,7 +335,7 @@ def main():
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
                                     "qkv": "euclidean_relative_context",
-                                    "hyperbolic": "occupancy_radius_subtype_keys_and_gated_euclidean_values"}[args.module],
+                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -369,7 +377,8 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        epoch_loss, main_sum, guide_sum, tick = 0.0, 0.0, 0.0, time.time()
+        epoch_loss, main_sum, auxiliary_sum, tick = 0.0, 0.0, 0.0, time.time()
+        guide_sum, retrieval_sum = 0.0, 0.0
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
@@ -387,12 +396,17 @@ def main():
             optimizer.step()
             epoch_loss += float(loss.detach())
             main_sum += float(main_loss.detach())
-            guide_sum += float(auxiliary_loss.detach())
+            auxiliary_sum += float(auxiliary_loss.detach())
+            with torch.no_grad():
+                raw_guide = guide_loss(auxiliary["guide_logits"], target)
+                guide_sum += float(raw_guide)
+                if args.module == "hyperbolic":
+                    retrieval_sum += float(2 * auxiliary_loss.detach() - raw_guide)
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
         eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
         model.context.collect_diag = False

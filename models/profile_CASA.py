@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, GUIDE_WEIGHT, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, auxiliary_weights, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -56,7 +56,7 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      guide_weight=GUIDE_WEIGHT, encoder_lr_mult=1.0,
+                      auxiliary_weights=auxiliary_weights(variant), encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),

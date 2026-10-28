@@ -11,6 +11,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Subset
 
 from model.casa_net import CASANet
+from model.layers.lorentz_ops import lift
 from train_CASA import make_loader, mask_boundary
 
 
@@ -24,12 +25,21 @@ def intervention(context, mode):
         with torch.no_grad():
             context.gamma_context.zero_()
     elif mode == 'fixed_radius':
-        context.geometric_point = lambda projected, occupancy: point(projected, torch.full_like(occupancy, .5))
+        def equalize_radius(projected):
+            space = point(projected)[..., 1:]
+            norm = space.norm(dim=-1, keepdim=True)
+            radial = torch.asinh(norm)
+            positions = tuple(range(2, radial.ndim - 1))
+            nonzero = (norm > 0).sum(positions, keepdim=True).clamp_min(1)
+            mean_radius = radial.sum(positions, keepdim=True) / nonzero
+            # Origins retain their zero vector; the full-position mean is preserved.
+            return lift(F.normalize(space, dim=-1) * mean_radius.sinh())
+        context.geometric_point = equalize_radius
     elif mode == 'fixed_direction':
-        def radial_only(projected, occupancy):
+        def radial_only(projected):
             direction = torch.zeros_like(projected)
-            direction[..., 0] = 1
-            return point(direction, occupancy)
+            direction[..., 0] = projected.norm(dim=-1)
+            return point(direction)
         context.geometric_point = radial_only
     elif mode == 'gate_open':
         context.gate.forward = lambda x: x.new_full((x.shape[0], context.heads, *x.shape[-2:]), 20.)
@@ -72,11 +82,15 @@ def analyze(model, loader, device):
     modes = ('baseline', 'context_off', 'fixed_radius', 'fixed_direction', 'gate_open', 'euclidean_metric')
     counts = {mode: [0, 0, 0, 0] for mode in modes}
     groups = {}
-    captured_gate, captured_occupancy = [], []
+    captured_gate, captured_radius = [], []
+    project_queries = model.context.project_queries
+    def capture_queries(feature):
+        query = project_queries(feature)
+        captured_radius.append(torch.asinh(query[..., 1:].norm(dim=-1)).mean(1, keepdim=True))
+        return query
+    model.context.project_queries = capture_queries
     hooks = [model.context.gate.register_forward_hook(
-        lambda module, inputs, output: captured_gate.append(output.sigmoid().mean(1, keepdim=True))),
-        model.context.guide.register_forward_hook(
-            lambda module, inputs, output: captured_occupancy.append(output.sigmoid()))]
+        lambda module, inputs, output: captured_gate.append(output.sigmoid().mean(1, keepdim=True)))]
     diagnostics = None
     try:
         with torch.inference_mode():
@@ -85,13 +99,13 @@ def analyze(model, loader, device):
                 predictions = {}
                 for mode in modes:
                     captured_gate.clear()
-                    captured_occupancy.clear()
+                    captured_radius.clear()
                     model.context.collect_diag = mode == 'baseline' and diagnostics is None
                     with intervention(model.context, mode):
                         prediction = model.predict(image[:, :3], image[:, 3:]) > .5
                     if mode == 'baseline':
                         gates = [g.clone() for g in captured_gate]
-                        occupancy = [p.clone() for p in captured_occupancy]
+                        radii = [radius.clone() for radius in captured_radius]
                         if diagnostics is None:
                             diagnostics = model.diagnostics()
                     truth = target > .5
@@ -110,12 +124,13 @@ def analyze(model, loader, device):
                 for name, mask in masks.items():
                     group = groups.setdefault(name, dict(pixels=0, gate_sum=[0.]*4, radius_sum=[0.]*4))
                     group['pixels'] += int(mask.sum())
-                    for index, (gate, p) in enumerate(zip(gates, occupancy)):
+                    for index, (gate, radius) in enumerate(zip(gates, radii)):
                         gate = F.interpolate(gate, target.shape[-2:], mode='bilinear', align_corners=False)
-                        radius = F.interpolate(torch.asinh(1+p), target.shape[-2:], mode='bilinear', align_corners=False)
+                        radius = F.interpolate(radius, target.shape[-2:], mode='bilinear', align_corners=False)
                         group['gate_sum'][index] += float((gate * mask).sum())
                         group['radius_sum'][index] += float((radius * mask).sum())
     finally:
+        model.context.project_queries = project_queries
         for hook in hooks:
             hook.remove()
         model.context.collect_diag = False
@@ -125,7 +140,10 @@ def analyze(model, loader, device):
         group['mean_radius_by_stage'] = [x/count if count else None for x in group.pop('radius_sum')]
     return dict(interventions={mode: score(value) for mode, value in counts.items()},
                 pixel_groups=groups, first_batch_diagnostics=diagnostics,
-                radius_scope='guide-derived occupancy radius; zero-direction points are exceptional',
+                radius_scope='Actual dense Lorentz queries: asinh(norm(Q_spatial)), averaged over heads at each stage; bilinear resize for pixel groups',
+                intervention_definitions=dict(
+                    fixed_radius='For each sample/head, set nonorigin positions to their mean intrinsic radius; origins stay at zero and the all-position mean is preserved. Each query stage and the joint key bank are equalized separately.',
+                    fixed_direction='Preserve every projected norm and intrinsic radius; place all spatial directions on the first coordinate axis.'),
                 interpretation='Frozen-weight sensitivity and pixel associations; not retrained ablations')
 
 

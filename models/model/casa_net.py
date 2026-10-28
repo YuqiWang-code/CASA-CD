@@ -26,14 +26,18 @@ class CASANet(nn.Module):
             torch.manual_seed(2333)
             self.context = context_type()
 
-    def _decode(self, a, b):
+    def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, auxiliary = self.context(self.tar(features_a, features_b))
+        tar = self.tar(features_a, features_b)
+        if self.module == "hyperbolic":
+            enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+        else:
+            enhanced, auxiliary = self.context(tar)
         return self.decoder.forward_pyramid(enhanced), auxiliary
 
     def forward(self, a, b, return_aux=False):
         """Return four probabilities, or raw logits and change-guide supervision."""
-        pyramid, auxiliary = self._decode(a, b)
+        pyramid, auxiliary = self._decode(a, b, return_aux=return_aux)
         logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
                                      mode="bilinear", align_corners=False)
                        for x in pyramid)
