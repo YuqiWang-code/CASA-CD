@@ -1,0 +1,174 @@
+{
+  "protocol": "casa_pyramid_40k_retrieval_v7",
+  "module": "none",
+  "seed": 2333,
+  "max_steps_requested": 40000,
+  "actual_steps": 40248,
+  "epochs": 129,
+  "train_batches": 312,
+  "batch_size": 32,
+  "lr": 0.0005,
+  "encoder_lr": 0.0005,
+  "encoder_lr_mult": 1.0,
+  "optimizer": "Adam(0.9,0.99),eps=1e-8",
+  "weight_decay": 0.0001,
+  "body_weight_decay_mode": "coupled_l2",
+  "context_projection_weight_decay": 0.0001,
+  "context_projection_weight_decay_mode": "decoupled",
+  "context_other_weight_decay": 0.0,
+  "context_projection_decay_parameters": [
+    "context.guide.weight"
+  ],
+  "optimizer_groups": [
+    {
+      "name": "encoder",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "lr": 0.0005,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "body_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "lr": 0.0005,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "context_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "lr": 0.0005,
+      "decoupled_weight_decay": true
+    },
+    {
+      "name": "context_no_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0,
+      "lr": 0.0005,
+      "decoupled_weight_decay": false
+    }
+  ],
+  "selection": "best test F1 each epoch, ties update",
+  "selection_split": "test",
+  "independent_test": false,
+  "evaluation_starts_at_epoch": 0,
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "deep_supervision": 4,
+  "label_threshold": 128,
+  "context_grid_sizes": [
+    8,
+    4,
+    4,
+    4
+  ],
+  "context_prototypes_per_scale": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "joint_contexts": 0,
+  "qk_geometry": "none",
+  "value_geometry": "euclidean",
+  "qkv_dim": 0,
+  "heads": 0,
+  "auxiliary_weights": {
+    "guide": 0.2,
+    "geometric_retrieval": 0.0
+  },
+  "query_key_head_dim": 0,
+  "value_head_dim": 0,
+  "shared_query_key_projection": true,
+  "compression_power": 0,
+  "support_power": 0,
+  "self_reference": false,
+  "reliability_prior": "not_used",
+  "context_readout": "identity",
+  "hyperbolic_radius": null,
+  "hyperbolic_key": null,
+  "context_gamma_shape": [
+    4,
+    64
+  ],
+  "local_gamma_shape": [
+    2,
+    64
+  ],
+  "local_scales": [
+    1,
+    2
+  ],
+  "local_detail": "depthwise3x3 + pointwise on X - avg3(X)",
+  "source_files": [
+    "models/analyze_hyperbolic.py",
+    "models/dataset/casa_transforms.py",
+    "models/dataset/dataset.py",
+    "models/model/casa_net.py",
+    "models/model/layers/__init__.py",
+    "models/model/layers/euclidean_context.py",
+    "models/model/layers/hyperbolic_context.py",
+    "models/model/layers/lorentz_ops.py",
+    "models/model/layers/pyramid_context.py",
+    "models/model/metric_tool.py",
+    "models/model/mobilenet_v2.py",
+    "models/model/str_dcr.py",
+    "models/model/str_reparam.py",
+    "models/model/str_tar.py",
+    "models/profile_CASA.py",
+    "models/test_CASA.py",
+    "models/test_CASA_resume.py",
+    "models/test_context_geometry.py",
+    "models/test_data_pipeline.py",
+    "models/test_direct_geometry.py",
+    "models/test_hyperbolic_context.py",
+    "models/test_pyramid_context.py",
+    "models/train_CASA.py"
+  ],
+  "warmup_steps": 200,
+  "evaluation_split": "test",
+  "precision": {
+    "input": "float32",
+    "amp": false,
+    "cudnn_tf32": true,
+    "matmul_tf32": false,
+    "cudnn_benchmark": true
+  },
+  "context_values": "guide_only",
+  "source_archive": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run7/source_code.tar.gz",
+  "dataset": "/share_datasets/CD/CDD-CD-256",
+  "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+  "deploy_verification": "strict_fp32_fold_v1"
+}

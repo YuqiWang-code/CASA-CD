@@ -3021,7 +3021,7 @@ class AuxiliaryContext(nn.Module):
         return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
-## METRICS (221 results)
+## METRICS (229 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
@@ -3086,6 +3086,14 @@ CASA-Pyramid/Run5/M2_CA_QKV/CDD-CD-256 | 0.9682 | 0.9692 | 0.9923 | 0.9687 | 0.9
 CASA-Pyramid/Run5/M2_CA_QKV/LEVIR-CD-256 | 0.9064 | 0.9183 | 0.9911 | 0.9123 | 0.8388 | 0.9077 | 1.953 | 2.065 | - | casa_pyramid_qkv
 CASA-Pyramid/Run5/M2_CA_QKV/SYSU-CD-256 | 0.8025 | 0.8582 | 0.9221 | 0.8294 | 0.7085 | 0.7790 | 1.953 | 2.065 | - | casa_pyramid_qkv
 CASA-Pyramid/Run5/M2_CA_QKV/WHU-CD-256 | 0.9321 | 0.9582 | 0.9957 | 0.9449 | 0.8956 | 0.9427 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run7/M0_CTRL/CDD-CD-256 | 0.9689 | 0.9701 | 0.9925 | 0.9695 | 0.9409 | 0.9652 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/LEVIR-CD-256 | 0.9030 | 0.9193 | 0.9910 | 0.9111 | 0.8366 | 0.9063 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/SYSU-CD-256 | 0.8184 | 0.8376 | 0.9198 | 0.8279 | 0.7064 | 0.7756 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/WHU-CD-256 | 0.9354 | 0.9598 | 0.9959 | 0.9475 | 0.9002 | 0.9453 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M1_HYPER_QKV/CDD-CD-256 | 0.9689 | 0.9692 | 0.9924 | 0.9691 | 0.9400 | 0.9647 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/LEVIR-CD-256 | 0.9007 | 0.9222 | 0.9911 | 0.9113 | 0.8371 | 0.9066 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/SYSU-CD-256 | 0.7991 | 0.8609 | 0.9222 | 0.8289 | 0.7077 | 0.7786 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/WHU-CD-256 | 0.9290 | 0.9621 | 0.9957 | 0.9453 | 0.8962 | 0.9431 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/LEVIR-CD-256 | 0.8855 | 0.9130 | 0.9899 | 0.8990 | 0.8166 | 0.8937 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/SYSU-CD-256 | 0.8209 | 0.8284 | 0.9177 | 0.8247 | 0.7016 | 0.7709 | 2.378 | 2.378 | 1.2051 | casa_str

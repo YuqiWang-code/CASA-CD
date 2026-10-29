@@ -84,12 +84,15 @@ def curves(destination, dataset, records, selection_split):
     manifest = next(iter(records.values()))[2]
     guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
     has_boundary = boundary_weight != 0
-    fig, axes = plt.subplots(3 if has_boundary else 2, 2,
-                             figsize=(12, 11 if has_boundary else 7.8), constrained_layout=True)
+    has_retrieval = any(record[2].get('auxiliary_weights', {}).get('geometric_retrieval', 0)
+                        for record in records.values())
+    extended = has_boundary or has_retrieval
+    fig, axes = plt.subplots(3 if extended else 2, 2,
+                             figsize=(12, 11 if extended else 7.8), constrained_layout=True)
     main_axis, f1_axis, guide_axis = axes.flat[:3]
-    boundary_axis, total_axis, spatial_axis = axes.flat[3:] if has_boundary else (None, axes.flat[3], None)
+    auxiliary_axis, total_axis, spatial_axis = axes.flat[3:] if extended else (None, axes.flat[3], None)
     evaluation_label = 'test selection' if selection_split == 'test' else 'validation'
-    for variant, (rows, result, _) in records.items():
+    for variant, (rows, result, variant_manifest) in records.items():
         color, label = colors[variant], VARIANTS[variant]
         x = [row['epoch'] for row in rows]
         main_axis.plot(x, [row['train_main'] for row in rows], color=color, label=label + ' train')
@@ -103,7 +106,10 @@ def curves(destination, dataset, records, selection_split):
         guide_axis.plot(x, [row['train_guide'] for row in rows], color=color, label=label)
         total_axis.plot(x, [row['train_loss'] for row in rows], color=color, label=label)
         if has_boundary:
-            boundary_axis.plot(x, [row['train_boundary'] for row in rows], color=color, label=label)
+            auxiliary_axis.plot(x, [row['train_boundary'] for row in rows], color=color, label=label)
+        if has_retrieval and variant_manifest.get('auxiliary_weights', {}).get('geometric_retrieval', 0):
+            auxiliary_axis.plot(x, [row['train_retrieval'] for row in rows], color=color, label=label)
+        if extended:
             spatial = [row for row in rows if 'val_boundary_1px_F1' in row]
             sx = [row['epoch'] for row in spatial]
             spatial_axis.plot(sx, [row['val_boundary_1px_F1'] * 100 for row in spatial],
@@ -114,13 +120,17 @@ def curves(destination, dataset, records, selection_split):
     formula = f'Main + {guide_weight:g} x guide'
     if has_boundary:
         formula += f' + {boundary_weight:g} x boundary'
+    if has_retrieval:
+        formula = 'Main + auxiliary terms (weights in manifest)'
     titles = [('Main loss: train / ' + evaluation_label, 'BCE + Dice (four outputs)'),
               (evaluation_label.capitalize() + ' F1; dots mark selected checkpoints', 'F1 (%)'),
-              (f'Guide loss before the {guide_weight:g} multiplier', 'Guide BCE (four scales)')]
+              ('Guide loss before weighting' if has_retrieval else f'Guide loss before the {guide_weight:g} multiplier', 'Guide BCE (four scales)')]
     if has_boundary:
         titles += [(f'Boundary loss before the {boundary_weight:g} multiplier', 'Boundary BCE + Dice (two scales)')]
+    elif has_retrieval:
+        titles += [('Class retrieval loss before weighting', 'Retrieval BCE (four scales)')]
     titles.append(('Total training loss', formula))
-    if has_boundary:
+    if extended:
         titles.append(('Boundary / interior diagnostics on ' + evaluation_label, 'Score (%)'))
     for ax, (title, ylabel) in zip(axes.flat, titles):
         ax.set(title=title, xlabel='Epoch (0-based)', ylabel=ylabel)
@@ -203,7 +213,7 @@ def main():
     for filename in ('validation.log', 'startup_health.json'):
         if (source / filename).exists():
             shutil.copyfile(source / filename, destination / filename)
-    probe_names = [path.name for path in sorted((source / 'probes').iterdir())
+    probe_names = [path.name for path in sorted((source / 'probes').glob('*'))
                    if (path / 'health_result.json').exists()]
     for name in probe_names:
         published = destination / 'probes' / name
@@ -228,6 +238,12 @@ def main():
     loss_formula = f'main+{guide_weight:g}×guide'
     loss_note = '评分损失单独展示'
     boundary_note = ''
+    if any((source / variant / DATASETS[0] / 'run_manifest.json').exists() and
+           json.loads((source / variant / DATASETS[0] / 'run_manifest.json').read_text()).get('auxiliary_weights', {}).get('geometric_retrieval', 0)
+           for variant in variants):
+        loss_formula = '双曲main+0.1×guide+0.1×retrieval；CTRL为main+0.2×guide'
+        loss_note = 'guide与类别检索BCE分别展示未乘权重值，权重由各项manifest的auxiliary_weights给出'
+        boundary_note = '\n- `train_auxiliary`为guide与检索BCE的平均，`train_guide`与`train_retrieval`为各自原始BCE；CTRL的retrieval为0且无该训练项。'
     if boundary_weight:
         loss_formula += f'+{boundary_weight:g}×boundary'
         loss_note = f'评分与边界损失分别展示未乘权重的值，权重由manifest给出（{guide_weight:g}、{boundary_weight:g}）'
@@ -266,6 +282,8 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 '''
     for dataset in DATASETS:
         readme += f'### {dataset}\n\n![{dataset}训练与{evaluation_name}曲线](curves/{dataset}.png)\n\n'
+    if (destination / 'selection/selection_summary.md').exists():
+        readme += '## 短训筛选\n\n[16项train/val配对短训](selection/selection_summary.md)、[检索内容干预](selection/retrieval_evidence_summary.md)与[选型记录](selection/selection_decision.json)。筛选权重不用于正式训练，短训不计入正式指标。\n\n'
     readme += '## 关联材料\n\n[运行说明](../../../../train_scripts/' + args.tag + '/' + args.run + '/README.md)、[冻结源码与指标](../../../temporary/models_and_metrics_' + args.tag + '_' + args.run + '.txt)。\n'
     (destination / 'README.md').write_text(readme, encoding='utf-8', newline='\n')
     files = [p for p in destination.rglob('*') if p.is_file()]

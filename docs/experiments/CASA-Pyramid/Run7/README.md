@@ -1,32 +1,60 @@
-# CASA-Pyramid / Run7
+# CASA-Pyramid / Run7 完整训练记录
 
-2026-10-28 16:00:08 CST启动，源码基线`8a54fa2`，协议`casa_pyramid_40k_retrieval_v7`。物理GPU0运行四库双曲/CTRL共8项，按实测显存补位；正式从预训练骨干全新初始化，每epoch test F1选模，最终复测非独立盲测。
+协议`casa_pyramid_40k_retrieval_v7`，模型/训练源码基线`8a54fa27676717b1962dc646f7c743baef7ba3a1`。本目录保存8项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/CASA-Pyramid/Run7`。本轮于2026-10-28 16:00:08 CST启动，2026-10-29 00:38:32 CST完成。
 
-16项train/val短训完成后采用224KV、一个32维直接Lorentz投影、同内容K/V、独立内容门控和类别检索监督。[筛选结果](selection/selection_summary.md) · [检索内容证据](selection/retrieval_evidence_summary.md) · [模型公式](../../../../models/HYPERBOLIC_DESIGN.md)。
+[四库比较与问题分析](analysis.md)。指标表229条正式记录，原221条历史单元格保持；冻结TXT来自本轮实际训练源码。
 
-## 初期观察
+## 正式结果与最佳epoch
 
-记录时间：2026-10-28T16:07:07+08:00。三项首批实验均已完成至少3个训练与test选模epoch；损失有限，未记录NaN、CUDA OOM或进程错误。双曲各层有非零半径差异和残差输出。
+epoch沿用日志的0起始索引，例如177表示第178轮。每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。test参与checkpoint选择，最终数值不属于独立盲测。`summary.csv`提供选模split、独立测试标记、全部Recall/Precision/OA/F1/IoU/Kappa、参数与部署误差。
 
-| 实验 | 已完成训练epoch | 最新已完成test选模F1 (%) | PID |
-|---|---:|---:|---:|
-| M1_HYPER_QKV/LEVIR-CD-256 | 6 | 86.6271 | 2274059 |
-| M0_CTRL/LEVIR-CD-256 | 7 | 88.3312 | 2274086 |
-| M0_CTRL/SYSU-CD-256 | 4 | 82.7918 | 2274118 |
+| 数据集 | 变体 | best_epoch (0起始) | 最佳test选模F1(%) | 最终test复测F1(%) | 实际记录 |
+|---|---|---:|---:|---:|---|
+| LEVIR | M1_HYPER_QKV | 179 | 91.132 | 91.132 | [日志](M1_HYPER_QKV/LEVIR-CD-256/train_log.txt) / [逐轮](M1_HYPER_QKV/LEVIR-CD-256/epochs.csv) / [结果](M1_HYPER_QKV/LEVIR-CD-256/result.json) |
+| LEVIR | M0_CTRL | 174 | 91.106 | 91.106 | [日志](M0_CTRL/LEVIR-CD-256/train_log.txt) / [逐轮](M0_CTRL/LEVIR-CD-256/epochs.csv) / [结果](M0_CTRL/LEVIR-CD-256/result.json) |
+| SYSU | M1_HYPER_QKV | 15 | 82.885 | 82.885 | [日志](M1_HYPER_QKV/SYSU-CD-256/train_log.txt) / [逐轮](M1_HYPER_QKV/SYSU-CD-256/epochs.csv) / [结果](M1_HYPER_QKV/SYSU-CD-256/result.json) |
+| SYSU | M0_CTRL | 3 | 82.792 | 82.792 | [日志](M0_CTRL/SYSU-CD-256/train_log.txt) / [逐轮](M0_CTRL/SYSU-CD-256/epochs.csv) / [结果](M0_CTRL/SYSU-CD-256/result.json) |
+| WHU | M1_HYPER_QKV | 171 | 94.527 | 94.527 | [日志](M1_HYPER_QKV/WHU-CD-256/train_log.txt) / [逐轮](M1_HYPER_QKV/WHU-CD-256/epochs.csv) / [结果](M1_HYPER_QKV/WHU-CD-256/result.json) |
+| WHU | M0_CTRL | 150 | 94.747 | 94.747 | [日志](M0_CTRL/WHU-CD-256/train_log.txt) / [逐轮](M0_CTRL/WHU-CD-256/epochs.csv) / [结果](M0_CTRL/WHU-CD-256/result.json) |
+| CDD | M1_HYPER_QKV | 128 | 96.905 | 96.905 | [日志](M1_HYPER_QKV/CDD-CD-256/train_log.txt) / [逐轮](M1_HYPER_QKV/CDD-CD-256/epochs.csv) / [结果](M1_HYPER_QKV/CDD-CD-256/result.json) |
+| CDD | M0_CTRL | 128 | 96.953 | 96.953 | [日志](M0_CTRL/CDD-CD-256/train_log.txt) / [逐轮](M0_CTRL/CDD-CD-256/epochs.csv) / [结果](M0_CTRL/CDD-CD-256/result.json) |
 
-这些是初期学习和数值健康记录，尚无完整正式测试。SYSU后期泛化与四库增益继续由完整训练检验。
+## 文件与数值口径
 
-## 效率
+- 每项的`train_log.txt`是完整原始日志，包括训练后期、test选模评估行、实际MODULE-DIAG及最终TEST RESULTS。
+- `epochs.csv`保存每轮训练总损失、主损失、评分损失、学习率，以及test选模Loss/Recall/Precision/OA/F1/IoU/Kappa和耗时；指标沿用日志的0～1单位。逐轮评估从epoch0开始。
+- `train_auxiliary`为guide与检索BCE的平均，`train_guide`与`train_retrieval`为各自原始BCE；CTRL的retrieval为0且无该训练项。
+- CSV沿用`val_`列名前缀和`best_val_F1_pct`字段，数据来源由`summary.csv`及manifest的`selection_split`明确：本轮为`test`。字段前缀不表示独立验证集。
+- `module_diagnostics.jsonl`按epoch保存四级完整诊断；`module_diagnostics.csv`按epoch/stage展开温度各头、gamma、归一化注意力熵、原型分配TV、预测变化概率、分支RMS、跨尺度注意力质量，以及双曲半径和裁剪比例。源日志未记录的量不补造。
+- MODULE-DIAG来自当轮test选模的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
+- `result.json`保留完整精度的正式测试与实际最佳epoch；`run_manifest.json`、`evaluation_manifest.json`和`deploy_check.json`给出配置及折叠检查，`placement.json`记录物理GPU。`arch.json`记录结构配置。
+- 根目录的`environment.json`、`source_manifest.json`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`inference_benchmark.json`记录显存和推理测量。
+- `probes/`保存0项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
 
-RTX5090、双时相256×256、batch1、FP32，cuDNN TF32开启、matmul TF32关闭，30次预热和100次测量中位数；随机权重结构成本。
+## 完整训练与test选模曲线
 
-| 变体 | 训练参数M | 部署参数M | 中位延迟ms | 峰值allocated MiB |
-|---|---:|---:|---:|---:|
-| CTRL | 2.047125 | 1.935810 | 3.863 | 54.76 |
-| 双曲 | 2.058409 | 1.947094 | 6.918 | 73.90 |
+曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/test选模BCE+Dice；guide与类别检索BCE分别展示未乘权重值，权重由各项manifest的auxiliary_weights给出，总训练损失为双曲main+0.1×guide+0.1×retrieval；CTRL为main+0.2×guide。圆点为实际选中checkpoint的test选模F1；最终折叠模型的复测结果单独保存在result.json。
 
-双曲保留约2M部署参数；相对CTRL仍有执行成本，精度收益以完整测试评估。[原始测量](inference_benchmark.json) · [训练显存](profile.json) · [部署检查](validation.log) · [环境](environment.json) · [初期记录](startup_health.json)。
+### LEVIR-CD-256
 
-## 产物
+![LEVIR-CD-256训练与test选模曲线](curves/LEVIR-CD-256.png)
 
-运行源码归档和完整产物保存在`outputs/CASA-Pyramid/Run7`及服务器同轮目录；当前正式指标0/8。Run7源码TXT使用实际source_code.tar.gz，current TXT使用工作源码，历史221条指标保留。
+### SYSU-CD-256
+
+![SYSU-CD-256训练与test选模曲线](curves/SYSU-CD-256.png)
+
+### WHU-CD-256
+
+![WHU-CD-256训练与test选模曲线](curves/WHU-CD-256.png)
+
+### CDD-CD-256
+
+![CDD-CD-256训练与test选模曲线](curves/CDD-CD-256.png)
+
+## 短训筛选
+
+[16项train/val配对短训](selection/selection_summary.md)、[检索内容干预](selection/retrieval_evidence_summary.md)与[选型记录](selection/selection_decision.json)。筛选权重不用于正式训练，短训不计入正式指标。
+
+## 关联材料
+
+[运行说明](../../../../train_scripts/CASA-Pyramid/Run7/README.md)、[冻结源码与指标](../../../temporary/models_and_metrics_CASA-Pyramid_Run7.txt)。

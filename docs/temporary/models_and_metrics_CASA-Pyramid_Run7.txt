@@ -1,5 +1,5 @@
 # CASA-CD models snapshot + metrics
-# tag=CASA-Pyramid  run=Run7  models_dir=outputs\CASA-Pyramid\Run7\source\models
+# tag=CASA-Pyramid  run=Run7  models_dir=outputs/CASA-Pyramid/Run7/runtime_source/models
 # CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
@@ -8,7 +8,7 @@
 ================================================================================
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/analyze_hyperbolic.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/analyze_hyperbolic.py
 ================================================================================
 """Validation interventions for radial information and context correction value."""
 import argparse
@@ -194,7 +194,7 @@ if __name__ == '__main__':
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/profile_CASA.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/profile_CASA.py
 ================================================================================
 """Measure full-batch training memory and throughput for CASA variants."""
 import argparse
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_CASA.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_CASA.py
 ================================================================================
 """Native pyramid, matching common initialization, task gradients and folding."""
 import torch
@@ -359,7 +359,7 @@ if __name__=='__main__':
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_CASA_resume.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_CASA_resume.py
 ================================================================================
 """Optimizer/RNG continuation and deployment backend-state checks."""
 import copy
@@ -485,7 +485,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_context_geometry.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_context_geometry.py
 ================================================================================
 """Lorentz geometry checked against Poincare and Klein coordinate identities."""
 import torch
@@ -665,7 +665,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_data_pipeline.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_data_pipeline.py
 ================================================================================
 """RGB/date ordering, synchronized augmentation and stable binary loss checks."""
 import tempfile
@@ -773,7 +773,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_direct_geometry.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_direct_geometry.py
 ================================================================================
 """Direct projected geometry, class evidence and inference checks."""
 import math
@@ -890,7 +890,7 @@ if __name__ == "__main__":
     inference_path()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_hyperbolic_context.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_hyperbolic_context.py
 ================================================================================
 """Projected radii, class prototypes and independent adoption."""
 import torch
@@ -1002,7 +1002,7 @@ if __name__ == '__main__':
     module()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/test_pyramid_context.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/test_pyramid_context.py
 ================================================================================
 """Compression fidelity, constant fields and cross-scale task gradients."""
 import torch
@@ -1098,7 +1098,7 @@ if __name__ == '__main__':
     contexts()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/train_CASA.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/train_CASA.py
 ================================================================================
 """CASA relative-context training with shared supervision and test selection."""
 import argparse
@@ -1555,7 +1555,7 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/dataset\casa_transforms.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/dataset\casa_transforms.py
 ================================================================================
 import numpy as np
 import torch
@@ -1687,7 +1687,7 @@ class Compose(object):
         return args
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/dataset\dataset.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/dataset\dataset.py
 ================================================================================
 import cv2
 from os.path import join as osp
@@ -1742,7 +1742,7 @@ class Dataset(torch.utils.data.Dataset):
         return img, label
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\casa_net.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\casa_net.py
 ================================================================================
 """Native MobileNetV2 features, TAR, joint pyramid context and DCR."""
 import torch
@@ -1805,7 +1805,7 @@ class CASANet(nn.Module):
         return dict(self.context.last_diag)
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\metric_tool.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\metric_tool.py
 ================================================================================
 import numpy as np
 
@@ -1940,7 +1940,7 @@ def get_confuse_matrix(num_classes, label_gts, label_preds):
     return confusion_matrix
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\mobilenet_v2.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\mobilenet_v2.py
 ================================================================================
 import torch.nn as nn
 import torch
@@ -2051,7 +2051,7 @@ def mobilenet_v2(pretrained_path=None):
     return model
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\str_dcr.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\str_dcr.py
 ================================================================================
 """Top-down DCR decoder with foldable local refinement.
 
@@ -2133,7 +2133,7 @@ class DCRDecoder(nn.Module):
         return self
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\str_reparam.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\str_reparam.py
 ================================================================================
 """Foldable depthwise, pointwise and paired-feature convolution blocks.
 
@@ -2425,7 +2425,7 @@ def switch_module_to_deploy(module):
     return module
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\str_tar.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\str_tar.py
 ================================================================================
 """Four-scale temporal fusion with foldable concat, sum and signed-difference branches."""
 import torch
@@ -2555,12 +2555,12 @@ class MultiScaleTAR(nn.Module):
         return self
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\layers\__init__.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\layers\__init__.py
 ================================================================================
 """Change-aware compressed attention and Poincare geometry."""
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\layers\euclidean_context.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\layers\euclidean_context.py
 ================================================================================
 """Euclidean retrieval with selective prototypes and a dense self reference."""
 import math
@@ -2589,7 +2589,7 @@ class EuclideanContext(ResidualPyramidContext):
                     query_norm_max=float(query.norm(dim=-1).max()))
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\layers\hyperbolic_context.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\layers\hyperbolic_context.py
 ================================================================================
 """Task-calibrated Lorentz retrieval with aligned content and learned correction."""
 import math
@@ -2781,7 +2781,7 @@ class HyperbolicContext(nn.Module):
         return enhanced, auxiliary
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\layers\lorentz_ops.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\layers\lorentz_ops.py
 ================================================================================
 """Curvature -1 geometry using unconstrained spatial Lorentz coordinates."""
 import torch
@@ -2817,7 +2817,7 @@ def pairwise_squared_distance(query, key):
     return acosh1p_squared(z)
 
 ================================================================================
-# FILE: outputs\CASA-Pyramid\Run7\source\models/model\layers\pyramid_context.py
+# FILE: outputs/CASA-Pyramid/Run7/runtime_source/models/model\layers\pyramid_context.py
 ================================================================================
 """Selective change prototypes and self-referenced pyramid retrieval."""
 import math
@@ -3021,7 +3021,7 @@ class AuxiliaryContext(nn.Module):
         return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
-## METRICS (221 results)
+## METRICS (229 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
@@ -3086,6 +3086,14 @@ CASA-Pyramid/Run5/M2_CA_QKV/CDD-CD-256 | 0.9682 | 0.9692 | 0.9923 | 0.9687 | 0.9
 CASA-Pyramid/Run5/M2_CA_QKV/LEVIR-CD-256 | 0.9064 | 0.9183 | 0.9911 | 0.9123 | 0.8388 | 0.9077 | 1.953 | 2.065 | - | casa_pyramid_qkv
 CASA-Pyramid/Run5/M2_CA_QKV/SYSU-CD-256 | 0.8025 | 0.8582 | 0.9221 | 0.8294 | 0.7085 | 0.7790 | 1.953 | 2.065 | - | casa_pyramid_qkv
 CASA-Pyramid/Run5/M2_CA_QKV/WHU-CD-256 | 0.9321 | 0.9582 | 0.9957 | 0.9449 | 0.8956 | 0.9427 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run7/M0_CTRL/CDD-CD-256 | 0.9689 | 0.9701 | 0.9925 | 0.9695 | 0.9409 | 0.9652 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/LEVIR-CD-256 | 0.9030 | 0.9193 | 0.9910 | 0.9111 | 0.8366 | 0.9063 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/SYSU-CD-256 | 0.8184 | 0.8376 | 0.9198 | 0.8279 | 0.7064 | 0.7756 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/WHU-CD-256 | 0.9354 | 0.9598 | 0.9959 | 0.9475 | 0.9002 | 0.9453 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M1_HYPER_QKV/CDD-CD-256 | 0.9689 | 0.9692 | 0.9924 | 0.9691 | 0.9400 | 0.9647 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/LEVIR-CD-256 | 0.9007 | 0.9222 | 0.9911 | 0.9113 | 0.8371 | 0.9066 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/SYSU-CD-256 | 0.7991 | 0.8609 | 0.9222 | 0.8289 | 0.7077 | 0.7786 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/WHU-CD-256 | 0.9290 | 0.9621 | 0.9957 | 0.9453 | 0.8962 | 0.9431 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/LEVIR-CD-256 | 0.8855 | 0.9130 | 0.9899 | 0.8990 | 0.8166 | 0.8937 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/SYSU-CD-256 | 0.8209 | 0.8284 | 0.9177 | 0.8247 | 0.7016 | 0.7709 | 2.378 | 2.378 | 1.2051 | casa_str
