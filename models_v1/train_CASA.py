@@ -15,10 +15,10 @@ from torch.nn import functional as F
 from dataset.dataset import Dataset
 from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
-from model.layers.moe_context import MODEL_VARIANTS
+from model.layers.candidate_context import MODEL_VARIANTS
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_moe_40k_dense_v1"
+PROTOCOL = "casa_moe_40k_candidates_v2"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -126,7 +126,8 @@ def make_loader(root, split, batch_size=32, workers=1):
                    transform=transforms.Compose(operations))
     return torch.utils.data.DataLoader(data, batch_size=batch_size, shuffle=split == "train",
                                        num_workers=workers, pin_memory=False,
-                                       drop_last=split == "train")
+                                       drop_last=split == "train",
+                                       generator=torch.Generator().manual_seed(2333))
 
 
 @torch.no_grad()
@@ -330,6 +331,7 @@ def main():
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         start_epoch, step, restored_rng = restore_training_state(
             checkpoint, model, optimizer, actual_steps, len(train_loader))
+        train_loader.generator.set_state(checkpoint['loader_rng_state'])
         best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
         manifest = dict(checkpoint["manifest"])
         continuation = dict(start_epoch=start_epoch, start_step=step,
@@ -400,7 +402,8 @@ def main():
             torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
         torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
                         optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
-                        manifest=manifest, rng_state=rng_state()), args.checkpoint_dir / "last.pth")
+                        manifest=manifest, rng_state=rng_state(),
+                        loader_rng_state=train_loader.generator.get_state()), args.checkpoint_dir / "last.pth")
     model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
     image, _ = next(iter(test_loader))
     image = image[:1].to(device).float()

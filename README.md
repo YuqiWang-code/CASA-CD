@@ -2,10 +2,6 @@
 
 普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run8（GPU1，SYSU/WHU分阶段归因）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
 
-独立探索线 **CASA-MoE / Run1（GPU1，24/24完成）** 使用[models_v1](models_v1/README.md)：共享TAR底座，双曲QKV、欧式QKV、TAR和频率四条路径进行像素动态融合。LEVIR/SYSU各9组消融，WHU/CDD各3组；部署参数1.954M，稠密执行。动态MoE相对同轮CTRL的F1差值为−0.2054/−0.6801/−0.1958/−0.0430个百分点，尚未形成净收益。[完整日志与曲线](docs/experiments/CASA-MoE/Run1/README.md) · [结果分析](docs/experiments/CASA-MoE/Run1/analysis.md) · [冻结快照](docs/temporary/models_and_metrics_CASA-MoE_Run1.txt) · [实验矩阵](train_scripts/CASA-MoE/Run1/README.md)。
-
-MoE Run1收集后指标表共253条，既有229条记录逐单元格保留；冻结TXT使用本轮实际训练源码归档。
-
 双曲版采用**同内容原型与独立内容门控**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
 
 ## 项目定位与固定研究原则

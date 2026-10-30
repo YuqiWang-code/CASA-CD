@@ -11,7 +11,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from model.layers.moe_context import MODEL_VARIANTS
+from model.layers.candidate_context import MODEL_VARIANTS
 from train_CASA import (PROTOCOL, make_loader, make_optimizer, training_losses,
                         task_gradient_diagnostics, loss_function, SpatialMetrics)
 

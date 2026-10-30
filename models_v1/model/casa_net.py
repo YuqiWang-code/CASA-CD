@@ -6,8 +6,7 @@ from torch.nn import functional as F
 from model.mobilenet_v2 import mobilenet_v2
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
-from model.layers.pyramid_context import AuxiliaryContext
-from model.layers.moe_context import MODEL_VARIANTS, MoEContext
+from model.layers.candidate_context import MODEL_VARIANTS, CandidateContext
 
 
 class CASANet(nn.Module):
@@ -23,12 +22,24 @@ class CASANet(nn.Module):
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(2333)
-            self.context = AuxiliaryContext() if module == "none" else MoEContext(module)
+            self.context = CandidateContext(module)
+        self.configuration = self.context.metadata()
+        self.deployed = False
 
     def _decode(self, a, b):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
-        enhanced, auxiliary = self.context(self.tar(features_a, features_b))
-        return self.decoder.forward_pyramid(enhanced), auxiliary
+        tar = self.tar(features_a, features_b)
+        if self.deployed and self.module == 'none':
+            return self.decoder.forward_pyramid(tar), dict(guide_logits=())
+        x, normalized, guide, bank, waves = self.context.prepare(features_a, features_b)
+        decoded = [None] * 4
+        for s in (3, 2, 1, 0):
+            up = None if s == 3 else F.interpolate(decoded[s+1], size=x[s].shape[-2:], mode='bilinear', align_corners=False)
+            z = self.context.mix(s, x[s], normalized[s], tar[s], up, bank, waves)
+            decoded[s] = z if s == 3 else getattr(self.decoder, f'block{s+1}')(
+                self.decoder.act(getattr(self.decoder, f'fuse{s+1}')(z, up)))
+        decoded[0] = self.decoder.refine(decoded[0])
+        return decoded, dict(guide_logits=tuple(guide))
 
     def forward(self, a, b, return_aux=False):
         """Return four probabilities, or raw logits and change-guide supervision."""
@@ -48,19 +59,15 @@ class CASANet(nn.Module):
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()
         self.decoder.switch_to_deploy()
+        if self.module == 'none':
+            self.context = nn.Identity()
+        else:
+            self.context.stem.switch_to_deploy()
+        self.deployed = True
         return self
 
     def diagnostics(self):
-        return dict(self.context.last_diag)
+        return dict(getattr(self.context, 'last_diag', {}))
 
     def context_metadata(self):
-        if self.module != "none":
-            return self.context.metadata()
-        return dict(variant="none", active_experts=["tar"], routing_mode="identity",
-                    execution="shared_tar_only", context_grid_sizes=list(self.context.grid_sizes),
-                    context_prototypes_per_scale=[0, 0, 0, 0], joint_contexts=0,
-                    qk_geometry={}, value_geometry="euclidean", heads=0, qkv_dim=0,
-                    query_key_head_dim=0, value_head_dim=0, compression_power=0, support_power=0,
-                    self_reference=False, hyperbolic_radius=None, key_mode=None, readout_mode="identity",
-                    context_gamma_shape=[], local_gamma_shape=[], frequency_width=0,
-                    frequency_transform=None, router_hidden_channels=0)
+        return dict(self.configuration)
