@@ -1,0 +1,765 @@
+{
+  "passed": true,
+  "protocol": "casa_moe_40k_dense_v1",
+  "runtime": "/home/yqwang/outputs/CASA-CD/CASA-MoE/Run1/runtime/20261028_115045",
+  "module": "moe",
+  "dataset": "SYSU-CD-256",
+  "epochs": 3,
+  "train_batches": 375,
+  "batch_size": 32,
+  "physical_gpu": 1,
+  "scheduler_total": 40125,
+  "guide_weight": 0.2,
+  "encoder_lr_mult": 1.0,
+  "evaluation_split": "val",
+  "seed": 2333,
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "architecture": {
+    "variant": "moe",
+    "active_experts": [
+      "tar",
+      "hyperbolic",
+      "qkv",
+      "frequency"
+    ],
+    "routing_mode": "learned",
+    "execution": "dense_all_enabled_experts",
+    "context_grid_sizes": [
+      8,
+      4,
+      4,
+      4
+    ],
+    "context_prototypes_per_scale": [
+      256,
+      64,
+      64,
+      64
+    ],
+    "joint_contexts": 448,
+    "qk_geometry": {
+      "hyperbolic": "lorentz_occupancy_radius",
+      "qkv": "euclidean_unit_direction"
+    },
+    "value_geometry": "euclidean",
+    "heads": 1,
+    "query_key_head_dim": 32,
+    "value_head_dim": 32,
+    "qkv_dim": 32,
+    "compression_power": 2,
+    "support_power": 1,
+    "self_reference": false,
+    "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+    "key_mode": "shared_pooled_content_projected_by_each_expert",
+    "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+    "context_gamma_shape": [
+      4,
+      64
+    ],
+    "local_gamma_shape": [],
+    "frequency_width": 16,
+    "frequency_transform": "single_level_signed_haar",
+    "router_hidden_channels": 16,
+    "initialization_seeds": {
+      "hyperbolic": 3401,
+      "qkv": 3402,
+      "frequency": 3403,
+      "appearance": 3404,
+      "router": 3405
+    }
+  },
+  "optimizer_groups": [
+    {
+      "name": "encoder",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "body_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "context_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": true
+    },
+    {
+      "name": "context_no_decay",
+      "weight_decay": 0.0,
+      "decoupled_weight_decay": false
+    }
+  ],
+  "steps": 1125,
+  "final": {
+    "epoch": 3,
+    "step": 1125,
+    "train_loss": 1.8767355324427286,
+    "main_loss": 1.6573604194323222,
+    "guide_loss": 1.0968755722045898,
+    "gradient_norm_mean": 6.115077975591023,
+    "gradient_norm_max": 20.014209747314453,
+    "validation_loss": 2.2484266157150268,
+    "validation_metrics": {
+      "Kappa": 0.7324356155339093,
+      "IoU": 0.6480688458471973,
+      "F1": 0.7864584037903896,
+      "OA": 0.9134346733093257,
+      "recall": 0.7404185046340737,
+      "precision": 0.8386036730551034,
+      "Pre": 0.6764691725940639
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.20539213185387262,
+        "recall": 0.19098218764035976,
+        "F1": 0.1979252274245309,
+        "predicted_pixels": 3116541,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.2895780931487826,
+        "recall": 0.2700125452576424,
+        "F1": 0.2794532739311805,
+        "predicted_pixels": 3116541,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.8528025482870126,
+        "recall": 0.7604529579339733,
+        "F1": 0.8039845119111022,
+        "predicted_pixels": 47371744,
+        "target_pixels": 53124580,
+        "tp": 40398744,
+        "fp": 6973000,
+        "fn": 12725836,
+        "tn": 195362350
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {
+      "stage1": {
+        "queries": 4096,
+        "contexts": 448,
+        "gamma_context": -0.0035811730194836855,
+        "gamma_context_rms": 0.04403771832585335,
+        "feature_rms": 1.2237430810928345,
+        "residual_to_feature_rms": 0.12998084723949432,
+        "branch_rms": 3.5528664588928223,
+        "route_mass": {
+          "tar": 0.054869282990694046,
+          "hyperbolic": 0.1133338063955307,
+          "qkv": 0.1747366338968277,
+          "frequency": 0.6570602655410767
+        },
+        "route_change_mass": {
+          "tar": 0.12430690228939056,
+          "hyperbolic": 0.18658696115016937,
+          "qkv": 0.20247884094715118,
+          "frequency": 0.4866272807121277
+        },
+        "route_background_mass": {
+          "tar": 0.05080009624361992,
+          "hyperbolic": 0.1090410128235817,
+          "qkv": 0.17311088740825653,
+          "frequency": 0.6670480370521545
+        },
+        "route_grouping": "predicted_change_occupancy_weighted",
+        "route_entropy": 0.6583279967308044,
+        "expert_rms": {
+          "hyperbolic": 1.999003529548645,
+          "qkv": 0.9004302024841309,
+          "frequency": 4.959021091461182
+        },
+        "expert_residual_to_feature_rms": {
+          "hyperbolic": 0.013996554538607597,
+          "qkv": 0.0056164865382015705,
+          "frequency": 0.1269015073776245
+        },
+        "expert_cosine": {
+          "hyperbolic/qkv": 0.1560705304145813,
+          "hyperbolic/frequency": 0.018780864775180817,
+          "qkv/frequency": 0.003161945380270481
+        },
+        "expert_attention": {
+          "hyperbolic": {
+            "entropy": 0.858473539352417,
+            "scale_mass": [
+              [
+                0.4710487127304077,
+                0.17042021453380585,
+                0.15955305099487305,
+                0.1989780068397522
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999997615814209,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 5.550166903844911e-08,
+            "self_mass_mean": 9.422365110367537e-09,
+            "query_attention_tv": 0.3232448697090149,
+            "query_attention_tv_per_head": [
+              0.3232448697090149
+            ],
+            "temperature": [
+              0.5063010454177856
+            ],
+            "radius_mean": 0.9183273315429688,
+            "radius_cv": 0.06882580369710922,
+            "key_radius_mean": 0.9289052486419678
+          },
+          "qkv": {
+            "entropy": 0.8667921423912048,
+            "scale_mass": [
+              [
+                0.3666238486766815,
+                0.26339226961135864,
+                0.1915966272354126,
+                0.17838728427886963
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999997615814209,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 5.588323404026596e-08,
+            "self_mass_mean": 9.822542779147625e-09,
+            "query_attention_tv": 0.24296697974205017,
+            "query_attention_tv_per_head": [
+              0.24296697974205017
+            ],
+            "temperature": [
+              0.5321540832519531
+            ]
+          }
+        },
+        "guide_mean": 0.05535797029733658,
+        "finite": true
+      },
+      "stage2": {
+        "queries": 1024,
+        "contexts": 448,
+        "gamma_context": 0.0029785141814500093,
+        "gamma_context_rms": 0.052498068660497665,
+        "feature_rms": 1.3876644372940063,
+        "residual_to_feature_rms": 0.1568751484155655,
+        "branch_rms": 3.7848970890045166,
+        "route_mass": {
+          "tar": 0.045199304819107056,
+          "hyperbolic": 0.1188630685210228,
+          "qkv": 0.15318524837493896,
+          "frequency": 0.6827523708343506
+        },
+        "route_change_mass": {
+          "tar": 0.0861663892865181,
+          "hyperbolic": 0.18380609154701233,
+          "qkv": 0.1981866955757141,
+          "frequency": 0.5318407416343689
+        },
+        "route_background_mass": {
+          "tar": 0.04294653981924057,
+          "hyperbolic": 0.11529187113046646,
+          "qkv": 0.15071062743663788,
+          "frequency": 0.6910508871078491
+        },
+        "route_grouping": "predicted_change_occupancy_weighted",
+        "route_entropy": 0.6284830570220947,
+        "expert_rms": {
+          "hyperbolic": 1.961683750152588,
+          "qkv": 0.950046718120575,
+          "frequency": 5.13143253326416
+        },
+        "expert_residual_to_feature_rms": {
+          "hyperbolic": 0.011793733574450016,
+          "qkv": 0.005375448148697615,
+          "frequency": 0.15757547318935394
+        },
+        "expert_cosine": {
+          "hyperbolic/qkv": 0.2565627098083496,
+          "hyperbolic/frequency": -0.19664159417152405,
+          "qkv/frequency": -0.15175460278987885
+        },
+        "expert_attention": {
+          "hyperbolic": {
+            "entropy": 0.7712780833244324,
+            "scale_mass": [
+              [
+                0.11586597561836243,
+                0.5802725553512573,
+                0.17192596197128296,
+                0.1319354772567749
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999997615814209,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 4.061676861510932e-08,
+            "self_mass_mean": 9.604264050722122e-09,
+            "query_attention_tv": 0.2837997376918793,
+            "query_attention_tv_per_head": [
+              0.2837997376918793
+            ],
+            "temperature": [
+              0.5063010454177856
+            ],
+            "radius_mean": 0.9158458709716797,
+            "radius_cv": 0.07299848645925522,
+            "key_radius_mean": 0.9289052486419678
+          },
+          "qkv": {
+            "entropy": 0.8291864395141602,
+            "scale_mass": [
+              [
+                0.21215090155601501,
+                0.42093101143836975,
+                0.2947816848754883,
+                0.07213643193244934
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999998211860657,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 4.12524379100887e-08,
+            "self_mass_mean": 1.076841726899147e-08,
+            "query_attention_tv": 0.1417357474565506,
+            "query_attention_tv_per_head": [
+              0.1417357474565506
+            ],
+            "temperature": [
+              0.5321540832519531
+            ]
+          }
+        },
+        "guide_mean": 0.05212343856692314,
+        "finite": true
+      },
+      "stage3": {
+        "queries": 256,
+        "contexts": 448,
+        "gamma_context": 0.011087091639637947,
+        "gamma_context_rms": 0.07581829279661179,
+        "feature_rms": 2.2881431579589844,
+        "residual_to_feature_rms": 0.18437346816062927,
+        "branch_rms": 4.814480781555176,
+        "route_mass": {
+          "tar": 0.018825991079211235,
+          "hyperbolic": 0.07191948592662811,
+          "qkv": 0.11235722154378891,
+          "frequency": 0.796897292137146
+        },
+        "route_change_mass": {
+          "tar": 0.04951005429029465,
+          "hyperbolic": 0.12925323843955994,
+          "qkv": 0.1476805955171585,
+          "frequency": 0.6735560297966003
+        },
+        "route_background_mass": {
+          "tar": 0.017803147435188293,
+          "hyperbolic": 0.0700082778930664,
+          "qkv": 0.11117973178625107,
+          "frequency": 0.8010088801383972
+        },
+        "route_grouping": "predicted_change_occupancy_weighted",
+        "route_entropy": 0.4723726511001587,
+        "expert_rms": {
+          "hyperbolic": 1.7784993648529053,
+          "qkv": 0.9769492149353027,
+          "frequency": 5.8528947830200195
+        },
+        "expert_residual_to_feature_rms": {
+          "hyperbolic": 0.007790707983076572,
+          "qkv": 0.003457726212218404,
+          "frequency": 0.1827453374862671
+        },
+        "expert_cosine": {
+          "hyperbolic/qkv": 0.2272014319896698,
+          "hyperbolic/frequency": -0.042492978274822235,
+          "qkv/frequency": 0.0959317535161972
+        },
+        "expert_attention": {
+          "hyperbolic": {
+            "entropy": 0.7520663738250732,
+            "scale_mass": [
+              [
+                0.10731898993253708,
+                0.14330902695655823,
+                0.5989589691162109,
+                0.15041302144527435
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999998807907104,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 4.641687922912752e-08,
+            "self_mass_mean": 1.1990778148174286e-08,
+            "query_attention_tv": 0.2724219560623169,
+            "query_attention_tv_per_head": [
+              0.2724219560623169
+            ],
+            "temperature": [
+              0.5063010454177856
+            ],
+            "radius_mean": 0.9028576612472534,
+            "radius_cv": 0.0577663779258728,
+            "key_radius_mean": 0.9289052486419678
+          },
+          "qkv": {
+            "entropy": 0.8125466108322144,
+            "scale_mass": [
+              [
+                0.16452324390411377,
+                0.3203950524330139,
+                0.3974187970161438,
+                0.11766290664672852
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999998807907104,
+            "context_mass_max": 1.0000001192092896,
+            "context_mass_std": 4.2597193328219873e-08,
+            "self_mass_mean": 8.498318493366241e-09,
+            "query_attention_tv": 0.20750778913497925,
+            "query_attention_tv_per_head": [
+              0.20750778913497925
+            ],
+            "temperature": [
+              0.5321540832519531
+            ]
+          }
+        },
+        "guide_mean": 0.03225939720869064,
+        "finite": true
+      },
+      "stage4": {
+        "queries": 64,
+        "contexts": 448,
+        "gamma_context": 0.011640481650829315,
+        "gamma_context_rms": 0.10167298465967178,
+        "feature_rms": 3.0582163333892822,
+        "residual_to_feature_rms": 0.10950282961130142,
+        "branch_rms": 3.1103336811065674,
+        "route_mass": {
+          "tar": 0.0903068482875824,
+          "hyperbolic": 0.14108555018901825,
+          "qkv": 0.22419187426567078,
+          "frequency": 0.5444157123565674
+        },
+        "route_change_mass": {
+          "tar": 0.10387154668569565,
+          "hyperbolic": 0.20681656897068024,
+          "qkv": 0.2219809889793396,
+          "frequency": 0.46733084321022034
+        },
+        "route_background_mass": {
+          "tar": 0.08949662744998932,
+          "hyperbolic": 0.13715942203998566,
+          "qkv": 0.22432392835617065,
+          "frequency": 0.549019992351532
+        },
+        "route_grouping": "predicted_change_occupancy_weighted",
+        "route_entropy": 0.7993476390838623,
+        "expert_rms": {
+          "hyperbolic": 1.6973837614059448,
+          "qkv": 1.187282919883728,
+          "frequency": 5.106488227844238
+        },
+        "expert_residual_to_feature_rms": {
+          "hyperbolic": 0.010138479992747307,
+          "qkv": 0.006848543416708708,
+          "frequency": 0.10828807950019836
+        },
+        "expert_cosine": {
+          "hyperbolic/qkv": 0.14907261729240417,
+          "hyperbolic/frequency": -0.07010704278945923,
+          "qkv/frequency": 0.008455432951450348
+        },
+        "expert_attention": {
+          "hyperbolic": {
+            "entropy": 0.7213400602340698,
+            "scale_mass": [
+              [
+                0.10100112855434418,
+                0.10448937863111496,
+                0.11151210963726044,
+                0.6829973459243774
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999998807907104,
+            "context_mass_max": 1.000000238418579,
+            "context_mass_std": 3.994928832184996e-08,
+            "self_mass_mean": 8.847564458847046e-09,
+            "query_attention_tv": 0.24575936794281006,
+            "query_attention_tv_per_head": [
+              0.24575936794281006
+            ],
+            "temperature": [
+              0.5063010454177856
+            ],
+            "radius_mean": 0.9179584980010986,
+            "radius_cv": 0.08789682388305664,
+            "key_radius_mean": 0.9289052486419678
+          },
+          "qkv": {
+            "entropy": 0.7415338158607483,
+            "scale_mass": [
+              [
+                0.1296846568584442,
+                0.11548090726137161,
+                0.13026852905750275,
+                0.6245658993721008
+              ]
+            ],
+            "context_mass_mean": 1.0,
+            "context_mass_min": 0.9999998807907104,
+            "context_mass_max": 1.0000001192092896,
+            "context_mass_std": 3.668985470994812e-08,
+            "self_mass_mean": 9.778887033462524e-09,
+            "query_attention_tv": 0.3094838261604309,
+            "query_attention_tv_per_head": [
+              0.3094838261604309
+            ],
+            "temperature": [
+              0.5321540832519531
+            ]
+          }
+        },
+        "guide_mean": 0.05636349320411682,
+        "finite": true
+      }
+    },
+    "task_grad_rms": {
+      "gamma_context": 0.01613495693517038,
+      "norm.weight": 0.006678739222527905,
+      "norm.bias": 0.0081286132269333,
+      "guide.weight": 0.016115570488685994,
+      "guide.bias": 0.012641486711800098,
+      "experts.hyperbolic.scale_bias": 0.0012484009073349734,
+      "experts.hyperbolic.raw_temperature": 0.07685387879610062,
+      "experts.hyperbolic.qk.weight": 0.0025978360900714864,
+      "experts.hyperbolic.v.weight": 0.0010317611349972074,
+      "experts.hyperbolic.out.weight": 0.00017058448631241134,
+      "experts.qkv.scale_bias": 0.0003792372165859039,
+      "experts.qkv.raw_temperature": 0.0017947859596461058,
+      "experts.qkv.qk.weight": 0.00027380226188389426,
+      "experts.qkv.v.weight": 0.0008042992499884056,
+      "experts.qkv.out.weight": 0.00017591187756322614,
+      "experts.frequency.input.weight": 0.007679624976100536,
+      "experts.frequency.low_dw.weight": 0.009725303793610862,
+      "experts.frequency.low_out.weight": 0.005006127296951195,
+      "experts.frequency.high_dw.weight": 0.0004293686575999105,
+      "experts.frequency.high_out.weight": 0.0001707631717932482,
+      "experts.frequency.high_gate.weight": 7.96738928025401e-05,
+      "experts.frequency.high_gate.bias": 3.607814027914372e-05,
+      "experts.frequency.out.weight": 0.0011895403724433565,
+      "appearance.weight": 0.00034153911645200984,
+      "appearance.bias": 0.00019680973491631448,
+      "router.0.weight": 0.0036627691893349346,
+      "router.0.bias": 0.002565935256118958,
+      "router.2.weight": 0.017528621963335766,
+      "router.2.bias": 0.0085852827369147
+    },
+    "expert_task_gradients": {
+      "hyperbolic": [
+        {
+          "output_rms": 1.9990034834133512,
+          "task_grad_rms": 7.368641952287095e-08
+        },
+        {
+          "output_rms": 1.9616837960930016,
+          "task_grad_rms": 4.1826716991564447e-07
+        },
+        {
+          "output_rms": 1.778499400928318,
+          "task_grad_rms": 2.4680095724938527e-06
+        },
+        {
+          "output_rms": 1.6973838083622037,
+          "task_grad_rms": 1.199385099734374e-05
+        }
+      ],
+      "qkv": [
+        {
+          "output_rms": 0.9004301898938994,
+          "task_grad_rms": 6.46376737862158e-08
+        },
+        {
+          "output_rms": 0.9500466850091416,
+          "task_grad_rms": 4.27338122468872e-07
+        },
+        {
+          "output_rms": 0.9769492293055001,
+          "task_grad_rms": 3.0478885686605427e-06
+        },
+        {
+          "output_rms": 1.1872829375567804,
+          "task_grad_rms": 1.223366128109354e-05
+        }
+      ],
+      "frequency": [
+        {
+          "output_rms": 4.959021380527379,
+          "task_grad_rms": 7.849521592608149e-08
+        },
+        {
+          "output_rms": 5.131432418040323,
+          "task_grad_rms": 9.908414872920402e-07
+        },
+        {
+          "output_rms": 5.8528946851028785,
+          "task_grad_rms": 1.1523957795693055e-05
+        },
+        {
+          "output_rms": 5.106488284625186,
+          "task_grad_rms": 2.28478086170335e-05
+        }
+      ]
+    },
+    "sample_main_loss": 1.5692503452301025,
+    "sample_guide_loss": 0.22177335619926453
+  },
+  "fixed_validation_spatial_probe": {
+    "images": 2,
+    "split": "val",
+    "route_grouping": "area_resized_ground_truth",
+    "route_groups": {
+      "stage1": {
+        "true_change": {
+          "tar": 0.2712838351726532,
+          "hyperbolic": 0.294147789478302,
+          "qkv": 0.23206384479999542,
+          "frequency": 0.20250457525253296
+        },
+        "true_background": {
+          "tar": 0.05174381658434868,
+          "hyperbolic": 0.11072248965501785,
+          "qkv": 0.17390869557857513,
+          "frequency": 0.6636250615119934
+        }
+      },
+      "stage2": {
+        "true_change": {
+          "tar": 0.11565960198640823,
+          "hyperbolic": 0.22674018144607544,
+          "qkv": 0.228358194231987,
+          "frequency": 0.4292420446872711
+        },
+        "true_background": {
+          "tar": 0.044181715697050095,
+          "hyperbolic": 0.11730510741472244,
+          "qkv": 0.1520995944738388,
+          "frequency": 0.6864136457443237
+        }
+      },
+      "stage3": {
+        "true_change": {
+          "tar": 0.07770688086748123,
+          "hyperbolic": 0.1794285774230957,
+          "qkv": 0.18905888497829437,
+          "frequency": 0.5538056492805481
+        },
+        "true_background": {
+          "tar": 0.01797563210129738,
+          "hyperbolic": 0.07036682963371277,
+          "qkv": 0.11124949157238007,
+          "frequency": 0.8004080057144165
+        }
+      },
+      "stage4": {
+        "true_change": {
+          "tar": 0.13550327718257904,
+          "hyperbolic": 0.28504619002342224,
+          "qkv": 0.24759483337402344,
+          "frequency": 0.3318557143211365
+        },
+        "true_background": {
+          "tar": 0.08965413272380829,
+          "hyperbolic": 0.13900646567344666,
+          "qkv": 0.22385388612747192,
+          "frequency": 0.5474855303764343
+        }
+      }
+    },
+    "b_right_shift_pixels": {
+      "0": {
+        "tp": 1435,
+        "fp": 516,
+        "fn": 191,
+        "f1": 0.8023483365949119,
+        "boundary_errors": 174,
+        "boundary_pixels": 360
+      },
+      "1": {
+        "tp": 1475,
+        "fp": 588,
+        "fn": 151,
+        "f1": 0.7996747085931146,
+        "boundary_errors": 158,
+        "boundary_pixels": 360,
+        "prediction_mean_absolute_change": 0.0012497915886342525
+      },
+      "2": {
+        "tp": 1496,
+        "fp": 673,
+        "fn": 130,
+        "f1": 0.7884057971014493,
+        "boundary_errors": 168,
+        "boundary_pixels": 360,
+        "prediction_mean_absolute_change": 0.002195905428379774
+      }
+    },
+    "ignored_border_pixels": 2
+  },
+  "elapsed_seconds": 293.4970893859863,
+  "main_loss_first_to_last": [
+    2.408725266456604,
+    1.6573604194323222
+  ],
+  "validation_f1_history": [
+    0.772247239328101,
+    0.7815646738278244,
+    0.7864584037903896
+  ],
+  "validation_loss_history": [
+    2.5006624655723573,
+    2.2393734459877015,
+    2.2484266157150268
+  ],
+  "peak_allocated_mib": 12741.1083984375,
+  "peak_reserved_mib": 12886.0
+}

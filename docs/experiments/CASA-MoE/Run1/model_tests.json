@@ -1,0 +1,817 @@
+{
+  "passed": true,
+  "device": "cuda",
+  "physical_gpu": 1,
+  "source_directory": "/home/yqwang/outputs/CASA-CD/CASA-MoE/Run1/runtime/20261028_115045/models_v1",
+  "wavelet": {
+    "passed": true,
+    "tested_feature_sizes": [
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "max_reconstruction_error": 4.76837158203125e-07,
+    "signed_directional_bands": true
+  },
+  "geometry": {
+    "passed": true,
+    "max_manifold_error": 8.881784197001252e-16,
+    "max_distance_error": 1.7763568394002505e-15
+  },
+  "variants": {
+    "none": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444095134735107
+      ],
+      "task_gradient_l1": {},
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2047125,
+      "deploy_params": 1935810,
+      "context_params": 193,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "none",
+        "active_experts": [
+          "tar"
+        ],
+        "routing_mode": "identity",
+        "execution": "shared_tar_only",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "joint_contexts": 0,
+        "qk_geometry": {},
+        "value_geometry": "euclidean",
+        "heads": 0,
+        "qkv_dim": 0,
+        "query_key_head_dim": 0,
+        "value_head_dim": 0,
+        "compression_power": 0,
+        "support_power": 0,
+        "self_reference": false,
+        "hyperbolic_radius": null,
+        "key_mode": null,
+        "readout_mode": "identity",
+        "context_gamma_shape": [],
+        "local_gamma_shape": [],
+        "frequency_width": 0,
+        "frequency_transform": null,
+        "router_hidden_channels": 0
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar"
+        ],
+        "residual_mode": "identity"
+      }
+    },
+    "hyperbolic": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444100379943848
+      ],
+      "task_gradient_l1": {
+        "expert:hyperbolic": 0.0027821549995223904
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2053607,
+      "deploy_params": 1942292,
+      "context_params": 6675,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "hyperbolic",
+        "active_experts": [
+          "tar",
+          "hyperbolic"
+        ],
+        "routing_mode": "single",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "hyperbolic": "lorentz_occupancy_radius"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 0,
+        "frequency_transform": null,
+        "router_hidden_channels": 0,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "hyperbolic"
+        ],
+        "routing_mode": "single",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "qkv": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444093704223633
+      ],
+      "task_gradient_l1": {
+        "expert:qkv": 0.0037166493266340694
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2053607,
+      "deploy_params": 1942292,
+      "context_params": 6675,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "qkv",
+        "active_experts": [
+          "tar",
+          "qkv"
+        ],
+        "routing_mode": "single",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "qkv": "euclidean_unit_direction"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": null,
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 0,
+        "frequency_transform": null,
+        "router_hidden_channels": 0,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "qkv"
+        ],
+        "routing_mode": "single",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "frequency": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444098472595215
+      ],
+      "task_gradient_l1": {
+        "expert:frequency": 0.0008816512763587525
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2051845,
+      "deploy_params": 1940530,
+      "context_params": 4913,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "frequency",
+        "active_experts": [
+          "tar",
+          "frequency"
+        ],
+        "routing_mode": "single",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "joint_contexts": 0,
+        "qk_geometry": {},
+        "value_geometry": "euclidean",
+        "heads": 0,
+        "query_key_head_dim": 0,
+        "value_head_dim": 0,
+        "qkv_dim": 0,
+        "compression_power": 0,
+        "support_power": 0,
+        "self_reference": false,
+        "hyperbolic_radius": null,
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 16,
+        "frequency_transform": "single_level_signed_haar",
+        "router_hidden_channels": 0,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "frequency"
+        ],
+        "routing_mode": "single",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "equal": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444096088409424
+      ],
+      "task_gradient_l1": {
+        "expert:hyperbolic": 0.0006622086001470961,
+        "expert:qkv": 0.0009504682866463554,
+        "expert:frequency": 0.00021958799013077623
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2064232,
+      "deploy_params": 1952917,
+      "context_params": 17300,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "equal",
+        "active_experts": [
+          "tar",
+          "hyperbolic",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "equal",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "hyperbolic": "lorentz_occupancy_radius",
+          "qkv": "euclidean_unit_direction"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 16,
+        "frequency_transform": "single_level_signed_haar",
+        "router_hidden_channels": 0,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "hyperbolic",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "equal",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "moe": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444096565246582
+      ],
+      "task_gradient_l1": {
+        "expert:hyperbolic": 0.0006660040070300965,
+        "expert:qkv": 0.0009496205482264486,
+        "expert:frequency": 0.0002197928097160684,
+        "router": 2.0258880653045708e-05
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2065340,
+      "deploy_params": 1954025,
+      "context_params": 18408,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "moe",
+        "active_experts": [
+          "tar",
+          "hyperbolic",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "hyperbolic": "lorentz_occupancy_radius",
+          "qkv": "euclidean_unit_direction"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 16,
+        "frequency_transform": "single_level_signed_haar",
+        "router_hidden_channels": 16,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "hyperbolic",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "no_hyperbolic": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444094181060791
+      ],
+      "task_gradient_l1": {
+        "expert:qkv": 0.00127339859886888,
+        "expert:frequency": 0.0002709632324240374,
+        "router": 1.5510196039514312e-05
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2059179,
+      "deploy_params": 1947864,
+      "context_params": 12247,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "no_hyperbolic",
+        "active_experts": [
+          "tar",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "qkv": "euclidean_unit_direction"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": null,
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 16,
+        "frequency_transform": "single_level_signed_haar",
+        "router_hidden_channels": 16,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "qkv",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "no_qkv": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444098949432373
+      ],
+      "task_gradient_l1": {
+        "expert:hyperbolic": 0.0009286762161764273,
+        "expert:frequency": 0.00024160907602777115,
+        "router": 1.3764324904741443e-05
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2059179,
+      "deploy_params": 1947864,
+      "context_params": 12247,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "no_qkv",
+        "active_experts": [
+          "tar",
+          "hyperbolic",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "hyperbolic": "lorentz_occupancy_radius"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 16,
+        "frequency_transform": "single_level_signed_haar",
+        "router_hidden_channels": 16,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "hyperbolic",
+          "frequency"
+        ],
+        "routing_mode": "learned",
+        "max_residual_formula_error": 0.0
+      }
+    },
+    "no_frequency": {
+      "passed": true,
+      "train_losses": [
+        5.921560287475586,
+        6.444096565246582
+      ],
+      "task_gradient_l1": {
+        "expert:hyperbolic": 0.0008905567888177757,
+        "expert:qkv": 0.0012834126141569868,
+        "router": 2.4445256229910228e-05
+      },
+      "temporal_exchange_mean_abs_difference": 2.330364441149868e-05,
+      "temporal_symmetry": "not imposed: shared TAR concatenates ordered A/B with a signed difference",
+      "train_params": 2060876,
+      "deploy_params": 1949561,
+      "context_params": 13944,
+      "deployment": {
+        "policy": "strict_fp32_fold_v1",
+        "tolerance": 0.0002,
+        "max_diff": 5.960464477539063e-08,
+        "per_scale_max_diff": [
+          5.960464477539063e-08,
+          5.960464477539063e-08,
+          1.1920928955078125e-07,
+          1.1920928955078125e-07
+        ],
+        "binary_disagreement": 0
+      },
+      "configuration": {
+        "variant": "no_frequency",
+        "active_experts": [
+          "tar",
+          "hyperbolic",
+          "qkv"
+        ],
+        "routing_mode": "learned",
+        "execution": "dense_all_enabled_experts",
+        "context_grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "context_prototypes_per_scale": [
+          256,
+          64,
+          64,
+          64
+        ],
+        "joint_contexts": 448,
+        "qk_geometry": {
+          "hyperbolic": "lorentz_occupancy_radius",
+          "qkv": "euclidean_unit_direction"
+        },
+        "value_geometry": "euclidean",
+        "heads": 1,
+        "query_key_head_dim": 32,
+        "value_head_dim": 32,
+        "qkv_dim": 32,
+        "compression_power": 2,
+        "support_power": 1,
+        "self_reference": false,
+        "hyperbolic_radius": "hyperbolic: asinh(1 + supervised_change_occupancy)",
+        "key_mode": "shared_pooled_content_projected_by_each_expert",
+        "readout_mode": "single_gamma_times_router_weighted_relative_corrections",
+        "context_gamma_shape": [
+          4,
+          64
+        ],
+        "local_gamma_shape": [],
+        "frequency_width": 0,
+        "frequency_transform": null,
+        "router_hidden_channels": 16,
+        "initialization_seeds": {
+          "hyperbolic": 3401,
+          "qkv": 3402,
+          "frequency": 3403,
+          "appearance": 3404,
+          "router": 3405
+        }
+      },
+      "routing": {
+        "passed": true,
+        "routes": [
+          "tar",
+          "hyperbolic",
+          "qkv"
+        ],
+        "routing_mode": "learned",
+        "max_residual_formula_error": 0.0
+      }
+    }
+  }
+}
