@@ -6,7 +6,7 @@
 
 MoE Run1收集后指标表共253条，既有229条记录逐单元格保留；冻结TXT使用本轮实际训练源码归档。
 
-双曲版采用**同内容原型与类别检索监督**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
+双曲版采用**同内容原型与独立内容门控**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
 
 ## 项目定位与固定研究原则
 
@@ -27,10 +27,12 @@ MoE Run1收集后指标表共253条，既有229条记录逐单元格保留；冻
 匹配欧式距离、β=0/1区域内一次精炼及显式seed/辅助权重接口已实现。首阶段β保持0；共同目标、几何与精炼对照在完整预算归因后安排。现有test逐epoch选模口径继续保留，完整val用于诊断，不称独立盲测。
 
 <!-- CASA_PYRAMID_RUN8_RESULTS_START -->
-冻结Run7完整val干预、模型/梯度/折叠检查、显存测量和四项两轮真实数据探针均完成；正式队列待源码归档后启动。当前指标表253条历史记录，探针不入表。
+
+2026-10-30 19:06 CST已启动，源码基线`dea8421`，supervisor PID3081289。仅GPU1，SYSU两臂并行（H_CLASS PID3081291、H_NONE PID3081328），随后自动接WHU两臂，共4项。前三轮正式train/test已完成，训练损失下降，诊断数值均为有限值、上下文残差非零，无NaN/OOM或进程失败。选模F1有早期波动，尚不判断收益。按当前速度预计10月31日01:00–02:00 CST完成本阶段。 正式结果0/4；当前指标表253条，探针不入表。
+
 <!-- CASA_PYRAMID_RUN8_RESULTS_END -->
 
-[Run8脚本与阶段](train_scripts/CASA-Pyramid/Run8/README.md)。
+[Run8脚本与阶段](train_scripts/CASA-Pyramid/Run8/README.md) · [冻结诊断与启动记录](docs/experiments/CASA-Pyramid/Run8/README.md) · [冻结源码快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run8.txt)。
 
 ## 归档实验：CASA-Pyramid / Run7
 

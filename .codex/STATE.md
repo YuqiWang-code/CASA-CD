@@ -2,15 +2,17 @@
 
 更新：2026-10-30。
 
-## CASA-Pyramid / Run8 检查与探针
+## CASA-Pyramid / Run8 首阶段正式运行
 
 用户2026-10-30确认按分析文档分阶段：仅物理GPU1，先SYSU/WHU检索监督归因。首阶段H_CLASS(0.1guide+0.1retrieval)与H_NONE(0.1guide)，各两库，共4项完整40K实验；β固定0、结构不变。matched欧式与β1区域内一次关联精炼接口已实现，后续在首阶段完整结果后决定共同监督及启用范围，不自动启动四库或多seed。
 
 协议casa_pyramid_40k_attribution_v8。run/context seed2333，独立配对loader随机流；两臂全新预训练初始化，按当前用户既定test逐epoch选模，val仅用于诊断。已完成Run7四库best及SYSU last的完整val内容与7种分支/几何干预，证据见docs/experiments/CASA-Pyramid/Run8/pretraining_analysis.md。
 
-模型数学、梯度、β0精确对照、β1公式、匹配H/E、seed、折叠及调度检查通过；SYSU/WHU两臂各2轮真实数据训练与主任务梯度检查全部通过，readiness.json为passed。正式队列待源码归档后启动；续办先查实时pipeline_status.json。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run8，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run8；唯一pipeline为train_scripts/CASA-Pyramid/Run8/pipeline.py。
+模型数学、梯度、β0精确对照、β1公式、匹配H/E、seed、折叠及调度检查通过，四项两轮真实数据探针通过。2026-10-30 19:06 CST已启动，源码基线`dea8421`，supervisor PID3081289。仅GPU1，SYSU两臂并行（H_CLASS PID3081291、H_NONE PID3081328），随后自动接WHU两臂，共4项。前三轮正式train/test已完成，训练损失下降，诊断数值均为有限值、上下文残差非零，无NaN/OOM或进程失败。选模F1有早期波动，尚不判断收益。按当前速度预计10月31日01:00–02:00 CST完成本阶段。
 
-GPU1既有Python进程约5.3GiB，不停止；GPU0另有其他用户训练，本轮不使用。当前正式指标253条（含已发布MoE结果），探针/冻结干预不入表；首阶段收齐后至少257条，全部历史保留。
+日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run8，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run8。唯一pipeline为train_scripts/CASA-Pyramid/Run8/pipeline.py，不重复启动；活动源码不覆盖。实际运行源码已归档source_code.tar.gz，初期记录见docs/experiments/CASA-Pyramid/Run8。后续几何/β1对照在首阶段完整结果后决定。
+
+GPU1既有Python进程约5.2GiB，不停止；GPU0另有其他用户训练，本轮不使用。当前正式指标253条（含已发布MoE结果），探针/冻结干预不入表；首阶段收齐后至少257条，全部历史保留。
 
 ## CASA-Pyramid / Run7 已完成
 

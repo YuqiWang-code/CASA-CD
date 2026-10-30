@@ -4,7 +4,7 @@
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
 ================================================================================
-## MODELS CODE (23 files)
+## MODELS CODE (24 files)
 ================================================================================
 
 ================================================================================
@@ -163,6 +163,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--dataset-root', type=Path, required=True)
+    parser.add_argument('--module', choices=('hyperbolic','matched'), default='hyperbolic')
+    parser.add_argument('--refinement-beta', type=float, choices=(0.,1.), default=0.)
     parser.add_argument('--split', choices=('train', 'val'), default='val')
     parser.add_argument('--samples', type=int, default=128)
     parser.add_argument('--batch-size', type=int, default=4)
@@ -172,7 +174,7 @@ def main():
     torch.set_num_threads(4)
     device = torch.device(args.device)
     state = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
-    model = CASANet(module='hyperbolic')
+    model = CASANet(module=args.module, refinement_beta=args.refinement_beta)
     model.load_state_dict(state['state_dict'] if 'state_dict' in state else state)
     model = model.to(device).eval()
     source = make_loader(args.dataset_root, args.split, args.batch_size, 0).dataset
@@ -184,7 +186,8 @@ def main():
     loader = DataLoader(Subset(source, indices), batch_size=args.batch_size, shuffle=False)
     report = analyze(model, loader, device)
     report.update(dataset=str(args.dataset_root), split=args.split, sample_indices=indices,
-                  threshold=.5, checkpoint=str(args.checkpoint), small_object_max_area=64)
+                  threshold=.5, checkpoint=str(args.checkpoint), module=args.module,
+                  refinement_beta=args.refinement_beta, small_object_max_area=64)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report['interventions']))
@@ -216,8 +219,11 @@ def main():
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv"),
+    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched"),
                         default=("none", "hyperbolic", "qkv"))
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -228,7 +234,7 @@ def main():
     results = {}
     for variant in args.modules:
         torch.manual_seed(2333)
-        model = CASANet(args.pretrained, variant).cuda().train()
+        model = CASANet(args.pretrained, variant, refinement_beta=args.refinement_beta).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -237,7 +243,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target, args.guide_weight, args.retrieval_weight)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -254,7 +260,8 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      auxiliary_weights=auxiliary_weights(variant), encoder_lr_mult=1.0,
+                      auxiliary_weights=auxiliary_weights(variant, args.guide_weight, args.retrieval_weight),
+                      refinement_beta=args.refinement_beta, encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
@@ -265,7 +272,7 @@ def main():
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                       heads=model.context.heads if variant != "none" else 0,
                       qkv_dim=model.context.qk.out_channels if variant != "none" else 0,
-                      hyperbolic_radius=model.context.radius_mode if variant == "hyperbolic" else None,
+                      hyperbolic_radius=model.context.radius_mode if variant in ("hyperbolic", "matched") else None,
                       context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
                       body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
                       optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],
@@ -483,6 +490,72 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+================================================================================
+# FILE: models/test_attribution.py
+================================================================================
+"""Matched geometry, loss isolation, refinement and seed controls."""
+import torch
+from torch.nn import functional as F
+from model.casa_net import CASANet
+from model.layers.hyperbolic_context import HyperbolicContext,MatchedEuclideanContext,class_assignments,refined_assignments
+from model.layers.pyramid_context import feature_regions,pool_features
+from train_CASA import training_losses,guide_loss,loss_function
+
+
+def main():
+    torch.set_num_threads(4);torch.manual_seed(2333)
+    feature=torch.randn(2,64,8,8,dtype=torch.double,requires_grad=True)
+    p=torch.rand(2,1,8,8,dtype=torch.double,requires_grad=True)
+    w0,r0=class_assignments(p,2)
+    exact=refined_assignments(feature,p,2,0.)
+    assert torch.equal(w0,exact[0]) and torch.equal(r0,exact[1])
+    w1,r1=refined_assignments(feature,p,2,1.)
+    blocks=feature_regions(feature,2)
+    initial=torch.einsum('brtp,brpc->brtc',w0,blocks)
+    cosine=F.cosine_similarity(blocks[:,:,None],initial[:,:,:,None],dim=-1,eps=1e-6)
+    reference=w0*cosine.exp();reference=reference/reference.sum(-1,keepdim=True)
+    torch.testing.assert_close(w1,reference,rtol=1e-12,atol=1e-12)
+    membership=torch.stack((feature_regions(p,2).squeeze(-1),1-feature_regions(p,2).squeeze(-1)),2)
+    torch.testing.assert_close(r1,(w1*membership).sum(-1).flatten(1),rtol=1e-12,atol=1e-12)
+    gradients=torch.autograd.grad(pool_features(feature,w1,2).square().mean(),(feature,p))
+    assert all(torch.isfinite(x).all() and x.abs().sum()>0 for x in gradients)
+    h,e=HyperbolicContext(),MatchedEuclideanContext();e.load_state_dict(h.state_dict())
+    x=torch.randn(1,64,8,8)
+    qh,qe=h.project_queries(x),e.project_queries(x)
+    assert torch.equal(qh,qe)
+    assert sum(p.numel() for p in h.parameters())==sum(p.numel() for p in e.parameters())==11477
+    assert not torch.allclose(h.squared_distance(qh.flatten(2,3),qh.flatten(2,3)),e.squared_distance(qe.flatten(2,3),qe.flatten(2,3)))
+    target=torch.randint(0,2,(1,1,32,32)).float()
+    outputs=tuple(torch.randn_like(target) for _ in range(4))
+    guides=tuple(torch.randn(1,1,n,n,requires_grad=True) for n in (8,4,2,1))
+    retrieval=tuple(torch.randn(1,1,n,n,requires_grad=True) for n in (8,4,2,1))
+    aux=dict(guide_logits=guides,geometric_logits=retrieval)
+    a,main,_=training_losses(outputs,aux,target,.1,.1)
+    b,_,_=training_losses(outputs,aux,target,.1,0.)
+    torch.testing.assert_close(a-b,.1*guide_loss(retrieval,target))
+    torch.testing.assert_close(b,main+.1*guide_loss(guides,target))
+    none_grad=torch.autograd.grad(b,retrieval,allow_unused=True)
+    assert all(g is None or not g.any() for g in none_grad)
+    for beta in (0.,1.):
+        op=HyperbolicContext(refinement_beta=beta)
+        op.gamma_context.data.fill_(.2);op.gamma_detail.data.fill_(.2)
+        value=torch.randn(1,64,1,1)
+        constant=[value.expand(1,64,n,n).clone() for n in (16,8,4,4)]
+        enhanced,_=op(constant)
+        assert all(torch.allclose(a,b,atol=3e-6) for a,b in zip(enhanced,constant))
+        out,_=op([torch.zeros_like(v) for v in constant])
+        assert all(not z.any() for z in out)
+    torch.manual_seed(11);m1=CASANet(module='hyperbolic',context_seed=22)
+    torch.manual_seed(11);m2=CASANet(module='matched',context_seed=22)
+    assert all(torch.equal(a,b) for a,b in zip(m1.state_dict().values(),m2.state_dict().values()))
+    torch.manual_seed(11);m3=CASANet(module='hyperbolic',context_seed=23)
+    assert torch.equal(m1.encoder.features[0][0].weight,m3.encoder.features[0][0].weight)
+    assert not torch.equal(m1.context.qk.weight,m3.context.qk.weight)
+    print('beta0 exact control, beta1 formula/support/gradients, matched H/E, isolated loss and seed controls PASS')
+
+
+if __name__=='__main__':main()
 
 ================================================================================
 # FILE: models/test_context_geometry.py
@@ -989,7 +1062,7 @@ def module():
         assert parameter.grad.abs().sum() > 0, name
     for index, stage in enumerate(op.last_diag.values()):
         assert stage['contexts'] == 224 and stage['finite']
-        assert 0 < stage['context_mass_mean'] < 1
+        assert 0 < stage['gate_mean'] < 1
         assert stage['adoption_source'] == 'learned_value_correction_gate'
     print('Identity, constant/zero fields, all parameter and cross-scale gradients PASS')
 
@@ -1119,7 +1192,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_retrieval_v7"
+PROTOCOL = "casa_pyramid_40k_attribution_v8"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -1155,17 +1228,21 @@ def mask_boundary(target, radius=1):
     return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
 
 
-def training_losses(outputs, aux, target):
+def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
+    relational = module in ("hyperbolic", "matched")
+    return dict(guide=(.1 if relational else GUIDE_WEIGHT) if guide_weight is None else guide_weight,
+                geometric_retrieval=(.1 if relational else 0.) if retrieval_weight is None else retrieval_weight)
+
+
+def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None):
     main = loss_function(outputs, target)
+    relational = "geometric_logits" in aux
+    weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
     guide = guide_loss(aux["guide_logits"], target)
-    if "geometric_logits" in aux:
-        guide = .5 * guide + .5 * guide_loss(aux["geometric_logits"], target)
-    return main + GUIDE_WEIGHT * guide, main, guide
-
-
-def auxiliary_weights(module):
-    return dict(guide=.1, geometric_retrieval=.1) if module == "hyperbolic" else dict(
-        guide=GUIDE_WEIGHT, geometric_retrieval=0.)
+    retrieval = guide_loss(aux["geometric_logits"], target) if relational else guide.new_zeros(())
+    scale = weights["guide"] + weights["geometric_retrieval"]
+    auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
+    return main + scale * auxiliary, main, auxiliary
 
 
 class SpatialMetrics:
@@ -1242,6 +1319,28 @@ def evaluate(model, loader, device, return_diagnostics=False):
             spatial.update(outputs[0] > 0, target)
     result = (sum(losses) / len(losses), meter.get_scores())
     return (*result, spatial.scores()) if spatial is not None else result
+
+
+@torch.no_grad()
+def evaluate_auxiliary(model, loader, device):
+    """Measure guide and retrieval BCE on val without using them for selection."""
+    model.eval()
+    sums = dict(guide_bce=0., retrieval_bce=0.)
+    samples = 0
+    for image, target in loader:
+        image, target = image.to(device).float(), target.to(device).float()
+        tar = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
+        if model.module in ("hyperbolic", "matched"):
+            _, auxiliary = model.context(tar, return_aux=True)
+        else:
+            _, auxiliary = model.context(tar)
+        count = len(image)
+        sums["guide_bce"] += float(guide_loss(auxiliary["guide_logits"], target)) * count
+        if "geometric_logits" in auxiliary:
+            sums["retrieval_bce"] += float(guide_loss(auxiliary["geometric_logits"], target)) * count
+        samples += count
+    return dict(samples=samples, split="val", used_for_checkpoint_selection=False,
+                **{key: value/samples for key,value in sums.items()})
 
 
 def learning_rate(base, epoch, step, total):
@@ -1364,18 +1463,28 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
-    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv"], required=True)
+    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched"], required=True)
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=2333)
+    parser.add_argument("--context-seed", type=int, default=2333)
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
+    if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
+        parser.error("guide weight must be positive and retrieval weight nonnegative")
+    if args.module not in ("hyperbolic", "matched") and weights["geometric_retrieval"]:
+        parser.error("retrieval supervision requires the matched H/E context")
     torch.set_num_threads(4)
-    random.seed(2333)
-    np.random.seed(2333)
-    torch.manual_seed(2333)
-    torch.cuda.manual_seed_all(2333)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -1389,11 +1498,20 @@ def main():
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
-    model = CASANet(args.pretrained, module=args.module).to(device)
+    for index, loader in enumerate((train_loader, test_loader)):
+        generator = torch.Generator().manual_seed(args.seed + index)
+        loader.generator = generator
+        if index == 0:
+            loader.sampler.generator = generator
+    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
+                    refinement_beta=args.refinement_beta).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
-    manifest = dict(protocol=PROTOCOL, module=args.module, seed=2333,
+    manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
+                    context_seed=args.context_seed, refinement_beta=args.refinement_beta,
+                    loader_randomness="independent seeded sampler/worker generators",
+                    train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, encoder_lr=5e-4*args.encoder_lr_mult,
@@ -1416,7 +1534,7 @@ def main():
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
                     heads=model.context.heads if args.module != "none" else 0,
-                    auxiliary_weights=auxiliary_weights(args.module),
+                    auxiliary_weights=weights,
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
@@ -1424,11 +1542,13 @@ def main():
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
-                                       "hyperbolic": "weighted class occupancy; no entropy penalty"}[args.module],
+                                       "hyperbolic": "weighted class occupancy; no entropy penalty",
+                                       "matched": "weighted class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
-                                     "hyperbolic": "learned correction gate independent of log-partition"}[args.module],
-                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module == "hyperbolic" else None,
-                    hyperbolic_key="lift_of_shared_pooled_content" if args.module == "hyperbolic" else None,
+                                     "hyperbolic": "learned correction gate independent of log-partition",
+                                     "matched": "learned correction gate independent of log-partition"}[args.module],
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched") else None,
+                    hyperbolic_key="lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
@@ -1437,7 +1557,8 @@ def main():
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
                                     "qkv": "euclidean_relative_context",
-                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
+                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values",
+                                    "matched": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -1445,6 +1566,9 @@ def main():
     continuation = None
     if args.resume:
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        for name in ("seed", "context_seed", "refinement_beta", "auxiliary_weights"):
+            if checkpoint["manifest"][name] != manifest[name]:
+                raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
             checkpoint, model, optimizer, actual_steps, len(train_loader))
         best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
@@ -1458,6 +1582,8 @@ def main():
             (parent / "continuations.json").write_text(
                 json.dumps(manifest["continuations"], indent=2), encoding="utf-8")
         print(f"[RESUME] {json.dumps(continuation)}", flush=True)
+        train_loader.generator.set_state(checkpoint["loader_rng_state"]["train"])
+        test_loader.generator.set_state(checkpoint["loader_rng_state"]["evaluation"])
         del checkpoint
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
@@ -1489,7 +1615,7 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"])
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -1502,8 +1628,8 @@ def main():
             with torch.no_grad():
                 raw_guide = guide_loss(auxiliary["guide_logits"], target)
                 guide_sum += float(raw_guide)
-                if args.module == "hyperbolic":
-                    retrieval_sum += float(2 * auxiliary_loss.detach() - raw_guide)
+                if "geometric_logits" in auxiliary:
+                    retrieval_sum += float(guide_loss(auxiliary["geometric_logits"], target))
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
@@ -1521,8 +1647,17 @@ def main():
             torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
         torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
                         optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
-                        manifest=manifest, rng_state=rng_state()), args.checkpoint_dir / "last.pth")
+                        manifest=manifest, rng_state=rng_state(),
+                        loader_rng_state=dict(train=train_loader.generator.get_state(),
+                                              evaluation=test_loader.generator.get_state())), args.checkpoint_dir / "last.pth")
+    val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
+    val_loader.generator = torch.Generator().manual_seed(args.seed+2)
+    last_auxiliary = evaluate_auxiliary(model, val_loader, device)
     model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
+    best_auxiliary = evaluate_auxiliary(model, val_loader, device)
+    (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
+        best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
+        auxiliary_weights=weights), indent=2), encoding="utf-8")
     image, _ = next(iter(test_loader))
     image = image[:1].to(device).float()
     deploy, deployment = verify_deployment(model, image)
@@ -1754,14 +1889,14 @@ from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
-from model.layers.hyperbolic_context import HyperbolicContext
+from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
 
 
 class CASANet(nn.Module):
-    def __init__(self, pretrained_path=None, module="none"):
+    def __init__(self, pretrained_path=None, module="none", context_seed=2333, refinement_beta=0.0):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
-                        "qkv": EuclideanContext}[module]
+                        "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
         self.module = module
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
@@ -1769,13 +1904,14 @@ class CASANet(nn.Module):
         self.decoder = DCRDecoder(dim=64, use_aux=True, use_residual=True)
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
-            torch.manual_seed(2333)
-            self.context = context_type()
+            torch.manual_seed(context_seed)
+            self.context = (context_type(refinement_beta=refinement_beta)
+                            if module in ("hyperbolic", "matched") else context_type())
 
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
         tar = self.tar(features_a, features_b)
-        if self.module == "hyperbolic":
+        if self.module in ("hyperbolic", "matched"):
             enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
         else:
             enhanced, auxiliary = self.context(tar)
@@ -2615,6 +2751,23 @@ def class_assignments(probability, grid):
     return weights, support.flatten(1).clamp_min(1e-6)
 
 
+def refined_assignments(feature, probability, grid, beta):
+    """One within-region cosine reweighting of the two class representatives."""
+    weights, support = class_assignments(probability, grid)
+    if beta == 0:
+        return weights, support
+    blocks = feature_regions(feature, grid)
+    initial = torch.einsum("brtp,brpc->brtc", weights, blocks)
+    affinity = torch.einsum("brpc,brtc->brtp", F.normalize(blocks, dim=-1, eps=1e-6),
+                            F.normalize(initial, dim=-1, eps=1e-6))
+    weights = weights * (beta * affinity).exp()
+    weights = weights / weights.sum(-1, keepdim=True)
+    positive = feature_regions(probability, grid).squeeze(-1)
+    membership = torch.stack((positive, 1 - positive), dim=2)
+    support = (weights * membership).sum(-1).flatten(1).clamp_min(1e-6)
+    return weights, support
+
+
 class HyperbolicContext(nn.Module):
     """Direct projected geometry, pooled K/V content and independently gated readout."""
     geometry = "hyperbolic"
@@ -2627,8 +2780,9 @@ class HyperbolicContext(nn.Module):
     readout_mode = "learned_gate_times_conditional_context_minus_query_value"
     squared_distance = staticmethod(pairwise_squared_distance)
 
-    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4)):
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4), refinement_beta=0.0):
         super().__init__()
+        self.refinement_beta = refinement_beta
         self.heads = heads
         self.head_dim = head_dim
         self.grid_sizes = tuple(grid_sizes)
@@ -2699,7 +2853,8 @@ class HyperbolicContext(nn.Module):
         normalized = [channel_norm(self.norm, x) for x in tar]
         guide = [self.guide(x) for x in normalized]
         occupancy = [g.sigmoid() for g in guide]
-        compression = [class_assignments(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
+        compression = [refined_assignments(x, p, grid, self.refinement_beta)
+                       for x, p, grid in zip(normalized, occupancy, self.grid_sizes)]
         prototypes = [pool_features(x, weights, grid)
                       for x, (weights, _), grid in zip(normalized, compression, self.grid_sizes)]
         prototype = torch.cat(prototypes, dim=1)
@@ -2745,7 +2900,7 @@ class HyperbolicContext(nn.Module):
                         gamma_detail_rms=float(rms(self.gamma_detail[index])) if index < 2 else 0.,
                         feature_rms=float(base), context_rms=float(rms(update)), branch_rms=float(rms(update)),
                         local_rms=float(rms(local)) if local is not None else 0.,
-                        relative_update_rms=float(rms(discrepancy)),
+                        value_difference_rms=float(rms(discrepancy)),
                         gated_difference_rms=float(rms(gated)),
                         ungated_projection_rms=float(rms(F.conv2d(discrepancy, self.out.weight))),
                         residual_rms=float(rms(context_residual + local_residual)),
@@ -2769,8 +2924,11 @@ class HyperbolicContext(nn.Module):
                         finite=bool(torch.isfinite(result).all()))
                     diag.update(attention_diagnostics(probability, self.tokens_per_scale))
                     diag.pop("self_mass_mean")
-                    diag.update(context_mass_mean=float(gate.mean()), context_mass_min=float(gate.min()),
-                                context_mass_max=float(gate.max()), context_mass_std=float(gate.std(unbiased=False)),
+                    for name in ("context_mass_mean", "context_mass_min", "context_mass_max", "context_mass_std"):
+                        diag.pop(name)
+                    diag.update(gate_mean=float(gate.mean()), gate_min=float(gate.min()),
+                                gate_max=float(gate.max()), gate_std=float(gate.std(unbiased=False)),
+                                prototype_attention_mass_mean=float(probability.sum(-1).mean()),
                                 adoption_source="learned_value_correction_gate")
                     diagnostics[f"stage{index+1}"] = diag
         if self.collect_diag:
@@ -2779,6 +2937,17 @@ class HyperbolicContext(nn.Module):
         if return_aux:
             auxiliary["geometric_logits"] = tuple(geometric_logits)
         return enhanced, auxiliary
+
+
+class MatchedEuclideanContext(HyperbolicContext):
+    """Same representations and readout, with spatial Euclidean distance only."""
+    geometry = "euclidean_matched"
+
+    @staticmethod
+    def squared_distance(query, key):
+        q, k = query[..., 1:], key[..., 1:]
+        return (q.square().sum(-1, keepdim=True) + k.square().sum(-1).unsqueeze(-2)
+                - 2 * (q @ k.transpose(-1, -2))).clamp_min(0)
 
 ================================================================================
 # FILE: models/model\layers\lorentz_ops.py
@@ -3021,9 +3190,33 @@ class AuxiliaryContext(nn.Module):
         return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
-## METRICS (229 results)
+## METRICS (253 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
+CASA-MoE/Run1/M0_CTRL/CDD-CD-256 | 0.9682 | 0.9704 | 0.9924 | 0.9693 | 0.9405 | 0.9650 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/LEVIR-CD-256 | 0.9041 | 0.9182 | 0.9910 | 0.9111 | 0.8367 | 0.9064 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/SYSU-CD-256 | 0.8296 | 0.8391 | 0.9223 | 0.8343 | 0.7158 | 0.7836 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/WHU-CD-256 | 0.9379 | 0.9548 | 0.9958 | 0.9463 | 0.8981 | 0.9441 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M1_HYPER_QKV/LEVIR-CD-256 | 0.9012 | 0.9221 | 0.9911 | 0.9116 | 0.8375 | 0.9069 | 1.942 | 2.054 | - | casa_moe_hyperbolic
+CASA-MoE/Run1/M1_HYPER_QKV/SYSU-CD-256 | 0.7981 | 0.8661 | 0.9233 | 0.8307 | 0.7104 | 0.7812 | 1.942 | 2.054 | - | casa_moe_hyperbolic
+CASA-MoE/Run1/M2_CA_QKV/LEVIR-CD-256 | 0.9016 | 0.9185 | 0.9909 | 0.9100 | 0.8349 | 0.9052 | 1.942 | 2.054 | - | casa_moe_qkv
+CASA-MoE/Run1/M2_CA_QKV/SYSU-CD-256 | 0.7901 | 0.8692 | 0.9225 | 0.8278 | 0.7062 | 0.7779 | 1.942 | 2.054 | - | casa_moe_qkv
+CASA-MoE/Run1/M3_FREQUENCY/LEVIR-CD-256 | 0.9012 | 0.9199 | 0.9910 | 0.9104 | 0.8356 | 0.9057 | 1.941 | 2.052 | - | casa_moe_frequency
+CASA-MoE/Run1/M3_FREQUENCY/SYSU-CD-256 | 0.7845 | 0.8692 | 0.9213 | 0.8247 | 0.7017 | 0.7742 | 1.941 | 2.052 | - | casa_moe_frequency
+CASA-MoE/Run1/M4_EQUAL/CDD-CD-256 | 0.9687 | 0.9696 | 0.9924 | 0.9691 | 0.9401 | 0.9648 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/LEVIR-CD-256 | 0.9050 | 0.9189 | 0.9911 | 0.9119 | 0.8381 | 0.9072 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/SYSU-CD-256 | 0.8051 | 0.8594 | 0.9230 | 0.8314 | 0.7114 | 0.7815 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/WHU-CD-256 | 0.9317 | 0.9614 | 0.9958 | 0.9463 | 0.8981 | 0.9441 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_MOE/CDD-CD-256 | 0.9685 | 0.9693 | 0.9923 | 0.9689 | 0.9397 | 0.9645 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/LEVIR-CD-256 | 0.8996 | 0.9187 | 0.9908 | 0.9091 | 0.8333 | 0.9042 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/SYSU-CD-256 | 0.8148 | 0.8406 | 0.9199 | 0.8275 | 0.7058 | 0.7754 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/WHU-CD-256 | 0.9319 | 0.9571 | 0.9956 | 0.9443 | 0.8945 | 0.9421 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_NO_FREQUENCY/LEVIR-CD-256 | 0.9045 | 0.9192 | 0.9911 | 0.9118 | 0.8379 | 0.9071 | 1.950 | 2.061 | - | casa_moe_no_frequency
+CASA-MoE/Run1/M4_NO_FREQUENCY/SYSU-CD-256 | 0.8032 | 0.8568 | 0.9220 | 0.8292 | 0.7082 | 0.7787 | 1.950 | 2.061 | - | casa_moe_no_frequency
+CASA-MoE/Run1/M4_NO_HYPER/LEVIR-CD-256 | 0.9025 | 0.9184 | 0.9910 | 0.9104 | 0.8356 | 0.9056 | 1.948 | 2.059 | - | casa_moe_no_hyperbolic
+CASA-MoE/Run1/M4_NO_HYPER/SYSU-CD-256 | 0.8239 | 0.8415 | 0.9219 | 0.8326 | 0.7132 | 0.7817 | 1.948 | 2.059 | - | casa_moe_no_hyperbolic
+CASA-MoE/Run1/M4_NO_QKV/LEVIR-CD-256 | 0.9003 | 0.9194 | 0.9909 | 0.9098 | 0.8345 | 0.9050 | 1.948 | 2.059 | - | casa_moe_no_qkv
+CASA-MoE/Run1/M4_NO_QKV/SYSU-CD-256 | 0.7938 | 0.8645 | 0.9220 | 0.8276 | 0.7059 | 0.7774 | 1.948 | 2.059 | - | casa_moe_no_qkv
 CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
 CASA-Pyramid/Run1/M0_CTRL/LEVIR-CD-256 | 0.9042 | 0.9149 | 0.9908 | 0.9096 | 0.8341 | 0.9047 | 1.936 | 2.047 | - | casa_pyramid_none
 CASA-Pyramid/Run1/M0_CTRL/SYSU-CD-256 | 0.7718 | 0.8569 | 0.9158 | 0.8122 | 0.6837 | 0.7581 | 1.936 | 2.047 | - | casa_pyramid_none
