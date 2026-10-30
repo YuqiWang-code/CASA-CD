@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run7（GPU0，8/8项已完成）**。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run8（GPU1，SYSU/WHU分阶段归因）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
 
 独立探索线 **CASA-MoE / Run1（GPU1，24/24完成）** 使用[models_v1](models_v1/README.md)：共享TAR底座，双曲QKV、欧式QKV、TAR和频率四条路径进行像素动态融合。LEVIR/SYSU各9组消融，WHU/CDD各3组；部署参数1.954M，稠密执行。动态MoE相对同轮CTRL的F1差值为−0.2054/−0.6801/−0.1958/−0.0430个百分点，尚未形成净收益。[完整日志与曲线](docs/experiments/CASA-MoE/Run1/README.md) · [结果分析](docs/experiments/CASA-MoE/Run1/analysis.md) · [冻结快照](docs/temporary/models_and_metrics_CASA-MoE_Run1.txt) · [实验矩阵](train_scripts/CASA-MoE/Run1/README.md)。
 
@@ -20,7 +20,19 @@ MoE Run1收集后指标表共253条，既有229条记录逐单元格保留；冻
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run7
+## 当前实验：CASA-Pyramid / Run8
+
+按[Run7深度分析方案](docs/temporary/CASA_Pyramid_Run7_深度分析_调研与改进方案.md)分阶段开展。首阶段仅SYSU/WHU的H_CLASS与H_NONE，共4项，物理GPU1；完整224KV、共享K/V、独立内容门控与局部分支不变，唯一目标差异为retrieval BCE系数0.1→0，guide固定0.1。run/context seed均为2333，loader使用独立配对随机流；两臂均从预训练骨干全新初始化。
+
+匹配欧式距离、β=0/1区域内一次精炼及显式seed/辅助权重接口已实现。首阶段β保持0；共同目标、几何与精炼对照在完整预算归因后安排。现有test逐epoch选模口径继续保留，完整val用于诊断，不称独立盲测。
+
+<!-- CASA_PYRAMID_RUN8_RESULTS_START -->
+冻结Run7完整val干预、模型/梯度/折叠检查、显存测量和四项两轮真实数据探针均完成；正式队列待源码归档后启动。当前指标表253条历史记录，探针不入表。
+<!-- CASA_PYRAMID_RUN8_RESULTS_END -->
+
+[Run8脚本与阶段](train_scripts/CASA-Pyramid/Run8/README.md)。
+
+## 归档实验：CASA-Pyramid / Run7
 
 协议`casa_pyramid_40k_retrieval_v7`。四库各双曲/CTRL共8项，物理GPU0；LEVIR→SYSU→WHU→CDD优先，按实测显存与1GiB留量补位。正式训练从MobileNetV2预训练全新初始化。
 

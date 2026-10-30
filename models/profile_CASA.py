@@ -18,8 +18,11 @@ def main():
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv"),
+    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched"),
                         default=("none", "hyperbolic", "qkv"))
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -30,7 +33,7 @@ def main():
     results = {}
     for variant in args.modules:
         torch.manual_seed(2333)
-        model = CASANet(args.pretrained, variant).cuda().train()
+        model = CASANet(args.pretrained, variant, refinement_beta=args.refinement_beta).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -39,7 +42,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target, args.guide_weight, args.retrieval_weight)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -56,7 +59,8 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
-                      auxiliary_weights=auxiliary_weights(variant), encoder_lr_mult=1.0,
+                      auxiliary_weights=auxiliary_weights(variant, args.guide_weight, args.retrieval_weight),
+                      refinement_beta=args.refinement_beta, encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
@@ -67,7 +71,7 @@ def main():
                       qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                       heads=model.context.heads if variant != "none" else 0,
                       qkv_dim=model.context.qk.out_channels if variant != "none" else 0,
-                      hyperbolic_radius=model.context.radius_mode if variant == "hyperbolic" else None,
+                      hyperbolic_radius=model.context.radius_mode if variant in ("hyperbolic", "matched") else None,
                       context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
                       body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
                       optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],

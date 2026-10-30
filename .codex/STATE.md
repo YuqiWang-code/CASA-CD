@@ -1,6 +1,16 @@
 # 当前状态
 
-更新：2026-10-29。
+更新：2026-10-30。
+
+## CASA-Pyramid / Run8 检查与探针
+
+用户2026-10-30确认按分析文档分阶段：仅物理GPU1，先SYSU/WHU检索监督归因。首阶段H_CLASS(0.1guide+0.1retrieval)与H_NONE(0.1guide)，各两库，共4项完整40K实验；β固定0、结构不变。matched欧式与β1区域内一次关联精炼接口已实现，后续在首阶段完整结果后决定共同监督及启用范围，不自动启动四库或多seed。
+
+协议casa_pyramid_40k_attribution_v8。run/context seed2333，独立配对loader随机流；两臂全新预训练初始化，按当前用户既定test逐epoch选模，val仅用于诊断。已完成Run7四库best及SYSU last的完整val内容与7种分支/几何干预，证据见docs/experiments/CASA-Pyramid/Run8/pretraining_analysis.md。
+
+模型数学、梯度、β0精确对照、β1公式、匹配H/E、seed、折叠及调度检查通过；SYSU/WHU两臂各2轮真实数据训练与主任务梯度检查全部通过，readiness.json为passed。正式队列待源码归档后启动；续办先查实时pipeline_status.json。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run8，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run8；唯一pipeline为train_scripts/CASA-Pyramid/Run8/pipeline.py。
+
+GPU1既有Python进程约5.3GiB，不停止；GPU0另有其他用户训练，本轮不使用。当前正式指标253条（含已发布MoE结果），探针/冻结干预不入表；首阶段收齐后至少257条，全部历史保留。
 
 ## CASA-Pyramid / Run7 已完成
 

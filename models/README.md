@@ -1,6 +1,6 @@
 # CASA-Pyramid 工作源码
 
-双曲版采用224个跨尺度原型、一个32维Lorentz空间及类别检索监督，用于CASA-Pyramid/Run7，协议`casa_pyramid_40k_retrieval_v7`。普通QKV保持Run5结构。
+双曲版采用224个跨尺度原型、一个32维Lorentz空间及类别检索监督，用于CASA-Pyramid/Run8归因，协议`casa_pyramid_40k_attribution_v8`。普通QKV保持Run5结构。
 
 共享MobileNetV2输出24/32/96/320通道原生特征，经四级TAR统一为64通道；上下文模块位于TAR之后、DCR之前。双曲和普通模块保留全部5440个空间查询，推理使用第一级预测。
 
@@ -22,7 +22,7 @@
 
 ## 训练与接口
 
-四级主损失为BCEWithLogits＋Dice。双曲辅助项为`0.1 × guide BCE + 0.1 × 类别检索BCE`；CTRL和普通QKV为`0.2 × guide BCE`。类别检索logit由变化/背景原型的注意力logits分别做logsumexp后相减，监督标签是对应分辨率的变化面积均值。辅助项不增加可学习预测头，`predict()`不计算类别检索辅助输出。
+四级主损失为BCEWithLogits＋Dice。Run8首阶段两臂仅改变检索BCE系数：H_CLASS为`0.1 guide + 0.1 retrieval`，H_NONE为`0.1 guide`；普通QKV和CTRL默认仍为`0.2 guide`。类别检索logit由变化/背景原型的注意力logits分别做logsumexp后相减，监督标签是对应分辨率的变化面积均值。辅助项不增加可学习预测头，`predict()`不计算类别检索辅助输出。
 
 RGB256、batch32、seed2333、40K完整epoch；Adam lr5e−4、betas(.9,.99)、eps1e−8，200步warmup和poly0.9。context卷积/线性权重解耦WD1e−4，其余context参数WD0，主体耦合L2 WD1e−4。训练使用同步裁剪、水平/垂直翻转、90°旋转、时相交换及ImageNet归一化。
 
@@ -46,3 +46,11 @@ RTX5090、双时相256输入、batch1、FP32，cuDNN TF32开启、matmul TF32关
 原型的变化/背景类别名来自guide分配，不保证P纯净。半径变化、非零梯度和注意力差异不能单独证明双曲关系有效。相对CTRL的收益同时包含结构与辅助监督的影响，几何贡献需要同结构欧式度量对照；短训用于选择候选，完整精度及效率以正式测量为准。
 
 [设计与公式](HYPERBOLIC_DESIGN.md) · [Run7](../train_scripts/CASA-Pyramid/Run7/README.md) · [来源](SOURCES.md)
+
+## Run8归因接口
+
+`module="matched"`与双曲模块共用224个原型、32维投影、gate、local和辅助项，仅用空间欧氏平方距离替换测地平方距离；它不等同Run5普通QKV。`refinement_beta=0`为精确原压缩；β=1仅在区域内按exp(cosine(X,P0))做一次重加权，K/V和support同步更新，参数不增加。当前首阶段β保持0，待归因证据后启用精炼对照。
+
+训练入口显式记录run/context seed与配对loader随机流。每项完整训练结束后，在val分别测量best/last的guide与retrieval BCE，保存在auxiliary_validation.json；部署predict仍不计算辅助输出。双曲诊断用gate_mean表示门控，prototype_attention_mass_mean表示原型注意力总量，value_difference_rms表示未归一化内容差值。
+
+[Run8阶段与配置](../train_scripts/CASA-Pyramid/Run8/README.md) · [Run7正式锚点](../docs/experiments/CASA-Pyramid/Run7/README.md)

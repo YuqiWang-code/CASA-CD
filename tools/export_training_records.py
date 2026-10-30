@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
-VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean'}
+VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none'}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 
 
@@ -80,7 +80,7 @@ def diagnostic_rows(events):
 
 
 def curves(destination, dataset, records, selection_split):
-    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718'}
+    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718'}
     manifest = next(iter(records.values()))[2]
     guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
     has_boundary = boundary_weight != 0
@@ -151,11 +151,12 @@ def main():
     destination = ROOT / 'docs/experiments' / args.tag / args.run
     (destination / 'curves').mkdir(parents=True, exist_ok=True)
     state = json.loads((source / 'pipeline_status.json').read_text())
+    datasets = state.get('dataset_priority', DATASETS)
     variants = {name: VARIANTS[name] for name in state.get('variants', VARIANTS)}
     if state['status'] != 'complete':
         raise RuntimeError('export requires a completed queue')
     summary, table = [], []
-    for dataset in DATASETS:
+    for dataset in datasets:
         records = {}
         for variant in variants:
             original = source / variant / dataset
@@ -213,17 +214,19 @@ def main():
     for filename in ('validation.log', 'startup_health.json'):
         if (source / filename).exists():
             shutil.copyfile(source / filename, destination / filename)
-    probe_names = [path.name for path in sorted((source / 'probes').glob('*'))
-                   if (path / 'health_result.json').exists()]
+    probe_names = [path.parent.relative_to(source / 'probes').as_posix()
+                   for path in sorted((source / 'probes').rglob('health_result.json'))]
     for name in probe_names:
         published = destination / 'probes' / name
         published.mkdir(parents=True, exist_ok=True)
-        for filename in ('probe.log', 'run_manifest.json', 'health_history.json', 'health_result.json'):
-            shutil.copyfile(source / 'probes' / name / filename, published / filename)
+        for filename in ('probe.log', 'run_manifest.json', 'health_history.json', 'history.json', 'health_result.json', 'task_gradients.json'):
+            path = source / 'probes' / name / filename
+            if path.exists():
+                shutil.copyfile(path, published / filename)
     baseline = json.loads((source / source_record).read_text())
     source_commit = baseline['code_baseline'] if source_record == 'source_manifest.json' else baseline['model_training_commit']
     started = min(json.loads((source / variant / dataset / 'placement.json').read_text())['started']
-                  for dataset in DATASETS for variant in variants)
+                  for dataset in datasets for variant in variants)
     evaluation_name = 'test选模' if selection_split == 'test' else '验证'
     selection_note = ('每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。'
                       'test参与checkpoint选择，最终数值不属于独立盲测。'
@@ -238,10 +241,15 @@ def main():
     loss_formula = f'main+{guide_weight:g}×guide'
     loss_note = '评分损失单独展示'
     boundary_note = ''
-    if any((source / variant / DATASETS[0] / 'run_manifest.json').exists() and
-           json.loads((source / variant / DATASETS[0] / 'run_manifest.json').read_text()).get('auxiliary_weights', {}).get('geometric_retrieval', 0)
+    if any((source / variant / datasets[0] / 'run_manifest.json').exists() and
+           json.loads((source / variant / datasets[0] / 'run_manifest.json').read_text()).get('auxiliary_weights', {}).get('geometric_retrieval', 0)
            for variant in variants):
-        loss_formula = '双曲main+0.1×guide+0.1×retrieval；CTRL为main+0.2×guide'
+        formulas = []
+        for name in variants:
+            run_manifest = json.loads((source / name / datasets[0] / 'run_manifest.json').read_text())
+            weights = run_manifest.get('auxiliary_weights', dict(guide=run_manifest.get('guide_weight', .2), geometric_retrieval=0.))
+            formulas.append(f"{VARIANTS[name]}: main+{weights['guide']:g}×guide+{weights['geometric_retrieval']:g}×retrieval")
+        loss_formula = '；'.join(formulas)
         loss_note = 'guide与类别检索BCE分别展示未乘权重值，权重由各项manifest的auxiliary_weights给出'
         boundary_note = '\n- `train_auxiliary`为guide与检索BCE的平均，`train_guide`与`train_retrieval`为各自原始BCE；CTRL的retrieval为0且无该训练项。'
     if boundary_weight:
@@ -280,7 +288,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/{evaluation_name}BCE+Dice；{loss_note}，总训练损失为{loss_formula}。{curve_note}
 
 '''
-    for dataset in DATASETS:
+    for dataset in datasets:
         readme += f'### {dataset}\n\n![{dataset}训练与{evaluation_name}曲线](curves/{dataset}.png)\n\n'
     if (destination / 'selection/selection_summary.md').exists():
         readme += '## 短训筛选\n\n[16项train/val配对短训](selection/selection_summary.md)、[检索内容干预](selection/retrieval_evidence_summary.md)与[选型记录](selection/selection_decision.json)。筛选权重不用于正式训练，短训不计入正式指标。\n\n'

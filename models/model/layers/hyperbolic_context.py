@@ -22,6 +22,23 @@ def class_assignments(probability, grid):
     return weights, support.flatten(1).clamp_min(1e-6)
 
 
+def refined_assignments(feature, probability, grid, beta):
+    """One within-region cosine reweighting of the two class representatives."""
+    weights, support = class_assignments(probability, grid)
+    if beta == 0:
+        return weights, support
+    blocks = feature_regions(feature, grid)
+    initial = torch.einsum("brtp,brpc->brtc", weights, blocks)
+    affinity = torch.einsum("brpc,brtc->brtp", F.normalize(blocks, dim=-1, eps=1e-6),
+                            F.normalize(initial, dim=-1, eps=1e-6))
+    weights = weights * (beta * affinity).exp()
+    weights = weights / weights.sum(-1, keepdim=True)
+    positive = feature_regions(probability, grid).squeeze(-1)
+    membership = torch.stack((positive, 1 - positive), dim=2)
+    support = (weights * membership).sum(-1).flatten(1).clamp_min(1e-6)
+    return weights, support
+
+
 class HyperbolicContext(nn.Module):
     """Direct projected geometry, pooled K/V content and independently gated readout."""
     geometry = "hyperbolic"
@@ -34,8 +51,9 @@ class HyperbolicContext(nn.Module):
     readout_mode = "learned_gate_times_conditional_context_minus_query_value"
     squared_distance = staticmethod(pairwise_squared_distance)
 
-    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4)):
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4), refinement_beta=0.0):
         super().__init__()
+        self.refinement_beta = refinement_beta
         self.heads = heads
         self.head_dim = head_dim
         self.grid_sizes = tuple(grid_sizes)
@@ -106,7 +124,8 @@ class HyperbolicContext(nn.Module):
         normalized = [channel_norm(self.norm, x) for x in tar]
         guide = [self.guide(x) for x in normalized]
         occupancy = [g.sigmoid() for g in guide]
-        compression = [class_assignments(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
+        compression = [refined_assignments(x, p, grid, self.refinement_beta)
+                       for x, p, grid in zip(normalized, occupancy, self.grid_sizes)]
         prototypes = [pool_features(x, weights, grid)
                       for x, (weights, _), grid in zip(normalized, compression, self.grid_sizes)]
         prototype = torch.cat(prototypes, dim=1)
@@ -152,7 +171,7 @@ class HyperbolicContext(nn.Module):
                         gamma_detail_rms=float(rms(self.gamma_detail[index])) if index < 2 else 0.,
                         feature_rms=float(base), context_rms=float(rms(update)), branch_rms=float(rms(update)),
                         local_rms=float(rms(local)) if local is not None else 0.,
-                        relative_update_rms=float(rms(discrepancy)),
+                        value_difference_rms=float(rms(discrepancy)),
                         gated_difference_rms=float(rms(gated)),
                         ungated_projection_rms=float(rms(F.conv2d(discrepancy, self.out.weight))),
                         residual_rms=float(rms(context_residual + local_residual)),
@@ -176,8 +195,11 @@ class HyperbolicContext(nn.Module):
                         finite=bool(torch.isfinite(result).all()))
                     diag.update(attention_diagnostics(probability, self.tokens_per_scale))
                     diag.pop("self_mass_mean")
-                    diag.update(context_mass_mean=float(gate.mean()), context_mass_min=float(gate.min()),
-                                context_mass_max=float(gate.max()), context_mass_std=float(gate.std(unbiased=False)),
+                    for name in ("context_mass_mean", "context_mass_min", "context_mass_max", "context_mass_std"):
+                        diag.pop(name)
+                    diag.update(gate_mean=float(gate.mean()), gate_min=float(gate.min()),
+                                gate_max=float(gate.max()), gate_std=float(gate.std(unbiased=False)),
+                                prototype_attention_mass_mean=float(probability.sum(-1).mean()),
                                 adoption_source="learned_value_correction_gate")
                     diagnostics[f"stage{index+1}"] = diag
         if self.collect_diag:
@@ -186,3 +208,14 @@ class HyperbolicContext(nn.Module):
         if return_aux:
             auxiliary["geometric_logits"] = tuple(geometric_logits)
         return enhanced, auxiliary
+
+
+class MatchedEuclideanContext(HyperbolicContext):
+    """Same representations and readout, with spatial Euclidean distance only."""
+    geometry = "euclidean_matched"
+
+    @staticmethod
+    def squared_distance(query, key):
+        q, k = query[..., 1:], key[..., 1:]
+        return (q.square().sum(-1, keepdim=True) + k.square().sum(-1).unsqueeze(-2)
+                - 2 * (q @ k.transpose(-1, -2))).clamp_min(0)

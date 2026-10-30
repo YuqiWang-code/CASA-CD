@@ -95,7 +95,7 @@ def module():
         assert parameter.grad.abs().sum() > 0, name
     for index, stage in enumerate(op.last_diag.values()):
         assert stage['contexts'] == 224 and stage['finite']
-        assert 0 < stage['context_mass_mean'] < 1
+        assert 0 < stage['gate_mean'] < 1
         assert stage['adoption_source'] == 'learned_value_correction_gate'
     print('Identity, constant/zero fields, all parameter and cross-scale gradients PASS')
 

@@ -8,14 +8,14 @@ from model.str_tar import MultiScaleTAR
 from model.str_dcr import DCRDecoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
-from model.layers.hyperbolic_context import HyperbolicContext
+from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
 
 
 class CASANet(nn.Module):
-    def __init__(self, pretrained_path=None, module="none"):
+    def __init__(self, pretrained_path=None, module="none", context_seed=2333, refinement_beta=0.0):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
-                        "qkv": EuclideanContext}[module]
+                        "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
         self.module = module
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
@@ -23,13 +23,14 @@ class CASANet(nn.Module):
         self.decoder = DCRDecoder(dim=64, use_aux=True, use_residual=True)
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
-            torch.manual_seed(2333)
-            self.context = context_type()
+            torch.manual_seed(context_seed)
+            self.context = (context_type(refinement_beta=refinement_beta)
+                            if module in ("hyperbolic", "matched") else context_type())
 
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
         tar = self.tar(features_a, features_b)
-        if self.module == "hyperbolic":
+        if self.module in ("hyperbolic", "matched"):
             enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
         else:
             enhanced, auxiliary = self.context(tar)

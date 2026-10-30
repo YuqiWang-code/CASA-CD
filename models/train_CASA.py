@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_retrieval_v7"
+PROTOCOL = "casa_pyramid_40k_attribution_v8"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -53,17 +53,21 @@ def mask_boundary(target, radius=1):
     return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
 
 
-def training_losses(outputs, aux, target):
+def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
+    relational = module in ("hyperbolic", "matched")
+    return dict(guide=(.1 if relational else GUIDE_WEIGHT) if guide_weight is None else guide_weight,
+                geometric_retrieval=(.1 if relational else 0.) if retrieval_weight is None else retrieval_weight)
+
+
+def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None):
     main = loss_function(outputs, target)
+    relational = "geometric_logits" in aux
+    weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
     guide = guide_loss(aux["guide_logits"], target)
-    if "geometric_logits" in aux:
-        guide = .5 * guide + .5 * guide_loss(aux["geometric_logits"], target)
-    return main + GUIDE_WEIGHT * guide, main, guide
-
-
-def auxiliary_weights(module):
-    return dict(guide=.1, geometric_retrieval=.1) if module == "hyperbolic" else dict(
-        guide=GUIDE_WEIGHT, geometric_retrieval=0.)
+    retrieval = guide_loss(aux["geometric_logits"], target) if relational else guide.new_zeros(())
+    scale = weights["guide"] + weights["geometric_retrieval"]
+    auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
+    return main + scale * auxiliary, main, auxiliary
 
 
 class SpatialMetrics:
@@ -140,6 +144,28 @@ def evaluate(model, loader, device, return_diagnostics=False):
             spatial.update(outputs[0] > 0, target)
     result = (sum(losses) / len(losses), meter.get_scores())
     return (*result, spatial.scores()) if spatial is not None else result
+
+
+@torch.no_grad()
+def evaluate_auxiliary(model, loader, device):
+    """Measure guide and retrieval BCE on val without using them for selection."""
+    model.eval()
+    sums = dict(guide_bce=0., retrieval_bce=0.)
+    samples = 0
+    for image, target in loader:
+        image, target = image.to(device).float(), target.to(device).float()
+        tar = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
+        if model.module in ("hyperbolic", "matched"):
+            _, auxiliary = model.context(tar, return_aux=True)
+        else:
+            _, auxiliary = model.context(tar)
+        count = len(image)
+        sums["guide_bce"] += float(guide_loss(auxiliary["guide_logits"], target)) * count
+        if "geometric_logits" in auxiliary:
+            sums["retrieval_bce"] += float(guide_loss(auxiliary["geometric_logits"], target)) * count
+        samples += count
+    return dict(samples=samples, split="val", used_for_checkpoint_selection=False,
+                **{key: value/samples for key,value in sums.items()})
 
 
 def learning_rate(base, epoch, step, total):
@@ -262,18 +288,28 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
-    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv"], required=True)
+    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched"], required=True)
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=2333)
+    parser.add_argument("--context-seed", type=int, default=2333)
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
+    if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
+        parser.error("guide weight must be positive and retrieval weight nonnegative")
+    if args.module not in ("hyperbolic", "matched") and weights["geometric_retrieval"]:
+        parser.error("retrieval supervision requires the matched H/E context")
     torch.set_num_threads(4)
-    random.seed(2333)
-    np.random.seed(2333)
-    torch.manual_seed(2333)
-    torch.cuda.manual_seed_all(2333)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -287,11 +323,20 @@ def main():
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
-    model = CASANet(args.pretrained, module=args.module).to(device)
+    for index, loader in enumerate((train_loader, test_loader)):
+        generator = torch.Generator().manual_seed(args.seed + index)
+        loader.generator = generator
+        if index == 0:
+            loader.sampler.generator = generator
+    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
+                    refinement_beta=args.refinement_beta).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
-    manifest = dict(protocol=PROTOCOL, module=args.module, seed=2333,
+    manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
+                    context_seed=args.context_seed, refinement_beta=args.refinement_beta,
+                    loader_randomness="independent seeded sampler/worker generators",
+                    train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, encoder_lr=5e-4*args.encoder_lr_mult,
@@ -314,7 +359,7 @@ def main():
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
                     heads=model.context.heads if args.module != "none" else 0,
-                    auxiliary_weights=auxiliary_weights(args.module),
+                    auxiliary_weights=weights,
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
@@ -322,11 +367,13 @@ def main():
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
-                                       "hyperbolic": "weighted class occupancy; no entropy penalty"}[args.module],
+                                       "hyperbolic": "weighted class occupancy; no entropy penalty",
+                                       "matched": "weighted class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
-                                     "hyperbolic": "learned correction gate independent of log-partition"}[args.module],
-                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module == "hyperbolic" else None,
-                    hyperbolic_key="lift_of_shared_pooled_content" if args.module == "hyperbolic" else None,
+                                     "hyperbolic": "learned correction gate independent of log-partition",
+                                     "matched": "learned correction gate independent of log-partition"}[args.module],
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched") else None,
+                    hyperbolic_key="lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
@@ -335,7 +382,8 @@ def main():
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
                                     "qkv": "euclidean_relative_context",
-                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
+                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values",
+                                    "matched": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
@@ -343,6 +391,9 @@ def main():
     continuation = None
     if args.resume:
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        for name in ("seed", "context_seed", "refinement_beta", "auxiliary_weights"):
+            if checkpoint["manifest"][name] != manifest[name]:
+                raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
             checkpoint, model, optimizer, actual_steps, len(train_loader))
         best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
@@ -356,6 +407,8 @@ def main():
             (parent / "continuations.json").write_text(
                 json.dumps(manifest["continuations"], indent=2), encoding="utf-8")
         print(f"[RESUME] {json.dumps(continuation)}", flush=True)
+        train_loader.generator.set_state(checkpoint["loader_rng_state"]["train"])
+        test_loader.generator.set_state(checkpoint["loader_rng_state"]["evaluation"])
         del checkpoint
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
@@ -387,7 +440,7 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target)
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"])
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             loss.backward()
@@ -400,8 +453,8 @@ def main():
             with torch.no_grad():
                 raw_guide = guide_loss(auxiliary["guide_logits"], target)
                 guide_sum += float(raw_guide)
-                if args.module == "hyperbolic":
-                    retrieval_sum += float(2 * auxiliary_loss.detach() - raw_guide)
+                if "geometric_logits" in auxiliary:
+                    retrieval_sum += float(guide_loss(auxiliary["geometric_logits"], target))
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
@@ -419,8 +472,17 @@ def main():
             torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
         torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
                         optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
-                        manifest=manifest, rng_state=rng_state()), args.checkpoint_dir / "last.pth")
+                        manifest=manifest, rng_state=rng_state(),
+                        loader_rng_state=dict(train=train_loader.generator.get_state(),
+                                              evaluation=test_loader.generator.get_state())), args.checkpoint_dir / "last.pth")
+    val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
+    val_loader.generator = torch.Generator().manual_seed(args.seed+2)
+    last_auxiliary = evaluate_auxiliary(model, val_loader, device)
     model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
+    best_auxiliary = evaluate_auxiliary(model, val_loader, device)
+    (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
+        best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
+        auxiliary_weights=weights), indent=2), encoding="utf-8")
     image, _ = next(iter(test_loader))
     image = image[:1].to(device).float()
     deploy, deployment = verify_deployment(model, image)
