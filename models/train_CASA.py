@@ -17,7 +17,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_attribution_v8"
+PROTOCOL = "casa_pyramid_40k_refinement_v9"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -364,6 +364,11 @@ def main():
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
+                    compression_refinement=(dict(
+                        iterations=int(args.refinement_beta != 0), beta=args.refinement_beta,
+                        similarity="cosine of LN features and initial class prototype",
+                        normalization="within region and class", common_key_value_content=True)
+                        if args.module in ("hyperbolic", "matched") else None),
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",

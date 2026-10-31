@@ -12,8 +12,16 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
-VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
+VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'H_REFINE': 'H-refine (beta=1)', 'E_REFINE': 'E-refine (beta=1)', 'E_BASE': 'E-base (beta=0)', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+
+
+def experiment_pairs(state):
+    """Return the scheduled variant/dataset pairs in queue order."""
+    if 'experiments' in state:
+        return [tuple(name.split('/')) for name in state['experiments']]
+    return [(variant, dataset) for dataset in state.get('dataset_priority', DATASETS)
+            for variant in state.get('variants', VARIANTS)]
 
 
 def values(line):
@@ -80,9 +88,10 @@ def diagnostic_rows(events):
 
 
 def curves(destination, dataset, records, selection_split):
-    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
+    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'H_REFINE': '#2266AA', 'E_REFINE': '#D47718', 'E_BASE': '#7D5AB5', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
     manifest = next(iter(records.values()))[2]
-    guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
+    guide_weight = manifest.get('auxiliary_weights', {}).get('guide', manifest.get('guide_weight', 0.2))
+    boundary_weight = manifest.get('boundary_weight', 0.0)
     has_boundary = boundary_weight != 0
     has_retrieval = any(record[2].get('auxiliary_weights', {}).get('geometric_retrieval', 0)
                         for record in records.values())
@@ -151,14 +160,16 @@ def main():
     destination = ROOT / 'docs/experiments' / args.tag / args.run
     (destination / 'curves').mkdir(parents=True, exist_ok=True)
     state = json.loads((source / 'pipeline_status.json').read_text())
-    datasets = state.get('dataset_priority', DATASETS)
-    variants = {name: VARIANTS[name] for name in state.get('variants', VARIANTS)}
+    experiments = experiment_pairs(state)
+    datasets = list(dict.fromkeys(dataset for _, dataset in experiments))
     if state['status'] != 'complete':
         raise RuntimeError('export requires a completed queue')
-    summary, table = [], []
+    summary, table, variant_manifests = [], [], {}
     for dataset in datasets:
         records = {}
-        for variant in variants:
+        for variant, experiment_dataset in experiments:
+            if experiment_dataset != dataset:
+                continue
             original = source / variant / dataset
             published = destination / variant / dataset
             text = (original / 'train_log.txt').read_text(encoding='utf-8')
@@ -166,6 +177,7 @@ def main():
                 raise RuntimeError(f'no complete TEST RESULTS: {variant}/{dataset}')
             result = json.loads((original / 'result.json').read_text())
             manifest = json.loads((original / 'run_manifest.json').read_text())
+            variant_manifests.setdefault(variant, manifest)
             rows, diagnostics = parse_log(text)
             assert len(rows) == manifest['epochs'], (variant, dataset, len(rows))
             evaluation_start = manifest.get('evaluation_starts_at_epoch', 1)
@@ -228,7 +240,7 @@ def main():
     baseline = json.loads((source / source_record).read_text())
     source_commit = baseline['code_baseline'] if source_record == 'source_manifest.json' else baseline['model_training_commit']
     started = min(json.loads((source / variant / dataset / 'placement.json').read_text())['started']
-                  for dataset in datasets for variant in variants)
+                  for variant, dataset in experiments)
     evaluation_name = 'test选模' if selection_split == 'test' else '验证'
     selection_note = ('每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。'
                       'test参与checkpoint选择，最终数值不属于独立盲测。'
@@ -239,16 +251,15 @@ def main():
     curve_note = ('圆点为实际选中checkpoint的test选模F1；最终折叠模型的复测结果单独保存在result.json。'
                   if selection_split == 'test' else
                   '圆点为实际选中checkpoint的验证F1，正式测试值不混入验证曲线。')
-    guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
+    guide_weight = manifest.get('auxiliary_weights', {}).get('guide', manifest.get('guide_weight', 0.2))
+    boundary_weight = manifest.get('boundary_weight', 0.0)
     loss_formula = f'main+{guide_weight:g}×guide'
     loss_note = '评分损失单独展示'
     boundary_note = ''
-    if any((source / variant / datasets[0] / 'run_manifest.json').exists() and
-           json.loads((source / variant / datasets[0] / 'run_manifest.json').read_text()).get('auxiliary_weights', {}).get('geometric_retrieval', 0)
-           for variant in variants):
+    if any(run_manifest.get('auxiliary_weights', {}).get('geometric_retrieval', 0)
+           for run_manifest in variant_manifests.values()):
         formulas = []
-        for name in variants:
-            run_manifest = json.loads((source / name / datasets[0] / 'run_manifest.json').read_text())
+        for name, run_manifest in variant_manifests.items():
             weights = run_manifest.get('auxiliary_weights', dict(guide=run_manifest.get('guide_weight', .2), geometric_retrieval=0.))
             formulas.append(f"{VARIANTS[name]}: main+{weights['guide']:g}×guide+{weights['geometric_retrieval']:g}×retrieval")
         loss_formula = '；'.join(formulas)

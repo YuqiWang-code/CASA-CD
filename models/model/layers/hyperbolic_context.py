@@ -160,6 +160,8 @@ class HyperbolicContext(nn.Module):
                     angular = (1 - direction_q @ direction_k.transpose(-1, -2)).clamp_min(0)
                     radial = (radius.flatten(2)[..., None] - key_radius[:, :, None]).abs()
                     weights, class_support = compression[index]
+                    base_weights, _ = class_assignments(p, self.grid_sizes[index])
+                    base_prototype = pool_features(x, base_weights, self.grid_sizes[index])
                     local_direction = regions(direction_q.reshape(*query.shape[:-1], -1), self.grid_sizes[index])
                     mean_direction = torch.einsum("brtp,bhrpd->bhrtd", weights, local_direction)
                     variance = (1 - mean_direction.square().sum(-1)).clamp_min(0)
@@ -179,6 +181,11 @@ class HyperbolicContext(nn.Module):
                         context_residual_to_feature_rms=float(rms(context_residual) / base),
                         local_residual_to_feature_rms=float(rms(local_residual) / base),
                         guide_mean=float(p.mean()), class_support_mean=float(class_support.mean()),
+                        refinement_beta=float(self.refinement_beta),
+                        compression_weight_tv=float((weights - base_weights).abs().sum(-1).mean() / 2),
+                        compression_effective_pixels=float(weights.square().sum(-1).reciprocal().mean()),
+                        compression_base_effective_pixels=float(base_weights.square().sum(-1).reciprocal().mean()),
+                        prototype_refinement_to_feature_rms=float(rms(prototypes[index] - base_prototype) / rms(x).clamp_min(1e-8)),
                         class_support_min=float(class_support.min()),
                         retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
                         retrieved_spatial_rms=float(rms(retrieved - retrieved.mean((-2, -1), keepdim=True))),

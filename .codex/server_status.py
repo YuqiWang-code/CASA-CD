@@ -126,7 +126,7 @@ def collect(tag, run):
         raise FileNotFoundError(root / 'pipeline_status.json')
     datasets = state.get('dataset_priority', DATASETS)
     variants = state.get('variants', VARIANTS)
-    names = [f'{variant}/{dataset}' for dataset in datasets for variant in variants]
+    names = state.get('experiments') or [f'{variant}/{dataset}' for dataset in datasets for variant in variants]
     now = time.time()
     runs = [describe_run(root, name, state, now) for name in names]
     pid_file = root / 'pipeline.pid'

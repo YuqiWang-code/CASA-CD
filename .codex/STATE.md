@@ -2,6 +2,12 @@
 
 更新：2026-10-31。
 
+## CASA-Pyramid / Run9 准备验证
+
+用户于2026-10-31授权继续改进并启动四库训练。仅GPU1；GPU0有无关任务。协议casa_pyramid_40k_refinement_v9，共14项新训练：四库H_REFINE(hyperbolic,β1)/E_REFINE(matched,β1)/M0_CTRL(none,β0)各3项，SYSU/WHU各补E_BASE(matched,β0)。Run8 H_NONE的SYSU/WHU作β0双曲历史参照，不重复入表。所有组main+0.1guide，retrieval=0，seed/context seed2333，40K、batch32，逐epoch test选模，fresh pretrained。
+
+日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9；唯一调度器train_scripts/CASA-Pyramid/Run9/pipeline.py。正式启动前需验证和6项真实数据短训通过。当前尚未启动正式队列；不得恢复任何已完成历史队列。现有指标263条，新训14项收齐为277条。
+
 ## CASA-MoE / Run2 已完成并收集
 
 2026-10-31 10:27:23 CST，GPU1接续六项正式实验完成，无失败，无活动子进程。TAR/static/dynamic在LEVIR及SYSU各一项。协议casa_moe_40k_candidates_v2；实际runtime=/home/yqwang/outputs/CASA-CD/CASA-MoE/Run2/runtime/20261030_203501。源码以冻结归档和TXT为准，工作源码models_v1与主线models独立。全部日志/JSON、Excel及冻结TXT已收集，实际记录见docs/experiments/CASA-MoE/Run2。不得重复启动接续或队列。

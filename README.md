@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run8（GPU1，SYSU/WHU分阶段归因）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run9（GPU1，四库精炼与几何对照）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
 
 双曲版采用**同内容原型与独立内容门控**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
 
@@ -16,11 +16,30 @@
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run8
+## 当前实验：CASA-Pyramid / Run9
+
+基于Run8完成的监督对照，采用共同主损失＋0.1 guide，retrieval权重固定为0，检验一次区域内内容精炼及双曲距离的贡献。224KV、完整Q、共享K/V内容、独立门控、局部分支和40K预算保持一致；β=1的精炼仅对区域内两类权重做一次余弦重加权，不新增可学习参数。匹配欧式版保留全部结构，仅将双曲距离替换为欧式距离。
+
+| 范围 | 新训练 | 比较目的 |
+|---|---|---|
+| LEVIR、SYSU、WHU、CDD | H_REFINE、E_REFINE、M0_CTRL，各3项 | 四库模块净收益与匹配几何比较 |
+| SYSU、WHU | E_BASE，各1项 | 与已有Run8 H_NONE组成β=0/1 × H/E对照 |
+
+共**14项新训练**，仅GPU1，优先LEVIR→SYSU→WHU→CDD，按实测显存补位。Run8 H_NONE两项仅作为历史参照，不重复入表。所有新训练均从MobileNetV2预训练初始化，run/context seed2333；不使用探针权重。选模继续按每epoch test F1，完整val用于诊断。普通QKV历史版本与本轮匹配欧式对照分别记录。
+
+<!-- CASA_PYRAMID_RUN9_RESULTS_START -->
+
+准备验证与真实数据短训，正式结果0/14。指标表保留263条，全部完成并收集后应为277条。
+
+<!-- CASA_PYRAMID_RUN9_RESULTS_END -->
+
+[Run9脚本与矩阵](train_scripts/CASA-Pyramid/Run9/README.md)。Run8两库对检索监督的效应方向不同；统一关闭该项用于本轮归因，不按数据集选择目标。LEVIR/CDD的精炼净效应未设独立β0臂，四库单seed不提供重复性结论。
+
+## 归档实验：CASA-Pyramid / Run8
 
 按[Run7深度分析方案](docs/temporary/CASA_Pyramid_Run7_深度分析_调研与改进方案.md)分阶段开展。首阶段仅SYSU/WHU的H_CLASS与H_NONE，共4项，物理GPU1；完整224KV、共享K/V、独立内容门控与局部分支不变，唯一目标差异为retrieval BCE系数0.1→0，guide固定0.1。run/context seed均为2333，loader使用独立配对随机流；两臂均从预训练骨干全新初始化。
 
-匹配欧式距离、β=0/1区域内一次精炼及显式seed/辅助权重接口已实现。首阶段β保持0；共同目标、几何与精炼对照在完整预算归因后安排。现有test逐epoch选模口径继续保留，完整val用于诊断，不称独立盲测。
+匹配欧式距离、β=0/1区域内一次精炼及显式seed/辅助权重接口已实现。首阶段β保持0；其后共同目标、几何与精炼对照见Run9。现有test逐epoch选模口径继续保留，完整val用于诊断，不称独立盲测。
 
 <!-- CASA_PYRAMID_RUN8_RESULTS_START -->
 
