@@ -45,4 +45,4 @@ bash train_scripts/CASA-Pyramid/Run8/test_one.sh H_CLASS SYSU-CD-256
 collector只采纳完整TEST区块，至少253条历史记录逐单元格保留，首阶段4项收齐后至少257条；另有新增历史全部保留。冻结TXT来自实际源码归档。单独复测放retests/，不重复记为正式实验。
 
 <!-- RUN8_STATUS -->
-2026-10-30 19:06 CST已启动，源码基线`dea8421`，supervisor PID3081289。仅GPU1，SYSU两臂并行（H_CLASS PID3081291、H_NONE PID3081328），随后自动接WHU两臂，共4项。前三轮正式train/test已完成，训练损失下降，诊断数值均为有限值、上下文残差非零，无NaN/OOM或进程失败。选模F1有早期波动，尚不判断收益。按当前速度预计10月31日01:00–02:00 CST完成本阶段。
+2026-10-31 01:03:56 CST完成首阶段4/4项，无失败；源码基线dea8421，实际运行归档已保留。日志/JSON、Excel、冻结及当前TXT已更新，完整训练记录见docs/experiments/CASA-Pyramid/Run8。检索监督相对关闭时SYSU F1 +0.1589pp、WHU −0.2072pp；后续共同监督、匹配几何与β1精炼对照待安排，不重复启动已完成队列。

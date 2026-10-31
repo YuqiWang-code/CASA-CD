@@ -1,0 +1,59 @@
+{
+  "protocol": "casa_moe_40k_candidates_v2",
+  "module": "none",
+  "metrics": {
+    "Kappa": 0.7741151235324099,
+    "IoU": 0.7030766835396739,
+    "F1": 0.825654698502849,
+    "OA": 0.9203560562133785,
+    "recall": 0.7996788853843741,
+    "precision": 0.8533748295753542,
+    "Pre": 0.6474135629082329
+  },
+  "best_epoch": 7,
+  "selection_split": "test",
+  "independent_test": false,
+  "optimizer_steps": 40125,
+  "test_loss": 2.0874893727302553,
+  "spatial_diagnostics": {
+    "boundary_1px": {
+      "precision": 0.23608580648076902,
+      "recall": 0.23206650930363285,
+      "F1": 0.23405890415954442,
+      "predicted_pixels": 3297047,
+      "target_pixels": 3358688
+    },
+    "boundary_2px": {
+      "precision": 0.32894405205627947,
+      "recall": 0.3238943301670176,
+      "F1": 0.3263996612464834,
+      "predicted_pixels": 3297047,
+      "target_pixels": 3358688
+    },
+    "interior": {
+      "precision": 0.8671381323982235,
+      "recall": 0.8186412926708075,
+      "F1": 0.842192129141169,
+      "predicted_pixels": 55232010,
+      "target_pixels": 58503990,
+      "tp": 47893782,
+      "fp": 7338228,
+      "fn": 10610208,
+      "tn": 189610103
+    },
+    "definition": {
+      "boundary": "3x3 morphological gradient, replicate padding",
+      "boundary_tolerance": "Chebyshev distance in input pixels",
+      "interior": "outside GT dilation2-minus-erosion2 band"
+    }
+  },
+  "total_params_m": 2.110613,
+  "deploy_params_m": 1.935617,
+  "elapsed_seconds": 11162.26454281807,
+  "elapsed_scope": "complete_run",
+  "session_optimizer_steps": 40125,
+  "continuation": null,
+  "deploy_verification": "strict_fp32_fold_v1",
+  "deploy_max_diff": 7.748603820800781e-07,
+  "deploy_binary_disagreement": 0
+}

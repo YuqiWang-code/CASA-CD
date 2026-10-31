@@ -1,6 +1,6 @@
 # CASA-MoE / Run2
 
-协议`casa_moe_40k_candidates_v2`。物理GPU1，等待CASA-Pyramid Run8首阶段4项完整测试完成、训练与调度进程退出后接续。
+协议`casa_moe_40k_candidates_v2`。物理GPU1，接续Run8完成后执行，首阶段6/6项于2026-10-31 10:27:23 CST完成，无失败。[完整结果与曲线](../../../docs/experiments/CASA-MoE/Run2/README.md)。
 
 ## 匹配实验
 
@@ -47,6 +47,15 @@ bash train_scripts/CASA-MoE/Run2/start_after_run8.sh
 
 <!-- CASA_MOE_RUN2_RESULTS_START -->
 
-当前为准备接续，正式结果0/6；GPU预检和真实数据探针尚待Run8完成。
+状态更新：2026-10-31 12:12:57 CST；队列 `complete`；正式结果 **6/6**。
+
+| 数据集 | 实验 | 状态 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `M_D_DYNAMIC` | 完成 | 91.06 | 83.60 |
+| LEVIR | `M_T_TAR` | 完成 | 91.02 | 83.53 |
+| LEVIR | `M_S_STATIC` | 完成 | 91.15 | 83.74 |
+| SYSU | `M_D_DYNAMIC` | 完成 | 83.56 | 71.77 |
+| SYSU | `M_T_TAR` | 完成 | 82.57 | 70.31 |
+| SYSU | `M_S_STATIC` | 完成 | 82.77 | 70.60 |
 
 <!-- CASA_MOE_RUN2_RESULTS_END -->

@@ -1,0 +1,11 @@
+[PRETRAIN-LOAD] MobileNetV2 tensors=306 missing=0 unexpected=['classifier.1.weight', 'classifier.1.bias', 'features.18.0.weight', 'features.18.1.weight', 'features.18.1.bias', 'features.18.1.running_mean', 'features.18.1.running_var', 'features.18.1.num_batches_tracked']
+[PROBE-EPOCH] epoch=1/2 step=375 main=2.409589 guide=1.694319 val_loss=2.327056 F1=0.787866 P=0.763048 R=0.814352 boundary1=0.168879 seconds=113.9
+[PROBE-EPOCH] epoch=2/2 step=750 main=1.866534 guide=1.207654 val_loss=2.366473 F1=0.783491 P=0.752075 R=0.817647 boundary1=0.177592 seconds=110.4
+Traceback (most recent call last):
+  File "/home/yqwang/projects/CASA-CD/train_scripts/CASA-Pyramid/Run8/health_probe.py", line 239, in <module>
+    main()
+  File "/home/yqwang/projects/CASA-CD/train_scripts/CASA-Pyramid/Run8/health_probe.py", line 220, in main
+    gradients = task_gradients(model, image[:2].to(device).float(),
+  File "/home/yqwang/projects/CASA-CD/train_scripts/CASA-Pyramid/Run8/health_probe.py", line 61, in task_gradients
+    _, main_loss, _ = training_losses(outputs, auxiliary, target, .1, args.retrieval_weight)
+NameError: name 'args' is not defined

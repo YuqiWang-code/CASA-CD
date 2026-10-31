@@ -24,9 +24,18 @@
 
 <!-- CASA_PYRAMID_RUN8_RESULTS_START -->
 
-2026-10-30 19:06 CST已启动，源码基线`dea8421`，supervisor PID3081289。仅GPU1，SYSU两臂并行（H_CLASS PID3081291、H_NONE PID3081328），随后自动接WHU两臂，共4项。前三轮正式train/test已完成，训练损失下降，诊断数值均为有限值、上下文残差非零，无NaN/OOM或进程失败。选模F1有早期波动，尚不判断收益。按当前速度预计10月31日01:00–02:00 CST完成本阶段。 正式结果0/4；当前指标表253条，探针不入表。
+状态更新：2026-10-31 12:09:18 CST；队列 `complete`；正式结果 **4/4**。
+
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| SYSU | `H_CLASS` | 完成 | 82.77 | 70.61 |
+| SYSU | `H_NONE` | 完成 | 82.61 | 70.38 |
+| WHU | `H_CLASS` | 完成 | 94.36 | 89.33 |
+| WHU | `H_NONE` | 完成 | 94.57 | 89.70 |
 
 <!-- CASA_PYRAMID_RUN8_RESULTS_END -->
+
+首阶段于2026-10-31 01:03:56 CST完成，4/4项无失败。检索监督使SYSU F1提高0.1589pp、WHU降低0.2072pp，WHU的1px边界F1降低1.0802pp；尚无跨库一致收益。[归因分析](docs/experiments/CASA-Pyramid/Run8/analysis.md)。全部部署折叠通过，最大误差1.3709e−6、二值差0。指标表共**263条**：253条历史＋Run8四项＋独立MoE Run2六项，历史单元格全部保留。
 
 [Run8脚本与阶段](train_scripts/CASA-Pyramid/Run8/README.md) · [冻结诊断与启动记录](docs/experiments/CASA-Pyramid/Run8/README.md) · [冻结源码快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run8.txt)。
 

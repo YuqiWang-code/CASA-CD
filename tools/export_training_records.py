@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
-VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none'}
+VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 
 
@@ -80,7 +80,7 @@ def diagnostic_rows(events):
 
 
 def curves(destination, dataset, records, selection_split):
-    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718'}
+    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
     manifest = next(iter(records.values()))[2]
     guide_weight, boundary_weight = manifest.get('guide_weight', 0.2), manifest.get('boundary_weight', 0.0)
     has_boundary = boundary_weight != 0
@@ -181,6 +181,8 @@ def main():
             for filename in ('train_log.txt', 'run_manifest.json', 'evaluation_manifest.json',
                              'result.json', 'deploy_check.json', 'arch.json', 'placement.json'):
                 shutil.copyfile(original / filename, published / filename)
+            if (original / 'auxiliary_validation.json').exists():
+                shutil.copyfile(original / 'auxiliary_validation.json', published / 'auxiliary_validation.json')
             write_csv(published / 'epochs.csv', rows)
             with (published / 'module_diagnostics.jsonl').open('w', encoding='utf-8') as file:
                 for event in diagnostics:
@@ -251,7 +253,7 @@ def main():
             formulas.append(f"{VARIANTS[name]}: main+{weights['guide']:g}×guide+{weights['geometric_retrieval']:g}×retrieval")
         loss_formula = '；'.join(formulas)
         loss_note = 'guide与类别检索BCE分别展示未乘权重值，权重由各项manifest的auxiliary_weights给出'
-        boundary_note = '\n- `train_auxiliary`为guide与检索BCE的平均，`train_guide`与`train_retrieval`为各自原始BCE；CTRL的retrieval为0且无该训练项。'
+        boundary_note = '\n- `train_auxiliary`为按辅助系数归一化的加权BCE：H_CLASS为两项平均，H_NONE仅为guide；`train_guide`与`train_retrieval`为各自原始BCE。H_NONE记录的retrieval仅作诊断、不进入总损失；CTRL无该项。'
     if boundary_weight:
         loss_formula += f'+{boundary_weight:g}×boundary'
         loss_note = f'评分与边界损失分别展示未乘权重的值，权重由manifest给出（{guide_weight:g}、{boundary_weight:g}）'

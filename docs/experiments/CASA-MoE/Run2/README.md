@@ -1,26 +1,30 @@
-# CASA-MoE Run2：GPU1接续记录
+# CASA-MoE / Run2 完整结果
 
-2026-10-30 20:35:03 CST，接续进程PID3116514启动，状态`waiting_for_Run8`。先等待CASA-Pyramid Run8四项完整TEST及训练/调度进程退出，再使用物理GPU1；不操作其他任务。
+6/6项正式训练与测试完成，无失败；队列于2026-10-31 10:27:23 CST结束。按每epoch test F1选模并复测，不属于独立盲测。epoch为0起始。
 
-实际运行副本：`/home/yqwang/outputs/CASA-CD/CASA-MoE/Run2/runtime/20261030_203501`。冻结源码`source_code.tar.gz`已下载至本地`outputs/CASA-MoE/Run2`。协议`casa_moe_40k_candidates_v2`，Python3.10.21、PyTorch2.14.0+cu132。
+冻结运行副本见runtime.json，实际源码归档在outputs/CASA-MoE/Run2/source_code.tar.gz；[冻结TXT](../../../temporary/models_and_metrics_CASA-MoE_Run2.txt)来自该归档。运行源码以冻结副本与归档为准。
 
-## 已完成检查
+| 数据集 | 变体 | best epoch | Recall (%) | Precision (%) | F1 (%) | IoU (%) | 实际记录 |
+|---|---|---:|---:|---:|---:|---:|---|
+| LEVIR | M_T_TAR | 172 | 90.5549 | 91.4990 | 91.0245 | 83.5275 | [日志](M_T_TAR/LEVIR-CD-256/train_log.txt) |
+| LEVIR | M_S_STATIC | 155 | 90.5547 | 91.7547 | 91.1507 | 83.7404 | [日志](M_S_STATIC/LEVIR-CD-256/train_log.txt) |
+| LEVIR | M_D_DYNAMIC | 180 | 90.0052 | 92.1499 | 91.0649 | 83.5956 | [日志](M_D_DYNAMIC/LEVIR-CD-256/train_log.txt) |
+| SYSU | M_T_TAR | 7 | 79.9679 | 85.3375 | 82.5655 | 70.3077 | [日志](M_T_TAR/SYSU-CD-256/train_log.txt) |
+| SYSU | M_S_STATIC | 4 | 82.2291 | 83.3090 | 82.7655 | 70.5983 | [日志](M_S_STATIC/SYSU-CD-256/train_log.txt) |
+| SYSU | M_D_DYNAMIC | 19 | 80.5961 | 86.7580 | 83.5636 | 71.7676 | [日志](M_D_DYNAMIC/SYSU-CD-256/train_log.txt) |
 
-| 配置 | 训练参数M | 部署参数M | CPU折叠最大误差 |
-|---|---:|---:|---:|
-| TAR-only | 2.110613 | 1.935617 | 1.1921e-7 |
-| 可学习常量融合 | 2.212023 | 2.100452 | 5.9605e-8 |
-| 动态空间融合 | 2.220151 | 2.108580 | 5.9605e-8 |
+完整日志、epochs.csv、模块诊断CSV/JSONL、配置与部署检查按实验保存；CSV的val_字段来自test逐epoch选模。probes为健康探针，不入正式指标。
 
-Haar重建、LL幅度、零时差W、浅层零LL、224KV、T-only同权重前向精确等价、三配置主干初始化一致、三次更新后专家梯度、真实探针检查入口均已通过CPU验证。结果见[cpu_checks.json](cpu_checks.json)。
+## LEVIR-CD-256
 
-## 接续流程
+![训练和选模曲线](curves/LEVIR-CD-256.png)
 
-1. Run8完成且相关进程退出，GPU1至少18GiB空闲。
-2. 使用冻结副本完成GPU profile，记录包括梯度诊断的batch32训练峰值与部署batch1延迟。
-3. LEVIR/SYSU × TAR-only/常量/动态，六项3个完整epoch的train/val健康探针。
-4. 全部通过后从MobileNetV2预训练重新初始化，启动相同六配置的40K正式训练，按实测容量并行。
+## SYSU-CD-256
 
-正式数据优先LEVIR再SYSU，使用test逐epoch选模，非独立盲测。初期三轮训练损失、评估、任务梯度与模块诊断写入`initial_health.json`。失败保留日志与权重，不自动重启。WHU/CDD扩展等待首阶段结果。
+![训练和选模曲线](curves/SYSU-CD-256.png)
 
-**当前GPU预检、真实数据探针和正式训练尚未开始。** 状态以服务器`handoff_status.json`和`pipeline_status.json`为准。[完整设计与脚本](../../../../train_scripts/CASA-MoE/Run2/README.md)。
+## 结果概况
+
+动态融合相对TAR-only的F1在LEVIR提高0.0405pp、SYSU提高0.9981pp；静态融合分别提高0.1263pp、0.2001pp。收益目前集中于SYSU，LEVIR差异较小。单seed结果不作为稳定提升结论，WHU/CDD尚未开展。
+
+[训练脚本](../../../../train_scripts/CASA-MoE/Run2/README.md)。

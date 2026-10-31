@@ -1,33 +1,44 @@
-# CASA-Pyramid / Run8 启动记录
+# CASA-Pyramid / Run8 完整训练记录
 
-2026-10-30 19:06 CST已启动，源码基线`dea8421`，supervisor PID3081289。仅GPU1，SYSU两臂并行（H_CLASS PID3081291、H_NONE PID3081328），随后自动接WHU两臂，共4项。前三轮正式train/test已完成，训练损失下降，诊断数值均为有限值、上下文残差非零，无NaN/OOM或进程失败。选模F1有早期波动，尚不判断收益。按当前速度预计10月31日01:00–02:00 CST完成本阶段。
+协议`casa_pyramid_40k_attribution_v8`，模型/训练源码基线`dea8421965a9d97d66b71c5a24475797cf7effba`。本目录保存4项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/CASA-Pyramid/Run8`。本轮于2026-10-30 19:06:54 CST启动，2026-10-31 01:03:56 CST完成。
 
-## 方案与证据
+## 正式结果与最佳epoch
 
-[完整Run7冻结val分析](pretraining_analysis.md)记录四库best及SYSU last的内容诊断、全局/局部干预和径向干预。首阶段保持结构与β=0，guide固定0.1，仅比较retrieval系数0.1与0；目标是区分类别检索监督的作用。匹配欧氏距离和一次区域内关联精炼已实现，后续采用共同监督再验证，不将多个变化合并解释。
+epoch沿用日志的0起始索引，例如177表示第178轮。每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。test参与checkpoint选择，最终数值不属于独立盲测。`summary.csv`提供选模split、独立测试标记、全部Recall/Precision/OA/F1/IoU/Kappa、参数与部署误差。
 
-[脚本与配置](../../../../train_scripts/CASA-Pyramid/Run8/README.md) · [初期健康数据](startup_health.json) · [冻结源码TXT](../../../temporary/models_and_metrics_CASA-Pyramid_Run8.txt)
+| 数据集 | 变体 | best_epoch (0起始) | 最佳test选模F1(%) | 最终test复测F1(%) | 实际记录 |
+|---|---|---:|---:|---:|---|
+| SYSU | H_CLASS | 12 | 82.774 | 82.774 | [日志](H_CLASS/SYSU-CD-256/train_log.txt) / [逐轮](H_CLASS/SYSU-CD-256/epochs.csv) / [结果](H_CLASS/SYSU-CD-256/result.json) |
+| SYSU | H_NONE | 12 | 82.615 | 82.615 | [日志](H_NONE/SYSU-CD-256/train_log.txt) / [逐轮](H_NONE/SYSU-CD-256/epochs.csv) / [结果](H_NONE/SYSU-CD-256/result.json) |
+| WHU | H_CLASS | 165 | 94.362 | 94.362 | [日志](H_CLASS/WHU-CD-256/train_log.txt) / [逐轮](H_CLASS/WHU-CD-256/epochs.csv) / [结果](H_CLASS/WHU-CD-256/result.json) |
+| WHU | H_NONE | 200 | 94.569 | 94.569 | [日志](H_NONE/WHU-CD-256/train_log.txt) / [逐轮](H_NONE/WHU-CD-256/epochs.csv) / [结果](H_NONE/WHU-CD-256/result.json) |
 
-## 正式前三轮
+## 文件与数值口径
 
-每epoch在test上选模，以下为选模值，不是最终TEST指标或独立盲测。
+- 每项的`train_log.txt`是完整原始日志，包括训练后期、test选模评估行、实际MODULE-DIAG及最终TEST RESULTS。
+- `epochs.csv`保存每轮训练总损失、主损失、评分损失、学习率，以及test选模Loss/Recall/Precision/OA/F1/IoU/Kappa和耗时；指标沿用日志的0～1单位。逐轮评估从epoch0开始。
+- `train_auxiliary`为按辅助系数归一化的加权BCE：H_CLASS为两项平均，H_NONE仅为guide；`train_guide`与`train_retrieval`为各自原始BCE。H_NONE记录的retrieval仅作诊断、不进入总损失；CTRL无该项。
+- CSV沿用`val_`列名前缀和`best_val_F1_pct`字段，数据来源由`summary.csv`及manifest的`selection_split`明确：本轮为`test`。字段前缀不表示独立验证集。
+- `module_diagnostics.jsonl`按epoch保存四级完整诊断；`module_diagnostics.csv`按epoch/stage展开温度各头、gamma、归一化注意力熵、原型分配TV、预测变化概率、分支RMS、跨尺度注意力质量，以及双曲半径和裁剪比例。源日志未记录的量不补造。
+- MODULE-DIAG来自当轮test选模的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
+- `result.json`保留完整精度的正式测试与实际最佳epoch；`run_manifest.json`、`evaluation_manifest.json`和`deploy_check.json`给出配置及折叠检查，`placement.json`记录物理GPU。`arch.json`记录结构配置。
+- 根目录的`environment.json`、`source_manifest.json`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`inference_benchmark.json`记录显存和推理测量。
+- `probes/`保存4项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
 
-| 目标 | 主训练损失（1→2→3轮） | test F1 (%)（1→2→3轮） |
-|---|---|---|
-| H_CLASS | 2.4116 → 1.8654 → 1.6615 | 81.3547 → 80.6241 → 80.9646 |
-| H_NONE | 2.4097 → 1.8665 → 1.6570 | 81.3868 → 79.7339 → 81.7033 |
+## 完整训练与test选模曲线
 
-损失与诊断数值均为有限值，几何与写回支路有输出；SYSU早期选模波动仍在，完整预算结果用于归因。短训及当前前三轮不作为提升证据。GPU1总显存约27.1/31.8GiB（含既有约5.2GiB进程），利用率采样100%。两臂显存预留均11180MiB，调度预算25756MiB；GPU0不参与。
+曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/test选模BCE+Dice；guide与类别检索BCE分别展示未乘权重值，权重由各项manifest的auxiliary_weights给出，总训练损失为H-class: main+0.1×guide+0.1×retrieval；H-none: main+0.1×guide+0×retrieval。圆点为实际选中checkpoint的test选模F1；最终折叠模型的复测结果单独保存在result.json。
 
-## 结构开销
+### SYSU-CD-256
 
-GPU1 RTX5090，FP32、卷积TF32开，batch1双时相256，随机权重结构成本，3次各100次计时。
+![SYSU-CD-256训练与test选模曲线](curves/SYSU-CD-256.png)
 
-| 度量 | 训练参数M | 折叠参数M | 中位延迟ms | P95 ms | 峰值allocated MiB |
-|---|---:|---:|---:|---:|---:|
-| hyperbolic | 2.058409 | 1.947094 | 7.862 | 10.033 | 73.90 |
-| matched | 2.058409 | 1.947094 | 6.997 | 8.688 | 62.16 |
+### WHU-CD-256
 
-## 产物与后续
+![WHU-CD-256训练与test选模曲线](curves/WHU-CD-256.png)
 
-源码归档、环境、profile、readiness、调度配置与完整日志在outputs/CASA-Pyramid/Run8；测试完成后使用本轮collect_results.py汇表，全部253条既有正式记录保留。首阶段4项收齐后至少257条。冻结TXT使用实际运行源码归档，当前TXT记录本地源码。估时针对当前四项，SYSU使用正式前三轮速度，WHU使用两路并行探针速度；后续几何与精炼阶段另行安排。
+## 关联材料
+
+[运行说明](../../../../train_scripts/CASA-Pyramid/Run8/README.md)、[冻结源码与指标](../../../temporary/models_and_metrics_CASA-Pyramid_Run8.txt)。
+
+[本轮归因分析](analysis.md) · [训练前冻结诊断](pretraining_analysis.md)。

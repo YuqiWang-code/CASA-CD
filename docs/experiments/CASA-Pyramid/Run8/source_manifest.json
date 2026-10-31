@@ -1,0 +1,32 @@
+{
+  "code_baseline": "dea8421965a9d97d66b71c5a24475797cf7effba",
+  "protocol": "casa_pyramid_40k_attribution_v8",
+  "phase": "retrieval_loss",
+  "target_experiments": 4,
+  "physical_gpus": [
+    1
+  ],
+  "dataset_priority": [
+    "SYSU-CD-256",
+    "WHU-CD-256"
+  ],
+  "variants": {
+    "H_CLASS": {
+      "guide": 0.1,
+      "retrieval": 0.1
+    },
+    "H_NONE": {
+      "guide": 0.1,
+      "retrieval": 0.0
+    }
+  },
+  "refinement_beta": 0.0,
+  "run_seed": 2333,
+  "context_seed": 2333,
+  "source_archive": "source_code.tar.gz",
+  "readiness": "readiness.json",
+  "evaluation_split": "test",
+  "independent_test": false,
+  "initialization": "Fresh MobileNetV2 pretrained encoder and seeded new layers; no earlier or probe weights",
+  "optimizer": "Adam: context Conv/Linear weights decoupled WD1e-4; body coupled L2 WD1e-4; other context WD0"
+}

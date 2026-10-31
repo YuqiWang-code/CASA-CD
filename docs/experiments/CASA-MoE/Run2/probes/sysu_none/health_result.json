@@ -1,0 +1,226 @@
+{
+  "passed": true,
+  "protocol": "casa_moe_40k_candidates_v2",
+  "runtime": "/home/yqwang/outputs/CASA-CD/CASA-MoE/Run2/runtime/20261030_203501",
+  "module": "none",
+  "dataset": "SYSU-CD-256",
+  "epochs": 3,
+  "train_batches": 375,
+  "batch_size": 32,
+  "physical_gpu": 1,
+  "scheduler_total": 40125,
+  "guide_weight": 0.2,
+  "encoder_lr_mult": 1.0,
+  "evaluation_split": "val",
+  "seed": 2333,
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "architecture": {
+    "variant": "none",
+    "active_experts": [
+      "tar"
+    ],
+    "routing_mode": "tar_only",
+    "execution": "dense",
+    "context_grid_sizes": [
+      8,
+      4,
+      4,
+      4
+    ],
+    "context_prototypes_per_scale": [
+      128,
+      32,
+      32,
+      32
+    ],
+    "joint_contexts": 224,
+    "heads": 1,
+    "qkv_dim": 32,
+    "value_geometry": "euclidean",
+    "key_mode": "shared_pooled_content",
+    "hyperbolic_radius": "asinh(projection_norm)",
+    "shared_he": [
+      "qk",
+      "v",
+      "out",
+      "gamma",
+      "scale_bias",
+      "guide",
+      "norm",
+      "prototypes"
+    ],
+    "frequency_transform": "signed_temporal_haar_H1_H2_L2_L3",
+    "guide_input": "common_X",
+    "context_gamma_shape": [
+      4,
+      64
+    ],
+    "wavelet_gamma_shape": [
+      4,
+      64
+    ],
+    "initializer_seed": 2333
+  },
+  "optimizer_groups": [
+    {
+      "name": "encoder",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "body_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "context_decay",
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": true
+    },
+    {
+      "name": "context_no_decay",
+      "weight_decay": 0.0,
+      "decoupled_weight_decay": false
+    }
+  ],
+  "steps": 1125,
+  "final": {
+    "epoch": 3,
+    "step": 1125,
+    "train_loss": 1.8789280967712403,
+    "main_loss": 1.6513882077534994,
+    "guide_loss": 1.1376994333267212,
+    "gradient_norm_mean": 6.114308668136597,
+    "gradient_norm_max": 14.363067626953125,
+    "validation_loss": 2.37003267288208,
+    "validation_metrics": {
+      "Kappa": 0.7223217705650083,
+      "IoU": 0.6394464258629922,
+      "F1": 0.7800759658533013,
+      "OA": 0.908410694122314,
+      "recall": 0.7544821823133481,
+      "precision": 0.8074672488544702,
+      "Pre": 0.6701602928538972
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.2035366662033559,
+        "recall": 0.20038338688597634,
+        "F1": 0.20194771820496207,
+        "predicted_pixels": 3302319,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.2846196869533198,
+        "recall": 0.28088986741104244,
+        "F1": 0.2827424771655761,
+        "predicted_pixels": 3302319,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.8196348599539579,
+        "recall": 0.7745749519337376,
+        "F1": 0.7964681029033538,
+        "predicted_pixels": 50204025,
+        "target_pixels": 53124580,
+        "tp": 41148969,
+        "fp": 9055056,
+        "fn": 11975611,
+        "tn": 193280294
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {},
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0,
+      "stem.project.1.weight": 0.0,
+      "stem.project.2.weight": 0.0,
+      "stem.project.3.weight": 0.0,
+      "stem.fuse.0.0.weight": 0.0,
+      "stem.fuse.0.1.weight": 0.0,
+      "stem.fuse.0.1.bias": 0.0,
+      "stem.fuse.1.0.weight": 0.0,
+      "stem.fuse.1.1.weight": 0.0,
+      "stem.fuse.1.1.bias": 0.0,
+      "stem.fuse.2.0.weight": 0.0,
+      "stem.fuse.2.1.weight": 0.0,
+      "stem.fuse.2.1.bias": 0.0,
+      "stem.fuse.3.0.weight": 0.0,
+      "stem.fuse.3.1.weight": 0.0,
+      "stem.fuse.3.1.bias": 0.0,
+      "norm.weight": 0.0,
+      "norm.bias": 0.0,
+      "guide.weight": 0.0,
+      "guide.bias": 0.0
+    },
+    "branch_task_gradients": {},
+    "sample_main_loss": 1.127030372619629,
+    "sample_guide_loss": 0.3023446798324585
+  },
+  "fixed_validation_spatial_probe": {
+    "split": "val",
+    "images": 2,
+    "route_names": [
+      "hyperbolic",
+      "qkv",
+      "frequency",
+      "tar"
+    ],
+    "gt_route_groups": {},
+    "same_pair_positive_fraction": 0.0,
+    "exchange_mean_absolute_diff": 0.004222279414534569
+  },
+  "elapsed_seconds": 296.393940448761,
+  "main_loss_first_to_last": [
+    2.405478009223938,
+    1.6513882077534994
+  ],
+  "validation_f1_history": [
+    0.7870188862797692,
+    0.7858822859256899,
+    0.7800759658533013
+  ],
+  "validation_loss_history": [
+    2.3056319580078126,
+    2.3809958553314208,
+    2.37003267288208
+  ],
+  "peak_allocated_mib": 8431.056640625,
+  "peak_reserved_mib": 8532.0
+}

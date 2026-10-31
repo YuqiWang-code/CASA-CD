@@ -3190,7 +3190,7 @@ class AuxiliaryContext(nn.Module):
         return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
-## METRICS (253 results)
+## METRICS (263 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-MoE/Run1/M0_CTRL/CDD-CD-256 | 0.9682 | 0.9704 | 0.9924 | 0.9693 | 0.9405 | 0.9650 | 1.936 | 2.047 | - | casa_moe_none
@@ -3217,6 +3217,12 @@ CASA-MoE/Run1/M4_NO_HYPER/LEVIR-CD-256 | 0.9025 | 0.9184 | 0.9910 | 0.9104 | 0.8
 CASA-MoE/Run1/M4_NO_HYPER/SYSU-CD-256 | 0.8239 | 0.8415 | 0.9219 | 0.8326 | 0.7132 | 0.7817 | 1.948 | 2.059 | - | casa_moe_no_hyperbolic
 CASA-MoE/Run1/M4_NO_QKV/LEVIR-CD-256 | 0.9003 | 0.9194 | 0.9909 | 0.9098 | 0.8345 | 0.9050 | 1.948 | 2.059 | - | casa_moe_no_qkv
 CASA-MoE/Run1/M4_NO_QKV/SYSU-CD-256 | 0.7938 | 0.8645 | 0.9220 | 0.8276 | 0.7059 | 0.7774 | 1.948 | 2.059 | - | casa_moe_no_qkv
+CASA-MoE/Run2/M_D_DYNAMIC/LEVIR-CD-256 | 0.9001 | 0.9215 | 0.9910 | 0.9106 | 0.8360 | 0.9059 | 2.109 | 2.220 | - | casa_moe_moe
+CASA-MoE/Run2/M_D_DYNAMIC/SYSU-CD-256 | 0.8060 | 0.8676 | 0.9252 | 0.8356 | 0.7177 | 0.7873 | 2.109 | 2.220 | - | casa_moe_moe
+CASA-MoE/Run2/M_S_STATIC/LEVIR-CD-256 | 0.9055 | 0.9175 | 0.9910 | 0.9115 | 0.8374 | 0.9068 | 2.100 | 2.212 | - | casa_moe_static
+CASA-MoE/Run2/M_S_STATIC/SYSU-CD-256 | 0.8223 | 0.8331 | 0.9192 | 0.8277 | 0.7060 | 0.7749 | 2.100 | 2.212 | - | casa_moe_static
+CASA-MoE/Run2/M_T_TAR/LEVIR-CD-256 | 0.9055 | 0.9150 | 0.9909 | 0.9102 | 0.8353 | 0.9055 | 1.936 | 2.111 | - | casa_moe_none
+CASA-MoE/Run2/M_T_TAR/SYSU-CD-256 | 0.7997 | 0.8534 | 0.9204 | 0.8257 | 0.7031 | 0.7741 | 1.936 | 2.111 | - | casa_moe_none
 CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
 CASA-Pyramid/Run1/M0_CTRL/LEVIR-CD-256 | 0.9042 | 0.9149 | 0.9908 | 0.9096 | 0.8341 | 0.9047 | 1.936 | 2.047 | - | casa_pyramid_none
 CASA-Pyramid/Run1/M0_CTRL/SYSU-CD-256 | 0.7718 | 0.8569 | 0.9158 | 0.8122 | 0.6837 | 0.7581 | 1.936 | 2.047 | - | casa_pyramid_none
@@ -3287,6 +3293,10 @@ CASA-Pyramid/Run7/M1_HYPER_QKV/CDD-CD-256 | 0.9689 | 0.9692 | 0.9924 | 0.9691 | 
 CASA-Pyramid/Run7/M1_HYPER_QKV/LEVIR-CD-256 | 0.9007 | 0.9222 | 0.9911 | 0.9113 | 0.8371 | 0.9066 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
 CASA-Pyramid/Run7/M1_HYPER_QKV/SYSU-CD-256 | 0.7991 | 0.8609 | 0.9222 | 0.8289 | 0.7077 | 0.7786 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
 CASA-Pyramid/Run7/M1_HYPER_QKV/WHU-CD-256 | 0.9290 | 0.9621 | 0.9957 | 0.9453 | 0.8962 | 0.9431 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_CLASS/SYSU-CD-256 | 0.7895 | 0.8699 | 0.9225 | 0.8277 | 0.7061 | 0.7779 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_CLASS/WHU-CD-256 | 0.9288 | 0.9589 | 0.9956 | 0.9436 | 0.8933 | 0.9413 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_NONE/SYSU-CD-256 | 0.7851 | 0.8718 | 0.9221 | 0.8261 | 0.7038 | 0.7761 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_NONE/WHU-CD-256 | 0.9282 | 0.9639 | 0.9958 | 0.9457 | 0.8970 | 0.9435 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
 CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/LEVIR-CD-256 | 0.8855 | 0.9130 | 0.9899 | 0.8990 | 0.8166 | 0.8937 | 2.378 | 2.378 | 1.2051 | casa_str
 CASA-STR/Run1/A0_BASE_PLAIN/SYSU-CD-256 | 0.8209 | 0.8284 | 0.9177 | 0.8247 | 0.7016 | 0.7709 | 2.378 | 2.378 | 1.2051 | casa_str
@@ -3448,7 +3458,5 @@ baseline/Run1/SYSU-CD-256 | 0.8077 | 0.8427 | 0.9191 | 0.8248 | 0.7019 | 0.7723 
 baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 | 11.754 | 20.661 | 26.3246 | baseline
 
 ================================================================================
-## SELECTED RUN LOGS WITHOUT FINAL TEST (2)
+## SELECTED RUN LOGS WITHOUT FINAL TEST (0)
 ================================================================================
-CASA-Pyramid/Run8/H_CLASS/SYSU-CD-256 | last_logged_steps=2250/40125 | no formal metric
-CASA-Pyramid/Run8/H_NONE/SYSU-CD-256 | last_logged_steps=2250/40125 | no formal metric

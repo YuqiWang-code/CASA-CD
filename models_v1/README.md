@@ -34,3 +34,5 @@ H/E增益和小波增益零初始化；动态router末层零初始化，初始�
 CPU实测部署参数：T-only **1.935617M**，可学习常量融合 **2.100452M**，动态融合 **2.108580M**。参数量不代表实际速度，GPU实测由Run8完成后的接续流程执行。
 
 [Run2脚本与阶段矩阵](../train_scripts/CASA-MoE/Run2/README.md) · [设计规格](../docs/temporary/CASA_MoE_四专家架构设计_调研与验证方案.md) · [Run1完整结果](../docs/experiments/CASA-MoE/Run1/README.md)
+
+[Run2完整结果与曲线](../docs/experiments/CASA-MoE/Run2/README.md)：首阶段6/6项完成，独立于CASA-Pyramid主线。
