@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run10（GPU1，几何归属与空间检索）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run10（GPU1，几何归属与空间检索）**。**Run4作为正向基线完整保留**。
 
 双曲版采用**几何归属与空间检索**：完整Q、224个跨尺度KV、32维直接Lorentz投影，检索内容按空间中心化后门控写回，部署1.947095M。匹配欧式对照保持同构；普通QKV历史版保留Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
@@ -38,7 +38,11 @@
 
 <!-- CASA_PYRAMID_RUN10_RESULTS_START -->
 
-现行工作版已落实到models，正在核对LEVIR/SYSU共6项train/val配对短训，每项4个完整epoch：中心化H使用raw监督，以及中心化H/E使用raw与后验联合监督。与同温度0.5的H/E及CTRL参照比较；正式启动待完整短训审阅。正式结果**0/12**，指标表**263条**，探针不入表。
+2026-10-31 15:41 CST正式启动，源码基线`8e8e559`。GPU1当前三路：LEVIR的H_POSTERIOR、E_POSTERIOR、M0_CTRL；后续自动按容量补位。正式结果0/12，指标表仍为263条。
+
+六项四轮train/val配对完成，双曲末轮F1相对CTRL在LEVIR/SYSU提高0.9404/0.6780pp。正式首发三组前4轮主损失分别由1.9292→1.0482、1.9297→1.0469、1.9304→1.0460；损失和诊断有限，H/E四层上下文输出非零。当前GPU1约29.9GiB、利用率采样96%。按初期吞吐估计余下约12–15小时，预计北京时间11月1日04:00–07:00结束。
+
+[完整配对与干预](docs/experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md) · [正式初期记录](docs/experiments/CASA-Pyramid/Run10/initial_health.json) · [训练日志及成本](docs/experiments/CASA-Pyramid/Run10/README.md) · [冻结源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run10.txt)。
 
 <!-- CASA_PYRAMID_RUN10_RESULTS_END -->
 

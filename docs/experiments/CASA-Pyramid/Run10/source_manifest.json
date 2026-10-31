@@ -1,0 +1,62 @@
+{
+  "code_baseline": "8e8e5599e546f7c8302eed2c27b79e621c9871aa",
+  "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+  "target_experiments": 12,
+  "experiments": [
+    "H_POSTERIOR/LEVIR-CD-256",
+    "E_POSTERIOR/LEVIR-CD-256",
+    "M0_CTRL/LEVIR-CD-256",
+    "H_POSTERIOR/SYSU-CD-256",
+    "E_POSTERIOR/SYSU-CD-256",
+    "M0_CTRL/SYSU-CD-256",
+    "H_POSTERIOR/WHU-CD-256",
+    "E_POSTERIOR/WHU-CD-256",
+    "M0_CTRL/WHU-CD-256",
+    "H_POSTERIOR/CDD-CD-256",
+    "E_POSTERIOR/CDD-CD-256",
+    "M0_CTRL/CDD-CD-256"
+  ],
+  "physical_gpus": [
+    1
+  ],
+  "dataset_priority": [
+    "LEVIR-CD-256",
+    "SYSU-CD-256",
+    "WHU-CD-256",
+    "CDD-CD-256"
+  ],
+  "variants": {
+    "H_POSTERIOR": {
+      "module": "hyperbolic"
+    },
+    "E_POSTERIOR": {
+      "module": "matched"
+    },
+    "M0_CTRL": {
+      "module": "none"
+    }
+  },
+  "guide_effective_weights": {
+    "H_POSTERIOR": {
+      "raw": 0.05,
+      "posterior": 0.05
+    },
+    "E_POSTERIOR": {
+      "raw": 0.05,
+      "posterior": 0.05
+    },
+    "M0_CTRL": {
+      "raw": 0.1,
+      "posterior": 0.0
+    }
+  },
+  "retrieval_weight": 0.0,
+  "compression_temperature_init": 0.5,
+  "run_seed": 2333,
+  "context_seed": 2333,
+  "source_archive": "source_code.tar.gz",
+  "readiness": "readiness.json",
+  "evaluation_split": "test",
+  "independent_test": false,
+  "initialization": "Fresh MobileNetV2 pretrained encoder and seeded new layers; no probe or previous-run weights"
+}

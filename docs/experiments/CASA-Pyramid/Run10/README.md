@@ -1,6 +1,6 @@
 # CASA-Pyramid Run10：几何归属与空间检索
 
-协议 `casa_pyramid_40k_supervisedposterior_v10`。GPU1，四库H_POSTERIOR/E_POSTERIOR/M0_CTRL共12项，优先LEVIR→SYSU→WHU→CDD。正式队列待启动，0/12项完整TEST。
+协议 `casa_pyramid_40k_supervisedposterior_v10`。GPU1，四库H_POSTERIOR/E_POSTERIOR/M0_CTRL共12项，优先LEVIR→SYSU→WHU→CDD。正式队列于2026-10-31 15:41 CST启动，源码基线`8e8e559`，0/12项完整TEST。首发LEVIR三组在GPU1并行，supervisor3242840。
 
 ## 配对证据
 
@@ -36,3 +36,9 @@ RTX5090、双时相256×256、batch1、FP32、卷积TF32开启，随机权重架
 四轮单seed结果不代表最终收益。H_SUP的epoch2–4均值略低于H_RAW；SYSU末轮仍低于旧H_BASE。后验关闭与压缩度量替换的独立影响较小。LEVIR全局路径减少漏检但增加误报，F1改善并不等于总错误数下降；batch8干预和batch1内容统计单独记录。参数增量小，推理延迟仍明显高于CTRL。
 
 [Run9停止时诊断](diagnosis/README.md) · [模型公式](../../../../models/HYPERBOLIC_DESIGN.md) · [训练脚本](../../../../train_scripts/CASA-Pyramid/Run10/README.md)。正式结果仅从完整TEST RESULTS入表，现有263条记录保留。
+
+## 正式初期观察
+
+[初期健康记录](initial_health.json)覆盖首发三组的前4个完整epoch。H/E/CTRL主损失分别1.9292→1.0482、1.9297→1.0469、1.9304→1.0460；未见非有限值或OOM，H/E各层全局残差非零。当前采样显存30620/32607MiB、GPU利用率96%。按初期三路吞吐估计余下12–15小时，约北京时间11月1日04:00–07:00。
+
+各组目录保存实际日志、epochs.csv和module_diagnostics.csv；CSV历史字段val_*在本轮表示每epoch的test选模评价。日志retrieval是未加权的诊断BCE，其训练权重为0。尚无完整TEST结果，初期评估不进入正式指标表。

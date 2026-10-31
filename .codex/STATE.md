@@ -2,15 +2,17 @@
 
 更新：2026-10-31。
 
-## CASA-Pyramid / Run10 待启动正式对照
+## CASA-Pyramid / Run10 GPU1正式训练中
 
-Run9于2026-10-31 13:22:08 CST按用户要求停止，0项完整TEST；源码3a04aca、日志及checkpoint保留，不恢复。GPU1为本轮唯一授权卡，GPU0是独立MoE任务。
+2026-10-31 15:41:14 CST正式启动，唯一supervisor3242840。初始GPU1三路：LEVIR H_POSTERIOR3242842、E_POSTERIOR3242876、M0_CTRL3242908，以实时pipeline_status.json为准。12项，LEVIR→SYSU→WHU→CDD，允许跨库填位；GPU预算31072MiB，H/E/CTRL预留11424/10332/8852MiB。GPU0属于独立MoE任务，不操作。Run9已停止，0项正式TEST，旧源3a04aca、日志与checkpoint保留，不恢复。
 
-六项四轮train/val配对短训与冻结分析已全部结束，原探针supervisor3239297已退出。实际源、脚本、权重和记录在Run10/selection/centered/{raw,supervised,scripts,probes,analysis}；probe_source_code.tar.gz已归档。两库H_SUP末轮F1为86.5958/80.4059，H/E相同目标对照及空间检索干预支持进入完整预算评价；不能宣称四轮已证明全库优势。先前配对控制在selection/classposterior与selection/neighborhood。
+源码基线8e8e559，协议casa_pyramid_40k_supervisedposterior_v10。当前主models与服务器正式源一致：平方guide的P0→两类距离差修正r→一阶P1同源K/V；完整Q/224KV/1头32维；门控写回AV−空间均值AV。H/E主损失+.05原guide+.05后验，CTRL主损失+.1原guide；检索BCE权重0，压缩温度初值.5。40K整epoch、batch32、seed/context2333，从MobileNetV2预训练全新初始化。不要覆盖运行中的models/训练脚本。
 
-本地与服务器主models现为casa_pyramid_40k_supervisedposterior_v10：区域两类距离差修正r，K/V共享P1；门控写回AV−空间均值AV。H/E主损失+.05原guide+.05后验，CTRL主损失+.1原guide；旧检索BCE0，压缩温度初值.5。224KV、1头32维、batch32、seed/context2333、40K、预训练骨干全新初始化。默认训练参数已与正式配置一致。服务器最终验证、恢复、折叠和实测显存通过；review_decision允许进入正式对照。尚未启动正式队列，勿重复探针。
+六项4epoch train/val配对、冻结干预、几何/梯度/恢复/部署/显存验证完成。双曲相对CTRL短训末轮LEVIR/SYSU F1 +.9404/+.6780pp，后验本身的独立推理贡献仍小。正式前三组前4轮已观察：主损失H1.9292→1.0482、E1.9297→1.0469、CTRL1.9304→1.0460；无非有限值/OOM，四层全局残差非零。initial_health.json与日志已保存。采样GPU1 30620MiB/96%；预计余下12–15h，约11月1日04:00–07:00 CST。无自动监控任务。
 
-下一步提交源码基线、归档实际源，启动唯一train_scripts/CASA-Pyramid/Run10/pipeline.py：H_POSTERIOR/E_POSTERIOR/M0_CTRL四库12项，LEVIR→SYSU→WHU→CDD，GPU1按实测容量补位；观察正式前三epoch。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run10。现有263条正式记录，新12项全收至少275，保留其他新增。逐epoch test选模，非独立盲测。无定时自动化。
+实际source_code.tar.gz、source_manifest.json、environment.json在服务器与本地outputs/CASA-Pyramid/Run10；冻结TXT已从实际归档生成。历史配对源/产物在selection/neighborhood、classposterior、centered，不算正式结果。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run10；调度器train_scripts/CASA-Pyramid/Run10/pipeline.py。
+
+下次先查实时状态与日志，不重复启动。正式每epoch test选模，非独立盲测。完整TEST出现后使用collect_results.py及tools汇表/快照，现有263条历史不改；本轮12项收齐至少275条，其他新增全部保留。新故障先读取具体原因并保留产物。
 
 ## CASA-MoE / Run3 GPU0串行训练中
 

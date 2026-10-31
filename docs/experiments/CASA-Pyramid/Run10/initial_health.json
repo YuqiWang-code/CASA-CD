@@ -1,0 +1,156 @@
+{
+  "observed_at": "2026-10-31T15:49:35.320824+08:00",
+  "code_baseline": "8e8e559",
+  "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+  "selection_split": "test",
+  "independent_test": false,
+  "epochs_observed": 4,
+  "formal_completed": 0,
+  "active": {
+    "3242842": "H_POSTERIOR/LEVIR-CD-256",
+    "3242876": "E_POSTERIOR/LEVIR-CD-256",
+    "3242908": "M0_CTRL/LEVIR-CD-256"
+  },
+  "active_gpus": {
+    "3242842": 1,
+    "3242876": 1,
+    "3242908": 1
+  },
+  "variants": {
+    "H_POSTERIOR": {
+      "main_loss": [
+        1.929159,
+        1.197559,
+        1.096366,
+        1.048164
+      ],
+      "test_f1": [
+        0.819729,
+        0.849836,
+        0.854118,
+        0.864101
+      ],
+      "epoch_seconds": [
+        64.4,
+        64.4,
+        63.4,
+        63.4
+      ],
+      "latest_epoch": 5,
+      "latest_test_f1": 0.872312,
+      "finite": true,
+      "diagnostics": {
+        "stage1": {
+          "gamma_context_rms": 0.12276311218738556,
+          "context_residual_to_feature_rms": 0.0682377740740776,
+          "radius_cv": 0.19154316186904907,
+          "compression_temperature": 0.6132231950759888,
+          "query_attention_tv": 0.17173254489898682
+        },
+        "stage2": {
+          "gamma_context_rms": 0.09212754666805267,
+          "context_residual_to_feature_rms": 0.03466620668768883,
+          "radius_cv": 0.198054239153862,
+          "compression_temperature": 0.6132231950759888,
+          "query_attention_tv": 0.17810291051864624
+        },
+        "stage3": {
+          "gamma_context_rms": 0.07620511949062347,
+          "context_residual_to_feature_rms": 0.0474415086209774,
+          "radius_cv": 0.22475673258304596,
+          "compression_temperature": 0.6132231950759888,
+          "query_attention_tv": 0.23044556379318237
+        },
+        "stage4": {
+          "gamma_context_rms": 0.05032625049352646,
+          "context_residual_to_feature_rms": 0.010963612236082554,
+          "radius_cv": 0.19140635430812836,
+          "compression_temperature": 0.6132231950759888,
+          "query_attention_tv": 0.13772936165332794
+        }
+      }
+    },
+    "E_POSTERIOR": {
+      "main_loss": [
+        1.929717,
+        1.201027,
+        1.119135,
+        1.046888
+      ],
+      "test_f1": [
+        0.813144,
+        0.852042,
+        0.841023,
+        0.867949
+      ],
+      "epoch_seconds": [
+        69.1,
+        59.7,
+        60.5,
+        64.2
+      ],
+      "latest_epoch": 5,
+      "latest_test_f1": 0.868097,
+      "finite": true,
+      "diagnostics": {
+        "stage1": {
+          "gamma_context_rms": 0.1107972264289856,
+          "context_residual_to_feature_rms": 0.05168384313583374,
+          "radius_cv": 0.17914432287216187,
+          "compression_temperature": 0.6160228848457336,
+          "query_attention_tv": 0.1709059625864029
+        },
+        "stage2": {
+          "gamma_context_rms": 0.08831493556499481,
+          "context_residual_to_feature_rms": 0.027941526845097542,
+          "radius_cv": 0.19811391830444336,
+          "compression_temperature": 0.6160228848457336,
+          "query_attention_tv": 0.17607000470161438
+        },
+        "stage3": {
+          "gamma_context_rms": 0.07963721454143524,
+          "context_residual_to_feature_rms": 0.05407816916704178,
+          "radius_cv": 0.23592565953731537,
+          "compression_temperature": 0.6160228848457336,
+          "query_attention_tv": 0.24347944557666779
+        },
+        "stage4": {
+          "gamma_context_rms": 0.041684139519929886,
+          "context_residual_to_feature_rms": 0.007546980865299702,
+          "radius_cv": 0.16245083510875702,
+          "compression_temperature": 0.6160228848457336,
+          "query_attention_tv": 0.12336978316307068
+        }
+      }
+    },
+    "M0_CTRL": {
+      "main_loss": [
+        1.930353,
+        1.200707,
+        1.11252,
+        1.04596
+      ],
+      "test_f1": [
+        0.813763,
+        0.837905,
+        0.848835,
+        0.849261
+      ],
+      "epoch_seconds": [
+        67.5,
+        58.8,
+        58.9,
+        59.0
+      ],
+      "latest_epoch": 6,
+      "latest_test_f1": 0.866512,
+      "finite": true,
+      "diagnostics": {}
+    }
+  },
+  "eta_hours_range": [
+    12,
+    15
+  ],
+  "eta_basis": "Initial LEVIR three-way epoch throughput; later dataset evaluation and shared resources can change timing."
+}
