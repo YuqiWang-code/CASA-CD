@@ -1,0 +1,1316 @@
+[
+  {
+    "epoch": 1,
+    "step": 222,
+    "train_loss": 2.52479733164246,
+    "main_loss": 2.139607571266793,
+    "guide_loss": 1.9259487602624807,
+    "gradient_norm_mean": 36.55643902812992,
+    "gradient_norm_max": 183.45724487304688,
+    "validation_loss": 1.525391487404704,
+    "validation_metrics": {
+      "Kappa": 0.6776679953102946,
+      "IoU": 0.5240563583849234,
+      "F1": 0.6877125154741672,
+      "OA": 0.9791554361581785,
+      "recall": 0.546916699689069,
+      "precision": 0.9261319872647951,
+      "Pre": 0.9353320069414526
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.3773634572966496,
+        "recall": 0.29444715953703937,
+        "F1": 0.33078845534702883,
+        "predicted_pixels": 661002,
+        "target_pixels": 863486
+      },
+      "boundary_2px": {
+        "precision": 0.55094084435448,
+        "recall": 0.44458508881441045,
+        "F1": 0.49208177518619967,
+        "predicted_pixels": 661002,
+        "target_pixels": 863486
+      },
+      "interior": {
+        "precision": 0.9366659432928512,
+        "recall": 0.6956269564486388,
+        "F1": 0.7983494622136629,
+        "predicted_pixels": 1493004,
+        "target_pixels": 2010339,
+        "tp": 1398446,
+        "fp": 94558,
+        "fn": 611893,
+        "tn": 63325057
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {
+      "stage4": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.20437660813331604,
+          "qkv": 0.20437505841255188,
+          "frequency": 0.20357143878936768,
+          "tar": 0.3876769542694092
+        },
+        "route_variance": {
+          "hyperbolic": 0.0014766751555725932,
+          "qkv": 0.0014766997192054987,
+          "frequency": 0.0014796846080571413,
+          "tar": 0.013299141079187393
+        },
+        "route_entropy": 0.9392006993293762,
+        "expert_rms": {
+          "hyperbolic": 0.1476948857307434,
+          "qkv": 0.1474686861038208,
+          "frequency": 0.03300252556800842,
+          "tar": 4.207826137542725
+        },
+        "effective_rms": {
+          "hyperbolic": 0.03089076094329357,
+          "qkv": 0.030849717557430267,
+          "frequency": 0.007158687338232994,
+          "tar": 1.6054801940917969
+        },
+        "residual_to_feature_rms": 1.184653639793396,
+        "feature_rms": 1.364650011062622,
+        "tar_rms": 4.365207195281982,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5148653984069824,
+            "scaled_distance_mean": 0.5586340427398682,
+            "scaled_distance_std": 0.263692170381546,
+            "scale_mass": [
+              0.24861176311969757,
+              0.26127201318740845,
+              0.258638471364975,
+              0.2314777374267578
+            ],
+            "entropy": 0.9340229630470276,
+            "retrieved_spatial_std": 0.03133299574255943
+          },
+          "qkv": {
+            "temperature": 0.5143744945526123,
+            "scaled_distance_mean": 0.5982677340507507,
+            "scaled_distance_std": 0.28778958320617676,
+            "scale_mass": [
+              0.2473970651626587,
+              0.2601429224014282,
+              0.2581366002559662,
+              0.2343234121799469
+            ],
+            "entropy": 0.9331843256950378,
+            "retrieved_spatial_std": 0.033780112862586975
+          },
+          "radius_mean": 0.4951412081718445,
+          "radius_cv": 0.1836838275194168,
+          "attention_he_tv": 0.005368463695049286,
+          "residual_he_cosine": 0.9999975562095642
+        }
+      },
+      "stage3": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.25012266635894775,
+          "qkv": 0.25012290477752686,
+          "frequency": 0.25005006790161133,
+          "tar": 0.24970436096191406
+        },
+        "route_variance": {
+          "hyperbolic": 5.1448498794570696e-08,
+          "qkv": 5.1451195304252906e-08,
+          "frequency": 5.211720122133556e-08,
+          "tar": 4.6492979777212895e-07
+        },
+        "route_entropy": 0.9999988079071045,
+        "expert_rms": {
+          "hyperbolic": 0.012062949128448963,
+          "qkv": 0.012050208635628223,
+          "frequency": 0.004712791182100773,
+          "tar": 3.1930367946624756
+        },
+        "effective_rms": {
+          "hyperbolic": 0.0030169065576046705,
+          "qkv": 0.0030137153808027506,
+          "frequency": 0.0011785052483901381,
+          "tar": 0.7975001335144043
+        },
+        "residual_to_feature_rms": 0.6577986478805542,
+        "feature_rms": 1.212953805923462,
+        "tar_rms": 3.284175395965576,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5148653984069824,
+            "scaled_distance_mean": 0.6900159120559692,
+            "scaled_distance_std": 0.2719225585460663,
+            "scale_mass": [
+              0.246719628572464,
+              0.26530998945236206,
+              0.2790977358818054,
+              0.20887267589569092
+            ],
+            "entropy": 0.9307518601417542,
+            "retrieved_spatial_std": 0.030235227197408676
+          },
+          "qkv": {
+            "temperature": 0.5143744945526123,
+            "scaled_distance_mean": 0.7524386644363403,
+            "scaled_distance_std": 0.29806292057037354,
+            "scale_mass": [
+              0.2450755387544632,
+              0.26437193155288696,
+              0.28157663345336914,
+              0.2089759111404419
+            ],
+            "entropy": 0.9294889569282532,
+            "retrieved_spatial_std": 0.032931916415691376
+          },
+          "radius_mean": 0.5675531625747681,
+          "radius_cv": 0.1127338856458664,
+          "attention_he_tv": 0.006326666101813316,
+          "residual_he_cosine": 0.9999816417694092
+        }
+      },
+      "stage2": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.238846555352211,
+          "qkv": 0.2388465851545334,
+          "frequency": 0.23863162100315094,
+          "tar": 0.28367525339126587
+        },
+        "route_variance": {
+          "hyperbolic": 5.277521267998964e-06,
+          "qkv": 5.27760676050093e-06,
+          "frequency": 5.429152224678546e-06,
+          "tar": 4.795061977347359e-05
+        },
+        "route_entropy": 0.9977930784225464,
+        "expert_rms": {
+          "hyperbolic": 0.017288055270910263,
+          "qkv": 0.017317144200205803,
+          "frequency": 0.001791726564988494,
+          "tar": 2.5658810138702393
+        },
+        "effective_rms": {
+          "hyperbolic": 0.004129988607019186,
+          "qkv": 0.004136949777603149,
+          "frequency": 0.00042749487329274416,
+          "tar": 0.7281016111373901
+        },
+        "residual_to_feature_rms": 0.8262306451797485,
+        "feature_rms": 0.8817259073257446,
+        "tar_rms": 2.6944937705993652,
+        "wavelet_ll_rms": 2.419539568698781e-10,
+        "routed_wavelet_ll_rms": 2.665212605279521e-06,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5148653984069824,
+            "scaled_distance_mean": 0.6631615161895752,
+            "scaled_distance_std": 0.2403063327074051,
+            "scale_mass": [
+              0.2494364231824875,
+              0.27210313081741333,
+              0.26127809286117554,
+              0.21718236804008484
+            ],
+            "entropy": 0.9338693022727966,
+            "retrieved_spatial_std": 0.023052358999848366
+          },
+          "qkv": {
+            "temperature": 0.5143744945526123,
+            "scaled_distance_mean": 0.7177045941352844,
+            "scaled_distance_std": 0.2619584798812866,
+            "scale_mass": [
+              0.24837976694107056,
+              0.2721714377403259,
+              0.26225289702415466,
+              0.21719592809677124
+            ],
+            "entropy": 0.9331149458885193,
+            "retrieved_spatial_std": 0.025106128305196762
+          },
+          "radius_mean": 0.5475806593894958,
+          "radius_cv": 0.1205129474401474,
+          "attention_he_tv": 0.004650424234569073,
+          "residual_he_cosine": 0.9999898076057434
+        }
+      },
+      "stage1": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.24564191699028015,
+          "qkv": 0.2456420361995697,
+          "frequency": 0.24556571245193481,
+          "tar": 0.26315033435821533
+        },
+        "route_variance": {
+          "hyperbolic": 3.4874128687079065e-06,
+          "qkv": 3.487292588033597e-06,
+          "frequency": 3.5565249163482804e-06,
+          "tar": 3.1592921004630625e-05
+        },
+        "route_entropy": 0.9996123313903809,
+        "expert_rms": {
+          "hyperbolic": 0.015645215287804604,
+          "qkv": 0.015666507184505463,
+          "frequency": 0.0038204488810151815,
+          "tar": 2.578369140625
+        },
+        "effective_rms": {
+          "hyperbolic": 0.00384729215875268,
+          "qkv": 0.0038525669369846582,
+          "frequency": 0.0009392361389473081,
+          "tar": 0.6787330508232117
+        },
+        "residual_to_feature_rms": 0.6395969390869141,
+        "feature_rms": 1.0608617067337036,
+        "tar_rms": 2.6836330890655518,
+        "wavelet_ll_rms": 5.065641239809793e-10,
+        "routed_wavelet_ll_rms": 4.834873379877536e-06,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5148653984069824,
+            "scaled_distance_mean": 0.6785547137260437,
+            "scaled_distance_std": 0.24282243847846985,
+            "scale_mass": [
+              0.2535530924797058,
+              0.26446855068206787,
+              0.2608654499053955,
+              0.22111287713050842
+            ],
+            "entropy": 0.9358465671539307,
+            "retrieved_spatial_std": 0.02470170147716999
+          },
+          "qkv": {
+            "temperature": 0.5143744945526123,
+            "scaled_distance_mean": 0.7360565662384033,
+            "scaled_distance_std": 0.2651491165161133,
+            "scale_mass": [
+              0.252765953540802,
+              0.26397210359573364,
+              0.261692613363266,
+              0.22156932950019836
+            ],
+            "entropy": 0.9352259039878845,
+            "retrieved_spatial_std": 0.026989690959453583
+          },
+          "radius_mean": 0.5550314784049988,
+          "radius_cv": 0.11745956540107727,
+          "attention_he_tv": 0.004554068669676781,
+          "residual_he_cosine": 0.9999860525131226
+        }
+      }
+    },
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0024262338574245505,
+      "stem.project.1.weight": 0.00657818958423543,
+      "stem.project.2.weight": 0.02639428151671003,
+      "stem.project.3.weight": 0.008380142765418222,
+      "stem.fuse.0.0.weight": 0.0063208443031157625,
+      "stem.fuse.0.1.weight": 0.004951704893001272,
+      "stem.fuse.0.1.bias": 0.0041848573002352075,
+      "stem.fuse.1.0.weight": 0.010397719051170106,
+      "stem.fuse.1.1.weight": 0.007272965371590959,
+      "stem.fuse.1.1.bias": 0.005525490260774116,
+      "stem.fuse.2.0.weight": 0.05749888282284511,
+      "stem.fuse.2.1.weight": 0.03655815787694501,
+      "stem.fuse.2.1.bias": 0.016793604708319806,
+      "stem.fuse.3.0.weight": 0.020270730847120572,
+      "stem.fuse.3.1.weight": 0.013308548659889705,
+      "stem.fuse.3.1.bias": 0.005169364792442792,
+      "norm.weight": 0.0009206016260952972,
+      "norm.bias": 7.292593205666689e-06,
+      "guide.weight": 0.00025136215167795084,
+      "guide.bias": 5.41649351362139e-05,
+      "retrieval.scale_bias": 0.00012435400125525802,
+      "retrieval.raw_temperature": 0.00030774855950748466,
+      "retrieval.gamma": 0.0078107792277363,
+      "retrieval.qk.weight": 0.0001722122418049798,
+      "retrieval.v.weight": 0.0005949838911727412,
+      "retrieval.out.weight": 0.00029811022115289025,
+      "wavelet.eta": 0.0009584509570514949,
+      "wavelet.high.0.0.weight": 1.07191370684514e-07,
+      "wavelet.high.0.2.weight": 1.0674086199083593e-07,
+      "wavelet.high.1.0.weight": 1.0251957415465551e-07,
+      "wavelet.high.1.2.weight": 9.785538970798219e-08,
+      "wavelet.out.0.weight": 9.661957139997504e-07,
+      "wavelet.out.1.weight": 1.0934859533580895e-06,
+      "wavelet.low.0.0.weight": 1.2772904926207633e-05,
+      "wavelet.low.0.2.weight": 2.5868384222963708e-05,
+      "wavelet.low.1.0.weight": 2.4393582163322847e-05,
+      "wavelet.low.1.2.weight": 6.55591518330625e-05,
+      "router.0.0.weight": 6.306446067901535e-05,
+      "router.0.0.bias": 5.623102454965886e-05,
+      "router.0.2.weight": 0.00010051390162770138,
+      "router.0.2.bias": 0.0001622509915751638,
+      "router.0.4.weight": 0.0009336008363697285,
+      "router.0.4.bias": 0.004350567032806887,
+      "router.1.0.weight": 0.00024102665180885337,
+      "router.1.0.bias": 0.00011002413937837388,
+      "router.1.2.weight": 0.0003140000104438299,
+      "router.1.2.bias": 0.00014910009368806766,
+      "router.1.4.weight": 0.0015195193698953344,
+      "router.1.4.bias": 0.002625976569015947,
+      "router.2.0.weight": 6.24272913450919e-05,
+      "router.2.0.bias": 4.5764713767120825e-05,
+      "router.2.2.weight": 9.537946982219845e-05,
+      "router.2.2.bias": 8.29850790711379e-05,
+      "router.2.4.weight": 0.003893627913656857,
+      "router.2.4.bias": 0.008831048686095463,
+      "router.3.0.weight": 0.0019421400917161327,
+      "router.3.0.bias": 0.0010558245319423588,
+      "router.3.2.weight": 0.004146009825833384,
+      "router.3.2.bias": 0.002296203883540996,
+      "router.3.4.weight": 0.00828848517100644,
+      "router.3.4.bias": 0.026453327769155016
+    },
+    "branch_task_gradients": {
+      "3": {
+        "output_grad_rms": [
+          0.00010708691165517603,
+          0.00010708638568926785,
+          0.00010672032068810729
+        ],
+        "qk_he_gradient_rms": [
+          6.487022002825115e-05,
+          6.95791012711627e-05
+        ],
+        "qk_he_gradient_cosine": 0.9984315633773804
+      },
+      "2": {
+        "output_grad_rms": [
+          8.752369489070591e-05,
+          8.752377726367646e-05,
+          8.750016781063217e-05
+        ],
+        "qk_he_gradient_rms": [
+          5.427809771086294e-05,
+          6.0271352459152385e-05
+        ],
+        "qk_he_gradient_cosine": 0.999783456325531
+      },
+      "1": {
+        "output_grad_rms": [
+          1.537571336656019e-05,
+          1.537571227673865e-05,
+          1.5357755338169916e-05
+        ],
+        "qk_he_gradient_rms": [
+          1.2008705398030666e-05,
+          1.2882094436535883e-05
+        ],
+        "qk_he_gradient_cosine": 0.9994014501571655
+      },
+      "0": {
+        "output_grad_rms": [
+          2.9614343395460786e-06,
+          2.9614361279876353e-06,
+          2.960330393599028e-06
+        ],
+        "qk_he_gradient_rms": [
+          3.0054108056318084e-06,
+          3.246827937005934e-06
+        ],
+        "qk_he_gradient_cosine": 0.999111533164978
+      }
+    },
+    "router_tar_input_grad_rms": [
+      6.303763631293457e-05,
+      0.0002802413858086633,
+      5.094992181719137e-05,
+      0.001887771501109326
+    ],
+    "sample_main_loss": 2.892629623413086,
+    "sample_guide_loss": 1.2164435386657715
+  },
+  {
+    "epoch": 2,
+    "step": 444,
+    "train_loss": 1.288666549835119,
+    "main_loss": 1.1867331636918557,
+    "guide_loss": 0.509666933803945,
+    "gradient_norm_mean": 6.8523315234227224,
+    "gradient_norm_max": 18.06535530090332,
+    "validation_loss": 1.170818792656064,
+    "validation_metrics": {
+      "Kappa": 0.849605050149002,
+      "IoU": 0.7479945325733673,
+      "F1": 0.8558316019298766,
+      "OA": 0.9880602061748487,
+      "recall": 0.8444835505711457,
+      "precision": 0.8674889169829305,
+      "Pre": 0.9206104072179251
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.7219964335655364,
+        "recall": 0.6638219959559275,
+        "F1": 0.6916881799126231,
+        "predicted_pixels": 779490,
+        "target_pixels": 863486
+      },
+      "boundary_2px": {
+        "precision": 0.8402814660868003,
+        "recall": 0.7859050407302492,
+        "F1": 0.812184133937246,
+        "predicted_pixels": 779490,
+        "target_pixels": 863486
+      },
+      "interior": {
+        "precision": 0.92981658697018,
+        "recall": 0.9157898245022357,
+        "F1": 0.9227499034546083,
+        "predicted_pixels": 1980012,
+        "target_pixels": 2010339,
+        "tp": 1841048,
+        "fp": 138964,
+        "fn": 169291,
+        "tn": 63280651
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {
+      "stage4": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.1850690245628357,
+          "qkv": 0.1850602775812149,
+          "frequency": 0.18132756650447845,
+          "tar": 0.44854313135147095
+        },
+        "route_variance": {
+          "hyperbolic": 0.0020235476549714804,
+          "qkv": 0.0020234715193510056,
+          "frequency": 0.0019859743770211935,
+          "tar": 0.018098166212439537
+        },
+        "route_entropy": 0.8984329104423523,
+        "expert_rms": {
+          "hyperbolic": 0.3400000333786011,
+          "qkv": 0.33846256136894226,
+          "frequency": 0.03782619163393974,
+          "tar": 4.091765403747559
+        },
+        "effective_rms": {
+          "hyperbolic": 0.06888497620820999,
+          "qkv": 0.06857454031705856,
+          "frequency": 0.007309562060981989,
+          "tar": 1.845484972000122
+        },
+        "residual_to_feature_rms": 1.9317175149917603,
+        "feature_rms": 0.9726174473762512,
+        "tar_rms": 4.319149494171143,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5064934492111206,
+            "scaled_distance_mean": 0.6839659810066223,
+            "scaled_distance_std": 0.4040125012397766,
+            "scale_mass": [
+              0.2806199789047241,
+              0.29629528522491455,
+              0.2093684822320938,
+              0.21371623873710632
+            ],
+            "entropy": 0.9010137319564819,
+            "retrieved_spatial_std": 0.06396425515413284
+          },
+          "qkv": {
+            "temperature": 0.5064420700073242,
+            "scaled_distance_mean": 0.7396900057792664,
+            "scaled_distance_std": 0.4506285786628723,
+            "scale_mass": [
+              0.2778129577636719,
+              0.2961665987968445,
+              0.20893928408622742,
+              0.21708117425441742
+            ],
+            "entropy": 0.898786723613739,
+            "retrieved_spatial_std": 0.06984002143144608
+          },
+          "radius_mean": 0.5803020000457764,
+          "radius_cv": 0.13790994882583618,
+          "attention_he_tv": 0.009252827614545822,
+          "residual_he_cosine": 0.9999932050704956
+        }
+      },
+      "stage3": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.2551564574241638,
+          "qkv": 0.2553021013736725,
+          "frequency": 0.2530381679534912,
+          "tar": 0.23650327324867249
+        },
+        "route_variance": {
+          "hyperbolic": 1.415413680661004e-05,
+          "qkv": 1.4852243111818098e-05,
+          "frequency": 7.282498700078577e-06,
+          "tar": 0.00010632618796080351
+        },
+        "route_entropy": 0.9994198679924011,
+        "expert_rms": {
+          "hyperbolic": 0.039659641683101654,
+          "qkv": 0.039449021220207214,
+          "frequency": 0.015072330832481384,
+          "tar": 2.7403652667999268
+        },
+        "effective_rms": {
+          "hyperbolic": 0.01015257928520441,
+          "qkv": 0.010097210295498371,
+          "frequency": 0.003819328499957919,
+          "tar": 0.6502523422241211
+        },
+        "residual_to_feature_rms": 0.583594024181366,
+        "feature_rms": 1.1152772903442383,
+        "tar_rms": 2.844388723373413,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5064934492111206,
+            "scaled_distance_mean": 1.1141279935836792,
+            "scaled_distance_std": 0.5690286159515381,
+            "scale_mass": [
+              0.24348761141300201,
+              0.2536228597164154,
+              0.27409881353378296,
+              0.22879071533679962
+            ],
+            "entropy": 0.881905198097229,
+            "retrieved_spatial_std": 0.1201290637254715
+          },
+          "qkv": {
+            "temperature": 0.5064420700073242,
+            "scaled_distance_mean": 1.3073394298553467,
+            "scaled_distance_std": 0.6928803324699402,
+            "scale_mass": [
+              0.23121747374534607,
+              0.24574711918830872,
+              0.29347676038742065,
+              0.22955864667892456
+            ],
+            "entropy": 0.8732544183731079,
+            "retrieved_spatial_std": 0.13997593522071838
+          },
+          "radius_mean": 0.7565842866897583,
+          "radius_cv": 0.15984468162059784,
+          "attention_he_tv": 0.027186084538698196,
+          "residual_he_cosine": 0.9985911846160889
+        }
+      },
+      "stage2": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.24290257692337036,
+          "qkv": 0.24289990961551666,
+          "frequency": 0.2423728108406067,
+          "tar": 0.2718246579170227
+        },
+        "route_variance": {
+          "hyperbolic": 2.3505168428528123e-05,
+          "qkv": 2.3522374249296263e-05,
+          "frequency": 2.4307159037562087e-05,
+          "tar": 0.00021398512762971222
+        },
+        "route_entropy": 0.9987068772315979,
+        "expert_rms": {
+          "hyperbolic": 0.05010563135147095,
+          "qkv": 0.050489671528339386,
+          "frequency": 0.003957830835133791,
+          "tar": 2.284731149673462
+        },
+        "effective_rms": {
+          "hyperbolic": 0.01220740657299757,
+          "qkv": 0.012301255017518997,
+          "frequency": 0.0009622842771932483,
+          "tar": 0.6272224187850952
+        },
+        "residual_to_feature_rms": 0.7930878400802612,
+        "feature_rms": 0.7929984927177429,
+        "tar_rms": 2.3735060691833496,
+        "wavelet_ll_rms": 5.38991073995021e-10,
+        "routed_wavelet_ll_rms": 9.202713954437058e-06,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5064934492111206,
+            "scaled_distance_mean": 0.870573878288269,
+            "scaled_distance_std": 0.37872418761253357,
+            "scale_mass": [
+              0.27224472165107727,
+              0.2900083661079407,
+              0.19228476285934448,
+              0.24546214938163757
+            ],
+            "entropy": 0.8995704054832458,
+            "retrieved_spatial_std": 0.062189821153879166
+          },
+          "qkv": {
+            "temperature": 0.5064420700073242,
+            "scaled_distance_mean": 0.9499697685241699,
+            "scaled_distance_std": 0.42346683144569397,
+            "scale_mass": [
+              0.26923030614852905,
+              0.29080379009246826,
+              0.19220367074012756,
+              0.24776223301887512
+            ],
+            "entropy": 0.897256076335907,
+            "retrieved_spatial_std": 0.06876104325056076
+          },
+          "radius_mean": 0.6245500445365906,
+          "radius_cv": 0.11804354935884476,
+          "attention_he_tv": 0.00943884439766407,
+          "residual_he_cosine": 0.9998652935028076
+        }
+      },
+      "stage1": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.2524820566177368,
+          "qkv": 0.2524762749671936,
+          "frequency": 0.2510206401348114,
+          "tar": 0.2440209835767746
+        },
+        "route_variance": {
+          "hyperbolic": 9.45128413150087e-05,
+          "qkv": 9.46223153732717e-05,
+          "frequency": 8.709025860298425e-05,
+          "tar": 0.000828132382594049
+        },
+        "route_entropy": 0.9983169436454773,
+        "expert_rms": {
+          "hyperbolic": 0.05961400642991066,
+          "qkv": 0.05992861092090607,
+          "frequency": 0.01341062132269144,
+          "tar": 2.486088514328003
+        },
+        "effective_rms": {
+          "hyperbolic": 0.01516664493829012,
+          "qkv": 0.015246150083839893,
+          "frequency": 0.0033890893682837486,
+          "tar": 0.6067432165145874
+        },
+        "residual_to_feature_rms": 0.6985769867897034,
+        "feature_rms": 0.8701258301734924,
+        "tar_rms": 2.589005708694458,
+        "wavelet_ll_rms": 1.7277197450482618e-09,
+        "routed_wavelet_ll_rms": 5.3084611863596365e-05,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.5064934492111206,
+            "scaled_distance_mean": 0.8775387406349182,
+            "scaled_distance_std": 0.37584319710731506,
+            "scale_mass": [
+              0.28470665216445923,
+              0.27994027733802795,
+              0.1903638243675232,
+              0.244989275932312
+            ],
+            "entropy": 0.9062870740890503,
+            "retrieved_spatial_std": 0.07308636605739594
+          },
+          "qkv": {
+            "temperature": 0.5064420700073242,
+            "scaled_distance_mean": 0.9540277719497681,
+            "scaled_distance_std": 0.42072349786758423,
+            "scale_mass": [
+              0.2833457589149475,
+              0.2805808186531067,
+              0.18912304937839508,
+              0.2469504177570343
+            ],
+            "entropy": 0.9045776724815369,
+            "retrieved_spatial_std": 0.0813954696059227
+          },
+          "radius_mean": 0.6091122627258301,
+          "radius_cv": 0.13306915760040283,
+          "attention_he_tv": 0.009125960990786552,
+          "residual_he_cosine": 0.9999184012413025
+        }
+      }
+    },
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0012855785284466845,
+      "stem.project.1.weight": 0.007076526923709305,
+      "stem.project.2.weight": 0.01947798718949177,
+      "stem.project.3.weight": 0.006005560931482391,
+      "stem.fuse.0.0.weight": 0.0027411912131170093,
+      "stem.fuse.0.1.weight": 0.002228126267577144,
+      "stem.fuse.0.1.bias": 0.0021884081815958982,
+      "stem.fuse.1.0.weight": 0.008249936580641798,
+      "stem.fuse.1.1.weight": 0.006541161390822212,
+      "stem.fuse.1.1.bias": 0.005169241774389073,
+      "stem.fuse.2.0.weight": 0.026192263683219228,
+      "stem.fuse.2.1.weight": 0.019737950805889973,
+      "stem.fuse.2.1.bias": 0.011019392515017977,
+      "stem.fuse.3.0.weight": 0.01725827364215749,
+      "stem.fuse.3.1.weight": 0.010414786755229841,
+      "stem.fuse.3.1.bias": 0.007251781880360883,
+      "norm.weight": 0.002937362557063634,
+      "norm.bias": 7.990363185726e-05,
+      "guide.weight": 0.001548188068838622,
+      "guide.bias": 0.000509357254486531,
+      "retrieval.scale_bias": 0.0016587284009348324,
+      "retrieval.raw_temperature": 0.010097541714212923,
+      "retrieval.gamma": 0.021069805006894156,
+      "retrieval.qk.weight": 0.00096543391393095,
+      "retrieval.v.weight": 0.0013558050275955242,
+      "retrieval.out.weight": 0.0008669000620048044,
+      "wavelet.eta": 0.0011665949471422017,
+      "wavelet.high.0.0.weight": 3.2440837297156834e-07,
+      "wavelet.high.0.2.weight": 3.7277093314724447e-07,
+      "wavelet.high.1.0.weight": 3.0066582716051476e-07,
+      "wavelet.high.1.2.weight": 3.166163406657799e-07,
+      "wavelet.out.0.weight": 3.4267035511003162e-06,
+      "wavelet.out.1.weight": 3.4366670636263636e-06,
+      "wavelet.low.0.0.weight": 2.2552666418033147e-05,
+      "wavelet.low.0.2.weight": 4.2959950158620904e-05,
+      "wavelet.low.1.0.weight": 3.061911681740758e-05,
+      "wavelet.low.1.2.weight": 8.664819485205664e-05,
+      "router.0.0.weight": 0.0004868688664014485,
+      "router.0.0.bias": 0.0006493681256131666,
+      "router.0.2.weight": 0.0010445929508000505,
+      "router.0.2.bias": 0.0009702340197844566,
+      "router.0.4.weight": 0.004642297398324543,
+      "router.0.4.bias": 0.009751902153947174,
+      "router.1.0.weight": 0.000453653186583675,
+      "router.1.0.bias": 0.0003706030502525304,
+      "router.1.2.weight": 0.000700492655773048,
+      "router.1.2.bias": 0.0006410505400168174,
+      "router.1.4.weight": 0.002515420482518924,
+      "router.1.4.bias": 0.00980665561545706,
+      "router.2.0.weight": 0.0007604422692680058,
+      "router.2.0.bias": 0.0008403463316135132,
+      "router.2.2.weight": 0.003028481264839806,
+      "router.2.2.bias": 0.0012485177252578319,
+      "router.2.4.weight": 0.015263856273059562,
+      "router.2.4.bias": 0.020611251378011692,
+      "router.3.0.weight": 0.007583394416327726,
+      "router.3.0.bias": 0.00838263530744484,
+      "router.3.2.weight": 0.012479255383615474,
+      "router.3.2.bias": 0.023287694551116123,
+      "router.3.4.weight": 0.045742702226179904,
+      "router.3.4.bias": 0.17064920979924572
+    },
+    "branch_task_gradients": {
+      "3": {
+        "output_grad_rms": [
+          0.00011135829115859688,
+          0.00011135586675768497,
+          0.0001094480959001263
+        ],
+        "qk_he_gradient_rms": [
+          0.0003751363645726842,
+          0.0004113190961788061
+        ],
+        "qk_he_gradient_cosine": 0.9998364448547363
+      },
+      "2": {
+        "output_grad_rms": [
+          9.4934139414125e-05,
+          9.512233951416869e-05,
+          9.263274961377856e-05
+        ],
+        "qk_he_gradient_rms": [
+          0.0005903491588001936,
+          0.000718182361296714
+        ],
+        "qk_he_gradient_cosine": 0.9933192729949951
+      },
+      "1": {
+        "output_grad_rms": [
+          1.7050359205129286e-05,
+          1.704981451569132e-05,
+          1.700001497432415e-05
+        ],
+        "qk_he_gradient_rms": [
+          6.210847234044037e-05,
+          6.661850613008818e-05
+        ],
+        "qk_he_gradient_cosine": 0.9982694387435913
+      },
+      "0": {
+        "output_grad_rms": [
+          2.8292375745803163e-06,
+          2.8289931084641104e-06,
+          2.8116607375244353e-06
+        ],
+        "qk_he_gradient_rms": [
+          2.1588996844000022e-05,
+          2.2747079165147952e-05
+        ],
+        "qk_he_gradient_cosine": 0.9983899593353271
+      }
+    },
+    "router_tar_input_grad_rms": [
+      0.00042564088613058446,
+      0.0004215288230559193,
+      0.0007279410492440259,
+      0.007512646357130154
+    ],
+    "sample_main_loss": 1.8966277837753296,
+    "sample_guide_loss": 0.40167826414108276
+  },
+  {
+    "epoch": 3,
+    "step": 666,
+    "train_loss": 1.1625572824263357,
+    "main_loss": 1.083194217703364,
+    "guide_loss": 0.3968153162314011,
+    "gradient_norm_mean": 4.198682805439374,
+    "gradient_norm_max": 14.524857521057129,
+    "validation_loss": 1.1075409930199385,
+    "validation_metrics": {
+      "Kappa": 0.8511609432681638,
+      "IoU": 0.7499708510865353,
+      "F1": 0.8571237613185743,
+      "OA": 0.9885284304618818,
+      "recall": 0.8199407868853044,
+      "precision": 0.8978394368102505,
+      "Pre": 0.922926348836068
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.7508090743080781,
+        "recall": 0.6712847689481937,
+        "F1": 0.7088233991886844,
+        "predicted_pixels": 757347,
+        "target_pixels": 863486
+      },
+      "boundary_2px": {
+        "precision": 0.8640675938506391,
+        "recall": 0.7855460308563196,
+        "F1": 0.8229380002381073,
+        "predicted_pixels": 757347,
+        "target_pixels": 863486
+      },
+      "interior": {
+        "precision": 0.9535951335594278,
+        "recall": 0.9001805168183078,
+        "F1": 0.9261182818838245,
+        "predicted_pixels": 1897732,
+        "target_pixels": 2010339,
+        "tp": 1809668,
+        "fp": 88064,
+        "fn": 200671,
+        "tn": 63331551
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {
+      "stage4": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.16370412707328796,
+          "qkv": 0.1636563241481781,
+          "frequency": 0.15644463896751404,
+          "tar": 0.5161948800086975
+        },
+        "route_variance": {
+          "hyperbolic": 0.0023460122756659985,
+          "qkv": 0.002345446962863207,
+          "frequency": 0.002288511022925377,
+          "tar": 0.020934954285621643
+        },
+        "route_entropy": 0.8426584005355835,
+        "expert_rms": {
+          "hyperbolic": 0.45810723304748535,
+          "qkv": 0.4550582468509674,
+          "frequency": 0.04637378081679344,
+          "tar": 4.20927095413208
+        },
+        "effective_rms": {
+          "hyperbolic": 0.08238185942173004,
+          "qkv": 0.08191471546888351,
+          "frequency": 0.007945179007947445,
+          "tar": 2.1612823009490967
+        },
+        "residual_to_feature_rms": 1.878551959991455,
+        "feature_rms": 1.1683074235916138,
+        "tar_rms": 4.422245502471924,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.49800920486450195,
+            "scaled_distance_mean": 0.9723488092422485,
+            "scaled_distance_std": 0.7162186503410339,
+            "scale_mass": [
+              0.278620183467865,
+              0.29899901151657104,
+              0.21492138504981995,
+              0.20745941996574402
+            ],
+            "entropy": 0.8900052309036255,
+            "retrieved_spatial_std": 0.11487182974815369
+          },
+          "qkv": {
+            "temperature": 0.5008717179298401,
+            "scaled_distance_mean": 1.100291132926941,
+            "scaled_distance_std": 0.8843278884887695,
+            "scale_mass": [
+              0.2708287239074707,
+              0.29691219329833984,
+              0.21849945187568665,
+              0.213759645819664
+            ],
+            "entropy": 0.8849208354949951,
+            "retrieved_spatial_std": 0.13096198439598083
+          },
+          "radius_mean": 0.6751173138618469,
+          "radius_cv": 0.20186664164066315,
+          "attention_he_tv": 0.017740901559591293,
+          "residual_he_cosine": 0.999927282333374
+        }
+      },
+      "stage3": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.2645907998085022,
+          "qkv": 0.26570427417755127,
+          "frequency": 0.2499750405550003,
+          "tar": 0.21972990036010742
+        },
+        "route_variance": {
+          "hyperbolic": 0.0001484903768869117,
+          "qkv": 0.00017352376016788185,
+          "frequency": 2.909569275288959e-06,
+          "tar": 0.0007149055018089712
+        },
+        "route_entropy": 0.9962522983551025,
+        "expert_rms": {
+          "hyperbolic": 0.1082693338394165,
+          "qkv": 0.10572647303342819,
+          "frequency": 0.026051009073853493,
+          "tar": 3.084287405014038
+        },
+        "effective_rms": {
+          "hyperbolic": 0.029277615249156952,
+          "qkv": 0.028640897944569588,
+          "frequency": 0.006517959758639336,
+          "tar": 0.6946297883987427
+        },
+        "residual_to_feature_rms": 0.6107963919639587,
+        "feature_rms": 1.1453205347061157,
+        "tar_rms": 3.1359493732452393,
+        "wavelet_ll_rms": null,
+        "routed_wavelet_ll_rms": null,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.49800920486450195,
+            "scaled_distance_mean": 1.3628605604171753,
+            "scaled_distance_std": 0.8324148654937744,
+            "scale_mass": [
+              0.242732435464859,
+              0.2586626410484314,
+              0.2649281919002533,
+              0.2336767017841339
+            ],
+            "entropy": 0.8728368282318115,
+            "retrieved_spatial_std": 0.24663615226745605
+          },
+          "qkv": {
+            "temperature": 0.5008717179298401,
+            "scaled_distance_mean": 1.6367250680923462,
+            "scaled_distance_std": 1.0736182928085327,
+            "scale_mass": [
+              0.2277282029390335,
+              0.25081488490104675,
+              0.2853063941001892,
+              0.23615050315856934
+            ],
+            "entropy": 0.860567033290863,
+            "retrieved_spatial_std": 0.2996157705783844
+          },
+          "radius_mean": 0.8000001907348633,
+          "radius_cv": 0.20417800545692444,
+          "attention_he_tv": 0.03512522950768471,
+          "residual_he_cosine": 0.9964784979820251
+        }
+      },
+      "stage2": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.24940025806427002,
+          "qkv": 0.2493913769721985,
+          "frequency": 0.24701833724975586,
+          "tar": 0.25419002771377563
+        },
+        "route_variance": {
+          "hyperbolic": 6.214032327989116e-05,
+          "qkv": 6.216453039087355e-05,
+          "frequency": 5.278856770019047e-05,
+          "tar": 0.0005299672484397888
+        },
+        "route_entropy": 0.998924732208252,
+        "expert_rms": {
+          "hyperbolic": 0.08162491768598557,
+          "qkv": 0.08217546343803406,
+          "frequency": 0.00774276303127408,
+          "tar": 2.269258499145508
+        },
+        "effective_rms": {
+          "hyperbolic": 0.020423948764801025,
+          "qkv": 0.020562410354614258,
+          "frequency": 0.0019206565339118242,
+          "tar": 0.589697003364563
+        },
+        "residual_to_feature_rms": 0.6644049882888794,
+        "feature_rms": 0.8912253975868225,
+        "tar_rms": 2.354741334915161,
+        "wavelet_ll_rms": 1.0375059700251654e-09,
+        "routed_wavelet_ll_rms": 2.9465985790011473e-05,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.49800920486450195,
+            "scaled_distance_mean": 0.9894648194313049,
+            "scaled_distance_std": 0.5331089496612549,
+            "scale_mass": [
+              0.27060627937316895,
+              0.29329243302345276,
+              0.20270347595214844,
+              0.23339784145355225
+            ],
+            "entropy": 0.8897116780281067,
+            "retrieved_spatial_std": 0.06563322246074677
+          },
+          "qkv": {
+            "temperature": 0.5008717179298401,
+            "scaled_distance_mean": 1.0846132040023804,
+            "scaled_distance_std": 0.6253283023834229,
+            "scale_mass": [
+              0.2662125825881958,
+              0.29527682065963745,
+              0.20455467700958252,
+              0.23395594954490662
+            ],
+            "entropy": 0.8866913914680481,
+            "retrieved_spatial_std": 0.07326434552669525
+          },
+          "radius_mean": 0.6649312973022461,
+          "radius_cv": 0.12300251424312592,
+          "attention_he_tv": 0.011568337678909302,
+          "residual_he_cosine": 0.9998319149017334
+        }
+      },
+      "stage1": {
+        "finite": true,
+        "contexts": 224,
+        "route_mass": {
+          "hyperbolic": 0.27031904458999634,
+          "qkv": 0.2703702449798584,
+          "frequency": 0.2632519006729126,
+          "tar": 0.19605882465839386
+        },
+        "route_variance": {
+          "hyperbolic": 0.0004624374851118773,
+          "qkv": 0.0004644828150048852,
+          "frequency": 0.0003307362203486264,
+          "tar": 0.0037452727556228638
+        },
+        "route_entropy": 0.9854142069816589,
+        "expert_rms": {
+          "hyperbolic": 0.10870075970888138,
+          "qkv": 0.10913503170013428,
+          "frequency": 0.024228600785136223,
+          "tar": 2.206038236618042
+        },
+        "effective_rms": {
+          "hyperbolic": 0.029590779915452003,
+          "qkv": 0.029711108654737473,
+          "frequency": 0.006490013562142849,
+          "tar": 0.43428170680999756
+        },
+        "residual_to_feature_rms": 0.4883976876735687,
+        "feature_rms": 0.9015259146690369,
+        "tar_rms": 2.286217451095581,
+        "wavelet_ll_rms": 3.08898195910956e-09,
+        "routed_wavelet_ll_rms": 0.0001599297538632527,
+        "geometry": {
+          "hyperbolic": {
+            "temperature": 0.49800920486450195,
+            "scaled_distance_mean": 1.0241177082061768,
+            "scaled_distance_std": 0.5357197523117065,
+            "scale_mass": [
+              0.28799620270729065,
+              0.27975064516067505,
+              0.19541619718074799,
+              0.23683694005012512
+            ],
+            "entropy": 0.8979570269584656,
+            "retrieved_spatial_std": 0.09072695672512054
+          },
+          "qkv": {
+            "temperature": 0.5008717179298401,
+            "scaled_distance_mean": 1.1167573928833008,
+            "scaled_distance_std": 0.628150463104248,
+            "scale_mass": [
+              0.2859762907028198,
+              0.28157174587249756,
+              0.1953142285346985,
+              0.23713773488998413
+            ],
+            "entropy": 0.895489513874054,
+            "retrieved_spatial_std": 0.10175012052059174
+          },
+          "radius_mean": 0.6403634548187256,
+          "radius_cv": 0.14959074556827545,
+          "attention_he_tv": 0.011543255299329758,
+          "residual_he_cosine": 0.9998999834060669
+        }
+      }
+    },
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.002007874526711197,
+      "stem.project.1.weight": 0.00941224237914668,
+      "stem.project.2.weight": 0.031240584448170256,
+      "stem.project.3.weight": 0.00405823408597095,
+      "stem.fuse.0.0.weight": 0.003949648615175369,
+      "stem.fuse.0.1.weight": 0.002979863940928504,
+      "stem.fuse.0.1.bias": 0.002764717778715102,
+      "stem.fuse.1.0.weight": 0.011402928784936216,
+      "stem.fuse.1.1.weight": 0.008961799421279216,
+      "stem.fuse.1.1.bias": 0.006419800372695966,
+      "stem.fuse.2.0.weight": 0.04239643146544216,
+      "stem.fuse.2.1.weight": 0.03231357039830629,
+      "stem.fuse.2.1.bias": 0.017285493324361,
+      "stem.fuse.3.0.weight": 0.01236980933779484,
+      "stem.fuse.3.1.weight": 0.009100440936873545,
+      "stem.fuse.3.1.bias": 0.00517631565851013,
+      "norm.weight": 0.0052633564885222655,
+      "norm.bias": 0.0005950459117453915,
+      "guide.weight": 0.003899656513008854,
+      "guide.bias": 0.003536806907504797,
+      "retrieval.scale_bias": 0.0021726809572189198,
+      "retrieval.raw_temperature": 0.018922109050648745,
+      "retrieval.gamma": 0.024854157191130887,
+      "retrieval.qk.weight": 0.004071499109244414,
+      "retrieval.v.weight": 0.0025011154392557355,
+      "retrieval.out.weight": 0.0008434206211571214,
+      "wavelet.eta": 0.0011697494526669789,
+      "wavelet.high.0.0.weight": 7.670578754540372e-07,
+      "wavelet.high.0.2.weight": 1.1817314054017297e-06,
+      "wavelet.high.1.0.weight": 1.0067192593381416e-06,
+      "wavelet.high.1.2.weight": 1.171827094852805e-06,
+      "wavelet.out.0.weight": 8.613378317198268e-06,
+      "wavelet.out.1.weight": 8.458767796299202e-06,
+      "wavelet.low.0.0.weight": 3.152018357494491e-05,
+      "wavelet.low.0.2.weight": 7.667160085776195e-05,
+      "wavelet.low.1.0.weight": 2.4178139385567912e-05,
+      "wavelet.low.1.2.weight": 6.211834514775817e-05,
+      "router.0.0.weight": 0.0010757536251642442,
+      "router.0.0.bias": 0.0015775440771119524,
+      "router.0.2.weight": 0.001952249371493671,
+      "router.0.2.bias": 0.0018170931760924948,
+      "router.0.4.weight": 0.006361574481269896,
+      "router.0.4.bias": 0.01233427963226894,
+      "router.1.0.weight": 0.0008246226960495282,
+      "router.1.0.bias": 0.0007734025242890971,
+      "router.1.2.weight": 0.0016535032888150177,
+      "router.1.2.bias": 0.001318799828421584,
+      "router.1.4.weight": 0.007256126968070991,
+      "router.1.4.bias": 0.015227447340862782,
+      "router.2.0.weight": 0.0011911961820564637,
+      "router.2.0.bias": 0.0006736532032993263,
+      "router.2.2.weight": 0.004007907938078506,
+      "router.2.2.bias": 0.0004249930887763997,
+      "router.2.4.weight": 0.017619797312869823,
+      "router.2.4.bias": 0.008768449350383031,
+      "router.3.0.weight": 0.007152894218568128,
+      "router.3.0.bias": 0.007658267312339763,
+      "router.3.2.weight": 0.016263622314137555,
+      "router.3.2.bias": 0.01221551234994898,
+      "router.3.4.weight": 0.048850194039557024,
+      "router.3.4.bias": 0.064685619265448
+    },
+    "branch_task_gradients": {
+      "3": {
+        "output_grad_rms": [
+          0.00010548577558045759,
+          0.00010547955865000661,
+          0.00010262188754156973
+        ],
+        "qk_he_gradient_rms": [
+          0.00032895205911342333,
+          0.0003576392452542376
+        ],
+        "qk_he_gradient_cosine": 0.9994992017745972
+      },
+      "2": {
+        "output_grad_rms": [
+          0.00015278575200900298,
+          0.0001549759007642351,
+          0.00012943358591573607
+        ],
+        "qk_he_gradient_rms": [
+          0.0018047707850375222,
+          0.0023672299435682407
+        ],
+        "qk_he_gradient_cosine": 0.9915027022361755
+      },
+      "1": {
+        "output_grad_rms": [
+          2.271646111387987e-05,
+          2.2715116206920624e-05,
+          2.258193414442203e-05
+        ],
+        "qk_he_gradient_rms": [
+          0.00012063310635194427,
+          0.00013010387222284927
+        ],
+        "qk_he_gradient_cosine": 0.9989712834358215
+      },
+      "0": {
+        "output_grad_rms": [
+          3.991756711583119e-06,
+          3.991691371580378e-06,
+          3.903337004609099e-06
+        ],
+        "qk_he_gradient_rms": [
+          4.7402563076745906e-05,
+          5.074511122621972e-05
+        ],
+        "qk_he_gradient_cosine": 0.9977789521217346
+      }
+    },
+    "router_tar_input_grad_rms": [
+      0.0008367751456579057,
+      0.0008520319261335275,
+      0.001186028173496149,
+      0.007156956103535696
+    ],
+    "sample_main_loss": 2.2467503547668457,
+    "sample_guide_loss": 0.3533758223056793
+  }
+]

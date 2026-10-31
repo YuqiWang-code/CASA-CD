@@ -14,6 +14,14 @@
 
 日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9。源码以本轮source_code.tar.gz为准，本地已下载，基线3a04aca。六项两轮train/val探针全部通过，正式没有使用探针权重。记录见docs/experiments/CASA-Pyramid/Run9，快照Run9/current均已生成。完整TEST出现后用Run9/collect_results.py和tools/export_training_records.py收集，原263条逐单元格保留，14新项全收后至少277条。当前无定时自动化。
 
+## CASA-MoE / Run3 GPU0串行训练中
+
+用户于2026-10-31授权审查优化MoE后改用GPU0单路串行。协议casa_moe_40k_candidate_evidence_v3，源码提交734940a。动态router增加LN(TAR)输入，共4096参数；H/E加权attention合并一次AV/out，保留诊断分支；W及共同训练协议不变。六项：LEVIR DYNAMIC/TAR/STATIC→SYSU DYNAMIC/TAR/STATIC，最多一个活动实验，固定物理GPU0并保留至少1GiB显存，不停止GPU0无关任务，不操作GPU1主线。
+
+实际运行副本/home/yqwang/outputs/CASA-CD/CASA-MoE/Run3/runtime/20261031_125233，source_code.tar.gz已下载。本轮代码已冻结，运行时不覆盖。CPU输出/梯度等价、各分支任务梯度和部署折叠通过，动态部署2.112676M；batch32实测进程13156MiB。六项三轮train/val探针全部通过，动态版LEVIR/SYSU主损失2.140→1.083及2.344→1.524，新增TAR输入各层梯度非零。2026-10-31 13:21:47 CST正式启动，唯一supervisor PID3230536，当前LEVIR M_D_DYNAMIC PID3230540，GPU0预算16012MiB，动态/TAR/静态预留13156/9164/12966MiB。正式从预训练骨干全新初始化，前三轮健康记录写入initial_health.json；不得重复启动探针或队列。失败保留产物并读原因，不自动重试。
+
+日志/home/yqwang/outputs/CASA-CD/CASA-MoE/Run3；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-MoE/Run3。正式epoch0–3主损失2.145→1.193→1.075→1.030，test选模F1为80.20%→83.78%→85.90%→83.79%，早期有波动，梯度有限且各分支有效，未见NaN/OOM，继续训练。初期健康、探针、日志和冻结TXT已下载并记录到docs/experiments/CASA-MoE/Run3。每epoch test F1选模，非独立盲测。现有正式指标263条，无本轮新TEST结果。收集使用Run3/collect_results.py及export_records.py，更新README_MoE.md，保留历史记录。当前无MoE定时自动化。
+
 ## CASA-MoE / Run2 已完成并收集
 
 2026-10-31 10:27:23 CST，GPU1接续六项正式实验完成，无失败，无活动子进程。TAR/static/dynamic在LEVIR及SYSU各一项。协议casa_moe_40k_candidates_v2；实际runtime=/home/yqwang/outputs/CASA-CD/CASA-MoE/Run2/runtime/20261030_203501。源码以冻结归档和TXT为准，工作源码models_v1与主线models独立。全部日志/JSON、Excel及冻结TXT已收集，实际记录见docs/experiments/CASA-MoE/Run2。不得重复启动接续或队列。

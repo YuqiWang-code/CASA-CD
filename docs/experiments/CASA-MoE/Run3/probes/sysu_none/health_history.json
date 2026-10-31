@@ -1,0 +1,236 @@
+[
+  {
+    "epoch": 1,
+    "step": 375,
+    "train_loss": 2.744725556055705,
+    "main_loss": 2.407211197535197,
+    "guide_loss": 1.6875717856089274,
+    "gradient_norm_mean": 40.51749408976237,
+    "gradient_norm_max": 314.3326416015625,
+    "validation_loss": 2.3922391963005065,
+    "validation_metrics": {
+      "Kappa": 0.7190285270341802,
+      "IoU": 0.6376282595189188,
+      "F1": 0.7787215529727206,
+      "OA": 0.905961345672607,
+      "recall": 0.7685807479590169,
+      "precision": 0.7891336578901397,
+      "Pre": 0.6653088894229743
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.1562102624993258,
+        "recall": 0.18830753394546565,
+        "F1": 0.17076371445407001,
+        "predicted_pixels": 4060239,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.2240094733339589,
+        "recall": 0.26947791236428664,
+        "F1": 0.24464903044460207,
+        "predicted_pixels": 4060239,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.800691461190857,
+        "recall": 0.7892395008111123,
+        "F1": 0.7949242378905372,
+        "predicted_pixels": 52364761,
+        "target_pixels": 53124580,
+        "tp": 41928017,
+        "fp": 10436744,
+        "fn": 11196563,
+        "tn": 191898606
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {},
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0,
+      "stem.project.1.weight": 0.0,
+      "stem.project.2.weight": 0.0,
+      "stem.project.3.weight": 0.0,
+      "stem.fuse.0.0.weight": 0.0,
+      "stem.fuse.0.1.weight": 0.0,
+      "stem.fuse.0.1.bias": 0.0,
+      "stem.fuse.1.0.weight": 0.0,
+      "stem.fuse.1.1.weight": 0.0,
+      "stem.fuse.1.1.bias": 0.0,
+      "stem.fuse.2.0.weight": 0.0,
+      "stem.fuse.2.1.weight": 0.0,
+      "stem.fuse.2.1.bias": 0.0,
+      "stem.fuse.3.0.weight": 0.0,
+      "stem.fuse.3.1.weight": 0.0,
+      "stem.fuse.3.1.bias": 0.0,
+      "norm.weight": 0.0,
+      "norm.bias": 0.0,
+      "guide.weight": 0.0,
+      "guide.bias": 0.0
+    },
+    "branch_task_gradients": {},
+    "router_tar_input_grad_rms": [],
+    "sample_main_loss": 1.8484880924224854,
+    "sample_guide_loss": 0.34637370705604553
+  },
+  {
+    "epoch": 2,
+    "step": 750,
+    "train_loss": 2.1003595352172852,
+    "main_loss": 1.859412566502889,
+    "guide_loss": 1.2047348410288492,
+    "gradient_norm_mean": 8.62155434290568,
+    "gradient_norm_max": 16.897846221923828,
+    "validation_loss": 2.2566358766555785,
+    "validation_metrics": {
+      "Kappa": 0.7349520813378517,
+      "IoU": 0.6577309862786918,
+      "F1": 0.7935315709889035,
+      "OA": 0.9086703033447262,
+      "recall": 0.8151970422375427,
+      "precision": 0.7729880043184425,
+      "Pre": 0.6554219436384631
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.17900365213388636,
+        "recall": 0.1845627209269909,
+        "F1": 0.18174068638722365,
+        "predicted_pixels": 3462907,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.25420289947145563,
+        "recall": 0.262463350096085,
+        "F1": 0.2582670908164083,
+        "predicted_pixels": 3462907,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.7852022351580027,
+        "recall": 0.8341954138743308,
+        "F1": 0.8089577058779607,
+        "predicted_pixels": 56439321,
+        "target_pixels": 53124580,
+        "tp": 44316281,
+        "fp": 12123040,
+        "fn": 8808299,
+        "tn": 190212310
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {},
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0,
+      "stem.project.1.weight": 0.0,
+      "stem.project.2.weight": 0.0,
+      "stem.project.3.weight": 0.0,
+      "stem.fuse.0.0.weight": 0.0,
+      "stem.fuse.0.1.weight": 0.0,
+      "stem.fuse.0.1.bias": 0.0,
+      "stem.fuse.1.0.weight": 0.0,
+      "stem.fuse.1.1.weight": 0.0,
+      "stem.fuse.1.1.bias": 0.0,
+      "stem.fuse.2.0.weight": 0.0,
+      "stem.fuse.2.1.weight": 0.0,
+      "stem.fuse.2.1.bias": 0.0,
+      "stem.fuse.3.0.weight": 0.0,
+      "stem.fuse.3.1.weight": 0.0,
+      "stem.fuse.3.1.bias": 0.0,
+      "norm.weight": 0.0,
+      "norm.bias": 0.0,
+      "guide.weight": 0.0,
+      "guide.bias": 0.0
+    },
+    "branch_task_gradients": {},
+    "router_tar_input_grad_rms": [],
+    "sample_main_loss": 1.2921314239501953,
+    "sample_guide_loss": 0.2901023030281067
+  },
+  {
+    "epoch": 3,
+    "step": 1125,
+    "train_loss": 1.8773070363998412,
+    "main_loss": 1.6499688132603962,
+    "guide_loss": 1.1366910985310872,
+    "gradient_norm_mean": 6.098646624247233,
+    "gradient_norm_max": 12.806058883666992,
+    "validation_loss": 2.3653431100845337,
+    "validation_metrics": {
+      "Kappa": 0.7215723670094145,
+      "IoU": 0.6394678891838754,
+      "F1": 0.7800919366219784,
+      "OA": 0.9075077400207515,
+      "recall": 0.7619913519659274,
+      "precision": 0.7990735045524383,
+      "Pre": 0.6678050271598727
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.20591107242535903,
+        "recall": 0.2049058748262071,
+        "F1": 0.20540724385395875,
+        "predicted_pixels": 3338582,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.2878791055603846,
+        "recall": 0.28704633643926747,
+        "F1": 0.2874621178743088,
+        "predicted_pixels": 3338582,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.8113711964571144,
+        "recall": 0.7811332720183388,
+        "F1": 0.7959651606085894,
+        "predicted_pixels": 51144750,
+        "target_pixels": 53124580,
+        "tp": 41497377,
+        "fp": 9647373,
+        "fn": 11627203,
+        "tn": 192687977
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "stages": {},
+    "task_grad_rms": {
+      "stem.project.0.weight": 0.0,
+      "stem.project.1.weight": 0.0,
+      "stem.project.2.weight": 0.0,
+      "stem.project.3.weight": 0.0,
+      "stem.fuse.0.0.weight": 0.0,
+      "stem.fuse.0.1.weight": 0.0,
+      "stem.fuse.0.1.bias": 0.0,
+      "stem.fuse.1.0.weight": 0.0,
+      "stem.fuse.1.1.weight": 0.0,
+      "stem.fuse.1.1.bias": 0.0,
+      "stem.fuse.2.0.weight": 0.0,
+      "stem.fuse.2.1.weight": 0.0,
+      "stem.fuse.2.1.bias": 0.0,
+      "stem.fuse.3.0.weight": 0.0,
+      "stem.fuse.3.1.weight": 0.0,
+      "stem.fuse.3.1.bias": 0.0,
+      "norm.weight": 0.0,
+      "norm.bias": 0.0,
+      "guide.weight": 0.0,
+      "guide.bias": 0.0
+    },
+    "branch_task_gradients": {},
+    "router_tar_input_grad_rms": [],
+    "sample_main_loss": 1.157331943511963,
+    "sample_guide_loss": 0.29841524362564087
+  }
+]

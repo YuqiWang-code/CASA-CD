@@ -48,6 +48,6 @@ collector使用项目tools下载日志、汇入Excel并生成本轮冻结TXT，�
 
 <!-- CASA_MOE_RUN3_RESULTS_START -->
 
-正式队列待启动，结果0/6。
+2026-10-31 13:21:47 CST正式启动，supervisor PID3230536，首项LEVIR动态融合PID3230540，固定GPU0单路串行。六项三轮train/val探针全部通过，正式结果0/6。
 
 <!-- CASA_MOE_RUN3_RESULTS_END -->
