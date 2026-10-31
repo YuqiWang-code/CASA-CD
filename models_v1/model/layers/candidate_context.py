@@ -69,7 +69,8 @@ class PairedRetrieval(nn.Module):
         return (F.linear(prototype, self.qk.weight[:, :, 0, 0])/math.sqrt(32),
                 F.linear(prototype, self.v.weight[:, :, 0, 0]), support)
 
-    def forward(self, x, bank, scale, diagnose=False):
+    def forward(self, x, bank, scale, route_weights, diagnose=False, separate=False):
+        """Return weighted H/E update, optional individual residuals and diagnostics."""
         key, value, support = bank
         query = self.qk(x).flatten(2).transpose(1, 2)/math.sqrt(32)
         q2, k2 = query.square().sum(-1, keepdim=True), key.square().sum(-1).unsqueeze(1)
@@ -80,27 +81,43 @@ class PairedRetrieval(nn.Module):
         bias = torch.cat([self.scale_bias[scale, s].expand(n)-math.log(n)
                           for s, n in enumerate(self.counts)])
         temp = F.softplus(self.raw_temperature)
-        residuals, attentions, stats = [], [], {}
+        attentions, stats = [], {}
         for i, distance in enumerate((hyperbolic, euclidean)):
             scaled = distance/(2*temp[i].square())
             attention = (-scaled + support.log()[:, None] + bias).softmax(-1)
-            retrieved = (attention @ value).transpose(1, 2).reshape(x.shape[0], 32, *x.shape[-2:])
-            residuals.append(self.gamma[scale][None, :, None, None] * self.out(retrieved-self.v(x)))
             attentions.append(attention)
             if diagnose:
                 with torch.no_grad():
                     stats[EXPERTS[i]] = dict(temperature=float(temp[i]), scaled_distance_mean=float(scaled.mean()),
                         scaled_distance_std=float(scaled.std(unbiased=False)),
                         scale_mass=[float(a.sum(-1).mean()) for a in attention.split(self.counts, -1)],
-                        entropy=float(-(attention*attention.clamp_min(1e-9).log()).sum(-1).mean()/math.log(224)),
-                        retrieved_spatial_std=float(retrieved.flatten(2).std(-1, unbiased=False).mean()))
+                        entropy=float(-(attention*attention.clamp_min(1e-9).log()).sum(-1).mean()/math.log(224)))
+        local_value = self.v(x)
+        gamma = self.gamma[scale][None, :, None, None]
+        h, e = route_weights.split(1, 1)
+        residuals = None
+        if separate or diagnose:
+            residuals = []
+            for i, attention in enumerate(attentions):
+                retrieved = (attention @ value).transpose(1, 2).reshape_as(local_value)
+                residuals.append(gamma * self.out(retrieved-local_value))
+                if diagnose:
+                    with torch.no_grad():
+                        stats[EXPERTS[i]]['retrieved_spatial_std'] = float(
+                            retrieved.flatten(2).std(-1, unbiased=False).mean())
+            update = h*residuals[0] + e*residuals[1]
+        else:
+            mixed_attention = (h.flatten(2).transpose(1, 2)*attentions[0]
+                               + e.flatten(2).transpose(1, 2)*attentions[1])
+            retrieved = (mixed_attention @ value).transpose(1, 2).reshape_as(local_value)
+            update = gamma * self.out(retrieved-(h+e)*local_value)
         if diagnose:
             with torch.no_grad():
                 radius = query.norm(dim=-1).asinh()
                 stats.update(radius_mean=float(radius.mean()), radius_cv=float(radius.std(unbiased=False)/radius.mean().clamp_min(1e-8)),
                              attention_he_tv=float((attentions[0]-attentions[1]).abs().sum(-1).mean()/2),
                              residual_he_cosine=float(F.cosine_similarity(residuals[0].flatten(1), residuals[1].flatten(1)).mean()))
-        return residuals, stats
+        return update, residuals, stats
 
 
 class CandidateContext(nn.Module):
@@ -120,7 +137,7 @@ class CandidateContext(nn.Module):
         if variant == 'static':
             self.static_logits = nn.Parameter(torch.zeros(4, 4))
         if variant == 'moe':
-            self.router = nn.ModuleList(nn.Sequential(nn.Conv2d(64 if s == 3 else 128, 16, 1), nn.SiLU(),
+            self.router = nn.ModuleList(nn.Sequential(nn.Conv2d(128 if s == 3 else 192, 16, 1), nn.SiLU(),
                 nn.Conv2d(16, 16, 3, padding=1, groups=16), nn.SiLU(), nn.Conv2d(16, 4, 1)) for s in range(4))
             for layer in self.router:
                 nn.init.zeros_(layer[-1].weight)
@@ -150,28 +167,34 @@ class CandidateContext(nn.Module):
             self.captured = {}
         return x, normalized, guide, bank, waves
 
-    def weights(self, scale, x, coarse):
+    def weights(self, scale, x, tar, coarse):
         if self.variant == 'none':
             g = x.new_zeros(x.shape[0], 4, *x.shape[-2:]); g[:, 3] = 1
             return g
         if self.variant == 'static':
             return self.static_logits[scale].softmax(0)[None, :, None, None].expand(x.shape[0], -1, *x.shape[-2:])
         norm = lambda f: F.layer_norm(f.permute(0, 2, 3, 1), (64,)).permute(0, 3, 1, 2)
-        inputs = norm(x) if coarse is None else torch.cat((norm(x), norm(coarse)), 1)
+        inputs = [norm(x), norm(tar)]
+        if coarse is not None:
+            inputs.append(norm(coarse))
+        inputs = torch.cat(inputs, 1)
         return self.router[scale](inputs).softmax(1)
 
     def mix(self, scale, x, normalized, tar, coarse, bank, waves):
         if self.variant == 'none':
             return tar
-        g = self.weights(scale, x, coarse)
-        (rh, re), geometry = self.retrieval(normalized, bank, scale, self.collect_diag)
+        g = self.weights(scale, x, tar, coarse)
+        retrieval_update, residuals, geometry = self.retrieval(
+            normalized, bank, scale, g[:, :2], diagnose=self.collect_diag, separate=self.capture)
         rw = waves[scale]
         h, e, w, t = g.split(1, 1)
-        z = (h+e+w)*x + t*tar + h*rh + e*re + w*rw
+        z = (h+e+w)*x + t*tar + retrieval_update + w*rw
         if self.capture:
+            rh, re = residuals
             self.captured[scale] = dict(routes=g, residuals=(rh, re, rw), tar=tar, x=x)
         if self.collect_diag:
             with torch.no_grad():
+                rh, re = residuals
                 deltas = (rh, re, rw, tar-x)
                 base = rms(x).clamp_min(1e-8)
                 self.last_diag[f'stage{scale+1}'] = dict(finite=bool(torch.isfinite(z).all()), contexts=224,
@@ -194,4 +217,6 @@ class CandidateContext(nn.Module):
             key_mode='shared_pooled_content', hyperbolic_radius='asinh(projection_norm)',
             shared_he=['qk','v','out','gamma','scale_bias','guide','norm','prototypes'],
             frequency_transform='signed_temporal_haar_H1_H2_L2_L3', guide_input='common_X',
+            router_inputs=['LN(X)', 'LN(TAR)', 'LN(coarse_D) at S1-S3'] if self.variant == 'moe' else [],
+            retrieval_readout='route_weighted_shared_AV_out' if self.variant != 'none' else 'inactive',
             context_gamma_shape=[4,64], wavelet_gamma_shape=[4,64], initializer_seed=2333)

@@ -1,4 +1,4 @@
-"""Measure full-batch training and batch-one deployed MoE execution on GPU 1."""
+"""Measure full-batch training and batch-one deployed MoE execution on GPU 0."""
 import argparse
 import gc
 import json
@@ -63,7 +63,7 @@ def profile_variant(variant, image, target, pretrained, training_steps, inferenc
     model.context.collect_diag = False
     del validation_logits, spatial
     result = dict(
-        protocol=PROTOCOL, physical_gpu=1, variant=variant, batch_size=image.shape[0],
+        protocol=PROTOCOL, physical_gpu=0, variant=variant, batch_size=image.shape[0],
         training_outputs=4, inference_outputs=1, training_steps=training_steps,
         peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
         peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
@@ -135,8 +135,8 @@ def main():
     parser.add_argument("--inference-steps", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
-    if os.environ.get("CUDA_VISIBLE_DEVICES") != "1":
-        raise RuntimeError("Run with CUDA_VISIBLE_DEVICES=1 for this GPU-1 exploration")
+    if os.environ.get("CUDA_VISIBLE_DEVICES") != "0":
+        raise RuntimeError("Run with CUDA_VISIBLE_DEVICES=0 for this GPU-0 exploration")
     if args.training_steps < 4 or args.inference_steps < 1:
         parser.error("training-steps must be >= 4 and inference-steps must be >= 1")
     torch.set_num_threads(4)

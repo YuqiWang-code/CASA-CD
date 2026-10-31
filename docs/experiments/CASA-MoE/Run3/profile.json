@@ -1,0 +1,366 @@
+{
+  "none": {
+    "protocol": "casa_moe_40k_candidate_evidence_v3",
+    "physical_gpu": 0,
+    "variant": "none",
+    "batch_size": 32,
+    "training_outputs": 4,
+    "inference_outputs": 1,
+    "training_steps": 6,
+    "peak_allocated_mib": 8427.556640625,
+    "peak_reserved_mib": 8464.0,
+    "process_memory_mib": 9092.0,
+    "seconds_per_step": 0.11285995226353407,
+    "memory_scope": "training including task-gradient and full-batch epoch diagnostics",
+    "training_step_seconds": [
+      6.985145256854594,
+      0.0874730534851551,
+      0.10116927046328783,
+      0.09419485088437796,
+      0.12095773406326771,
+      0.12342727184295654
+    ],
+    "loss": 2.5708441734313965,
+    "main_loss": 2.0564870834350586,
+    "guide_loss": 2.5717859268188477,
+    "params": 2110613,
+    "trainable_params": 2110613,
+    "context_params": 63681,
+    "configuration": {
+      "variant": "none",
+      "active_experts": [
+        "tar"
+      ],
+      "routing_mode": "tar_only",
+      "execution": "dense",
+      "context_grid_sizes": [
+        8,
+        4,
+        4,
+        4
+      ],
+      "context_prototypes_per_scale": [
+        128,
+        32,
+        32,
+        32
+      ],
+      "joint_contexts": 224,
+      "heads": 1,
+      "qkv_dim": 32,
+      "value_geometry": "euclidean",
+      "key_mode": "shared_pooled_content",
+      "hyperbolic_radius": "asinh(projection_norm)",
+      "shared_he": [
+        "qk",
+        "v",
+        "out",
+        "gamma",
+        "scale_bias",
+        "guide",
+        "norm",
+        "prototypes"
+      ],
+      "frequency_transform": "signed_temporal_haar_H1_H2_L2_L3",
+      "guide_input": "common_X",
+      "router_inputs": [],
+      "retrieval_readout": "inactive",
+      "context_gamma_shape": [
+        4,
+        64
+      ],
+      "wavelet_gamma_shape": [
+        4,
+        64
+      ],
+      "initializer_seed": 2333
+    },
+    "optimizer_groups": [
+      {
+        "name": "encoder",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "body_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "context_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": true
+      },
+      {
+        "name": "context_no_decay",
+        "weight_decay": 0.0,
+        "decoupled_weight_decay": false
+      }
+    ],
+    "precision": {
+      "tensor": "float32",
+      "cudnn_tf32": true,
+      "matmul_tf32": false
+    },
+    "device_name": "NVIDIA GeForce RTX 5090",
+    "context_overhead_mib": 632.0,
+    "deploy": {
+      "params": 1935617,
+      "trainable_params": 1935617,
+      "batch_size": 1,
+      "measured_iterations": 50,
+      "median_ms": 4.322240114212036,
+      "mean_ms": 4.536398725509644,
+      "p90_ms": 5.884704113006592,
+      "peak_allocated_mib": 55.01123046875,
+      "incremental_peak_mib": 13.921875,
+      "memory_scope": "deployed model, one image pair and inference temporaries"
+    }
+  },
+  "static": {
+    "protocol": "casa_moe_40k_candidate_evidence_v3",
+    "physical_gpu": 0,
+    "variant": "static",
+    "batch_size": 32,
+    "training_outputs": 4,
+    "inference_outputs": 1,
+    "training_steps": 6,
+    "peak_allocated_mib": 11996.48681640625,
+    "peak_reserved_mib": 12204.0,
+    "process_memory_mib": 12966.0,
+    "seconds_per_step": 0.16366483581562838,
+    "memory_scope": "training including task-gradient and full-batch epoch diagnostics",
+    "training_step_seconds": [
+      1.3897326765581965,
+      0.16652085818350315,
+      0.2738919295370579,
+      0.13397011626511812,
+      0.17224572971463203,
+      0.18477866146713495
+    ],
+    "loss": 3.576911449432373,
+    "main_loss": 3.0431859493255615,
+    "guide_loss": 2.6686272621154785,
+    "params": 2212023,
+    "trainable_params": 2212023,
+    "context_params": 165091,
+    "configuration": {
+      "variant": "static",
+      "active_experts": [
+        "hyperbolic",
+        "qkv",
+        "frequency",
+        "tar"
+      ],
+      "routing_mode": "learned_per_scale_constant",
+      "execution": "dense",
+      "context_grid_sizes": [
+        8,
+        4,
+        4,
+        4
+      ],
+      "context_prototypes_per_scale": [
+        128,
+        32,
+        32,
+        32
+      ],
+      "joint_contexts": 224,
+      "heads": 1,
+      "qkv_dim": 32,
+      "value_geometry": "euclidean",
+      "key_mode": "shared_pooled_content",
+      "hyperbolic_radius": "asinh(projection_norm)",
+      "shared_he": [
+        "qk",
+        "v",
+        "out",
+        "gamma",
+        "scale_bias",
+        "guide",
+        "norm",
+        "prototypes"
+      ],
+      "frequency_transform": "signed_temporal_haar_H1_H2_L2_L3",
+      "guide_input": "common_X",
+      "router_inputs": [],
+      "retrieval_readout": "route_weighted_shared_AV_out",
+      "context_gamma_shape": [
+        4,
+        64
+      ],
+      "wavelet_gamma_shape": [
+        4,
+        64
+      ],
+      "initializer_seed": 2333
+    },
+    "optimizer_groups": [
+      {
+        "name": "encoder",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "body_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "context_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": true
+      },
+      {
+        "name": "context_no_decay",
+        "weight_decay": 0.0,
+        "decoupled_weight_decay": false
+      }
+    ],
+    "precision": {
+      "tensor": "float32",
+      "cudnn_tf32": true,
+      "matmul_tf32": false
+    },
+    "device_name": "NVIDIA GeForce RTX 5090",
+    "context_overhead_mib": 762.0,
+    "deploy": {
+      "params": 2100452,
+      "trainable_params": 2100196,
+      "batch_size": 1,
+      "measured_iterations": 50,
+      "median_ms": 9.128928184509277,
+      "mean_ms": 9.895177612304687,
+      "p90_ms": 11.362367630004883,
+      "peak_allocated_mib": 118.30224609375,
+      "incremental_peak_mib": 44.57958984375,
+      "memory_scope": "deployed model, one image pair and inference temporaries"
+    }
+  },
+  "moe": {
+    "protocol": "casa_moe_40k_candidate_evidence_v3",
+    "physical_gpu": 0,
+    "variant": "moe",
+    "batch_size": 32,
+    "training_outputs": 4,
+    "inference_outputs": 1,
+    "training_steps": 6,
+    "peak_allocated_mib": 12214.7724609375,
+    "peak_reserved_mib": 12394.0,
+    "process_memory_mib": 13156.0,
+    "seconds_per_step": 0.1710234982892871,
+    "memory_scope": "training including task-gradient and full-batch epoch diagnostics",
+    "training_step_seconds": [
+      2.195060448721051,
+      0.14761014934629202,
+      0.2259338004514575,
+      0.18730531446635723,
+      0.17665583826601505,
+      0.149109342135489
+    ],
+    "loss": 3.576172113418579,
+    "main_loss": 3.0424439907073975,
+    "guide_loss": 2.66864013671875,
+    "params": 2224247,
+    "trainable_params": 2224247,
+    "context_params": 177315,
+    "configuration": {
+      "variant": "moe",
+      "active_experts": [
+        "hyperbolic",
+        "qkv",
+        "frequency",
+        "tar"
+      ],
+      "routing_mode": "coarse_to_fine_spatial",
+      "execution": "dense",
+      "context_grid_sizes": [
+        8,
+        4,
+        4,
+        4
+      ],
+      "context_prototypes_per_scale": [
+        128,
+        32,
+        32,
+        32
+      ],
+      "joint_contexts": 224,
+      "heads": 1,
+      "qkv_dim": 32,
+      "value_geometry": "euclidean",
+      "key_mode": "shared_pooled_content",
+      "hyperbolic_radius": "asinh(projection_norm)",
+      "shared_he": [
+        "qk",
+        "v",
+        "out",
+        "gamma",
+        "scale_bias",
+        "guide",
+        "norm",
+        "prototypes"
+      ],
+      "frequency_transform": "signed_temporal_haar_H1_H2_L2_L3",
+      "guide_input": "common_X",
+      "router_inputs": [
+        "LN(X)",
+        "LN(TAR)",
+        "LN(coarse_D) at S1-S3"
+      ],
+      "retrieval_readout": "route_weighted_shared_AV_out",
+      "context_gamma_shape": [
+        4,
+        64
+      ],
+      "wavelet_gamma_shape": [
+        4,
+        64
+      ],
+      "initializer_seed": 2333
+    },
+    "optimizer_groups": [
+      {
+        "name": "encoder",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "body_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": false
+      },
+      {
+        "name": "context_decay",
+        "weight_decay": 0.0001,
+        "decoupled_weight_decay": true
+      },
+      {
+        "name": "context_no_decay",
+        "weight_decay": 0.0,
+        "decoupled_weight_decay": false
+      }
+    ],
+    "precision": {
+      "tensor": "float32",
+      "cudnn_tf32": true,
+      "matmul_tf32": false
+    },
+    "device_name": "NVIDIA GeForce RTX 5090",
+    "context_overhead_mib": 762.0,
+    "deploy": {
+      "params": 2112676,
+      "trainable_params": 2112420,
+      "batch_size": 1,
+      "measured_iterations": 50,
+      "median_ms": 11.445808410644531,
+      "mean_ms": 11.132869758605956,
+      "p90_ms": 13.737183570861816,
+      "peak_allocated_mib": 118.41845703125,
+      "incremental_peak_mib": 44.6416015625,
+      "memory_scope": "deployed model, one image pair and inference temporaries"
+    }
+  }
+}

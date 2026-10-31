@@ -18,7 +18,7 @@ from model.casa_net import CASANet
 from model.layers.candidate_context import MODEL_VARIANTS
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_moe_40k_candidates_v2"
+PROTOCOL = "casa_moe_40k_candidate_evidence_v3"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
