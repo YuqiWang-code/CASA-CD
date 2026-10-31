@@ -14,7 +14,7 @@
 在仓库根目录执行：
 
 ```powershell
-python .codex/status.py --tag CASA-Pyramid --run Run6
+python .codex/status.py --tag CASA-Pyramid --run Run9
 python .codex/ssh.py "nvidia-smi" 60
 python .codex/ssh.py outputs/remote_command.sh 120
 python train_scripts/CASA-Pyramid/Run6/collect_results.py

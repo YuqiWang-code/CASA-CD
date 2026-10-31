@@ -4,7 +4,7 @@
 # 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
 
 ================================================================================
-## MODELS CODE (24 files)
+## MODELS CODE (25 files)
 ================================================================================
 
 ================================================================================
@@ -1171,6 +1171,78 @@ if __name__ == '__main__':
     contexts()
 
 ================================================================================
+# FILE: models/test_refinement_health.py
+================================================================================
+"""Refined H/E task gradients, temporal inputs and deployment folding."""
+import torch
+
+from model.casa_net import CASANet
+from train_CASA import loss_function, make_optimizer, training_losses, verify_deployment
+
+
+def check_variant(variant, image_a, image_b, target):
+    torch.manual_seed(2333)
+    model = CASANet(module=variant, refinement_beta=1.).train()
+    optimizer = make_optimizer(model)
+    for step in range(3):
+        optimizer.zero_grad(set_to_none=True)
+        outputs, auxiliary = model(image_a, image_b, return_aux=True)
+        loss, main, guide = training_losses(outputs, auxiliary, target, .1, 0.)
+        torch.testing.assert_close(loss, main + .1 * guide)
+        loss.backward()
+        assert torch.isfinite(loss), variant
+        assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+        if step == 0:
+            # Zero residual scales learn first, before the internal branch weights.
+            assert (model.context.gamma_context.grad.abs().sum(-1) > 0).all()
+            assert (model.context.gamma_detail.grad.abs().sum(-1) > 0).all()
+        optimizer.step()
+
+    optimizer.zero_grad(set_to_none=True)
+    outputs, _ = model(image_a, image_b, return_aux=True)
+    loss_function(outputs, target).backward()
+    for name in ("qk", "v", "out", "gate", "local_dw", "local_out", "guide"):
+        gradient = getattr(model.context, name).weight.grad
+        assert gradient is not None and torch.isfinite(gradient).all(), (variant, name)
+        assert gradient.abs().sum() > 0, (variant, name)
+
+    model.eval()
+    model.context.collect_diag = True
+    with torch.no_grad():
+        prediction = model.predict(image_a, image_b)
+        diagnostics = model.diagnostics()
+        for stage in diagnostics.values():
+            assert stage["finite"] and stage["contexts"] == 224
+            assert stage["refinement_beta"] == 1.
+            assert 0 < stage["compression_weight_tv"] < 1
+            assert stage["prototype_refinement_to_feature_rms"] > 0
+        model.context.collect_diag = False
+        for first, second in ((image_b, image_a), (image_a, image_a)):
+            other = model.predict(first, second)
+            assert other.shape == target.shape and torch.isfinite(other).all()
+        # The shared TAR uses ordered concat/signed differences, so exchange is
+        # an augmented input condition rather than an exact symmetry identity.
+        assert torch.isfinite(prediction).all()
+    _, report = verify_deployment(model, torch.cat((image_a, image_b), 1))
+    assert max(report["per_scale_max_diff"]) < 2e-4
+    assert report["binary_disagreement"] == 0
+    print(f"{variant} beta=1: residual startup, segmentation-only gradients, "
+          f"temporal inputs, compression diagnostics and folding PASS", flush=True)
+
+
+def main():
+    torch.set_num_threads(4)
+    torch.manual_seed(2333)
+    a, b = torch.randn(1, 3, 256, 256), torch.randn(1, 3, 256, 256)
+    target = torch.randint(0, 2, (1, 1, 256, 256)).float()
+    for variant in ("hyperbolic", "matched"):
+        check_variant(variant, a, b, target)
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
 # FILE: models/train_CASA.py
 ================================================================================
 """CASA relative-context training with shared supervision and test selection."""
@@ -1192,7 +1264,7 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_attribution_v8"
+PROTOCOL = "casa_pyramid_40k_refinement_v9"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -1539,6 +1611,11 @@ def main():
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
+                    compression_refinement=(dict(
+                        iterations=int(args.refinement_beta != 0), beta=args.refinement_beta,
+                        similarity="cosine of LN features and initial class prototype",
+                        normalization="within region and class", common_key_value_content=True)
+                        if args.module in ("hyperbolic", "matched") else None),
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
@@ -2889,6 +2966,8 @@ class HyperbolicContext(nn.Module):
                     angular = (1 - direction_q @ direction_k.transpose(-1, -2)).clamp_min(0)
                     radial = (radius.flatten(2)[..., None] - key_radius[:, :, None]).abs()
                     weights, class_support = compression[index]
+                    base_weights, _ = class_assignments(p, self.grid_sizes[index])
+                    base_prototype = pool_features(x, base_weights, self.grid_sizes[index])
                     local_direction = regions(direction_q.reshape(*query.shape[:-1], -1), self.grid_sizes[index])
                     mean_direction = torch.einsum("brtp,bhrpd->bhrtd", weights, local_direction)
                     variance = (1 - mean_direction.square().sum(-1)).clamp_min(0)
@@ -2908,6 +2987,11 @@ class HyperbolicContext(nn.Module):
                         context_residual_to_feature_rms=float(rms(context_residual) / base),
                         local_residual_to_feature_rms=float(rms(local_residual) / base),
                         guide_mean=float(p.mean()), class_support_mean=float(class_support.mean()),
+                        refinement_beta=float(self.refinement_beta),
+                        compression_weight_tv=float((weights - base_weights).abs().sum(-1).mean() / 2),
+                        compression_effective_pixels=float(weights.square().sum(-1).reciprocal().mean()),
+                        compression_base_effective_pixels=float(base_weights.square().sum(-1).reciprocal().mean()),
+                        prototype_refinement_to_feature_rms=float(rms(prototypes[index] - base_prototype) / rms(x).clamp_min(1e-8)),
                         class_support_min=float(class_support.min()),
                         retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
                         retrieved_spatial_rms=float(rms(retrieved - retrieved.mean((-2, -1), keepdim=True))),

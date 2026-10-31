@@ -2,11 +2,17 @@
 
 更新：2026-10-31。
 
-## CASA-Pyramid / Run9 准备验证
+## CASA-Pyramid / Run9 训练中
 
-用户于2026-10-31授权继续改进并启动四库训练。仅GPU1；GPU0有无关任务。协议casa_pyramid_40k_refinement_v9，共14项新训练：四库H_REFINE(hyperbolic,β1)/E_REFINE(matched,β1)/M0_CTRL(none,β0)各3项，SYSU/WHU各补E_BASE(matched,β0)。Run8 H_NONE的SYSU/WHU作β0双曲历史参照，不重复入表。所有组main+0.1guide，retrieval=0，seed/context seed2333，40K、batch32，逐epoch test选模，fresh pretrained。
+2026-10-31 12:43:09 CST正式启动，源码基线`3a04aca`，supervisor PID3226168。仅GPU1；首批LEVIR的H_REFINE、E_REFINE、M0_CTRL三路并行，显存约29.6GiB。已观察各组三个以上完整epoch，主损失由约1.93下降到1.04–1.06；两种模块的精炼权重、原型与残差均发生变化，数值有限。E_REFINE第三轮选模F1回落，主训练损失仍下降，当前无数值或任务梯度故障，继续完整预算观察。
 
-日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9；唯一调度器train_scripts/CASA-Pyramid/Run9/pipeline.py。正式启动前需验证和6项真实数据短训通过。当前尚未启动正式队列；不得恢复任何已完成历史队列。现有指标263条，新训14项收齐为277条。
+预计全部14项还需约14–18小时，完成窗口为北京时间**11月1日03:00–07:00**。估算基于首批并行训练速度，随跨库数据加载、评价开销和并发组合变化。正式结果0/14，现有指标仍263条。
+
+协议casa_pyramid_40k_refinement_v9；用户授权仅GPU1，GPU0有无关任务，不操作。14项：四库H_REFINE(hyperbolic,β1)/E_REFINE(matched,β1)/M0_CTRL(none,β0)，SYSU/WHU各补E_BASE(matched,β0)。Run8 H_NONE两项作β0双曲外部参照，不重复入表。全部main+.1guide、retrieval0，seed/context seed2333，fresh MobileNetV2预训练、40K、batch32，逐epoch test选模。
+
+唯一调度器train_scripts/CASA-Pyramid/Run9/pipeline.py；初始PID3226168。首批GPU1 LEVIR H_REFINE PID3226170、E_REFINE PID3226198、CTRL PID3226228，以实时pipeline_status.json为准。GPU预算31072MiB，H/E/CTRL/E_BASE预留11270/10188/8852/10098MiB；动态按容量补位，允许跨库填空。优先LEVIR→SYSU→WHU→CDD。不得重复启动或覆盖活动源码，不恢复历史队列。
+
+日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9。源码以本轮source_code.tar.gz为准，本地已下载，基线3a04aca。六项两轮train/val探针全部通过，正式没有使用探针权重。记录见docs/experiments/CASA-Pyramid/Run9，快照Run9/current均已生成。完整TEST出现后用Run9/collect_results.py和tools/export_training_records.py收集，原263条逐单元格保留，14新项全收后至少277条。当前无定时自动化。
 
 ## CASA-MoE / Run2 已完成并收集
 

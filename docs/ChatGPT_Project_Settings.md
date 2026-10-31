@@ -44,7 +44,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-Run9为四库H_REFINE/E_REFINE/CTRL及SYSU/WHU E_BASE，共14项。准备验证与短训，正式队列尚未启动。共同main+.1guide、retrieval=0，固定β1。Run8 H_NONE的两项用作β0双曲锚点；不将单seed对照解释为重复性结论。现有263条记录保留，全部新训收齐后为277条。
+Run9为四库H_REFINE/E_REFINE/CTRL及SYSU/WHU E_BASE，共14项。2026-10-31 12:43 CST正式队列已启动，仅GPU1三路首批LEVIR，六探针通过且已观察三个以上完整epoch。共同main+.1guide、retrieval=0，固定β1。Run8 H_NONE的两项用作β0双曲锚点；不将单seed对照解释为重复性结论。现有263条记录保留，全部新训收齐后为277条。
 
 Run8首阶段于2026-10-31 01:03:56 CST完成4/4项，无失败，全部结果已收集；SYSU H_CLASS/H_NONE F1为82.7738/82.6149%，WHU为94.3619/94.5690%。检索监督的两库效应方向不同，后续几何和区域精炼对照纳入Run9的14项新训练。独立CASA-MoE/Run2六项也已完成并收集，指标表263条，253条历史逐单元格保留；冻结TXT、完整日志和曲线均已更新。
 

@@ -1,0 +1,3549 @@
+# CASA-CD models snapshot + metrics
+# tag=CASA-Pyramid  run=Run9  models_dir=outputs/CASA-Pyramid/Run9/runtime_source/models
+# CODE 为生成时的本地 models 快照；METRICS 来自 outputs/ 的正式 TEST 区块。
+# 训练时源码以对应轮次保存的 source_code.tar.gz 或历史代码归档为准。
+
+================================================================================
+## MODELS CODE (25 files)
+================================================================================
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/analyze_hyperbolic.py
+================================================================================
+"""Validation interventions for radial information and context correction value."""
+import argparse
+from contextlib import contextmanager
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+import torch
+from torch.nn import functional as F
+from torch.utils.data import DataLoader, Subset
+
+from model.casa_net import CASANet
+from model.layers.lorentz_ops import lift
+from train_CASA import make_loader, mask_boundary
+
+
+@contextmanager
+def intervention(context, mode):
+    point = context.geometric_point
+    distance = context.squared_distance
+    gate = context.gate.forward
+    gamma = context.gamma_context.detach().clone()
+    if mode == 'context_off':
+        with torch.no_grad():
+            context.gamma_context.zero_()
+    elif mode == 'fixed_radius':
+        def equalize_radius(projected):
+            space = point(projected)[..., 1:]
+            norm = space.norm(dim=-1, keepdim=True)
+            radial = torch.asinh(norm)
+            positions = tuple(range(2, radial.ndim - 1))
+            nonzero = (norm > 0).sum(positions, keepdim=True).clamp_min(1)
+            mean_radius = radial.sum(positions, keepdim=True) / nonzero
+            # Origins retain their zero vector; the full-position mean is preserved.
+            return lift(F.normalize(space, dim=-1) * mean_radius.sinh())
+        context.geometric_point = equalize_radius
+    elif mode == 'fixed_direction':
+        def radial_only(projected):
+            direction = torch.zeros_like(projected)
+            direction[..., 0] = projected.norm(dim=-1)
+            return point(direction)
+        context.geometric_point = radial_only
+    elif mode == 'gate_open':
+        context.gate.forward = lambda x: x.new_full((x.shape[0], context.heads, *x.shape[-2:]), 20.)
+    elif mode == 'euclidean_metric':
+        def euclidean(query, key):
+            query, key = query[..., 1:], key[..., 1:]
+            return (query.square().sum(-1, keepdim=True) + key.square().sum(-1).unsqueeze(-2)
+                    - 2 * (query @ key.transpose(-1, -2))).clamp_min(0)
+        context.squared_distance = euclidean
+    try:
+        yield
+    finally:
+        context.geometric_point = point
+        context.squared_distance = distance
+        context.gate.forward = gate
+        with torch.no_grad():
+            context.gamma_context.copy_(gamma)
+
+
+def score(counts):
+    tp, fp, fn, tn = counts
+    return dict(tp=tp, fp=fp, fn=fn, tn=tn,
+                F1=2*tp/max(2*tp+fp+fn, 1), IoU=tp/max(tp+fp+fn, 1),
+                precision=tp/max(tp+fp, 1), recall=tp/max(tp+fn, 1))
+
+
+def small_foreground(target):
+    masks = []
+    for sample in target[:, 0].cpu().numpy().astype(np.uint8):
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(sample, connectivity=8)
+        selected = np.zeros_like(sample)
+        for index in range(1, count):
+            if stats[index, cv2.CC_STAT_AREA] <= 64:
+                selected[labels == index] = 1
+        masks.append(selected)
+    return torch.as_tensor(np.stack(masks), device=target.device).bool()[:, None]
+
+
+def analyze(model, loader, device):
+    modes = ('baseline', 'context_off', 'fixed_radius', 'fixed_direction', 'gate_open', 'euclidean_metric')
+    counts = {mode: [0, 0, 0, 0] for mode in modes}
+    groups = {}
+    captured_gate, captured_radius = [], []
+    project_queries = model.context.project_queries
+    def capture_queries(feature):
+        query = project_queries(feature)
+        captured_radius.append(torch.asinh(query[..., 1:].norm(dim=-1)).mean(1, keepdim=True))
+        return query
+    model.context.project_queries = capture_queries
+    hooks = [model.context.gate.register_forward_hook(
+        lambda module, inputs, output: captured_gate.append(output.sigmoid().mean(1, keepdim=True)))]
+    diagnostics = None
+    try:
+        with torch.inference_mode():
+            for image, target in loader:
+                image, target = image.to(device).float(), target.to(device).float()
+                predictions = {}
+                for mode in modes:
+                    captured_gate.clear()
+                    captured_radius.clear()
+                    model.context.collect_diag = mode == 'baseline' and diagnostics is None
+                    with intervention(model.context, mode):
+                        prediction = model.predict(image[:, :3], image[:, 3:]) > .5
+                    if mode == 'baseline':
+                        gates = [g.clone() for g in captured_gate]
+                        radii = [radius.clone() for radius in captured_radius]
+                        if diagnostics is None:
+                            diagnostics = model.diagnostics()
+                    truth = target > .5
+                    batch_counts = [(prediction & truth).sum(), (prediction & ~truth).sum(),
+                                    (~prediction & truth).sum(), (~prediction & ~truth).sum()]
+                    counts[mode] = [a + int(b) for a, b in zip(counts[mode], batch_counts)]
+                    predictions[mode] = prediction
+                base, off = predictions['baseline'], predictions['context_off']
+                masks = dict(true_change=truth, unchanged=~truth,
+                             missed_without_context=truth & ~off,
+                             false_positive_without_context=~truth & off,
+                             corrected=(off != truth) & (base == truth),
+                             harmed=(off == truth) & (base != truth),
+                             boundary_1px=mask_boundary(target, 1).bool(),
+                             small_foreground_le64=small_foreground(truth))
+                for name, mask in masks.items():
+                    group = groups.setdefault(name, dict(pixels=0, gate_sum=[0.]*4, radius_sum=[0.]*4))
+                    group['pixels'] += int(mask.sum())
+                    for index, (gate, radius) in enumerate(zip(gates, radii)):
+                        gate = F.interpolate(gate, target.shape[-2:], mode='bilinear', align_corners=False)
+                        radius = F.interpolate(radius, target.shape[-2:], mode='bilinear', align_corners=False)
+                        group['gate_sum'][index] += float((gate * mask).sum())
+                        group['radius_sum'][index] += float((radius * mask).sum())
+    finally:
+        model.context.project_queries = project_queries
+        for hook in hooks:
+            hook.remove()
+        model.context.collect_diag = False
+    for group in groups.values():
+        count = group['pixels']
+        group['mean_gate_by_stage'] = [x/count if count else None for x in group.pop('gate_sum')]
+        group['mean_radius_by_stage'] = [x/count if count else None for x in group.pop('radius_sum')]
+    return dict(interventions={mode: score(value) for mode, value in counts.items()},
+                pixel_groups=groups, first_batch_diagnostics=diagnostics,
+                radius_scope='Actual dense Lorentz queries: asinh(norm(Q_spatial)), averaged over heads at each stage; bilinear resize for pixel groups',
+                intervention_definitions=dict(
+                    fixed_radius='For each sample/head, set nonorigin positions to their mean intrinsic radius; origins stay at zero and the all-position mean is preserved. Each query stage and the joint key bank are equalized separately.',
+                    fixed_direction='Preserve every projected norm and intrinsic radius; place all spatial directions on the first coordinate axis.'),
+                interpretation='Frozen-weight sensitivity and pixel associations; not retrained ablations')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--checkpoint', type=Path, required=True)
+    parser.add_argument('--dataset-root', type=Path, required=True)
+    parser.add_argument('--module', choices=('hyperbolic','matched'), default='hyperbolic')
+    parser.add_argument('--refinement-beta', type=float, choices=(0.,1.), default=0.)
+    parser.add_argument('--split', choices=('train', 'val'), default='val')
+    parser.add_argument('--samples', type=int, default=128)
+    parser.add_argument('--batch-size', type=int, default=4)
+    parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    torch.set_num_threads(4)
+    device = torch.device(args.device)
+    state = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
+    model = CASANet(module=args.module, refinement_beta=args.refinement_beta)
+    model.load_state_dict(state['state_dict'] if 'state_dict' in state else state)
+    model = model.to(device).eval()
+    source = make_loader(args.dataset_root, args.split, args.batch_size, 0).dataset
+    # Training samples are inspected without random augmentation.
+    if args.split == 'train':
+        source.transform = make_loader(args.dataset_root, 'val', args.batch_size, 0).dataset.transform
+    count = min(args.samples, len(source))
+    indices = np.linspace(0, len(source)-1, count, dtype=int).tolist()
+    loader = DataLoader(Subset(source, indices), batch_size=args.batch_size, shuffle=False)
+    report = analyze(model, loader, device)
+    report.update(dataset=str(args.dataset_root), split=args.split, sample_indices=indices,
+                  threshold=.5, checkpoint=str(args.checkpoint), module=args.module,
+                  refinement_beta=args.refinement_beta, small_object_max_area=64)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
+    print(json.dumps(report['interventions']))
+
+
+if __name__ == '__main__':
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/profile_CASA.py
+================================================================================
+"""Measure full-batch training memory and throughput for CASA variants."""
+import argparse
+import gc
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+
+import torch
+
+from model.casa_net import CASANet
+from train_CASA import PROTOCOL, auxiliary_weights, make_loader, training_losses, make_optimizer
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-root", type=Path, required=True)
+    parser.add_argument("--pretrained", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched"),
+                        default=("none", "hyperbolic", "qkv"))
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
+    args = parser.parse_args()
+    torch.set_num_threads(4)
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    image, target = next(iter(make_loader(args.dataset_root, "train")))
+    image, target = image.cuda().float(), target.cuda().float()
+    results = {}
+    for variant in args.modules:
+        torch.manual_seed(2333)
+        model = CASANet(args.pretrained, variant, refinement_beta=args.refinement_beta).cuda().train()
+        optimizer = make_optimizer(model)
+        torch.cuda.reset_peak_memory_stats()
+        times = []
+        for step in range(6):
+            torch.cuda.synchronize()
+            start = time.time()
+            optimizer.zero_grad(set_to_none=True)
+            logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target, args.guide_weight, args.retrieval_weight)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
+            optimizer.step()
+            torch.cuda.synchronize()
+            times.append(time.time() - start)
+        model.context.collect_diag = True
+        with torch.no_grad():
+            model.predict(image[:, :3], image[:, 3:])
+        used = subprocess.check_output(
+            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+            text=True)
+        process_mib = next(float(row.split(",")[1]) for row in used.splitlines()
+                           if int(row.split(",")[0]) == os.getpid())
+        context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
+        result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
+                      training_outputs=4, training_prediction_format="logits",
+                      auxiliary_weights=auxiliary_weights(variant, args.guide_weight, args.retrieval_weight),
+                      refinement_beta=args.refinement_beta, encoder_lr_mult=1.0,
+                      inference_method="predict", inference_outputs=1,
+                      grid_sizes=list(model.context.grid_sizes),
+                      contexts_per_scale=list(model.context.tokens_per_scale),
+                      joint_contexts=sum(model.context.tokens_per_scale),
+                      compression_power=model.context.compression_power,
+                      support_power=model.context.support_power,
+                      self_reference=model.context.self_reference,
+                      qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
+                      heads=model.context.heads if variant != "none" else 0,
+                      qkv_dim=model.context.qk.out_channels if variant != "none" else 0,
+                      hyperbolic_radius=model.context.radius_mode if variant in ("hyperbolic", "matched") else None,
+                      context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                      body_weight_decay_mode="coupled_l2", context_other_weight_decay=0.0,
+                      optimizer_groups=[dict(name=g["group_name"], weight_decay=g["weight_decay"],
+                                             decoupled_weight_decay=g["decoupled_weight_decay"])
+                                        for g in optimizer.param_groups],
+                      peak_allocated_mib=torch.cuda.max_memory_allocated() / 1024**2,
+                      peak_reserved_mib=torch.cuda.max_memory_reserved() / 1024**2,
+                      context_overhead_mib=context_mib, process_memory_mib=process_mib,
+                      seconds_per_step=sum(times[2:]) / len(times[2:]), loss=float(loss.detach()),
+                      params=sum(p.numel() for p in model.parameters()), diagnostics=model.diagnostics())
+        results[variant] = result
+        print(f"[PROFILE] {variant} {json.dumps(result)}", flush=True)
+        del model, optimizer, logits, auxiliary, loss, main_loss, auxiliary_loss
+        gc.collect()
+        torch.cuda.empty_cache()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_CASA.py
+================================================================================
+"""Native pyramid, matching common initialization, task gradients and folding."""
+import torch
+
+from model.casa_net import CASANet
+from train_CASA import context_decay_names, training_losses, make_optimizer, verify_deployment
+
+
+def main():
+    torch.set_num_threads(4)
+    torch.manual_seed(2333)
+    a,b=torch.randn(1,3,256,256),torch.randn(1,3,256,256)
+    target=torch.randint(0,2,(1,1,256,256)).float()
+    reference=None
+    for variant in ('none','hyperbolic','qkv'):
+        torch.manual_seed(2333)
+        model=CASANet(module=variant).eval()
+        count=sum(p.numel() for p in model.parameters())
+        with torch.no_grad():
+            encoded=model.encoder(a)[1:]
+            assert [tuple(x.shape[1:]) for x in encoded]==[(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
+            logits,aux=model(a,b,return_aux=True)
+            outputs=model(a,b)
+            assert len(logits)==len(outputs)==len(aux['guide_logits'])==4
+            assert all(x.shape==target.shape for x in logits)
+            assert all(torch.equal(z.sigmoid(),p) for z,p in zip(logits,outputs))
+            assert torch.equal(model.predict(a,b),outputs[0])
+            assert all(torch.isfinite(x).all() for x in model(a,a))
+            if reference is None:
+                reference=outputs[0]
+            else:
+                assert torch.equal(reference,outputs[0]), 'common initialization differs'
+        model.train()
+        optimizer=make_optimizer(model)
+        context_ids={id(p) for p in model.context.parameters()}
+        projection_ids={id(p) for n,p in model.named_parameters() if n in context_decay_names(model)}
+        grouped=[id(p) for group in optimizer.param_groups for p in group['params']]
+        assert len(grouped)==len(set(grouped))==len(list(model.parameters()))
+        for group in optimizer.param_groups:
+            assert group['lr_scale']==1.
+            assert all(group['weight_decay']==(0. if id(p) in context_ids and id(p) not in projection_ids
+                                               else 1e-4) for p in group['params'])
+        for _ in range(3):
+            optimizer.zero_grad(set_to_none=True)
+            logits,aux=model(a,b,return_aux=True)
+            loss,main,guide=training_losses(logits,aux,target)
+            assert torch.allclose(loss,main+.2*guide)
+            loss.backward()
+            assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+            optimizer.step()
+        assert model.context.guide.weight.grad.abs().sum()>0
+        if variant!='none':
+            for layer in (model.context.qk,model.context.v,model.context.out,
+                          model.context.local_dw,model.context.local_out):
+                assert layer.weight.grad.abs().sum()>0
+            assert (model.context.gamma_context.abs().sum(-1)>0).all()
+            assert (model.context.gamma_detail.abs().sum(-1)>0).all()
+        model.eval()
+        _,report=verify_deployment(model,torch.cat((a,b),1))
+        assert max(report['per_scale_max_diff'])<2e-4 and report['binary_disagreement']==0
+        deployed=model.switch_to_deploy()
+        print(variant,'train/deploy params',count,sum(p.numel() for p in deployed.parameters()),
+              'guide/task gradients and folding PASS')
+
+
+if __name__=='__main__':
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_CASA_resume.py
+================================================================================
+"""Optimizer/RNG continuation and deployment backend-state checks."""
+import copy
+import random
+
+import numpy as np
+import torch
+from torch import nn
+
+from train_CASA import (PROTOCOL, make_optimizer, restore_training_state,
+                        rng_state, strict_fold_precision, update_learning_rate,
+                        learning_rate, context_decay_names)
+
+
+class SmallModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.module = "qkv"
+        self.encoder = nn.Linear(3, 3)
+        self.body = nn.Linear(3, 3)
+        self.context = nn.ModuleDict({"qk": nn.Linear(3, 3, bias=False),
+                                      "norm": nn.LayerNorm(3),
+                                      "v": nn.Linear(3, 3, bias=False),
+                                      "out": nn.Linear(3, 3, bias=False),
+                                      "guide": nn.Linear(3, 3)})
+
+    def forward(self, x):
+        x = self.context["norm"](self.encoder(x))
+        return self.context["out"](self.context["qk"](self.body(x)) + self.context["v"](x)) + self.context["guide"](x)
+
+
+def step(model, optimizer):
+    x = torch.randn(4, 3) + random.random() + float(np.random.random())
+    optimizer.zero_grad(set_to_none=True)
+    model(x).square().mean().backward()
+    optimizer.step()
+
+
+def backend_state():
+    return (torch.backends.cudnn.benchmark, torch.backends.cudnn.allow_tf32,
+            torch.backends.cuda.matmul.allow_tf32, torch.get_float32_matmul_precision())
+
+
+def check_decay_step():
+    model = SmallModel().double()
+    optimizer = make_optimizer(model)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.fill_(1.0)
+            parameter.grad = torch.zeros_like(parameter)
+    optimizer.step()
+    lr, decay, eps = 5e-4, 1e-4, 1e-8
+    expected_context = 1 - lr * decay
+    expected_body = 1 - lr * decay / (decay + eps)
+    torch.testing.assert_close(model.context["qk"].weight,
+        torch.full_like(model.context["qk"].weight, expected_context), rtol=0, atol=1e-12)
+    torch.testing.assert_close(model.body.weight,
+        torch.full_like(model.body.weight, expected_body), rtol=0, atol=1e-12)
+    torch.testing.assert_close(model.encoder.weight,
+        torch.full_like(model.encoder.weight, expected_body), rtol=0, atol=1e-12)
+    assert torch.equal(model.context["norm"].weight, torch.ones_like(model.context["norm"].weight))
+    assert torch.equal(model.context["guide"].bias, torch.ones_like(model.context["guide"].bias))
+
+
+def main():
+    check_decay_step()
+    torch.manual_seed(2333)
+    np.random.seed(2333)
+    random.seed(2333)
+    model = SmallModel()
+    optimizer = make_optimizer(model)
+    decay = {id(p): group["weight_decay"] for group in optimizer.param_groups for p in group["params"]}
+    scales = {id(p): group["lr_scale"] for group in optimizer.param_groups for p in group["params"]}
+    decay_names = context_decay_names(model)
+    decoupled = {id(p): group["decoupled_weight_decay"]
+                 for group in optimizer.param_groups for p in group["params"]}
+    for name, parameter in model.named_parameters():
+        expected_decay = 0.0 if name.startswith("context.") and name not in decay_names else 1e-4
+        assert decay[id(parameter)] == expected_decay
+        assert scales[id(parameter)] == 1.0
+        assert decoupled[id(parameter)] == (name in decay_names)
+        if name.startswith("context.norm.") or name == "context.guide.bias":
+            assert decay[id(parameter)] == 0.0
+        elif name.endswith(".weight"):
+            assert decay[id(parameter)] == 1e-4
+    for count in (0, 185, 199, 200, 20000, 39999):
+        rate = learning_rate(5e-4, 1, count, 40000)
+        update_learning_rate(optimizer, rate)
+        assert optimizer.param_groups[0]["lr"] == rate
+        assert all(group["lr"] == rate for group in optimizer.param_groups[1:])
+    for _ in range(4):
+        step(model, optimizer)
+    checkpoint = copy.deepcopy(dict(
+        epoch=2, step=4, state_dict=model.state_dict(), optimizer=optimizer.state_dict(),
+        manifest=dict(protocol=PROTOCOL, module="qkv", actual_steps=6, encoder_lr_mult=1.0), rng_state=rng_state()))
+    for _ in range(2):
+        step(model, optimizer)
+    restored = SmallModel()
+    restored_optimizer = make_optimizer(restored)
+    epoch, count, exact_rng = restore_training_state(checkpoint, restored, restored_optimizer, 6, 2)
+    assert (epoch, count, exact_rng) == (2, 4, True)
+    for _ in range(2):
+        step(restored, restored_optimizer)
+    assert all(torch.equal(a, b) for a, b in zip(model.parameters(), restored.parameters()))
+    assert all(int(state["step"]) == 6 for state in restored_optimizer.state.values())
+    checkpoint.pop("rng_state")
+    epoch, count, exact_rng = restore_training_state(checkpoint, restored, restored_optimizer, 6, 2)
+    assert (epoch, count, exact_rng) == (2, 4, False)
+    assert all(torch.equal(restored.state_dict()[key], value)
+               for key, value in checkpoint["state_dict"].items())
+    before = backend_state()
+    try:
+        with strict_fold_precision():
+            assert backend_state() == (False, False, False, "highest")
+            raise ValueError("exercise context exit")
+    except ValueError:
+        pass
+    assert backend_state() == before
+    print("Encoder LR, decoupled context/coupled body decay, optimizer/RNG continuation and backend restoration PASS")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_attribution.py
+================================================================================
+"""Matched geometry, loss isolation, refinement and seed controls."""
+import torch
+from torch.nn import functional as F
+from model.casa_net import CASANet
+from model.layers.hyperbolic_context import HyperbolicContext,MatchedEuclideanContext,class_assignments,refined_assignments
+from model.layers.pyramid_context import feature_regions,pool_features
+from train_CASA import training_losses,guide_loss,loss_function
+
+
+def main():
+    torch.set_num_threads(4);torch.manual_seed(2333)
+    feature=torch.randn(2,64,8,8,dtype=torch.double,requires_grad=True)
+    p=torch.rand(2,1,8,8,dtype=torch.double,requires_grad=True)
+    w0,r0=class_assignments(p,2)
+    exact=refined_assignments(feature,p,2,0.)
+    assert torch.equal(w0,exact[0]) and torch.equal(r0,exact[1])
+    w1,r1=refined_assignments(feature,p,2,1.)
+    blocks=feature_regions(feature,2)
+    initial=torch.einsum('brtp,brpc->brtc',w0,blocks)
+    cosine=F.cosine_similarity(blocks[:,:,None],initial[:,:,:,None],dim=-1,eps=1e-6)
+    reference=w0*cosine.exp();reference=reference/reference.sum(-1,keepdim=True)
+    torch.testing.assert_close(w1,reference,rtol=1e-12,atol=1e-12)
+    membership=torch.stack((feature_regions(p,2).squeeze(-1),1-feature_regions(p,2).squeeze(-1)),2)
+    torch.testing.assert_close(r1,(w1*membership).sum(-1).flatten(1),rtol=1e-12,atol=1e-12)
+    gradients=torch.autograd.grad(pool_features(feature,w1,2).square().mean(),(feature,p))
+    assert all(torch.isfinite(x).all() and x.abs().sum()>0 for x in gradients)
+    h,e=HyperbolicContext(),MatchedEuclideanContext();e.load_state_dict(h.state_dict())
+    x=torch.randn(1,64,8,8)
+    qh,qe=h.project_queries(x),e.project_queries(x)
+    assert torch.equal(qh,qe)
+    assert sum(p.numel() for p in h.parameters())==sum(p.numel() for p in e.parameters())==11477
+    assert not torch.allclose(h.squared_distance(qh.flatten(2,3),qh.flatten(2,3)),e.squared_distance(qe.flatten(2,3),qe.flatten(2,3)))
+    target=torch.randint(0,2,(1,1,32,32)).float()
+    outputs=tuple(torch.randn_like(target) for _ in range(4))
+    guides=tuple(torch.randn(1,1,n,n,requires_grad=True) for n in (8,4,2,1))
+    retrieval=tuple(torch.randn(1,1,n,n,requires_grad=True) for n in (8,4,2,1))
+    aux=dict(guide_logits=guides,geometric_logits=retrieval)
+    a,main,_=training_losses(outputs,aux,target,.1,.1)
+    b,_,_=training_losses(outputs,aux,target,.1,0.)
+    torch.testing.assert_close(a-b,.1*guide_loss(retrieval,target))
+    torch.testing.assert_close(b,main+.1*guide_loss(guides,target))
+    none_grad=torch.autograd.grad(b,retrieval,allow_unused=True)
+    assert all(g is None or not g.any() for g in none_grad)
+    for beta in (0.,1.):
+        op=HyperbolicContext(refinement_beta=beta)
+        op.gamma_context.data.fill_(.2);op.gamma_detail.data.fill_(.2)
+        value=torch.randn(1,64,1,1)
+        constant=[value.expand(1,64,n,n).clone() for n in (16,8,4,4)]
+        enhanced,_=op(constant)
+        assert all(torch.allclose(a,b,atol=3e-6) for a,b in zip(enhanced,constant))
+        out,_=op([torch.zeros_like(v) for v in constant])
+        assert all(not z.any() for z in out)
+    torch.manual_seed(11);m1=CASANet(module='hyperbolic',context_seed=22)
+    torch.manual_seed(11);m2=CASANet(module='matched',context_seed=22)
+    assert all(torch.equal(a,b) for a,b in zip(m1.state_dict().values(),m2.state_dict().values()))
+    torch.manual_seed(11);m3=CASANet(module='hyperbolic',context_seed=23)
+    assert torch.equal(m1.encoder.features[0][0].weight,m3.encoder.features[0][0].weight)
+    assert not torch.equal(m1.context.qk.weight,m3.context.qk.weight)
+    print('beta0 exact control, beta1 formula/support/gradients, matched H/E, isolated loss and seed controls PASS')
+
+
+if __name__=='__main__':main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_context_geometry.py
+================================================================================
+"""Lorentz geometry checked against Poincare and Klein coordinate identities."""
+import torch
+
+from model.layers.lorentz_ops import (
+    acosh1p_squared, lift, normalize_sum, pairwise_squared_distance,
+)
+
+
+def poincare_distance_reference(space_q, space_k):
+    """FP64 reference using direct chords in the Poincare ball."""
+    q, k = space_q.double(), space_k.double()
+    time_q = torch.sqrt(1 + (q * q).sum(-1, keepdim=True))
+    time_k = torch.sqrt(1 + (k * k).sum(-1, keepdim=True))
+    ball_q, ball_k = q / (time_q + 1), k / (time_k + 1)
+    chord = torch.cdist(ball_q, ball_k, compute_mode="donot_use_mm_for_euclid_dist")
+    denominator = torch.sqrt(
+        (1 - ball_q.square().sum(-1)).unsqueeze(-1)
+        * (1 - ball_k.square().sum(-1)).unsqueeze(-2))
+    return (2 * torch.asinh(chord / denominator)).square()
+
+
+def klein_centroid_reference(points, weights):
+    """Einstein barycenter in Klein coordinates, converted through the ball."""
+    time, space = points[..., :1], points[..., 1:]
+    klein = space / time
+    weighted_mass = weights.unsqueeze(-1) * time.unsqueeze(-3)
+    center = (weighted_mass * klein.unsqueeze(-3)).sum(-2) / weighted_mass.sum(-2)
+    ball = center / (1 + torch.sqrt(1 - center.square().sum(-1, keepdim=True)))
+    denominator = 1 - ball.square().sum(-1, keepdim=True)
+    return torch.cat(((1 + ball.square().sum(-1, keepdim=True)) / denominator,
+                      2 * ball / denominator), dim=-1)
+
+
+def lift_radius_and_gradient():
+    directions = torch.randn(7, 16, dtype=torch.float64)
+    directions = directions / directions.norm(dim=-1, keepdim=True)
+    lengths = torch.tensor([0., .01, .25, 1., 3., 10., 30.],
+                           dtype=torch.float64, requires_grad=True)
+    point = lift(lengths[:, None] * directions)
+    unit = point[:, 0].square() - point[:, 1:].square().sum(-1)
+    torch.testing.assert_close(unit, torch.ones_like(unit), atol=5e-13, rtol=0)
+    radius = torch.asinh(point[:, 1:].norm(dim=-1))
+    torch.testing.assert_close(radius, torch.asinh(lengths), atol=2e-15, rtol=2e-15)
+    gradient = torch.autograd.grad(radius[1:].sum(), lengths)[0][1:]
+    expected = 1 / torch.sqrt(1 + lengths.detach()[1:].square())
+    torch.testing.assert_close(gradient, expected, atol=1e-14, rtol=1e-13)
+    assert (gradient > 0).all(), "large-radius spatial inputs lost radial gradients"
+    assert radius.max() - radius.min() > 4
+    print("Lorentz unit norm, variable radius and non-clipped radial gradients PASS")
+
+
+def centroid_identities():
+    space = torch.randn(2, 4, 7, 16, dtype=torch.float64) * .7
+    points = lift(space)
+    weights = torch.rand(2, 4, 3, 7, dtype=torch.float64).softmax(-1)
+    actual = normalize_sum(weights @ points)
+    expected = klein_centroid_reference(points, weights)
+    torch.testing.assert_close(actual, expected, atol=2e-13, rtol=2e-13)
+
+    constant = points[..., :1, :].expand_as(points)
+    actual = normalize_sum(weights @ constant)
+    expected = points[..., :1, :].expand(-1, -1, 3, -1)
+    torch.testing.assert_close(actual, expected, atol=2e-13, rtol=2e-13)
+
+    selected = torch.nn.functional.one_hot(torch.tensor([1, 4, 6]), 7).double()
+    actual = normalize_sum(selected @ points)
+    torch.testing.assert_close(actual, points[..., [1, 4, 6], :], atol=2e-13, rtol=2e-13)
+
+    opposite = torch.stack((space[..., 0, :], -space[..., 0, :]), dim=-2)
+    center = normalize_sum(lift(opposite).mean(-2))
+    origin = torch.zeros_like(center)
+    origin[..., 0] = 1
+    torch.testing.assert_close(center, origin, atol=1e-14, rtol=0)
+    print("Lorentz centroids agree with Klein barycenters, constants and one-hot weights PASS")
+
+
+def distance_references():
+    q = torch.randn(2, 4, 11, 16, dtype=torch.float64) * 1.2
+    k = torch.randn(2, 4, 7, 16, dtype=torch.float64) * .8
+    actual = pairwise_squared_distance(lift(q), lift(k))
+    expected = poincare_distance_reference(q, k)
+    torch.testing.assert_close(actual, expected, atol=2e-12, rtol=2e-12)
+
+    radial_q = torch.tensor([0., .1, .8, 2., 4.], dtype=torch.float64)
+    radial_k = torch.tensor([.03, .4, 1.3, 3.], dtype=torch.float64)
+    a = torch.zeros(5, 16, dtype=torch.float64)
+    b = torch.zeros(4, 16, dtype=torch.float64)
+    a[:, 0], b[:, 0] = radial_q.sinh(), radial_k.sinh()
+    expected = (radial_q[:, None] - radial_k[None, :]).square()
+    actual = pairwise_squared_distance(lift(a), lift(b))
+    torch.testing.assert_close(actual, expected, atol=2e-11, rtol=2e-11)
+    print("FP64 squared distances agree with Poincare chords and radial geodesics PASS")
+
+
+def float32_distance_range():
+    lengths = torch.tensor([0., 1e-4, .05, .5, 1., 3., 10., 30.])
+    q = torch.randn(2, 4, len(lengths), 16)
+    k = torch.randn_like(q)
+    q = q / q.norm(dim=-1, keepdim=True) * lengths[None, None, :, None]
+    k = k / k.norm(dim=-1, keepdim=True) * lengths[None, None, :, None]
+    cases = [(q, k), (q, q), (q, q + torch.randn_like(q) * 1e-3)]
+    maximum_error = 0.
+    for left, right in cases:
+        actual = pairwise_squared_distance(lift(left), lift(right))
+        expected = poincare_distance_reference(left, right)
+        maximum_error = max(maximum_error, float((actual.double() - expected).abs().max()))
+        assert torch.isfinite(actual).all() and (actual >= 0).all()
+        torch.testing.assert_close(actual.double(), expected, atol=2e-3, rtol=3e-5)
+    print(f"FP32 spatial norm 0..30 squared-distance max absolute error={maximum_error:.3e} PASS")
+
+
+def small_distance_limit():
+    z = torch.cat((torch.tensor([0.], dtype=torch.float64),
+                   torch.logspace(-14, -2, 25, dtype=torch.float64),
+                   torch.tensor([1e-3 - 1e-9, 1e-3, 1e-3 + 1e-9], dtype=torch.float64)))
+    z.requires_grad_()
+    actual = acosh1p_squared(z)
+    expected = 4 * torch.asinh(torch.sqrt(z.detach() / 2)).square()
+    torch.testing.assert_close(actual, expected, atol=3e-15, rtol=2e-13)
+    derivative = torch.autograd.grad(actual.sum(), z)[0]
+    assert derivative[0] == 2 and torch.isfinite(derivative).all()
+    positive_z = z.detach()[1:]
+    expected_derivative = (4 * torch.asinh(torch.sqrt(positive_z / 2))
+                           / torch.sqrt(positive_z * (positive_z + 2)))
+    torch.testing.assert_close(derivative[1:], expected_derivative, atol=2e-12, rtol=2e-12)
+    print("Squared acosh analytic value, derivative and branch-boundary limits PASS")
+
+
+def distance_and_centroid_gradients():
+    q = (torch.randn(1, 2, 3, dtype=torch.float64) * .6).requires_grad_()
+    k = (torch.randn(1, 3, 3, dtype=torch.float64) * .6).requires_grad_()
+    assert torch.autograd.gradcheck(lambda a, b: pairwise_squared_distance(lift(a), lift(b)),
+                                    (q, k), eps=1e-6, atol=2e-6, rtol=2e-4)
+    logits = torch.randn(1, 2, 3, dtype=torch.float64, requires_grad=True)
+    assert torch.autograd.gradcheck(lambda points, scores: normalize_sum(scores.softmax(-1) @ lift(points)),
+                                    (k, logits), eps=1e-6, atol=2e-6, rtol=2e-4)
+
+    for radius in (0., .5, 3., 30.):
+        source = torch.randn(1, 2, 5, 16)
+        source = source / source.norm(dim=-1, keepdim=True) * radius
+        for perturbation in (0., 1e-6, .01):
+            a = source.clone().requires_grad_()
+            b = (source + perturbation * torch.randn_like(source)).requires_grad_()
+            distance = pairwise_squared_distance(lift(a), lift(b))
+            distance.sum().backward()
+            assert torch.isfinite(a.grad).all() and torch.isfinite(b.grad).all()
+            if radius == 0 and perturbation == 0:
+                assert distance.count_nonzero() == 0
+                assert a.grad.count_nonzero() == 0 and b.grad.count_nonzero() == 0
+    print("Noncoincident distance/centroid gradcheck and FP32 coincident gradients PASS")
+
+
+def euclidean_origin_limit():
+    q = torch.randn(2, 3, 5, 16, dtype=torch.float64)
+    k = torch.randn(2, 3, 7, 16, dtype=torch.float64)
+    euclidean = torch.cdist(q, k, compute_mode="donot_use_mm_for_euclid_dist").square()
+    scale = 1e-4
+    intrinsic = pairwise_squared_distance(lift(scale * q), lift(scale * k)) / scale ** 2
+    torch.testing.assert_close(intrinsic, euclidean, atol=2e-5, rtol=2e-6)
+    print("Lorentz spatial lift has the Euclidean metric at the origin PASS")
+
+
+def main():
+    torch.set_num_threads(4)
+    torch.manual_seed(4701)
+    lift_radius_and_gradient()
+    centroid_identities()
+    distance_references()
+    float32_distance_range()
+    small_distance_limit()
+    distance_and_centroid_gradients()
+    euclidean_origin_limit()
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_data_pipeline.py
+================================================================================
+"""RGB/date ordering, synchronized augmentation and stable binary loss checks."""
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import cv2
+import numpy as np
+import torch
+from torch.nn import functional as F
+
+from dataset import casa_transforms as transforms
+from train_CASA import (MEAN, STD, learning_rate, loss_function, make_loader,
+                        mask_boundary, training_losses, SpatialMetrics)
+
+
+def main():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for name in ("A", "B", "label", "list"):
+            (root / name).mkdir()
+        a = np.full((256, 256, 3), (17, 83, 211), dtype=np.uint8)
+        b = np.full_like(a, (199, 67, 29))
+        mask = np.zeros((256, 256), dtype=np.uint8)
+        mask[100:180, 130:210] = 255
+        cv2.imwrite(str(root / "A" / "pair.png"), cv2.cvtColor(a, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(root / "B" / "pair.png"), cv2.cvtColor(b, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(root / "label" / "pair.png"), mask)
+        (root / "list" / "test.txt").write_text("pair.png\n")
+        image, target = next(iter(make_loader(root, "test", batch_size=1, workers=0)))
+        expected = (torch.tensor([17, 83, 211, 199, 67, 29]) / 255 - torch.tensor(MEAN)) / torch.tensor(STD)
+        assert torch.allclose(image[0, :, 0, 0], expected, atol=1e-6)
+        assert torch.equal(target[0, 0], torch.from_numpy((mask >= 128).astype(np.int64)))
+
+    mask = np.zeros((32, 32), dtype=np.uint8)
+    mask[5:19, 12:25] = 255
+    pair = np.stack((mask, mask, mask, 255-mask, 255-mask, 255-mask), -1)
+    with patch.object(transforms.random, "random", return_value=0.0), \
+            patch.object(transforms.random, "randrange", return_value=1):
+        image, target = transforms.Compose([
+            transforms.RandomFlip(), transforms.RandomRotate90(), transforms.RandomExchange()
+        ])(pair, mask)
+    assert np.array_equal(image[:, :, 0], 255-target)
+    assert np.array_equal(image[:, :, 3], target)
+    with patch.object(transforms.random, "random", return_value=0.0), \
+            patch.object(transforms.random, "randint", side_effect=[1, 2, 3, 4]):
+        cropped, crop_target = transforms.RandomCropResize(8)(pair, mask)
+    assert np.array_equal(crop_target, cv2.resize(mask[1:-2, 3:-4], (32, 32), interpolation=cv2.INTER_NEAREST))
+    assert np.array_equal(cropped, cv2.resize(pair[1:-2, 3:-4], (32, 32)))
+
+    logits = torch.tensor([[[[-100.0, 100.0]]]], requires_grad=True)
+    target = torch.tensor([[[[1.0, 0.0]]]])
+    loss = loss_function((logits,), target)
+    loss.backward()
+    assert torch.isfinite(loss) and torch.isfinite(logits.grad).all()
+    assert (logits.grad.abs() > 0.4).all()
+    moderate = torch.tensor([[[[-2.0, 1.0]]]])
+    probability = moderate.sigmoid()
+    expected = F.binary_cross_entropy(probability, target) + 1 - (
+        2 * (probability * target).sum() + 1e-5) / (probability.sum() + target.sum() + 1e-5)
+    assert torch.allclose(loss_function((moderate,), target), expected)
+    assert learning_rate(5e-4, 1, 185, 40145) == 5e-4 * .9 * 186 / 200 + 5e-5
+
+    for value in (0.0, 1.0):
+        constant = torch.full((1, 1, 16, 16), value)
+        assert mask_boundary(constant).count_nonzero() == 0
+    target = torch.zeros(1, 1, 16, 16)
+    target[:, :, 4:12, 5:13] = 1
+    edge = mask_boundary(target)
+    assert edge[0, 0, 3:13, 4:14].sum() == 64
+    assert edge[:, :, 0].sum() == 0 and edge[:, :, -1].sum() == 0
+    assert F.adaptive_max_pool2d(edge, (4, 4)).sum() > 0
+    aux = dict(guide_logits=tuple(torch.zeros(1, 1, side, side, requires_grad=True)
+                                 for side in (8, 4, 2, 1)))
+    outputs = tuple(torch.zeros_like(target, requires_grad=True) for _ in range(4))
+    total, main_loss, guide = training_losses(outputs, aux, target)
+    assert torch.equal(total, main_loss + .2 * guide)
+    total.backward()
+    assert all(z.grad is not None and torch.isfinite(z.grad).all() and z.grad.abs().sum() > 0
+               for z in (*outputs, *aux["guide_logits"]))
+
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(target > 0, target)
+    scores = metric.scores()
+    assert scores["boundary_1px"]["F1"] == 1 and scores["boundary_2px"]["F1"] == 1
+    assert scores["interior"]["recall"] == 1 and scores["interior"]["target_pixels"] == 16
+    shifted = torch.roll(target, shifts=1, dims=-1)
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(shifted > 0, target)
+    assert metric.scores()["boundary_1px"]["F1"] == 1
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(torch.zeros_like(target).bool(), target)
+    assert metric.scores()["boundary_1px"]["F1"] == 0
+    assert metric.scores()["interior"]["recall"] == 0
+    small = torch.zeros_like(target)
+    small[..., 8, 8] = 1
+    metric = SpatialMetrics(torch.device("cpu"))
+    metric.update(torch.zeros_like(small).bool(), small)
+    assert metric.scores()["interior"]["target_pixels"] == 0
+    assert metric.scores()["interior"]["recall"] is None
+    print("RGB/date order, synchronized augmentation, stable losses, boundary targets/metrics and warmup PASS")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_direct_geometry.py
+================================================================================
+"""Direct projected geometry, class evidence and inference checks."""
+import math
+
+import torch
+
+from model.casa_net import CASANet
+from model.layers.hyperbolic_context import HyperbolicContext
+from model.layers.pyramid_context import project_tokens
+from train_CASA import guide_loss, training_losses, loss_function
+
+
+def manifold_and_radius():
+    op = HyperbolicContext().double()
+    projected = torch.randn(2, 1, 7, 32, dtype=torch.double)
+    point = op.geometric_point(projected)
+    space = projected / math.sqrt(32)
+    assert torch.equal(point[..., 1:], space)
+    assert torch.allclose(point[..., 0].square() - point[..., 1:].square().sum(-1),
+                          torch.ones_like(point[..., 0]), atol=1e-12)
+    radius = torch.asinh(point[..., 1:].norm(dim=-1))
+    assert torch.allclose(radius, torch.asinh(projected.norm(dim=-1) / math.sqrt(32)), atol=1e-12)
+    larger = torch.asinh(op.geometric_point(4 * projected)[..., 1:].norm(dim=-1))
+    assert (larger > radius).all()
+    zeros = torch.zeros_like(projected)
+    origin = op.geometric_point(zeros)
+    assert torch.equal(origin[..., 0], torch.ones_like(origin[..., 0]))
+    assert torch.equal(origin[..., 1:], zeros)
+    for initial in (projected, zeros):
+        query = initial.clone().requires_grad_()
+        key = initial.clone().requires_grad_()
+        diagonal = op.squared_distance(op.geometric_point(query), op.geometric_point(key)).diagonal(dim1=-2, dim2=-1)
+        assert diagonal.abs().max() < 1e-12
+        gradients = torch.autograd.grad(diagonal.sum(), (query, key))
+        assert all(torch.isfinite(g).all() and g.abs().max() < 1e-12 for g in gradients)
+    print("Lorentz constraint, projected-radius sensitivity and finite zero-distance gradients PASS")
+
+
+def content_and_guide_independence():
+    op = HyperbolicContext().double()
+    mean, delta = torch.randn(1, 3, 64, dtype=torch.double), torch.randn(1, 3, 64, dtype=torch.double)
+    pooled_a = torch.stack((mean + delta, mean - delta), -2).mean(-2)
+    pooled_b = torch.stack((mean + 5 * delta, mean - 5 * delta), -2).mean(-2)
+    key_a, occupancy_a = op.project_keys(pooled_a)
+    key_b, _ = op.project_keys(pooled_b)
+    assert torch.allclose(key_a, key_b, atol=1e-12)
+    assert torch.allclose(project_tokens(op.v, pooled_a, op.heads), project_tokens(op.v, pooled_b, op.heads), atol=1e-12)
+    field = torch.randn(1, 64, 4, 4, dtype=torch.double)
+    query_a = op.project_queries(field)
+    with torch.no_grad():
+        op.guide.weight.zero_()
+        op.guide.bias.fill_(4.)
+    query_b = op.project_queries(field)
+    key_c, occupancy_c = op.project_keys(pooled_a)
+    assert torch.equal(query_a, query_b) and torch.equal(key_a, key_c)
+    assert not torch.equal(occupancy_a, occupancy_c)
+    print("Shared pooled K/V content and Q/K coordinates independent of guide parameters PASS")
+
+
+def evidence_and_fields():
+    op = HyperbolicContext()
+    assert op.tokens_per_scale == (128, 32, 32, 32)
+    assert sum(p.numel() for p in op.parameters()) == 11477
+    sizes = (16, 8, 4, 4)
+    tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
+    output, auxiliary = op(tar, return_aux=True)
+    assert all(torch.equal(a, b) for a, b in zip(output, tar))
+    target = torch.zeros(1, 1, 64, 64)
+    target[..., 16:48, 16:48] = 1
+    geometry_loss = guide_loss(auxiliary["geometric_logits"], target)
+    gradients = torch.autograd.grad(geometry_loss, (op.qk.weight, *tar), retain_graph=True)
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
+    logit = torch.randn(1, 1, 6, 224)
+    evidence = op.geometric_change_logit(logit, 2, 3)
+    expected = logit[..., ::2].logsumexp(-1) - logit[..., 1::2].logsumexp(-1)
+    assert torch.equal(evidence, expected.reshape(1, 1, 2, 3))
+    predictions = tuple(torch.randn_like(target) for _ in range(4))
+    loss, _, auxiliary_loss = training_losses(predictions, auxiliary, target)
+    expected_auxiliary = .5 * (guide_loss(auxiliary["guide_logits"], target) + geometry_loss)
+    assert torch.equal(auxiliary_loss, expected_auxiliary)
+    assert torch.equal(loss, loss_function(predictions, target) + .2 * expected_auxiliary)
+    with torch.no_grad():
+        op.gamma_context.fill_(.1)
+        op.gamma_detail.fill_(.1)
+        constant = torch.randn(1, 64, 1, 1)
+        fields = [constant.expand(1, 64, n, n).clone() for n in sizes]
+        enhanced, _ = op(fields)
+        assert all(torch.allclose(a, b, atol=3e-6) for a, b in zip(fields, enhanced))
+        zeros = [torch.zeros_like(x) for x in fields]
+        enhanced, _ = op(zeros)
+        assert all(torch.equal(a, b) for a, b in zip(zeros, enhanced))
+    print("224 prototypes, geometric-evidence QK/TAR gradients, 0.1/0.1 loss, constant/zero fields PASS")
+
+
+def inference_path():
+    model = CASANet(module="hyperbolic").eval()
+    def prohibited(*args):
+        raise AssertionError("predict must not compute geometric auxiliary logits")
+    model.context.geometric_change_logit = prohibited
+    with torch.no_grad():
+        result = model.predict(torch.randn(1, 3, 128, 128), torch.randn(1, 3, 128, 128))
+        _, auxiliary = model(torch.randn(1, 3, 128, 128), torch.randn(1, 3, 128, 128), return_aux=True)
+        assert "geometric_logits" not in auxiliary
+    assert result.shape == (1, 1, 128, 128) and torch.isfinite(result).all()
+    print("Prediction and evaluation exclude geometric auxiliary logsumexp PASS")
+
+
+if __name__ == "__main__":
+    torch.manual_seed(2333)
+    torch.set_num_threads(4)
+    manifold_and_radius()
+    content_and_guide_independence()
+    evidence_and_fields()
+    inference_path()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_hyperbolic_context.py
+================================================================================
+"""Projected radii, class prototypes and independent adoption."""
+import torch
+
+from model.layers.hyperbolic_context import HyperbolicContext, class_assignments
+from model.layers.pyramid_context import channel_norm, pool_features, project_tokens
+from model.layers.lorentz_ops import pairwise_squared_distance
+
+
+def compression_and_geometry():
+    op = HyperbolicContext().double()
+    p = torch.full((1, 1, 8, 8), .5, dtype=torch.double, requires_grad=True)
+    x = torch.randn(1, 64, 8, 8, dtype=torch.double, requires_grad=True)
+    weights, support = class_assignments(p, 1)
+    assert weights.shape == (1, 1, 2, 64)
+    assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
+    assert torch.allclose(support, torch.full_like(support, .5))
+    prototype = pool_features(x, weights, 1)
+    loss = prototype[:, 0].square().mean()
+    gradients = torch.autograd.grad(loss, (x, p))
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients)
+    sparse = torch.full_like(p, .05)
+    sparse[..., 0, 0] = .6
+    sparse_weights, _ = class_assignments(sparse, 1)
+    assert .69 < sparse_weights[0, 0, 0, 0] < .70
+    q = torch.randn(1, op.heads, 12, op.head_dim, dtype=torch.double)
+    points = op.geometric_point(q)
+    radius = torch.asinh(points[..., 1:].norm(dim=-1))
+    assert torch.allclose(radius, torch.asinh(q.norm(dim=-1) / op.head_dim ** .5), atol=1e-12)
+    assert (torch.asinh(op.geometric_point(3 * q)[..., 1:].norm(dim=-1)) > radius).all()
+    assert torch.allclose(points[..., 0].square() - points[..., 1:].square().sum(-1), torch.ones_like(radius), atol=2e-14)
+    # K and V depend on the same P, without a separate region-scatter statistic.
+    mean = torch.randn(1, 1, 64, dtype=torch.double)
+    delta = torch.randn_like(mean)
+    two = torch.cat((mean + delta, mean - delta), 1).mean(1, keepdim=True)
+    large = torch.cat((mean + 5 * delta, mean - 5 * delta), 1).mean(1, keepdim=True)
+    assert torch.allclose(op.project_keys(two)[0], op.project_keys(large)[0], atol=1e-12)
+    assert torch.allclose(project_tokens(op.v, two, op.heads), project_tokens(op.v, large, op.heads), atol=1e-12)
+    print('Projected radius, scatter invariance, sparse targets, class prototypes and gradients PASS')
+
+
+def independent_adoption():
+    op = HyperbolicContext().double()
+    feature = torch.randn(1, 64, 2, 2, dtype=torch.double)
+    p = op.guide(feature).sigmoid()
+    query = op.project_queries(feature).flatten(2, 3)
+    prototypes = torch.randn(1, 224, 64, dtype=torch.double)
+    key, p_key = op.project_keys(prototypes)
+    value = project_tokens(op.v, prototypes, op.heads)
+    support = torch.ones(1, 224, dtype=torch.double)
+    attention = op.attention(query, key, support, 0)
+    update, gate, *_ = op.readout(feature, attention, value, p, p_key)
+    with torch.no_grad():
+        op.scale_bias.add_(7.)
+    shifted = op.attention(query, key, support, 0)
+    shifted_update, shifted_gate, *_ = op.readout(feature, shifted, value, p, p_key)
+    assert torch.allclose(shifted, attention, atol=1e-14)
+    assert torch.allclose(shifted_gate, gate, atol=1e-14)
+    assert torch.allclose(update, shifted_update, atol=1e-14)
+    # A single available fine-scale prototype retains its conditional attention mass.
+    rare = torch.zeros_like(attention)
+    rare[..., 0] = 1
+    with torch.no_grad():
+        op.gate.weight.zero_()
+        op.gate.bias.zero_()
+    _, rare_gate, *_ = op.readout(feature, rare, value, p, p_key)
+    assert torch.equal(rare_gate, torch.full_like(rare_gate, .5))
+    radial_flat = HyperbolicContext.geometric_point(torch.nn.functional.normalize(query[..., 1:], dim=-1) * op.head_dim ** .5)
+    assert (pairwise_squared_distance(query, key) - pairwise_squared_distance(radial_flat, key)).abs().max() > 1e-4
+    print('Common logit shift invariance, rare-match adoption and radial sensitivity PASS')
+
+
+def module():
+    op = HyperbolicContext()
+    sizes = (32, 16, 8, 4)
+    tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
+    output, _ = op(tar)
+    assert all(torch.equal(a, b) for a, b in zip(tar, output))
+    with torch.no_grad():
+        op.gamma_context.fill_(.1)
+        op.gamma_detail.fill_(.1)
+    constant = torch.randn(1, 64, 1, 1)
+    fields = [constant.expand(1, 64, n, n).clone() for n in sizes]
+    output, _ = op(fields)
+    assert all(torch.allclose(a, b, atol=3e-6) for a, b in zip(fields, output))
+    zero = [torch.zeros_like(x) for x in tar]
+    output, _ = op(zero)
+    assert all(torch.equal(a, b) for a, b in zip(zero, output))
+    op.collect_diag = True
+    output, _ = op(tar)
+    grads = torch.autograd.grad(output[0].square().mean(), tar, retain_graph=True)
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
+    sum(o.square().mean() for o in output).backward()
+    for name, parameter in op.named_parameters():
+        assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
+        assert parameter.grad.abs().sum() > 0, name
+    for index, stage in enumerate(op.last_diag.values()):
+        assert stage['contexts'] == 224 and stage['finite']
+        assert 0 < stage['gate_mean'] < 1
+        assert stage['adoption_source'] == 'learned_value_correction_gate'
+    print('Identity, constant/zero fields, all parameter and cross-scale gradients PASS')
+
+
+if __name__ == '__main__':
+    torch.set_num_threads(4)
+    torch.manual_seed(2333)
+    compression_and_geometry()
+    independent_adoption()
+    module()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_pyramid_context.py
+================================================================================
+"""Compression fidelity, constant fields and cross-scale task gradients."""
+import torch
+
+from model.layers.euclidean_context import EuclideanContext
+from model.layers.pyramid_context import assignments, pool_features, highpass, regions
+
+
+def compression_semantics():
+    feature = torch.randn(1, 64, 8, 8, dtype=torch.double, requires_grad=True)
+    probability = torch.zeros(1, 1, 8, 8, dtype=torch.double)
+    probability[..., 0, 0] = 1
+    weights, confidence = assignments(probability, 1)
+    prototype = pool_features(feature, weights, 1)
+    assert weights[0, 0, 0, 0] > .9999
+    assert torch.allclose(prototype[:, 0], feature[..., 0, 0], atol=3e-4)
+    assert torch.allclose(confidence, torch.ones_like(confidence), atol=1e-9, rtol=0), "sparse confident target lost prior mass"
+    for value in (0., .01, .5, .99, 1.):
+        weights, confidence = assignments(torch.full_like(probability, value), 1)
+        assert torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]))
+        prototype = pool_features(feature, weights, 1)
+        assert torch.allclose(prototype[:, 0], prototype[:, 1], atol=1e-12)
+        expected = torch.tensor([[max(value**2, 1e-6), max((1-value)**2, 1e-6)]], dtype=torch.double)
+        assert torch.allclose(confidence, expected, atol=1e-12)
+    logits = torch.randn_like(probability, requires_grad=True)
+    weights, _ = assignments(logits.sigmoid(), 2)
+    pooled = pool_features(feature, weights, 2)
+    grads = torch.autograd.grad(pooled.square().sum(), (feature, logits))
+    assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in grads)
+    sparse = torch.full_like(probability,.05)
+    sparse[...,0,0]=.6
+    sharpened,_=assignments(sparse,1)
+    assert .69 < sharpened[0,0,0,0] < .70
+    operator = EuclideanContext().double()
+    dense = operator.project_queries(feature)
+    expected = torch.einsum("brtp,bhrpd->bhrtd", weights, regions(dense, 2)).flatten(2, 3)
+    actual = operator.pool_keys(dense, pooled, weights, 2)
+    assert torch.allclose(actual, expected, atol=1e-12), "pool/linear equivalence failed"
+    print("sparse targets, unsupported classes, assignment gradients and pool/linear equivalence PASS")
+
+
+def contexts():
+    sizes = (32,16,8,4)
+    for context_type in (EuclideanContext,):
+        op = context_type()
+        tar = [torch.randn(1,64,n,n,requires_grad=True) for n in sizes]
+        output, aux = op(tar)
+        assert all(torch.equal(x,y) for x,y in zip(output,tar))
+        assert len(aux['guide_logits']) == 4
+        with torch.no_grad():
+            op.gamma_context.fill_(.1)
+            op.gamma_detail.fill_(.1)
+        constant = torch.randn(1,64,1,1)
+        fields = [constant.expand(1,64,n,n).clone() for n in sizes]
+        output, _ = op(fields)
+        assert all(torch.allclose(x,y,atol=3e-6,rtol=1e-6) for x,y in zip(output,fields)), "constant field changed"
+        assert highpass(torch.ones(1,64,8,8)).abs().max() == 0
+        op.collect_diag = True
+        output, _ = op(tar)
+        gradients = torch.autograd.grad(output[0].square().mean(), tar, retain_graph=True)
+        assert all(torch.isfinite(g).all() and g.abs().sum() > 0 for g in gradients), "cross-scale gradient missing"
+        sum(x.square().mean() for x in output).backward()
+        for name, parameter in op.named_parameters():
+            assert parameter.grad is not None and torch.isfinite(parameter.grad).all(), name
+            assert parameter.grad.abs().sum() > 0, name
+        for i in range(4):
+            diag=op.last_diag[f'stage{i+1}']
+            assert diag['finite'] and diag['contexts']==224
+            assert diag['context_residual_to_feature_rms']>0
+            if i<2:
+                assert diag['local_residual_to_feature_rms']>0
+        # Identical distances and class confidence should not prefer the larger source grid.
+        query=op.project_queries(torch.zeros(1,64,1,3)).flatten(2,3)
+        key=op.project_queries(torch.zeros(1,64,1,224)).flatten(2,3)
+        attention=op.attention(query,key,torch.ones(1,224),0)
+        mass=torch.stack([p.sum(-1) for p in attention.split(op.tokens_per_scale,-1)],-1)
+        assert torch.allclose(mass,torch.full_like(mass,.2),atol=1e-6)
+        # With no matching prototype, the self candidate receives nearly all mass.
+        remote=op.project_queries(torch.full((1,64,1,224),100.)).flatten(2,3)
+        remote_attention=op.attention(query,remote,torch.ones(1,224),0)
+        assert remote_attention.sum(-1).max()<1e-4
+        # Uniformly ambiguous pairs have half the total prior of confident pairs.
+        uncertain=op.attention(query,key,torch.full((1,224),.25),0).sum(-1)
+        confident=op.attention(query,key,torch.tensor([1.,1e-6]).repeat(112)[None],0).sum(-1)
+        assert torch.all(uncertain < confident)
+        print(context_type.__name__, 'identity, constant preservation, all parameter/cross-scale gradients PASS')
+
+
+if __name__ == '__main__':
+    torch.set_num_threads(4)
+    torch.manual_seed(2333)
+    compression_semantics()
+    contexts()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/test_refinement_health.py
+================================================================================
+"""Refined H/E task gradients, temporal inputs and deployment folding."""
+import torch
+
+from model.casa_net import CASANet
+from train_CASA import loss_function, make_optimizer, training_losses, verify_deployment
+
+
+def check_variant(variant, image_a, image_b, target):
+    torch.manual_seed(2333)
+    model = CASANet(module=variant, refinement_beta=1.).train()
+    optimizer = make_optimizer(model)
+    for step in range(3):
+        optimizer.zero_grad(set_to_none=True)
+        outputs, auxiliary = model(image_a, image_b, return_aux=True)
+        loss, main, guide = training_losses(outputs, auxiliary, target, .1, 0.)
+        torch.testing.assert_close(loss, main + .1 * guide)
+        loss.backward()
+        assert torch.isfinite(loss), variant
+        assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+        if step == 0:
+            # Zero residual scales learn first, before the internal branch weights.
+            assert (model.context.gamma_context.grad.abs().sum(-1) > 0).all()
+            assert (model.context.gamma_detail.grad.abs().sum(-1) > 0).all()
+        optimizer.step()
+
+    optimizer.zero_grad(set_to_none=True)
+    outputs, _ = model(image_a, image_b, return_aux=True)
+    loss_function(outputs, target).backward()
+    for name in ("qk", "v", "out", "gate", "local_dw", "local_out", "guide"):
+        gradient = getattr(model.context, name).weight.grad
+        assert gradient is not None and torch.isfinite(gradient).all(), (variant, name)
+        assert gradient.abs().sum() > 0, (variant, name)
+
+    model.eval()
+    model.context.collect_diag = True
+    with torch.no_grad():
+        prediction = model.predict(image_a, image_b)
+        diagnostics = model.diagnostics()
+        for stage in diagnostics.values():
+            assert stage["finite"] and stage["contexts"] == 224
+            assert stage["refinement_beta"] == 1.
+            assert 0 < stage["compression_weight_tv"] < 1
+            assert stage["prototype_refinement_to_feature_rms"] > 0
+        model.context.collect_diag = False
+        for first, second in ((image_b, image_a), (image_a, image_a)):
+            other = model.predict(first, second)
+            assert other.shape == target.shape and torch.isfinite(other).all()
+        # The shared TAR uses ordered concat/signed differences, so exchange is
+        # an augmented input condition rather than an exact symmetry identity.
+        assert torch.isfinite(prediction).all()
+    _, report = verify_deployment(model, torch.cat((image_a, image_b), 1))
+    assert max(report["per_scale_max_diff"]) < 2e-4
+    assert report["binary_disagreement"] == 0
+    print(f"{variant} beta=1: residual startup, segmentation-only gradients, "
+          f"temporal inputs, compression diagnostics and folding PASS", flush=True)
+
+
+def main():
+    torch.set_num_threads(4)
+    torch.manual_seed(2333)
+    a, b = torch.randn(1, 3, 256, 256), torch.randn(1, 3, 256, 256)
+    target = torch.randint(0, 2, (1, 1, 256, 256)).float()
+    for variant in ("hyperbolic", "matched"):
+        check_variant(variant, a, b, target)
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/train_CASA.py
+================================================================================
+"""CASA relative-context training with shared supervision and test selection."""
+import argparse
+import copy
+import json
+import math
+import random
+import time
+from contextlib import contextmanager
+from pathlib import Path
+
+import numpy as np
+import torch
+from torch.nn import functional as F
+
+from dataset.dataset import Dataset
+from dataset import casa_transforms as transforms
+from model.casa_net import CASANet
+from model.metric_tool import ConfuseMatrixMeter
+
+PROTOCOL = "casa_pyramid_40k_refinement_v9"
+DEPLOY_POLICY = "strict_fp32_fold_v1"
+MEAN = [0.485, 0.456, 0.406] * 2
+STD = [0.229, 0.224, 0.225] * 2
+GUIDE_WEIGHT = 0.2
+DATA_PROTOCOL = dict(
+    color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
+    mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
+    label_threshold=128, train_crop_probability=0.5, train_crop_max_margin=8,
+    horizontal_flip_probability=0.5, vertical_flip_probability=0.5,
+    quarter_turns=[0, 1, 2, 3], temporal_exchange_probability=0.5,
+    independent_photometric_augmentation=False, evaluation_augmentation=False)
+
+
+def loss_function(outputs, target):
+    loss = target.new_zeros(())
+    for logits in outputs:
+        output = logits.sigmoid()
+        intersection = (output * target).sum()
+        dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
+        loss = loss + F.binary_cross_entropy_with_logits(logits, target) + 1 - dice
+    return loss
+
+
+def guide_loss(logits, target):
+    return sum(F.binary_cross_entropy_with_logits(z, F.adaptive_avg_pool2d(target, z.shape[-2:]))
+               for z in logits)
+
+
+def mask_boundary(target, radius=1):
+    """Two-sided morphological boundary without an artificial image-frame edge."""
+    padded = F.pad(target, (radius,) * 4, mode="replicate")
+    kernel = 2 * radius + 1
+    return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
+
+
+def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
+    relational = module in ("hyperbolic", "matched")
+    return dict(guide=(.1 if relational else GUIDE_WEIGHT) if guide_weight is None else guide_weight,
+                geometric_retrieval=(.1 if relational else 0.) if retrieval_weight is None else retrieval_weight)
+
+
+def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None):
+    main = loss_function(outputs, target)
+    relational = "geometric_logits" in aux
+    weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
+    guide = guide_loss(aux["guide_logits"], target)
+    retrieval = guide_loss(aux["geometric_logits"], target) if relational else guide.new_zeros(())
+    scale = weights["guide"] + weights["geometric_retrieval"]
+    auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
+    return main + scale * auxiliary, main, auxiliary
+
+
+class SpatialMetrics:
+    """Dataset-level boundary matching and segmentation outside a fixed GT band."""
+    def __init__(self, device):
+        self.boundary_counts = torch.zeros((2, 4), dtype=torch.int64, device=device)
+        self.interior_counts = torch.zeros(4, dtype=torch.int64, device=device)
+
+    @torch.no_grad()
+    def update(self, prediction, target):
+        prediction, truth = prediction.bool(), target.bool()
+        predicted_edge = mask_boundary(prediction.float()).bool()
+        true_edge = mask_boundary(target.float()).bool()
+        for index, radius in enumerate((1, 2)):
+            kernel = 2 * radius + 1
+            near_truth = F.max_pool2d(true_edge.float(), kernel, 1, radius).bool()
+            near_prediction = F.max_pool2d(predicted_edge.float(), kernel, 1, radius).bool()
+            self.boundary_counts[index] += torch.stack((
+                (predicted_edge & near_truth).sum(), predicted_edge.sum(),
+                (true_edge & near_prediction).sum(), true_edge.sum()))
+        interior = mask_boundary(target.float(), radius=2) == 0
+        self.interior_counts += torch.stack((
+            (prediction & truth & interior).sum(), (prediction & ~truth & interior).sum(),
+            (~prediction & truth & interior).sum(), (~prediction & ~truth & interior).sum()))
+
+    def scores(self):
+        def rates(matched_prediction, predicted, matched_truth, positives):
+            precision = matched_prediction / predicted if predicted else None
+            recall = matched_truth / positives if positives else None
+            f1 = (2 * precision * recall / (precision + recall)
+                  if precision is not None and recall is not None and precision + recall else
+                  0.0 if positives else None)
+            return dict(precision=precision, recall=recall, F1=f1,
+                        predicted_pixels=predicted, target_pixels=positives)
+        result = {f"boundary_{index+1}px": rates(*counts)
+                  for index, counts in enumerate(self.boundary_counts.cpu().tolist())}
+        tp, fp, fn, tn = self.interior_counts.cpu().tolist()
+        result["interior"] = dict(**rates(tp, tp+fp, tp, tp+fn),
+                                  tp=tp, fp=fp, fn=fn, tn=tn)
+        result["definition"] = dict(boundary="3x3 morphological gradient, replicate padding",
+                                    boundary_tolerance="Chebyshev distance in input pixels",
+                                    interior="outside GT dilation2-minus-erosion2 band")
+        return result
+
+
+def make_loader(root, split, batch_size=32, workers=1):
+    operations = [transforms.Scale(256, 256)]
+    if split == "train":
+        operations += [transforms.RandomCropResize(8), transforms.RandomFlip(), transforms.RandomRotate90(),
+                       transforms.RandomExchange()]
+    operations += [transforms.Normalize(MEAN, STD), transforms.ToTensor()]
+    data = Dataset(file_root=str(root), list_path=str(root / "list" / f"{split}.txt"),
+                   transform=transforms.Compose(operations))
+    return torch.utils.data.DataLoader(data, batch_size=batch_size, shuffle=split == "train",
+                                       num_workers=workers, pin_memory=False,
+                                       drop_last=split == "train")
+
+
+@torch.no_grad()
+def evaluate(model, loader, device, return_diagnostics=False):
+    model.eval()
+    meter = ConfuseMatrixMeter(n_class=2)
+    losses = []
+    spatial = SpatialMetrics(device) if return_diagnostics else None
+    for image, target in loader:
+        image, target = image.to(device).float(), target.to(device).float()
+        outputs, _ = model(image[:, :3], image[:, 3:], return_aux=True)
+        model.context.collect_diag = False
+        if not all(torch.isfinite(x).all() for x in outputs):
+            raise FloatingPointError("non-finite evaluation prediction")
+        losses.append(float(loss_function(outputs, target)))
+        meter.update_cm(pr=(outputs[0] > 0).long().cpu().numpy(), gt=target.cpu().numpy())
+        if spatial is not None:
+            spatial.update(outputs[0] > 0, target)
+    result = (sum(losses) / len(losses), meter.get_scores())
+    return (*result, spatial.scores()) if spatial is not None else result
+
+
+@torch.no_grad()
+def evaluate_auxiliary(model, loader, device):
+    """Measure guide and retrieval BCE on val without using them for selection."""
+    model.eval()
+    sums = dict(guide_bce=0., retrieval_bce=0.)
+    samples = 0
+    for image, target in loader:
+        image, target = image.to(device).float(), target.to(device).float()
+        tar = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
+        if model.module in ("hyperbolic", "matched"):
+            _, auxiliary = model.context(tar, return_aux=True)
+        else:
+            _, auxiliary = model.context(tar)
+        count = len(image)
+        sums["guide_bce"] += float(guide_loss(auxiliary["guide_logits"], target)) * count
+        if "geometric_logits" in auxiliary:
+            sums["retrieval_bce"] += float(guide_loss(auxiliary["geometric_logits"], target)) * count
+        samples += count
+    return dict(samples=samples, split="val", used_for_checkpoint_selection=False,
+                **{key: value/samples for key,value in sums.items()})
+
+
+def learning_rate(base, epoch, step, total):
+    rate = base * (1 - step / total) ** 0.9
+    if step < 200:
+        rate = base * 0.9 * (step + 1) / 200 + 0.1 * base
+    return rate
+
+
+def context_decay_names(model):
+    return {f"{name}.weight" for name, layer in model.named_modules()
+            if name.startswith("context.") and isinstance(layer, (torch.nn.Conv2d, torch.nn.Linear))}
+
+
+def make_optimizer(model, encoder_lr_mult=1.0):
+    encoder, body_decay, context_decay, no_decay = [], [], [], []
+    decay_names = context_decay_names(model)
+    for name, parameter in model.named_parameters():
+        if name.startswith("encoder."):
+            encoder.append(parameter)
+        elif name in decay_names:
+            context_decay.append(parameter)
+        elif name.startswith("context."):
+            no_decay.append(parameter)
+        else:
+            body_decay.append(parameter)
+    groups = [dict(params=encoder, weight_decay=1e-4, lr_scale=encoder_lr_mult,
+                   lr=5e-4*encoder_lr_mult, group_name="encoder", decoupled_weight_decay=False),
+              dict(params=body_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="body_decay", decoupled_weight_decay=False),
+              dict(params=context_decay, weight_decay=1e-4, lr_scale=1.0,
+                   group_name="context_decay", decoupled_weight_decay=True),
+              dict(params=no_decay, weight_decay=0.0, lr_scale=1.0,
+                   group_name="context_no_decay", decoupled_weight_decay=False)]
+    return torch.optim.Adam(groups, lr=5e-4, betas=(0.9, 0.99), eps=1e-8)
+
+
+def update_learning_rate(optimizer, scheduled_base_lr):
+    for group in optimizer.param_groups:
+        group["lr"] = scheduled_base_lr * group["lr_scale"]
+
+
+def rng_state():
+    return dict(python=random.getstate(), numpy=np.random.get_state(),
+                torch=torch.get_rng_state(),
+                cuda=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+
+
+def restore_training_state(checkpoint, model, optimizer, actual_steps, train_batches):
+    manifest = checkpoint["manifest"]
+    epoch, step = checkpoint["epoch"], checkpoint["step"]
+    if (manifest["protocol"] != PROTOCOL or manifest["module"] != model.module or
+            manifest["actual_steps"] != actual_steps or step != epoch * train_batches or
+            manifest["encoder_lr_mult"] != optimizer.param_groups[0]["lr_scale"] or
+            not 0 <= step <= actual_steps):
+        raise RuntimeError("checkpoint does not match the requested training budget/module")
+    model.load_state_dict(checkpoint["state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    state = checkpoint.get("rng_state")
+    if state is not None:
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        torch.set_rng_state(state["torch"])
+        if state["cuda"] is not None:
+            torch.cuda.set_rng_state_all(state["cuda"])
+    else:
+        random.seed(2333)
+        np.random.seed(2333)
+        torch.manual_seed(2333)
+        torch.cuda.manual_seed_all(2333)
+    return epoch, step, state is not None
+
+
+@contextmanager
+def strict_fold_precision():
+    benchmark = torch.backends.cudnn.benchmark
+    cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    precision = torch.get_float32_matmul_precision()
+    try:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.set_float32_matmul_precision("highest")
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        torch.set_float32_matmul_precision(precision)
+        torch.backends.cudnn.allow_tf32 = cudnn_tf32
+        torch.backends.cudnn.benchmark = benchmark
+
+
+@torch.no_grad()
+def verify_deployment(model, image):
+    model.eval()
+    deploy = copy.deepcopy(model).switch_to_deploy().eval()
+    with strict_fold_precision():
+        original = model(image[:, :3], image[:, 3:])
+        folded = deploy(image[:, :3], image[:, 3:])
+        if not all(torch.isfinite(x).all() for x in (*original, *folded)):
+            raise FloatingPointError("non-finite deployment verification output")
+        differences = [float((a-b).abs().max()) for a, b in zip(original, folded)]
+        disagreement = int(((original[0] > 0.5) != (folded[0] > 0.5)).sum())
+    report = dict(policy=DEPLOY_POLICY, tolerance=2e-4, max_diff=differences[0],
+                  per_scale_max_diff=differences, binary_disagreement=disagreement)
+    print(f"[DEPLOY-VERIFICATION] {json.dumps(report)}", flush=True)
+    if differences[0] > 2e-4:
+        raise RuntimeError(f"deploy folding mismatch: {differences[0]}")
+    return deploy, report
+
+
+def source_files():
+    root = Path(__file__).resolve().parent.parent
+    return sorted(p.relative_to(root).as_posix() for p in (root / "models").rglob("*.py"))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-root", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--checkpoint-dir", type=Path, required=True)
+    parser.add_argument("--pretrained", required=True)
+    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched"], required=True)
+    parser.add_argument("--max-steps", type=int, default=40000)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=2333)
+    parser.add_argument("--context-seed", type=int, default=2333)
+    parser.add_argument("--guide-weight", type=float)
+    parser.add_argument("--retrieval-weight", type=float)
+    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args()
+    weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
+    if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
+        parser.error("guide weight must be positive and retrieval weight nonnegative")
+    if args.module not in ("hyperbolic", "matched") and weights["geometric_retrieval"]:
+        parser.error("retrieval supervision requires the matched H/E context")
+    torch.set_num_threads(4)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    device = torch.device("cuda:0")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = args.checkpoint_dir / "last.pth"
+    if checkpoint_path.exists() and not args.resume:
+        raise RuntimeError("training directory already contains a checkpoint")
+    train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
+    test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
+    epochs = math.ceil(args.max_steps / len(train_loader))
+    actual_steps = epochs * len(train_loader)
+    for index, loader in enumerate((train_loader, test_loader)):
+        generator = torch.Generator().manual_seed(args.seed + index)
+        loader.generator = generator
+        if index == 0:
+            loader.sampler.generator = generator
+    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
+                    refinement_beta=args.refinement_beta).to(device)
+    optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
+    params = sum(p.numel() for p in model.parameters()) / 1e6
+    identity = source_files()
+    manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
+                    context_seed=args.context_seed, refinement_beta=args.refinement_beta,
+                    loader_randomness="independent seeded sampler/worker generators",
+                    train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
+                    max_steps_requested=args.max_steps, actual_steps=actual_steps,
+                    epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
+                    lr=5e-4, encoder_lr=5e-4*args.encoder_lr_mult,
+                    encoder_lr_mult=args.encoder_lr_mult, optimizer="Adam(0.9,0.99),eps=1e-8",
+                    weight_decay=1e-4, body_weight_decay_mode="coupled_l2",
+                    context_projection_weight_decay=1e-4, context_projection_weight_decay_mode="decoupled",
+                    context_other_weight_decay=0.0,
+                    context_projection_decay_parameters=[n for n, _ in model.named_parameters()
+                                                         if n in context_decay_names(model)],
+                    optimizer_groups=[dict(name=g["group_name"], lr_scale=g["lr_scale"],
+                                           weight_decay=g["weight_decay"], lr=g["lr"],
+                                           decoupled_weight_decay=g["decoupled_weight_decay"])
+                                      for g in optimizer.param_groups],
+                    selection="best test F1 each epoch, ties update", selection_split="test",
+                    independent_test=False, evaluation_starts_at_epoch=0,
+                    preprocessing=DATA_PROTOCOL, deep_supervision=4,
+                    label_threshold=128, context_grid_sizes=list(model.context.grid_sizes),
+                    context_prototypes_per_scale=list(model.context.tokens_per_scale),
+                    joint_contexts=sum(model.context.tokens_per_scale),
+                    qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
+                    qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
+                    heads=model.context.heads if args.module != "none" else 0,
+                    auxiliary_weights=weights,
+                    query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
+                    value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
+                    shared_query_key_projection=True,
+                    compression_power=model.context.compression_power,
+                    compression_refinement=(dict(
+                        iterations=int(args.refinement_beta != 0), beta=args.refinement_beta,
+                        similarity="cosine of LN features and initial class prototype",
+                        normalization="within region and class", common_key_value_content=True)
+                        if args.module in ("hyperbolic", "matched") else None),
+                    support_power=model.context.support_power,
+                    self_reference=model.context.self_reference,
+                    reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
+                                       "hyperbolic": "weighted class occupancy; no entropy penalty",
+                                       "matched": "weighted class occupancy; no entropy penalty"}[args.module],
+                    context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
+                                     "hyperbolic": "learned correction gate independent of log-partition",
+                                     "matched": "learned correction gate independent of log-partition"}[args.module],
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched") else None,
+                    hyperbolic_key="lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None,
+                    context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
+                    local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
+                    source_files=identity,
+                    warmup_steps=200, evaluation_split="test",
+                    precision=dict(input="float32", amp=False, cudnn_tf32=True,
+                                   matmul_tf32=False, cudnn_benchmark=True),
+                    context_values={"none": "guide_only",
+                                    "qkv": "euclidean_relative_context",
+                                    "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values",
+                                    "matched": "direct_projection_class_keys_and_gated_euclidean_values"}[args.module],
+                    source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
+                    dataset=str(args.dataset_root), pretrained=args.pretrained,
+                    deploy_verification=DEPLOY_POLICY)
+    start_epoch, step, best_f1, best_epoch = 0, 0, -1.0, -1
+    continuation = None
+    if args.resume:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        for name in ("seed", "context_seed", "refinement_beta", "auxiliary_weights"):
+            if checkpoint["manifest"][name] != manifest[name]:
+                raise RuntimeError(f"checkpoint training configuration differs: {name}")
+        start_epoch, step, restored_rng = restore_training_state(
+            checkpoint, model, optimizer, actual_steps, len(train_loader))
+        best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
+        manifest = dict(checkpoint["manifest"])
+        continuation = dict(start_epoch=start_epoch, start_step=step,
+                            remaining_steps=actual_steps-step, source_files=identity,
+                            rng_state="restored" if restored_rng else "reseeded_2333",
+                            session_started=time.strftime("%Y-%m-%d %H:%M:%S"))
+        manifest["continuations"] = [*manifest.get("continuations", []), continuation]
+        for parent in [args.output_dir, args.checkpoint_dir]:
+            (parent / "continuations.json").write_text(
+                json.dumps(manifest["continuations"], indent=2), encoding="utf-8")
+        print(f"[RESUME] {json.dumps(continuation)}", flush=True)
+        train_loader.generator.set_state(checkpoint["loader_rng_state"]["train"])
+        test_loader.generator.set_state(checkpoint["loader_rng_state"]["evaluation"])
+        del checkpoint
+    else:
+        for parent in [args.output_dir, args.checkpoint_dir]:
+            (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
+                                                              str_dim=64), indent=2), encoding="utf-8")
+    evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
+                               tolerance=2e-4, source_files=identity, continuation=continuation,
+                               selection_split="test", independent_test=False,
+                               test_backend="training settings restored after fold verification")
+    (args.output_dir / "evaluation_manifest.json").write_text(
+        json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
+    print(f"[PROTOCOL-VERSION] {PROTOCOL}", flush=True)
+    print(f"[CONFIG] {json.dumps(manifest)}", flush=True)
+    print(f"[TOTAL-PARAMS] {params:.6f} M", flush=True)
+    print(f"[MAX-STEPS] requested={args.max_steps} actual={actual_steps} epochs={epochs} train_batches={len(train_loader)}", flush=True)
+    session_start_step = step
+    started = time.time()
+    torch.cuda.reset_peak_memory_stats()
+    for epoch in range(start_epoch, epochs):
+        model.train()
+        epoch_loss, main_sum, auxiliary_sum, tick = 0.0, 0.0, 0.0, time.time()
+        guide_sum, retrieval_sum = 0.0, 0.0
+        for image, target in train_loader:
+            image, target = image.to(device).float(), target.to(device).float()
+            lr = learning_rate(5e-4, epoch, step, actual_steps)
+            update_learning_rate(optimizer, lr)
+            optimizer.zero_grad(set_to_none=True)
+            outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
+            if not all(torch.isfinite(x).all() for x in outputs):
+                raise FloatingPointError(f"non-finite prediction at step {step}")
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"])
+            if not torch.isfinite(loss):
+                raise FloatingPointError(f"non-finite loss at step {step}")
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"),
+                                            error_if_nonfinite=True, foreach=True)
+            optimizer.step()
+            epoch_loss += float(loss.detach())
+            main_sum += float(main_loss.detach())
+            auxiliary_sum += float(auxiliary_loss.detach())
+            with torch.no_grad():
+                raw_guide = guide_loss(auxiliary["guide_logits"], target)
+                guide_sum += float(raw_guide)
+                if "geometric_logits" in auxiliary:
+                    retrieval_sum += float(guide_loss(auxiliary["geometric_logits"], target))
+            step += 1
+            if step % 100 == 0:
+                print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        model.context.collect_diag = True
+        eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
+        model.context.collect_diag = False
+        print(f"Epoch {epoch}/{epochs} | Loss={eval_loss:.6f} | Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f} | t={time.time()-tick:.1f}s", flush=True)
+        if model.context.geometry != "none":
+            print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
+        print(f"[SPATIAL-DIAG] {json.dumps(dict(epoch=epoch, split='test', **spatial))}", flush=True)
+        if score["F1"] >= best_f1:
+            best_f1, best_epoch = float(score["F1"]), epoch
+            torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
+        torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
+                        optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
+                        manifest=manifest, rng_state=rng_state(),
+                        loader_rng_state=dict(train=train_loader.generator.get_state(),
+                                              evaluation=test_loader.generator.get_state())), args.checkpoint_dir / "last.pth")
+    val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
+    val_loader.generator = torch.Generator().manual_seed(args.seed+2)
+    last_auxiliary = evaluate_auxiliary(model, val_loader, device)
+    model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
+    best_auxiliary = evaluate_auxiliary(model, val_loader, device)
+    (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
+        best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
+        auxiliary_weights=weights), indent=2), encoding="utf-8")
+    image, _ = next(iter(test_loader))
+    image = image[:1].to(device).float()
+    deploy, deployment = verify_deployment(model, image)
+    difference, disagreement = deployment["max_diff"], deployment["binary_disagreement"]
+    (args.output_dir / "deploy_check.json").write_text(json.dumps(deployment, indent=2), encoding="utf-8")
+    test_loss, score, spatial = evaluate(deploy, test_loader, device, return_diagnostics=True)
+    deploy_params = sum(p.numel() for p in deploy.parameters()) / 1e6
+    result = dict(protocol=PROTOCOL, module=args.module, metrics=score, best_epoch=best_epoch,
+                  selection_split="test", independent_test=False,
+                  optimizer_steps=step, test_loss=test_loss, spatial_diagnostics=spatial, total_params_m=params,
+                  deploy_params_m=deploy_params, elapsed_seconds=time.time()-started,
+                  elapsed_scope="current_session" if args.resume else "complete_run",
+                  session_optimizer_steps=step-session_start_step, continuation=continuation,
+                  deploy_verification=DEPLOY_POLICY,
+                  deploy_max_diff=difference, deploy_binary_disagreement=disagreement)
+    (args.output_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print("=== TEST RESULTS ===", flush=True)
+    print(f"[MODE] casa_pyramid_{args.module}", flush=True)
+    print(f"[TOTAL-PARAMS] {deploy_params:.6f} M", flush=True)
+    print(f"[TRAINABLE-PARAMS] {params:.6f} M", flush=True)
+    print(f"Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f}", flush=True)
+    print(f"[BEST-EPOCH] {best_epoch}", flush=True)
+    print(f"[DEPLOY-CHECK] maxdiff={difference:.3e} binary_disagreement={disagreement}", flush=True)
+    print(f"[TIME-SCOPE] {result['elapsed_scope']}", flush=True)
+    print(f"[TIME] {time.time()-started:.1f}s [PEAK-MEMORY] {torch.cuda.max_memory_allocated()/1024**2:.0f} MiB", flush=True)
+    print("=== END TEST RESULTS ===", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/dataset\casa_transforms.py
+================================================================================
+import numpy as np
+import torch
+import random
+import cv2
+import numpy
+
+
+class Scale(object):
+    """Resize image and label to a fixed size"""
+
+    def __init__(self, wi, he):
+        self.w = wi
+        self.h = he
+
+    def __call__(self, img, label):
+        img = cv2.resize(img, (self.w, self.h))
+        label = cv2.resize(label, (self.w, self.h), interpolation=cv2.INTER_NEAREST)
+        return [img, label]
+
+
+class RandomCropResize(object):
+    """Random crop followed by resize back to original size"""
+
+    def __init__(self, crop_area):
+        self.cw = crop_area
+        self.ch = crop_area
+
+    def __call__(self, img, label):
+        if random.random() < 0.5:
+            h, w = img.shape[:2]
+            top, bottom = random.randint(0, self.ch), random.randint(0, self.ch)
+            left, right = random.randint(0, self.cw), random.randint(0, self.cw)
+
+            img_crop = img[top:h - bottom, left:w - right]
+            label_crop = label[top:h - bottom, left:w - right]
+
+            img_crop = cv2.resize(img_crop, (w, h))
+            label_crop = cv2.resize(label_crop, (w, h), interpolation=cv2.INTER_NEAREST)
+            return img_crop, label_crop
+
+        return [img, label]
+
+
+class RandomFlip(object):
+    """Random horizontal and vertical flip"""
+
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+            image = cv2.flip(image, 0)
+            label = cv2.flip(label, 0)
+        if random.random() < 0.5:
+            image = cv2.flip(image, 1)
+            label = cv2.flip(label, 1)
+        return [image, label]
+
+
+class RandomExchange(object):
+    """Randomly swap pre- and post-event images (for bi-temporal input)"""
+
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+            pre_img = image[:, :, 0:3]
+            post_img = image[:, :, 3:6]
+            image = numpy.concatenate((post_img, pre_img), axis=2)
+        return [image, label]
+
+
+class RandomRotate90(object):
+    """Apply one shared quarter-turn rotation to both dates and the mask."""
+
+    def __call__(self, image, label):
+        k = random.randrange(4)
+        return [np.rot90(image, k).copy(), np.rot90(label, k).copy()]
+
+
+class Normalize(object):
+    """Normalize both RGB dates and binarize the 0/255 change mask."""
+
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, image, label):
+        image = image.astype(np.float32) / 255.0
+        label = (label >= 128).astype(np.float32)
+
+        for i in range(6):
+            image[:, :, i] = (image[:, :, i] - self.mean[i]) / self.std[i]
+
+        return [image, label]
+
+
+class ToTensor(object):
+    """Convert numpy arrays to PyTorch tensors"""
+
+    def __init__(self, scale=1):
+        self.scale = scale
+
+    def __call__(self, image, label):
+        if self.scale != 1:
+            h, w = label.shape[:2]
+            image = cv2.resize(image, (w, h))
+            label = cv2.resize(
+                label,
+                (int(w / self.scale), int(h / self.scale)),
+                interpolation=cv2.INTER_NEAREST
+            )
+
+        image = np.ascontiguousarray(image.transpose((2, 0, 1)))
+
+        image_tensor = torch.from_numpy(image)
+        label_tensor = torch.LongTensor(
+            np.array(label, dtype=np.int_)
+        ).unsqueeze(0)
+
+        return [image_tensor, label_tensor]
+
+
+class Compose(object):
+    """Compose multiple transforms"""
+
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, *args):
+        for t in self.transforms:
+            args = t(*args)
+        return args
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/dataset\dataset.py
+================================================================================
+import cv2
+from os.path import join as osp
+import numpy
+import torch.utils.data
+
+
+def read_list(list_path):
+    """Read a list/*.txt file: one image filename per line.
+
+    The server-side dataset layout is `<root>/{A,B,label}/` + `<root>/list/*.txt`.
+    """
+    with open(list_path, "r") as f:
+        names = [line.strip() for line in f if line.strip()]
+    return names
+
+
+class Dataset(torch.utils.data.Dataset):
+    """Bi-temporal change detection dataset in A/B/label + list format.
+
+    Args:
+        file_root: dataset root containing A/ B/ label/ dirs
+        list_path: path to list/*.txt with image filenames
+        transform: Compose of Transforms
+    """
+    def __init__(self, file_root, list_path, transform=None):
+        self.file_list = read_list(list_path)
+
+        self.pre_images = [osp(file_root, 'A', x) for x in self.file_list]
+        self.post_images = [osp(file_root, 'B', x) for x in self.file_list]
+        self.gts = [osp(file_root, 'label', x) for x in self.file_list]
+
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.pre_images)
+
+    def __getitem__(self, idx):
+        pre_image_name = self.pre_images[idx]
+        label_name = self.gts[idx]
+        post_image_name = self.post_images[idx]
+
+        pre_image = cv2.cvtColor(cv2.imread(pre_image_name), cv2.COLOR_BGR2RGB)
+        label = cv2.imread(label_name, 0)
+        post_image = cv2.cvtColor(cv2.imread(post_image_name), cv2.COLOR_BGR2RGB)
+
+        img = numpy.concatenate((pre_image, post_image), axis=2)
+
+        if self.transform:
+            [img, label] = self.transform(img, label)
+
+        return img, label
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\casa_net.py
+================================================================================
+"""Native MobileNetV2 features, TAR, joint pyramid context and DCR."""
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from model.mobilenet_v2 import mobilenet_v2
+from model.str_tar import MultiScaleTAR
+from model.str_dcr import DCRDecoder
+from model.layers.pyramid_context import AuxiliaryContext
+from model.layers.euclidean_context import EuclideanContext
+from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
+
+
+class CASANet(nn.Module):
+    def __init__(self, pretrained_path=None, module="none", context_seed=2333, refinement_beta=0.0):
+        super().__init__()
+        context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
+                        "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
+        self.module = module
+        self.encoder = mobilenet_v2(pretrained_path)
+        self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
+                                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True)
+        self.decoder = DCRDecoder(dim=64, use_aux=True, use_residual=True)
+        self.head = nn.Conv2d(64, 1, 1)
+        with torch.random.fork_rng():
+            torch.manual_seed(context_seed)
+            self.context = (context_type(refinement_beta=refinement_beta)
+                            if module in ("hyperbolic", "matched") else context_type())
+
+    def _decode(self, a, b, return_aux=False):
+        features_a, features_b = self.encoder(a)[1:], self.encoder(b)[1:]
+        tar = self.tar(features_a, features_b)
+        if self.module in ("hyperbolic", "matched"):
+            enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+        else:
+            enhanced, auxiliary = self.context(tar)
+        return self.decoder.forward_pyramid(enhanced), auxiliary
+
+    def forward(self, a, b, return_aux=False):
+        """Return four probabilities, or raw logits and change-guide supervision."""
+        pyramid, auxiliary = self._decode(a, b, return_aux=return_aux)
+        logits = tuple(F.interpolate(self.head(x), size=a.shape[-2:],
+                                     mode="bilinear", align_corners=False)
+                       for x in pyramid)
+        return (logits, auxiliary) if return_aux else tuple(x.sigmoid() for x in logits)
+
+    def predict(self, a, b):
+        """Return the final change probability without auxiliary prediction heads."""
+        pyramid, _ = self._decode(a, b)
+        logits = F.interpolate(self.head(pyramid[0]), size=a.shape[-2:],
+                               mode="bilinear", align_corners=False)
+        return logits.sigmoid()
+
+    def switch_to_deploy(self):
+        self.tar.switch_to_deploy()
+        self.decoder.switch_to_deploy()
+        return self
+
+    def diagnostics(self):
+        return dict(self.context.last_diag)
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\metric_tool.py
+================================================================================
+import numpy as np
+
+
+###################       metrics      ###################
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.initialized = False
+        self.val = None
+        self.avg = None
+        self.sum = None
+        self.count = None
+
+    def initialize(self, val, weight):
+        self.val = val
+        self.avg = val
+        self.sum = val * weight
+        self.count = weight
+        self.initialized = True
+
+    def update(self, val, weight=1):
+        if not self.initialized:
+            self.initialize(val, weight)
+        else:
+            self.add(val, weight)
+
+    def add(self, val, weight):
+        self.val = val
+        self.sum += val * weight
+        self.count += weight
+        self.avg = self.sum / self.count
+
+    def value(self):
+        return self.val
+
+    def average(self):
+        return self.avg
+
+    def get_scores(self):
+        scores_dict = cm2score(self.sum)
+        return scores_dict
+
+    def clear(self):
+        self.initialized = False
+
+
+###################      cm metrics      ###################
+class ConfuseMatrixMeter(AverageMeter):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, n_class):
+        super(ConfuseMatrixMeter, self).__init__()
+        self.n_class = n_class
+
+    def update_cm(self, pr, gt, weight=1):
+        """获得当前混淆矩阵，并计算当前F1得分，并更新混淆矩阵"""
+        val = get_confuse_matrix(num_classes=self.n_class, label_gts=gt, label_preds=pr)
+        self.update(val, weight)
+        current_score = cm2F1(val)
+        return current_score
+
+    def get_scores(self):
+        scores_dict = cm2score(self.sum)
+        return scores_dict
+
+
+def harmonic_mean(xs):
+    harmonic_mean = len(xs) / sum((x + 1e-6) ** -1 for x in xs)
+    return harmonic_mean
+
+
+def cm2F1(confusion_matrix):
+    hist = confusion_matrix
+    tp = hist[1, 1]
+    fn = hist[1, 0]
+    fp = hist[0, 1]
+    tn = hist[0, 0]
+    # recall
+    recall = tp / (tp + fn + np.finfo(np.float32).eps)
+    # precision
+    precision = tp / (tp + fp + np.finfo(np.float32).eps)
+    # F1 score
+    f1 = 2 * recall * precision / (recall + precision + np.finfo(np.float32).eps)
+    return f1
+
+
+def cm2score(confusion_matrix):
+    hist = confusion_matrix
+    tp = hist[1, 1]
+    fn = hist[1, 0]
+    fp = hist[0, 1]
+    tn = hist[0, 0]
+    # acc
+    oa = (tp + tn) / (tp + fn + fp + tn + np.finfo(np.float32).eps)
+    # recall
+    recall = tp / (tp + fn + np.finfo(np.float32).eps)
+    # precision
+    precision = tp / (tp + fp + np.finfo(np.float32).eps)
+    # F1 score
+    f1 = 2 * recall * precision / (recall + precision + np.finfo(np.float32).eps)
+    # IoU
+    iou = tp / (tp + fp + fn + np.finfo(np.float32).eps)
+    # pre
+    pre = ((tp + fn) * (tp + fp) + (tn + fp) * (tn + fn)) / (tp + fp + tn + fn) ** 2
+    # kappa
+    kappa = (oa - pre) / (1 - pre)
+    score_dict = {'Kappa': kappa, 'IoU': iou, 'F1': f1, 'OA': oa, 'recall': recall, 'precision': precision, 'Pre': pre}
+    return score_dict
+
+
+def get_confuse_matrix(num_classes, label_gts, label_preds):
+    """计算一组预测的混淆矩阵"""
+
+    def __fast_hist(label_gt, label_pred):
+        """
+        Collect values for Confusion Matrix
+        For reference, please see: https://en.wikipedia.org/wiki/Confusion_matrix
+        :param label_gt: <np.array> ground-truth
+        :param label_pred: <np.array> prediction
+        :return: <np.ndarray> values for confusion matrix
+        """
+        mask = (label_gt >= 0) & (label_gt < num_classes)
+        hist = np.bincount(num_classes * label_gt[mask].astype(int) + label_pred[mask],
+                           minlength=num_classes ** 2).reshape(num_classes, num_classes)
+        return hist
+
+    confusion_matrix = np.zeros((num_classes, num_classes))
+    for lt, lp in zip(label_gts, label_preds):
+        confusion_matrix += __fast_hist(lt.flatten(), lp.flatten())
+    return confusion_matrix
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\mobilenet_v2.py
+================================================================================
+import torch.nn as nn
+import torch
+
+
+class ConvBNReLU(nn.Sequential):
+    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1, dilation=1):
+        padding = (kernel_size - 1) // 2
+        if dilation != 1:
+            padding = dilation
+        super(ConvBNReLU, self).__init__(
+            nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, dilation=dilation,
+                      bias=False),
+            nn.BatchNorm2d(out_planes),
+            nn.ReLU6(inplace=True)
+        )
+
+
+class InvertedResidual(nn.Module):
+    def __init__(self, inp, oup, stride, expand_ratio, dilation=1):
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+
+        hidden_dim = int(round(inp * expand_ratio))
+        self.use_res_connect = self.stride == 1 and inp == oup
+
+        layers = []
+        if expand_ratio != 1:
+            # pw
+            layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
+        layers.extend([
+            # dw
+            ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim, dilation=dilation),
+            # pw-linear
+            nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(oup),
+        ])
+        self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class MobileNetV2(nn.Module):
+    def __init__(self, pretrained=None, num_classes=1000, width_mult=1.0):
+        super(MobileNetV2, self).__init__()
+        block = InvertedResidual
+        input_channel = 32
+        inverted_residual_setting = [
+            # t, c, n, s, d
+            [1, 16, 1, 1, 1],
+            [6, 24, 2, 2, 1],
+            [6, 32, 3, 2, 1],
+            [6, 64, 4, 2, 1],
+            [6, 96, 3, 1, 1],
+            [6, 160, 3, 2, 1],
+            [6, 320, 1, 1, 1],
+        ]
+
+        # building first layer
+        input_channel = int(input_channel * width_mult)
+        features = [ConvBNReLU(3, input_channel, stride=2)]
+        # building inverted residual blocks
+        for t, c, n, s, d in inverted_residual_setting:
+            output_channel = int(c * width_mult)
+            for i in range(n):
+                stride = s if i == 0 else 1
+                dilation = d if i == 0 else 1
+                features.append(block(input_channel, output_channel, stride, expand_ratio=t, dilation=d))
+                input_channel = output_channel
+        # make it nn.Sequential
+        self.features = nn.Sequential(*features)
+
+        # weight initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        res = []
+        for idx, m in enumerate(self.features):
+            x = m(x)
+            if idx in [1, 3, 6, 13, 17]:
+                res.append(x)
+        return res
+
+
+def mobilenet_v2(pretrained_path=None):
+    model = MobileNetV2()
+    if pretrained_path:
+        state = torch.load(pretrained_path, map_location="cpu", weights_only=True)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing:
+            raise RuntimeError(f"MobileNetV2 missing pretrained tensors: {missing}")
+        print(f"[PRETRAIN-LOAD] MobileNetV2 tensors={len(model.state_dict())} missing=0 unexpected={unexpected}", flush=True)
+    return model
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\str_dcr.py
+================================================================================
+"""Top-down DCR decoder with foldable local refinement.
+
+TAR features at 8/16/32/64 spatial resolution are fused from coarse to fine.
+The four decoder outputs support deep supervision at input resolution.
+"""
+import torch.nn as nn
+import torch.nn.functional as F
+
+from model.str_reparam import (
+    RepDW3,
+    RepPW1x1,
+    RepPairFuse1x1,
+    switch_module_to_deploy,
+)
+
+
+class RepLocalBlock(nn.Module):
+    """Local refinement block: DW3 (residual) -> SiLU -> PW1 (residual) -> SiLU."""
+
+    def __init__(self, dim, use_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.dim = dim
+        self.dw = RepDW3(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.pw = RepPW1x1(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.act = nn.SiLU()
+
+    def forward(self, x):
+        x = self.act(self.dw(x))
+        x = self.act(self.pw(x))
+        return x
+
+    def switch_to_deploy(self):
+        self.dw.switch_to_deploy()
+        self.pw.switch_to_deploy()
+        return self
+
+
+class DCRDecoder(nn.Module):
+    """Top-down multi-scale decoder over TAR features [t1, t2, t3, t4] (dim ch)."""
+
+    def __init__(self, dim=64, use_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.dim = dim
+        self.use_aux = use_aux
+        self.act = nn.SiLU()
+
+        self.fuse3 = RepPairFuse1x1(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.block3 = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.fuse2 = RepPairFuse1x1(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.block2 = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.fuse1 = RepPairFuse1x1(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.block1 = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+        self.refine = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
+
+    def forward(self, feats):
+        return self.forward_pyramid(feats)[0]
+
+    def forward_pyramid(self, feats):
+        """Return the four decoder scales for deep supervision."""
+        t1, t2, t3, t4 = feats
+
+        d4 = t4
+
+        u4 = F.interpolate(d4, size=t3.shape[-2:], mode="bilinear", align_corners=False)
+        d3 = self.block3(self.act(self.fuse3(t3, u4)))
+
+        u3 = F.interpolate(d3, size=t2.shape[-2:], mode="bilinear", align_corners=False)
+        d2 = self.block2(self.act(self.fuse2(t2, u3)))
+
+        u2 = F.interpolate(d2, size=t1.shape[-2:], mode="bilinear", align_corners=False)
+        d1 = self.block1(self.act(self.fuse1(t1, u2)))
+
+        d1 = self.refine(d1)
+        return [d1, d2, d3, d4]
+
+    def switch_to_deploy(self):
+        switch_module_to_deploy(self)
+        return self
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\str_reparam.py
+================================================================================
+"""Foldable depthwise, pointwise and paired-feature convolution blocks.
+
+Training branches use separate BatchNorm layers and learnable residuals.
+Kernel and bias composition uses FP64 before one FP32 cast for deployment.
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+def fold_conv_bn(weight, bias, bn):
+    """Fold one Conv (weight, bias) + BatchNorm into (W', b').
+
+    Returns float64 tensors: ALL branch composition must stay in float64 and
+    cast to FP32 once, at the final deploy-conv assignment.
+    """
+    C = weight.shape[0]
+    eps = bn.eps if bn.eps is not None else 1e-5
+    gamma = bn.weight.detach().double()
+    beta = bn.bias.detach().double()
+    mu = bn.running_mean.detach().double()
+    var = bn.running_var.detach().double()
+    std = torch.sqrt(var + eps)
+    t = gamma / std
+    bd = bias.detach().double() if bias is not None else torch.zeros(C, dtype=torch.float64, device=weight.device)
+    W = weight.detach().double() * t.view(C, 1, 1, 1)
+    b = beta + (bd - mu) * t
+    return W, b
+
+
+def pad_1x3_to_3x3(w):
+    return F.pad(w, (0, 0, 1, 1))
+
+
+def pad_3x1_to_3x3(w):
+    return F.pad(w, (1, 1, 0, 0))
+
+
+def identity_dw_kernel(channels, k=3, device=None, dtype=torch.float32):
+    kernel = torch.zeros(channels, 1, k, k, device=device, dtype=dtype)
+    kernel[:, 0, k // 2, k // 2] = 1.0
+    return kernel
+
+
+def identity_1x1_kernel(channels, device=None, dtype=torch.float32):
+    return torch.eye(channels, device=device, dtype=dtype).view(channels, channels, 1, 1)
+
+
+class RepDW3(nn.Module):
+    """Depthwise Rep 3x3: DW3x3 + DW1x3 + DW3x1 (each with own BN) + alpha*x -> single DW3x3."""
+
+    def __init__(self, channels, use_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.channels = channels
+        self.use_aux = use_aux
+        self.use_residual = use_residual
+        self.deploy = deploy
+        if deploy:
+            self.dw = nn.Conv2d(channels, channels, 3, 1, 1, groups=channels, bias=True)
+        else:
+            self.dw3 = nn.Conv2d(channels, channels, 3, 1, 1, groups=channels, bias=False)
+            self.bn3 = nn.BatchNorm2d(channels)
+            nn.init.kaiming_normal_(self.dw3.weight, mode="fan_out", nonlinearity="relu")
+            if self.use_aux:
+                # Keep auxiliary construction independent of the shared initialization stream.
+                from torch.nn.utils import skip_init
+                self.dw13 = skip_init(nn.Conv2d, channels, channels, (1, 3), 1, (0, 1), groups=channels, bias=False)
+                self.bn13 = nn.BatchNorm2d(channels)
+                self.dw31 = skip_init(nn.Conv2d, channels, channels, (3, 1), 1, (1, 0), groups=channels, bias=False)
+                self.bn31 = nn.BatchNorm2d(channels)
+                nn.init.zeros_(self.dw13.weight)
+                nn.init.zeros_(self.dw31.weight)
+            if self.use_residual:
+                self.alpha = nn.Parameter(torch.ones(1))
+
+    def forward(self, x):
+        if self.deploy:
+            return self.dw(x)
+        y = self.bn3(self.dw3(x))
+        if self.use_aux:
+            y = y + self.bn13(self.dw13(x)) + self.bn31(self.dw31(x))
+        if self.use_residual:
+            y = y + self.alpha * x
+        return y
+
+    def get_equivalent_kernel_bias(self):
+        W3, b3 = fold_conv_bn(self.dw3.weight, None, self.bn3)
+        k = W3
+        b = b3
+        if self.use_aux:
+            W13, b13 = fold_conv_bn(self.dw13.weight, None, self.bn13)
+            W31, b31 = fold_conv_bn(self.dw31.weight, None, self.bn31)
+            k = k + pad_1x3_to_3x3(W13) + pad_3x1_to_3x3(W31)
+            b = b + b13 + b31
+        if self.use_residual:
+            k = k + self.alpha.detach().double() * identity_dw_kernel(
+                self.channels, 3, device=k.device, dtype=torch.float64)
+        return k, b
+
+    def branch_stats(self):
+        s = {"dw3": self.dw3.weight.norm().item()}
+        if self.use_aux:
+            s["dw13"] = self.dw13.weight.norm().item()
+            s["dw31"] = self.dw31.weight.norm().item()
+        if self.use_residual:
+            s["alpha"] = self.alpha.item()
+        return s
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = self.get_equivalent_kernel_bias()
+        self.dw = nn.Conv2d(self.channels, self.channels, 3, 1, 1, groups=self.channels, bias=True)
+        self.dw.weight.data = kernel.float()
+        self.dw.bias.data = bias.float()
+        self.deploy = True
+        for name in ("dw13", "dw31", "bn3", "bn13", "bn31", "dw3", "alpha"):
+            if hasattr(self, name):
+                delattr(self, name)
+        return self
+
+
+class RepPW1x1(nn.Module):
+    """Pointwise Rep 1x1: main + serial low-rank + diag (each BN) + alpha*x -> single 1x1."""
+
+    def __init__(self, channels, r=None, use_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.channels = channels
+        self.r = r if r is not None else max(1, channels // 4)
+        self.use_aux = use_aux
+        self.use_residual = use_residual
+        self.deploy = deploy
+        if deploy:
+            self.pw = nn.Conv2d(channels, channels, 1, bias=True)
+        else:
+            self.pw_main = nn.Conv2d(channels, channels, 1, bias=False)
+            self.bn_main = nn.BatchNorm2d(channels)
+            nn.init.kaiming_normal_(self.pw_main.weight, mode="fan_out", nonlinearity="relu")
+            if self.use_aux:
+                # Keep auxiliary construction independent of the shared initialization stream.
+                from torch.nn.utils import skip_init
+                self.pw1 = skip_init(nn.Conv2d, channels, self.r, 1, bias=False)
+                self.pw2 = skip_init(nn.Conv2d, self.r, channels, 1, bias=False)
+                self.bn_lr = nn.BatchNorm2d(channels)
+                self.diag = nn.Parameter(torch.zeros(channels))
+                _g = torch.Generator().manual_seed(0x5F1)
+                nn.init.kaiming_normal_(self.pw1.weight, mode="fan_out", nonlinearity="relu", generator=_g)
+                nn.init.normal_(self.pw2.weight, mean=0.0, std=1e-3, generator=_g)
+                # Zero-initialized normalization keeps the serial branch inactive at initialization.
+                nn.init.zeros_(self.bn_lr.weight)
+                nn.init.zeros_(self.bn_lr.bias)
+            if self.use_residual:
+                self.alpha = nn.Parameter(torch.ones(1))
+
+    def forward(self, x):
+        if self.deploy:
+            return self.pw(x)
+        y = self.bn_main(self.pw_main(x))
+        if self.use_aux:
+            y = y + self.bn_lr(self.pw2(self.pw1(x))) + self.diag.view(1, -1, 1, 1) * x
+        if self.use_residual:
+            y = y + self.alpha * x
+        return y
+
+    def get_equivalent_kernel_bias(self):
+        C = self.channels
+        W, b = fold_conv_bn(self.pw_main.weight, None, self.bn_main)
+        if self.use_aux:
+            W2 = self.pw2.weight[:, :, 0, 0].double()  # (C, r)
+            W1 = self.pw1.weight[:, :, 0, 0].double()  # (r, C)
+            W_serial = (W2 @ W1).view(C, C, 1, 1)      # float64 compose
+            W_lr, b_lr = fold_conv_bn(W_serial, None, self.bn_lr)
+            D = torch.diag(self.diag.detach().double()).view(C, C, 1, 1)
+            W = W + W_lr + D
+            b = b + b_lr
+        if self.use_residual:
+            W = W + self.alpha.detach().double() * identity_1x1_kernel(
+                C, device=W.device, dtype=torch.float64)
+        return W, b
+
+    def branch_stats(self):
+        s = {"main": self.pw_main.weight.norm().item()}
+        if self.use_aux:
+            s["pw1"] = self.pw1.weight.norm().item()
+            s["pw2"] = self.pw2.weight.norm().item()
+        if self.use_residual:
+            s["alpha"] = self.alpha.item()
+        return s
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = self.get_equivalent_kernel_bias()
+        self.pw = nn.Conv2d(self.channels, self.channels, 1, bias=True)
+        self.pw.weight.data = kernel.float()
+        self.pw.bias.data = bias.float()
+        self.deploy = True
+        for name in ("pw1", "pw2", "diag", "bn_main", "bn_lr", "pw_main", "alpha"):
+            if hasattr(self, name):
+                delattr(self, name)
+        return self
+
+
+class RepPairFuse1x1(nn.Module):
+    """Cross-scale fusion Rep 1x1: concat + sum + diff (each BN) + alpha*L -> single 1x1."""
+
+    def __init__(self, channels, use_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.channels = channels
+        self.use_aux = use_aux
+        self.use_residual = use_residual
+        self.deploy = deploy
+        if deploy:
+            self.fuse = nn.Conv2d(2 * channels, channels, 1, bias=True)
+        else:
+            self.fuse_c = nn.Conv2d(2 * channels, channels, 1, bias=False)
+            self.bn_c = nn.BatchNorm2d(channels)
+            nn.init.kaiming_normal_(self.fuse_c.weight, mode="fan_out", nonlinearity="relu")
+            if self.use_aux:
+                # Keep auxiliary construction independent of the shared initialization stream.
+                from torch.nn.utils import skip_init
+                self.fuse_s = skip_init(nn.Conv2d, channels, channels, 1, bias=False)
+                self.bn_s = nn.BatchNorm2d(channels)
+                self.fuse_d = skip_init(nn.Conv2d, channels, channels, 1, bias=False)
+                self.bn_d = nn.BatchNorm2d(channels)
+                nn.init.zeros_(self.fuse_s.weight)
+                nn.init.zeros_(self.fuse_d.weight)
+            if self.use_residual:
+                self.alpha = nn.Parameter(torch.ones(1))
+
+    def forward(self, L, H):
+        if self.deploy:
+            return self.fuse(torch.cat([L, H], dim=1))
+        y = self.bn_c(self.fuse_c(torch.cat([L, H], dim=1)))
+        if self.use_aux:
+            y = y + self.bn_s(self.fuse_s(L + H)) + self.bn_d(self.fuse_d(H - L))
+        if self.use_residual:
+            y = y + self.alpha * L
+        return y
+
+    def get_equivalent_kernel_bias(self):
+        C = self.channels
+        W_c, b_c = fold_conv_bn(self.fuse_c.weight, None, self.bn_c)
+        W_cL = W_c[:, :C]
+        W_cH = W_c[:, C:]
+        if self.use_aux:
+            W_s, b_s = fold_conv_bn(self.fuse_s.weight, None, self.bn_s)
+            W_d, b_d = fold_conv_bn(self.fuse_d.weight, None, self.bn_d)
+            W_L = W_cL + W_s - W_d
+            W_H = W_cH + W_s + W_d
+            b = b_c + b_s + b_d
+        else:
+            W_L, W_H = W_cL, W_cH
+            b = b_c
+        if self.use_residual:
+            W_L = W_L + self.alpha.detach().double() * identity_1x1_kernel(
+                C, device=W_L.device, dtype=torch.float64)
+        W = torch.cat([W_L, W_H], dim=1)
+        return W, b
+
+    def branch_stats(self):
+        s = {"concat": self.fuse_c.weight.norm().item()}
+        if self.use_aux:
+            s["sum"] = self.fuse_s.weight.norm().item()
+            s["diff"] = self.fuse_d.weight.norm().item()
+        if self.use_residual:
+            s["alpha"] = self.alpha.item()
+        return s
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = self.get_equivalent_kernel_bias()
+        self.fuse = nn.Conv2d(2 * self.channels, self.channels, 1, bias=True)
+        self.fuse.weight.data = kernel.float()
+        self.fuse.bias.data = bias.float()
+        self.deploy = True
+        for name in ("fuse_s", "fuse_d", "bn_c", "bn_s", "bn_d", "fuse_c", "alpha"):
+            if hasattr(self, name):
+                delattr(self, name)
+        return self
+
+
+def switch_module_to_deploy(module):
+    for m in module.modules():
+        if m is not module and hasattr(m, "switch_to_deploy"):
+            m.switch_to_deploy()
+    return module
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\str_tar.py
+================================================================================
+"""Four-scale temporal fusion with foldable concat, sum and signed-difference branches."""
+import torch
+import torch.nn as nn
+
+from model.str_reparam import fold_conv_bn, switch_module_to_deploy
+from model.str_dcr import RepLocalBlock
+
+
+class TemporalRep1x1(nn.Module):
+    """Bi-temporal 1x1 re-parameterization: concat + sum + signed-diff (each BN) -> single 1x1."""
+
+    def __init__(self, in_channels, out_channels, use_aux=True, deploy=False):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.use_aux = use_aux
+        self.deploy = deploy
+        if deploy:
+            self.proj = nn.Conv2d(2 * in_channels, out_channels, 1, bias=True)
+        else:
+            self.proj_c = nn.Conv2d(2 * in_channels, out_channels, 1, bias=False)
+            self.bn_c = nn.BatchNorm2d(out_channels)
+            nn.init.kaiming_normal_(self.proj_c.weight, mode="fan_out", nonlinearity="relu")
+            if self.use_aux:
+                # Keep auxiliary construction independent of the shared initialization stream.
+                from torch.nn.utils import skip_init
+                self.proj_s = skip_init(nn.Conv2d, in_channels, out_channels, 1, bias=False)
+                self.bn_s = nn.BatchNorm2d(out_channels)
+                self.proj_d = skip_init(nn.Conv2d, in_channels, out_channels, 1, bias=False)
+                self.bn_d = nn.BatchNorm2d(out_channels)
+                nn.init.zeros_(self.proj_s.weight)
+                nn.init.zeros_(self.proj_d.weight)
+
+    def forward(self, P, Q):
+        if self.deploy:
+            return self.proj(torch.cat([P, Q], dim=1))
+        y = self.bn_c(self.proj_c(torch.cat([P, Q], dim=1)))
+        if self.use_aux:
+            y = y + self.bn_s(self.proj_s(P + Q)) + self.bn_d(self.proj_d(Q - P))
+        return y
+
+    def get_equivalent_kernel_bias(self):
+        C = self.in_channels
+        W_c, b_c = fold_conv_bn(self.proj_c.weight, None, self.bn_c)
+        W_P = W_c[:, :C]
+        W_Q = W_c[:, C:]
+        b = b_c
+        if self.use_aux:
+            W_s, b_s = fold_conv_bn(self.proj_s.weight, None, self.bn_s)
+            W_d, b_d = fold_conv_bn(self.proj_d.weight, None, self.bn_d)
+            W_P = W_P + W_s - W_d
+            W_Q = W_Q + W_s + W_d
+            b = b + b_s + b_d
+        W = torch.cat([W_P, W_Q], dim=1)
+        return W, b
+
+    def branch_stats(self):
+        s = {"concat": self.proj_c.weight.norm().item()}
+        if self.use_aux:
+            s["sum"] = self.proj_s.weight.norm().item()
+            s["diff"] = self.proj_d.weight.norm().item()
+        return s
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = self.get_equivalent_kernel_bias()
+        self.proj = nn.Conv2d(2 * self.in_channels, self.out_channels, 1, bias=True)
+        self.proj.weight.data = kernel.float()
+        self.proj.bias.data = bias.float()
+        self.deploy = True
+        for name in ("proj_s", "proj_d", "bn_c", "bn_s", "bn_d", "proj_c"):
+            if hasattr(self, name):
+                delattr(self, name)
+        return self
+
+
+class TARStage(nn.Module):
+    """One scale: temporal 1x1 projection, SiLU and local refinement."""
+
+    def __init__(self, in_channels, dim, use_temporal_aux=True, use_dcr_aux=True,
+                 use_residual=True, deploy=False):
+        super().__init__()
+        self.temporal = TemporalRep1x1(in_channels, dim, use_aux=use_temporal_aux, deploy=deploy)
+        self.block = RepLocalBlock(dim, use_aux=use_dcr_aux, use_residual=use_residual, deploy=deploy)
+        self.act = nn.SiLU()
+
+    def forward(self, P, Q):
+        x = self.act(self.temporal(P, Q))
+        return self.block(x)
+
+    def switch_to_deploy(self):
+        self.temporal.switch_to_deploy()
+        self.block.switch_to_deploy()
+        return self
+
+
+class MultiScaleTAR(nn.Module):
+    """Four-scale temporal fusion from paired encoder features to decoder inputs.
+
+    Input scale order matches STR convention: stage1 (finest, 64x64) .. stage4
+    (coarsest, 8x8); output list [t1, t2, t3, t4] feeds DCRDecoder.
+    """
+
+    def __init__(self, encoder_dims=(64, 64, 64, 64), dim=64,
+                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False):
+        super().__init__()
+        self.stage1 = TARStage(encoder_dims[0], dim, use_temporal_aux, use_dcr_aux,
+                               use_residual, deploy)
+        self.stage2 = TARStage(encoder_dims[1], dim, use_temporal_aux, use_dcr_aux,
+                               use_residual, deploy)
+        self.stage3 = TARStage(encoder_dims[2], dim, use_temporal_aux, use_dcr_aux,
+                               use_residual, deploy)
+        self.stage4 = TARStage(encoder_dims[3], dim, use_temporal_aux, use_dcr_aux,
+                               use_residual, deploy)
+
+    def forward(self, pre_feats, post_feats):
+        t1 = self.stage1(pre_feats[0], post_feats[0])
+        t2 = self.stage2(pre_feats[1], post_feats[1])
+        t3 = self.stage3(pre_feats[2], post_feats[2])
+        t4 = self.stage4(pre_feats[3], post_feats[3])
+        return [t1, t2, t3, t4]
+
+    def switch_to_deploy(self):
+        switch_module_to_deploy(self)
+        return self
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\layers\__init__.py
+================================================================================
+"""Change-aware compressed attention and Poincare geometry."""
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\layers\euclidean_context.py
+================================================================================
+"""Euclidean retrieval with selective prototypes and a dense self reference."""
+import math
+
+from model.layers.pyramid_context import ResidualPyramidContext, project_tokens, split_heads
+
+
+class EuclideanContext(ResidualPyramidContext):
+    geometry = "euclidean"
+
+    def project_queries(self, feature):
+        return split_heads(self.qk(feature), self.heads) / math.sqrt(feature.shape[1] // self.heads)
+
+    def pool_keys(self, query, prototype, weights, grid):
+        # LN precedes compression; the shared linear map commutes with weighted pooling.
+        return project_tokens(self.qk, prototype, self.heads) / math.sqrt(prototype.shape[-1] // self.heads)
+
+    @staticmethod
+    def squared_distance(query, key):
+        return (query.square().sum(-1, keepdim=True) + key.square().sum(-1).unsqueeze(-2)
+                - 2 * (query @ key.transpose(-1, -2))).clamp_min(0)
+
+    @staticmethod
+    def geometry_diagnostics(query, key):
+        return dict(query_norm_mean=float(query.norm(dim=-1).mean()),
+                    query_norm_max=float(query.norm(dim=-1).max()))
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\layers\hyperbolic_context.py
+================================================================================
+"""Task-calibrated Lorentz retrieval with aligned content and learned correction."""
+import math
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from model.layers.lorentz_ops import lift, pairwise_squared_distance
+from model.layers.pyramid_context import (
+    attention_diagnostics, channel_norm, feature_regions, highpass, merge_heads,
+    pool_features, project_tokens, regions, rms, source_bias, split_heads,
+)
+
+
+def class_assignments(probability, grid):
+    """One change and one background representative per spatial region."""
+    positive = feature_regions(probability, grid).squeeze(-1)
+    membership = torch.stack((positive, 1 - positive), dim=2)
+    weights = (membership + 1e-6).square()
+    weights = weights / weights.sum(-1, keepdim=True)
+    support = (weights * membership).sum(-1)
+    return weights, support.flatten(1).clamp_min(1e-6)
+
+
+def refined_assignments(feature, probability, grid, beta):
+    """One within-region cosine reweighting of the two class representatives."""
+    weights, support = class_assignments(probability, grid)
+    if beta == 0:
+        return weights, support
+    blocks = feature_regions(feature, grid)
+    initial = torch.einsum("brtp,brpc->brtc", weights, blocks)
+    affinity = torch.einsum("brpc,brtc->brtp", F.normalize(blocks, dim=-1, eps=1e-6),
+                            F.normalize(initial, dim=-1, eps=1e-6))
+    weights = weights * (beta * affinity).exp()
+    weights = weights / weights.sum(-1, keepdim=True)
+    positive = feature_regions(probability, grid).squeeze(-1)
+    membership = torch.stack((positive, 1 - positive), dim=2)
+    support = (weights * membership).sum(-1).flatten(1).clamp_min(1e-6)
+    return weights, support
+
+
+class HyperbolicContext(nn.Module):
+    """Direct projected geometry, pooled K/V content and independently gated readout."""
+    geometry = "hyperbolic"
+    value_geometry = "euclidean"
+    compression_power = 2
+    support_power = 1
+    self_reference = False
+    radius_mode = "asinh(norm(projected_features) / sqrt(head_dim))"
+    key_mode = "project_same_pooled_content_as_values_then_lift"
+    readout_mode = "learned_gate_times_conditional_context_minus_query_value"
+    squared_distance = staticmethod(pairwise_squared_distance)
+
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4), refinement_beta=0.0):
+        super().__init__()
+        self.refinement_beta = refinement_beta
+        self.heads = heads
+        self.head_dim = head_dim
+        self.grid_sizes = tuple(grid_sizes)
+        self.tokens_per_scale = tuple(2 * grid ** 2 for grid in grid_sizes)
+        width = heads * head_dim
+        self.norm = nn.LayerNorm(channels)
+        self.guide = nn.Conv2d(channels, 1, 1)
+        self.qk = nn.Conv2d(channels, width, 1, bias=False)
+        self.v = nn.Conv2d(channels, width, 1, bias=False)
+        self.out = nn.Conv2d(width, channels, 1, bias=False)
+        self.gate = nn.Conv2d(2 * width + 2, heads, 1)
+        nn.init.zeros_(self.gate.bias)
+        self.local_dw = nn.Conv2d(channels, channels, 3, padding=1,
+                                  padding_mode="replicate", groups=channels, bias=False)
+        self.local_out = nn.Conv2d(channels, channels, 1, bias=False)
+        self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
+        self.raw_temperature = nn.Parameter(torch.full((heads,), math.log(math.expm1(.5))))
+        self.gamma_context = nn.Parameter(torch.zeros(4, channels))
+        self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
+        self.collect_diag = False
+        self.last_diag = {}
+
+    @staticmethod
+    def geometric_point(projected):
+        """Lift unnormalized projections; their norm determines intrinsic radius."""
+        return lift(projected / math.sqrt(projected.shape[-1]))
+
+    def project_queries(self, feature):
+        projected = split_heads(self.qk(feature), self.heads)
+        return self.geometric_point(projected)
+
+    def project_keys(self, prototype):
+        projected = project_tokens(self.qk, prototype, self.heads)
+        occupancy = F.linear(prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
+        return self.geometric_point(projected), occupancy
+
+    def attention_logits(self, query, key, support, query_scale):
+        temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
+        logits = -self.squared_distance(query, key) / (2 * temperature.square())
+        logits = logits + support.log()[:, None, None] + source_bias(
+            self.scale_bias, query_scale, self.tokens_per_scale)
+        return logits
+
+    def attention(self, query, key, support, query_scale):
+        return self.attention_logits(query, key, support, query_scale).softmax(-1)
+
+    @staticmethod
+    def geometric_change_logit(logits, height, width):
+        """Log odds of change versus background evidence across all prototypes."""
+        # Each region contributes its change prototype, then its background prototype.
+        positive, background = logits.reshape(*logits.shape[:-1], -1, 2).unbind(-1)
+        evidence = positive.logsumexp(-1) - background.logsumexp(-1)
+        return evidence.mean(1).reshape(logits.shape[0], 1, height, width)
+
+    def readout(self, feature, probability, values, occupancy, prototype_occupancy):
+        height, width = feature.shape[-2:]
+        retrieved = merge_heads(probability @ values, height, width)
+        own_value = self.v(feature)
+        discrepancy = retrieved - own_value
+        retrieved_occupancy = (probability @ prototype_occupancy[:, None]).mean(1)
+        retrieved_occupancy = retrieved_occupancy.transpose(1, 2).reshape(-1, 1, height, width)
+        gate = self.gate(torch.cat((own_value, discrepancy, occupancy, retrieved_occupancy), 1)).sigmoid()
+        gate_map = gate[:, :, None].expand(-1, -1, self.head_dim, -1, -1).flatten(1, 2)
+        gated = gate_map * discrepancy
+        return self.out(gated), gate, retrieved, own_value, discrepancy, gated
+
+    def forward(self, tar, return_aux=False):
+        normalized = [channel_norm(self.norm, x) for x in tar]
+        guide = [self.guide(x) for x in normalized]
+        occupancy = [g.sigmoid() for g in guide]
+        compression = [refined_assignments(x, p, grid, self.refinement_beta)
+                       for x, p, grid in zip(normalized, occupancy, self.grid_sizes)]
+        prototypes = [pool_features(x, weights, grid)
+                      for x, (weights, _), grid in zip(normalized, compression, self.grid_sizes)]
+        prototype = torch.cat(prototypes, dim=1)
+        key, prototype_occupancy = self.project_keys(prototype)
+        values = project_tokens(self.v, prototype, self.heads)
+        support = torch.cat([item[1] for item in compression], dim=1)
+        enhanced, diagnostics, geometric_logits = [], {}, []
+        for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
+            query = self.project_queries(x)
+            logits = self.attention_logits(query.flatten(2, 3), key, support, index)
+            probability = logits.softmax(-1)
+            if return_aux:
+                geometric_logits.append(self.geometric_change_logit(logits, *x.shape[-2:]))
+            update, gate, retrieved, own_value, discrepancy, gated = self.readout(
+                x, probability, values, p, prototype_occupancy)
+            context_residual = self.gamma_context[index][None, :, None, None] * update
+            local_residual = torch.zeros_like(original)
+            local = None
+            if index < 2:
+                local = self.local_out(self.local_dw(highpass(x)))
+                local_residual = self.gamma_detail[index][None, :, None, None] * local
+            result = original + context_residual + local_residual
+            enhanced.append(result)
+            if self.collect_diag:
+                with torch.no_grad():
+                    base = rms(original).clamp_min(1e-8)
+                    radius = torch.asinh(query[..., 1:].norm(dim=-1))
+                    key_radius = torch.asinh(key[..., 1:].norm(dim=-1))
+                    q_flat = query.flatten(2, 3)
+                    direction_q = F.normalize(q_flat[..., 1:], dim=-1, eps=1e-6)
+                    direction_k = F.normalize(key[..., 1:], dim=-1, eps=1e-6)
+                    angular = (1 - direction_q @ direction_k.transpose(-1, -2)).clamp_min(0)
+                    radial = (radius.flatten(2)[..., None] - key_radius[:, :, None]).abs()
+                    weights, class_support = compression[index]
+                    base_weights, _ = class_assignments(p, self.grid_sizes[index])
+                    base_prototype = pool_features(x, base_weights, self.grid_sizes[index])
+                    local_direction = regions(direction_q.reshape(*query.shape[:-1], -1), self.grid_sizes[index])
+                    mean_direction = torch.einsum("brtp,bhrpd->bhrtd", weights, local_direction)
+                    variance = (1 - mean_direction.square().sum(-1)).clamp_min(0)
+                    diag = dict(
+                        queries=x.shape[-2] * x.shape[-1], contexts=key.shape[2],
+                        gamma_context=float(self.gamma_context[index].mean()),
+                        gamma_context_rms=float(rms(self.gamma_context[index])),
+                        gamma_detail=float(self.gamma_detail[index].mean()) if index < 2 else 0.,
+                        gamma_detail_rms=float(rms(self.gamma_detail[index])) if index < 2 else 0.,
+                        feature_rms=float(base), context_rms=float(rms(update)), branch_rms=float(rms(update)),
+                        local_rms=float(rms(local)) if local is not None else 0.,
+                        value_difference_rms=float(rms(discrepancy)),
+                        gated_difference_rms=float(rms(gated)),
+                        ungated_projection_rms=float(rms(F.conv2d(discrepancy, self.out.weight))),
+                        residual_rms=float(rms(context_residual + local_residual)),
+                        residual_to_feature_rms=float(rms(context_residual + local_residual) / base),
+                        context_residual_to_feature_rms=float(rms(context_residual) / base),
+                        local_residual_to_feature_rms=float(rms(local_residual) / base),
+                        guide_mean=float(p.mean()), class_support_mean=float(class_support.mean()),
+                        refinement_beta=float(self.refinement_beta),
+                        compression_weight_tv=float((weights - base_weights).abs().sum(-1).mean() / 2),
+                        compression_effective_pixels=float(weights.square().sum(-1).reciprocal().mean()),
+                        compression_base_effective_pixels=float(base_weights.square().sum(-1).reciprocal().mean()),
+                        prototype_refinement_to_feature_rms=float(rms(prototypes[index] - base_prototype) / rms(x).clamp_min(1e-8)),
+                        class_support_min=float(class_support.min()),
+                        retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
+                        retrieved_spatial_rms=float(rms(retrieved - retrieved.mean((-2, -1), keepdim=True))),
+                        retrieved_self_cosine=float(F.cosine_similarity(retrieved.flatten(1), own_value.flatten(1)).mean()),
+                        qk_weight_rms=float(rms(self.qk.weight)), v_weight_rms=float(rms(self.v.weight)),
+                        out_weight_rms=float(rms(self.out.weight)),
+                        temperature=F.softplus(self.raw_temperature).tolist(),
+                        radius_mean=float(radius.mean()), radius_max=float(radius.max()),
+                        radius_cv=float(radius.std(unbiased=False) / radius.mean().clamp_min(1e-8)),
+                        key_radius_mean=float(key_radius.mean()),
+                        radial_gap_attention_mean=float((probability * radial).sum(-1).mean()),
+                        angular_gap_attention_mean=float((probability * angular).sum(-1).mean()),
+                        prototype_direction_variance_mean=float(variance.mean()),
+                        finite=bool(torch.isfinite(result).all()))
+                    diag.update(attention_diagnostics(probability, self.tokens_per_scale))
+                    diag.pop("self_mass_mean")
+                    for name in ("context_mass_mean", "context_mass_min", "context_mass_max", "context_mass_std"):
+                        diag.pop(name)
+                    diag.update(gate_mean=float(gate.mean()), gate_min=float(gate.min()),
+                                gate_max=float(gate.max()), gate_std=float(gate.std(unbiased=False)),
+                                prototype_attention_mass_mean=float(probability.sum(-1).mean()),
+                                adoption_source="learned_value_correction_gate")
+                    diagnostics[f"stage{index+1}"] = diag
+        if self.collect_diag:
+            self.last_diag = diagnostics
+        auxiliary = dict(guide_logits=tuple(guide))
+        if return_aux:
+            auxiliary["geometric_logits"] = tuple(geometric_logits)
+        return enhanced, auxiliary
+
+
+class MatchedEuclideanContext(HyperbolicContext):
+    """Same representations and readout, with spatial Euclidean distance only."""
+    geometry = "euclidean_matched"
+
+    @staticmethod
+    def squared_distance(query, key):
+        q, k = query[..., 1:], key[..., 1:]
+        return (q.square().sum(-1, keepdim=True) + k.square().sum(-1).unsqueeze(-2)
+                - 2 * (q @ k.transpose(-1, -2))).clamp_min(0)
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\layers\lorentz_ops.py
+================================================================================
+"""Curvature -1 geometry using unconstrained spatial Lorentz coordinates."""
+import torch
+
+
+def lift(space):
+    """The intrinsic radius is asinh(||space||); there is no radial clipping."""
+    return torch.cat(((1 + space.square().sum(-1, keepdim=True)).sqrt(), space), dim=-1)
+
+
+def normalize_sum(point):
+    """Lorentz centroid of a positive weighted mean of unit hyperboloid points."""
+    norm2 = point[..., :1].square() - point[..., 1:].square().sum(-1, keepdim=True)
+    # Convex weights imply norm2 >= 1. Rebuild time to preserve the unit manifold.
+    return lift(point[..., 1:] / norm2.clamp_min(1).sqrt())
+
+
+def acosh1p_squared(z):
+    """Squared geodesic distance with its finite analytic derivative at z=0."""
+    regular_z = z.clamp_min(1e-3)
+    regular = torch.log1p(regular_z + (regular_z * (regular_z + 2)).sqrt()).square()
+    series = 2 * z - z.square() / 3 + 4 * z.pow(3) / 45 - z.pow(4) / 35
+    return torch.where(z <= 1e-3, series, regular)
+
+
+def pairwise_squared_distance(query, key):
+    space_q, space_k = query[..., 1:], key[..., 1:]
+    squared_chord = (space_q.square().sum(-1, keepdim=True)
+                     + space_k.square().sum(-1).unsqueeze(-2)
+                     - 2 * (space_q @ space_k.transpose(-1, -2)))
+    time_difference = query[..., :1] - key[..., :1].transpose(-1, -2)
+    z = (0.5 * (squared_chord - time_difference.square())).clamp_min(0)
+    return acosh1p_squared(z)
+
+================================================================================
+# FILE: outputs/CASA-Pyramid/Run9/runtime_source/models/model\layers\pyramid_context.py
+================================================================================
+"""Selective change prototypes and self-referenced pyramid retrieval."""
+import math
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+
+def channel_norm(layer, x):
+    return layer(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+
+
+def regions(x, grid):
+    """B,heads,height,width,D -> B,heads,regions,pixels,D."""
+    batch, heads, height, width, dim = x.shape
+    return x.reshape(batch, heads, grid, height // grid, grid, width // grid, dim).permute(
+        0, 1, 2, 4, 3, 5, 6).reshape(batch, heads, grid * grid, -1, dim)
+
+
+def feature_regions(x, grid):
+    return regions(x.permute(0, 2, 3, 1).unsqueeze(1), grid).squeeze(1)
+
+
+def split_heads(x, heads):
+    batch, channels, height, width = x.shape
+    return x.reshape(batch, heads, channels // heads, height, width).permute(0, 1, 3, 4, 2)
+
+
+def merge_heads(x, height, width):
+    return x.transpose(-1, -2).reshape(x.shape[0], -1, height, width)
+
+
+def project_tokens(layer, tokens, heads):
+    projected = F.linear(tokens, layer.weight[:, :, 0, 0])
+    return projected.reshape(projected.shape[0], -1, heads, projected.shape[-1] // heads).transpose(1, 2)
+
+
+def assignments(probability, grid):
+    """Sharpen class membership within each region and measure class support."""
+    positive = feature_regions(probability, grid).squeeze(-1)
+    memberships = torch.stack((positive, 1 - positive), dim=2)
+    weights = (memberships + 1e-6).square()
+    weights = weights / weights.sum(-1, keepdim=True)
+    confidence = (weights * memberships.square()).sum(-1).clamp_min(1e-6)
+    return weights, confidence.flatten(1, 2)
+
+
+def pool_features(feature, weights, grid):
+    return torch.einsum("brtp,brpc->brtc", weights, feature_regions(feature, grid)).flatten(1, 2)
+
+
+def source_bias(bias, query_scale, counts):
+    return torch.cat([(bias[:, query_scale, scale] - math.log(count))[:, None].expand(-1, count)
+                      for scale, count in enumerate(counts)], dim=-1)[None, :, None]
+
+
+def highpass(x):
+    return x - F.avg_pool2d(F.pad(x, (1, 1, 1, 1), mode="replicate"), 3, 1)
+
+
+def rms(x):
+    return x.square().mean().sqrt()
+
+
+def attention_diagnostics(probability, counts):
+    mass = probability.sum(-1, keepdim=True)
+    conditional = probability / mass.clamp_min(1e-8)
+    tv = (conditional - conditional.mean(-2, keepdim=True)).abs().sum(-1) / 2
+    return dict(
+        entropy=float(-(conditional * conditional.clamp_min(1e-9).log()).sum(-1).mean()
+                      / math.log(probability.shape[-1])),
+        scale_mass=torch.stack([p.sum(-1) for p in conditional.split(counts, -1)], -1).mean((0, 2)).tolist(),
+        context_mass_mean=float(mass.mean()), context_mass_min=float(mass.min()),
+        context_mass_max=float(mass.max()), context_mass_std=float(mass.std(unbiased=False)),
+        self_mass_mean=float((1-mass).mean()),
+        query_attention_tv=float(tv.mean()), query_attention_tv_per_head=tv.mean((0, 2)).tolist())
+
+
+class ResidualPyramidContext(nn.Module):
+    """Shared compression/readout; subclasses define Euclidean or Lorentz keys."""
+    value_geometry = "euclidean"
+    compression_power = 2
+    support_power = 2
+    self_reference = True
+
+    def __init__(self, channels=64, heads=4, grid_sizes=(8, 4, 4, 4)):
+        super().__init__()
+        self.heads = heads
+        self.grid_sizes = tuple(grid_sizes)
+        self.tokens_per_scale = tuple(2 * grid ** 2 for grid in grid_sizes)
+        self.norm = nn.LayerNorm(channels)
+        self.guide = nn.Conv2d(channels, 1, 1)
+        self.qk = nn.Conv2d(channels, channels, 1, bias=False)
+        self.v = nn.Conv2d(channels, channels, 1, bias=False)
+        self.out = nn.Conv2d(channels, channels, 1, bias=False)
+        self.local_dw = nn.Conv2d(channels, channels, 3, padding=1, padding_mode="replicate",
+                                  groups=channels, bias=False)
+        self.local_out = nn.Conv2d(channels, channels, 1, bias=False)
+        self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
+        self.raw_temperature = nn.Parameter(torch.full((heads,), math.log(math.expm1(.5))))
+        self.gamma_context = nn.Parameter(torch.zeros(4, channels))
+        self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
+        self.collect_diag = False
+        self.last_diag = {}
+
+    def attention(self, query, key, confidence, query_scale):
+        temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
+        logits = -self.squared_distance(query, key) / (2 * temperature.square())
+        logits = logits + confidence.log()[:, None, None] + source_bias(
+            self.scale_bias, query_scale, self.tokens_per_scale)
+        # The query's own key has distance zero and unit support. Its value is
+        # retained locally; a shared softmax makes context adoption query-specific.
+        return torch.cat((logits, torch.zeros_like(logits[..., :1])), -1).softmax(-1)[..., :-1]
+
+    def forward(self, tar):
+        normalized = [channel_norm(self.norm, x) for x in tar]
+        guide = [self.guide(x) for x in normalized]
+        compression = [assignments(g.sigmoid(), grid) for g, grid in zip(guide, self.grid_sizes)]
+        prototypes = [pool_features(x, w, grid) for x, (w, _), grid in
+                      zip(normalized, compression, self.grid_sizes)]
+        query = [self.project_queries(x) for x in normalized]
+        keys = [self.pool_keys(q, p, w, grid) for q, p, (w, _), grid in
+                zip(query, prototypes, compression, self.grid_sizes)]
+        key = torch.cat(keys, dim=2)
+        confidence = torch.cat([r for _, r in compression], dim=1)
+        values = project_tokens(self.v, torch.cat(prototypes, dim=1), self.heads)
+        enhanced, diagnostics = [], {}
+        for index, (original, x, q) in enumerate(zip(tar, normalized, query)):
+            height, width = x.shape[-2:]
+            probability = self.attention(q.flatten(2, 3), key, confidence, index)
+            retrieved = merge_heads(probability @ values, height, width)
+            own_value = self.v(x)
+            mass = probability.sum(-1, keepdim=True)
+            mass_map = merge_heads(mass.expand(-1, -1, -1, x.shape[1] // self.heads), height, width)
+            difference = retrieved - mass_map * own_value
+            update = self.out(difference)
+            context_residual = self.gamma_context[index][None, :, None, None] * update
+            result = original + context_residual
+            local = None
+            local_residual = torch.zeros_like(original)
+            if index < 2:
+                local = self.local_out(self.local_dw(highpass(x)))
+                local_residual = self.gamma_detail[index][None, :, None, None] * local
+                result = result + local_residual
+            enhanced.append(result)
+            if self.collect_diag:
+                with torch.no_grad():
+                    base = rms(original).clamp_min(1e-8)
+                    weights, reliability = compression[index]
+                    diag = dict(
+                        queries=height * width, contexts=key.shape[2],
+                        gamma_context=float(self.gamma_context[index].mean()),
+                        gamma_context_rms=float(rms(self.gamma_context[index])),
+                        gamma_detail=float(self.gamma_detail[index].mean()) if index < 2 else 0.,
+                        gamma_detail_rms=float(rms(self.gamma_detail[index])) if index < 2 else 0.,
+                        context_rms=float(rms(update)), branch_rms=float(rms(update)),
+                        local_rms=float(rms(local)) if local is not None else 0.,
+                        feature_rms=float(base), relative_update_rms=float(rms(difference)),
+                        residual_rms=float(rms(context_residual + local_residual)),
+                        residual_to_feature_rms=float(rms(context_residual + local_residual) / base),
+                        context_residual_to_feature_rms=float(rms(context_residual) / base),
+                        local_residual_to_feature_rms=float(rms(local_residual) / base),
+                        guide_mean=float(guide[index].sigmoid().mean()),
+                        reliability_mean=float(reliability.mean()), reliability_min=float(reliability.min()),
+                        retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
+                        self_subtraction_rms=float(rms(mass_map * own_value)),
+                        retrieved_spatial_rms=float(rms(retrieved-retrieved.mean((-2,-1),keepdim=True))),
+                        retrieved_self_cosine=float(F.cosine_similarity(retrieved.flatten(1),own_value.flatten(1)).mean()),
+                        assignment_tv=float((weights[:, :, 0] - weights[:, :, 1]).abs().sum(-1).mean() / 2),
+                        qk_weight_rms=float(rms(self.qk.weight)), v_weight_rms=float(rms(self.v.weight)),
+                        out_weight_rms=float(rms(self.out.weight)),
+                        temperature=F.softplus(self.raw_temperature).tolist(),
+                        finite=bool(torch.isfinite(result).all()))
+                    diag.update(attention_diagnostics(probability, self.tokens_per_scale))
+                    diag.update(self.geometry_diagnostics(q, keys[index]))
+                    diagnostics[f"stage{index + 1}"] = diag
+        if self.collect_diag:
+            self.last_diag = diagnostics
+        return enhanced, dict(guide_logits=tuple(guide))
+
+
+class AuxiliaryContext(nn.Module):
+    """CTRL retains the same change-guide supervision on unmodified TAR features."""
+    geometry = "none"
+    value_geometry = "euclidean"
+    grid_sizes = (8, 4, 4, 4)
+    tokens_per_scale = (0, 0, 0, 0)
+    compression_power = 0
+    support_power = 0
+    self_reference = False
+
+    def __init__(self, channels=64):
+        super().__init__()
+        self.norm = nn.LayerNorm(channels)
+        self.guide = nn.Conv2d(channels, 1, 1)
+        self.collect_diag = False
+        self.last_diag = {}
+
+    def forward(self, tar):
+        return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
+
+================================================================================
+## METRICS (263 results)
+================================================================================
+Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
+CASA-MoE/Run1/M0_CTRL/CDD-CD-256 | 0.9682 | 0.9704 | 0.9924 | 0.9693 | 0.9405 | 0.9650 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/LEVIR-CD-256 | 0.9041 | 0.9182 | 0.9910 | 0.9111 | 0.8367 | 0.9064 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/SYSU-CD-256 | 0.8296 | 0.8391 | 0.9223 | 0.8343 | 0.7158 | 0.7836 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M0_CTRL/WHU-CD-256 | 0.9379 | 0.9548 | 0.9958 | 0.9463 | 0.8981 | 0.9441 | 1.936 | 2.047 | - | casa_moe_none
+CASA-MoE/Run1/M1_HYPER_QKV/LEVIR-CD-256 | 0.9012 | 0.9221 | 0.9911 | 0.9116 | 0.8375 | 0.9069 | 1.942 | 2.054 | - | casa_moe_hyperbolic
+CASA-MoE/Run1/M1_HYPER_QKV/SYSU-CD-256 | 0.7981 | 0.8661 | 0.9233 | 0.8307 | 0.7104 | 0.7812 | 1.942 | 2.054 | - | casa_moe_hyperbolic
+CASA-MoE/Run1/M2_CA_QKV/LEVIR-CD-256 | 0.9016 | 0.9185 | 0.9909 | 0.9100 | 0.8349 | 0.9052 | 1.942 | 2.054 | - | casa_moe_qkv
+CASA-MoE/Run1/M2_CA_QKV/SYSU-CD-256 | 0.7901 | 0.8692 | 0.9225 | 0.8278 | 0.7062 | 0.7779 | 1.942 | 2.054 | - | casa_moe_qkv
+CASA-MoE/Run1/M3_FREQUENCY/LEVIR-CD-256 | 0.9012 | 0.9199 | 0.9910 | 0.9104 | 0.8356 | 0.9057 | 1.941 | 2.052 | - | casa_moe_frequency
+CASA-MoE/Run1/M3_FREQUENCY/SYSU-CD-256 | 0.7845 | 0.8692 | 0.9213 | 0.8247 | 0.7017 | 0.7742 | 1.941 | 2.052 | - | casa_moe_frequency
+CASA-MoE/Run1/M4_EQUAL/CDD-CD-256 | 0.9687 | 0.9696 | 0.9924 | 0.9691 | 0.9401 | 0.9648 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/LEVIR-CD-256 | 0.9050 | 0.9189 | 0.9911 | 0.9119 | 0.8381 | 0.9072 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/SYSU-CD-256 | 0.8051 | 0.8594 | 0.9230 | 0.8314 | 0.7114 | 0.7815 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_EQUAL/WHU-CD-256 | 0.9317 | 0.9614 | 0.9958 | 0.9463 | 0.8981 | 0.9441 | 1.953 | 2.064 | - | casa_moe_equal
+CASA-MoE/Run1/M4_MOE/CDD-CD-256 | 0.9685 | 0.9693 | 0.9923 | 0.9689 | 0.9397 | 0.9645 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/LEVIR-CD-256 | 0.8996 | 0.9187 | 0.9908 | 0.9091 | 0.8333 | 0.9042 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/SYSU-CD-256 | 0.8148 | 0.8406 | 0.9199 | 0.8275 | 0.7058 | 0.7754 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_MOE/WHU-CD-256 | 0.9319 | 0.9571 | 0.9956 | 0.9443 | 0.8945 | 0.9421 | 1.954 | 2.065 | - | casa_moe_moe
+CASA-MoE/Run1/M4_NO_FREQUENCY/LEVIR-CD-256 | 0.9045 | 0.9192 | 0.9911 | 0.9118 | 0.8379 | 0.9071 | 1.950 | 2.061 | - | casa_moe_no_frequency
+CASA-MoE/Run1/M4_NO_FREQUENCY/SYSU-CD-256 | 0.8032 | 0.8568 | 0.9220 | 0.8292 | 0.7082 | 0.7787 | 1.950 | 2.061 | - | casa_moe_no_frequency
+CASA-MoE/Run1/M4_NO_HYPER/LEVIR-CD-256 | 0.9025 | 0.9184 | 0.9910 | 0.9104 | 0.8356 | 0.9056 | 1.948 | 2.059 | - | casa_moe_no_hyperbolic
+CASA-MoE/Run1/M4_NO_HYPER/SYSU-CD-256 | 0.8239 | 0.8415 | 0.9219 | 0.8326 | 0.7132 | 0.7817 | 1.948 | 2.059 | - | casa_moe_no_hyperbolic
+CASA-MoE/Run1/M4_NO_QKV/LEVIR-CD-256 | 0.9003 | 0.9194 | 0.9909 | 0.9098 | 0.8345 | 0.9050 | 1.948 | 2.059 | - | casa_moe_no_qkv
+CASA-MoE/Run1/M4_NO_QKV/SYSU-CD-256 | 0.7938 | 0.8645 | 0.9220 | 0.8276 | 0.7059 | 0.7774 | 1.948 | 2.059 | - | casa_moe_no_qkv
+CASA-MoE/Run2/M_D_DYNAMIC/LEVIR-CD-256 | 0.9001 | 0.9215 | 0.9910 | 0.9106 | 0.8360 | 0.9059 | 2.109 | 2.220 | - | casa_moe_moe
+CASA-MoE/Run2/M_D_DYNAMIC/SYSU-CD-256 | 0.8060 | 0.8676 | 0.9252 | 0.8356 | 0.7177 | 0.7873 | 2.109 | 2.220 | - | casa_moe_moe
+CASA-MoE/Run2/M_S_STATIC/LEVIR-CD-256 | 0.9055 | 0.9175 | 0.9910 | 0.9115 | 0.8374 | 0.9068 | 2.100 | 2.212 | - | casa_moe_static
+CASA-MoE/Run2/M_S_STATIC/SYSU-CD-256 | 0.8223 | 0.8331 | 0.9192 | 0.8277 | 0.7060 | 0.7749 | 2.100 | 2.212 | - | casa_moe_static
+CASA-MoE/Run2/M_T_TAR/LEVIR-CD-256 | 0.9055 | 0.9150 | 0.9909 | 0.9102 | 0.8353 | 0.9055 | 1.936 | 2.111 | - | casa_moe_none
+CASA-MoE/Run2/M_T_TAR/SYSU-CD-256 | 0.7997 | 0.8534 | 0.9204 | 0.8257 | 0.7031 | 0.7741 | 1.936 | 2.111 | - | casa_moe_none
+CASA-Pyramid/Run1/M0_CTRL/CDD-CD-256 | 0.9673 | 0.9687 | 0.9921 | 0.9680 | 0.9380 | 0.9635 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run1/M0_CTRL/LEVIR-CD-256 | 0.9042 | 0.9149 | 0.9908 | 0.9096 | 0.8341 | 0.9047 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run1/M0_CTRL/SYSU-CD-256 | 0.7718 | 0.8569 | 0.9158 | 0.8122 | 0.6837 | 0.7581 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run1/M0_CTRL/WHU-CD-256 | 0.9283 | 0.9536 | 0.9954 | 0.9408 | 0.8882 | 0.9384 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run1/M1_HYPER_QKV/CDD-CD-256 | 0.9665 | 0.9685 | 0.9920 | 0.9675 | 0.9370 | 0.9629 | 1.952 | 2.064 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run1/M1_HYPER_QKV/LEVIR-CD-256 | 0.8959 | 0.9242 | 0.9910 | 0.9099 | 0.8346 | 0.9051 | 1.952 | 2.064 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run1/M1_HYPER_QKV/SYSU-CD-256 | 0.7734 | 0.8630 | 0.9176 | 0.8158 | 0.6888 | 0.7629 | 1.952 | 2.064 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run1/M1_HYPER_QKV/WHU-CD-256 | 0.9263 | 0.9534 | 0.9953 | 0.9397 | 0.8862 | 0.9372 | 1.952 | 2.064 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run1/M2_CA_QKV/CDD-CD-256 | 0.9668 | 0.9683 | 0.9920 | 0.9675 | 0.9371 | 0.9630 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run1/M2_CA_QKV/LEVIR-CD-256 | 0.8995 | 0.9237 | 0.9911 | 0.9115 | 0.8373 | 0.9068 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run1/M2_CA_QKV/SYSU-CD-256 | 0.7952 | 0.8449 | 0.9173 | 0.8193 | 0.6939 | 0.7657 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run1/M2_CA_QKV/WHU-CD-256 | 0.9229 | 0.9533 | 0.9951 | 0.9378 | 0.8830 | 0.9353 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2/M0_CTRL/CDD-CD-256 | 0.9687 | 0.9695 | 0.9924 | 0.9691 | 0.9400 | 0.9647 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2/M0_CTRL/LEVIR-CD-256 | 0.8974 | 0.9225 | 0.9909 | 0.9098 | 0.8345 | 0.9050 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2/M0_CTRL/SYSU-CD-256 | 0.8160 | 0.8522 | 0.9232 | 0.8337 | 0.7148 | 0.7838 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2/M0_CTRL/WHU-CD-256 | 0.9264 | 0.9612 | 0.9956 | 0.9435 | 0.8931 | 0.9412 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2/M1_HYPER_QKV/CDD-CD-256 | 0.9683 | 0.9703 | 0.9924 | 0.9693 | 0.9404 | 0.9650 | 1.948 | 2.059 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run2/M1_HYPER_QKV/LEVIR-CD-256 | 0.9038 | 0.9196 | 0.9911 | 0.9116 | 0.8376 | 0.9069 | 1.948 | 2.059 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run2/M1_HYPER_QKV/SYSU-CD-256 | 0.7953 | 0.8643 | 0.9223 | 0.8284 | 0.7070 | 0.7783 | 1.948 | 2.059 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run2/M1_HYPER_QKV/WHU-CD-256 | 0.9269 | 0.9652 | 0.9958 | 0.9456 | 0.8969 | 0.9435 | 1.948 | 2.059 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run2/M2_CA_QKV/CDD-CD-256 | 0.9684 | 0.9689 | 0.9923 | 0.9687 | 0.9392 | 0.9642 | 1.948 | 2.059 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2/M2_CA_QKV/LEVIR-CD-256 | 0.9029 | 0.9198 | 0.9910 | 0.9113 | 0.8370 | 0.9065 | 1.948 | 2.059 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2/M2_CA_QKV/SYSU-CD-256 | 0.8034 | 0.8486 | 0.9198 | 0.8254 | 0.7026 | 0.7734 | 1.948 | 2.059 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2/M2_CA_QKV/WHU-CD-256 | 0.9311 | 0.9634 | 0.9959 | 0.9470 | 0.8993 | 0.9448 | 1.948 | 2.059 | - | casa_pyramid_qkv
+CASA-Pyramid/Run2_val/M0_CTRL/LEVIR-CD-256 | 0.8958 | 0.9210 | 0.9908 | 0.9083 | 0.8319 | 0.9034 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run2_val/M2_CA_QKV/LEVIR-CD-256 | 0.8988 | 0.9191 | 0.9908 | 0.9088 | 0.8329 | 0.9040 | 1.952 | 2.064 | - | casa_pyramid_qkv
+CASA-Pyramid/Run3/M0_CTRL/CDD-CD-256 | 0.9497 | 0.9565 | 0.9885 | 0.9531 | 0.9104 | 0.9465 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run3/M0_CTRL/LEVIR-CD-256 | 0.8897 | 0.9209 | 0.9905 | 0.9050 | 0.8265 | 0.9000 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run3/M0_CTRL/SYSU-CD-256 | 0.7809 | 0.8617 | 0.9188 | 0.8193 | 0.6939 | 0.7671 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run3/M0_CTRL/WHU-CD-256 | 0.9262 | 0.9673 | 0.9958 | 0.9463 | 0.8982 | 0.9442 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run3/M1_HYPER_QKV/CDD-CD-256 | 0.9512 | 0.9581 | 0.9888 | 0.9546 | 0.9132 | 0.9482 | 1.962 | 2.074 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run3/M1_HYPER_QKV/LEVIR-CD-256 | 0.8997 | 0.9103 | 0.9904 | 0.9050 | 0.8264 | 0.8999 | 1.962 | 2.074 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run3/M1_HYPER_QKV/SYSU-CD-256 | 0.7688 | 0.8853 | 0.9220 | 0.8229 | 0.6991 | 0.7732 | 1.962 | 2.074 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run3/M1_HYPER_QKV/WHU-CD-256 | 0.9272 | 0.9603 | 0.9956 | 0.9435 | 0.8930 | 0.9412 | 1.962 | 2.074 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run3/M2_CA_QKV/CDD-CD-256 | 0.9523 | 0.9581 | 0.9890 | 0.9552 | 0.9142 | 0.9489 | 1.975 | 2.086 | - | casa_pyramid_qkv
+CASA-Pyramid/Run3/M2_CA_QKV/LEVIR-CD-256 | 0.8905 | 0.9207 | 0.9905 | 0.9054 | 0.8271 | 0.9004 | 1.975 | 2.086 | - | casa_pyramid_qkv
+CASA-Pyramid/Run3/M2_CA_QKV/SYSU-CD-256 | 0.7906 | 0.8558 | 0.9192 | 0.8219 | 0.6976 | 0.7697 | 1.975 | 2.086 | - | casa_pyramid_qkv
+CASA-Pyramid/Run3/M2_CA_QKV/WHU-CD-256 | 0.9226 | 0.9655 | 0.9956 | 0.9436 | 0.8932 | 0.9413 | 1.975 | 2.086 | - | casa_pyramid_qkv
+CASA-Pyramid/Run4/M0_CTRL/CDD-CD-256 | 0.9682 | 0.9701 | 0.9924 | 0.9691 | 0.9401 | 0.9648 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run4/M0_CTRL/LEVIR-CD-256 | 0.9015 | 0.9176 | 0.9909 | 0.9095 | 0.8340 | 0.9047 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run4/M0_CTRL/SYSU-CD-256 | 0.7844 | 0.8660 | 0.9205 | 0.8232 | 0.6995 | 0.7721 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run4/M0_CTRL/WHU-CD-256 | 0.9306 | 0.9534 | 0.9954 | 0.9419 | 0.8902 | 0.9395 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run4/M1_HYPER_QKV/CDD-CD-256 | 0.9689 | 0.9699 | 0.9924 | 0.9694 | 0.9406 | 0.9651 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run4/M1_HYPER_QKV/LEVIR-CD-256 | 0.9016 | 0.9209 | 0.9910 | 0.9112 | 0.8368 | 0.9065 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run4/M1_HYPER_QKV/SYSU-CD-256 | 0.7995 | 0.8581 | 0.9215 | 0.8278 | 0.7061 | 0.7770 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run4/M1_HYPER_QKV/WHU-CD-256 | 0.9315 | 0.9611 | 0.9958 | 0.9461 | 0.8977 | 0.9439 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run4/M2_CA_QKV/CDD-CD-256 | 0.9679 | 0.9701 | 0.9924 | 0.9690 | 0.9399 | 0.9646 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run4/M2_CA_QKV/LEVIR-CD-256 | 0.9070 | 0.9159 | 0.9910 | 0.9114 | 0.8373 | 0.9067 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run4/M2_CA_QKV/SYSU-CD-256 | 0.8197 | 0.8384 | 0.9202 | 0.8289 | 0.7078 | 0.7769 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run4/M2_CA_QKV/WHU-CD-256 | 0.9306 | 0.9645 | 0.9959 | 0.9472 | 0.8998 | 0.9451 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run5/M0_CTRL/CDD-CD-256 | 0.9685 | 0.9705 | 0.9925 | 0.9695 | 0.9408 | 0.9652 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run5/M0_CTRL/LEVIR-CD-256 | 0.9032 | 0.9181 | 0.9910 | 0.9106 | 0.8358 | 0.9058 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run5/M0_CTRL/SYSU-CD-256 | 0.7949 | 0.8605 | 0.9212 | 0.8264 | 0.7042 | 0.7756 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run5/M0_CTRL/WHU-CD-256 | 0.9313 | 0.9561 | 0.9956 | 0.9435 | 0.8931 | 0.9412 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run5/M1_HYPER_QKV/CDD-CD-256 | 0.9673 | 0.9708 | 0.9924 | 0.9691 | 0.9400 | 0.9647 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run5/M1_HYPER_QKV/LEVIR-CD-256 | 0.9017 | 0.9203 | 0.9910 | 0.9109 | 0.8364 | 0.9062 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run5/M1_HYPER_QKV/SYSU-CD-256 | 0.7937 | 0.8552 | 0.9197 | 0.8233 | 0.6997 | 0.7714 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run5/M1_HYPER_QKV/WHU-CD-256 | 0.9334 | 0.9555 | 0.9956 | 0.9443 | 0.8945 | 0.9420 | 1.953 | 2.065 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run5/M2_CA_QKV/CDD-CD-256 | 0.9682 | 0.9692 | 0.9923 | 0.9687 | 0.9394 | 0.9643 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run5/M2_CA_QKV/LEVIR-CD-256 | 0.9064 | 0.9183 | 0.9911 | 0.9123 | 0.8388 | 0.9077 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run5/M2_CA_QKV/SYSU-CD-256 | 0.8025 | 0.8582 | 0.9221 | 0.8294 | 0.7085 | 0.7790 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run5/M2_CA_QKV/WHU-CD-256 | 0.9321 | 0.9582 | 0.9957 | 0.9449 | 0.8956 | 0.9427 | 1.953 | 2.065 | - | casa_pyramid_qkv
+CASA-Pyramid/Run7/M0_CTRL/CDD-CD-256 | 0.9689 | 0.9701 | 0.9925 | 0.9695 | 0.9409 | 0.9652 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/LEVIR-CD-256 | 0.9030 | 0.9193 | 0.9910 | 0.9111 | 0.8366 | 0.9063 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/SYSU-CD-256 | 0.8184 | 0.8376 | 0.9198 | 0.8279 | 0.7064 | 0.7756 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M0_CTRL/WHU-CD-256 | 0.9354 | 0.9598 | 0.9959 | 0.9475 | 0.9002 | 0.9453 | 1.936 | 2.047 | - | casa_pyramid_none
+CASA-Pyramid/Run7/M1_HYPER_QKV/CDD-CD-256 | 0.9689 | 0.9692 | 0.9924 | 0.9691 | 0.9400 | 0.9647 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/LEVIR-CD-256 | 0.9007 | 0.9222 | 0.9911 | 0.9113 | 0.8371 | 0.9066 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/SYSU-CD-256 | 0.7991 | 0.8609 | 0.9222 | 0.8289 | 0.7077 | 0.7786 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run7/M1_HYPER_QKV/WHU-CD-256 | 0.9290 | 0.9621 | 0.9957 | 0.9453 | 0.8962 | 0.9431 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_CLASS/SYSU-CD-256 | 0.7895 | 0.8699 | 0.9225 | 0.8277 | 0.7061 | 0.7779 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_CLASS/WHU-CD-256 | 0.9288 | 0.9589 | 0.9956 | 0.9436 | 0.8933 | 0.9413 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_NONE/SYSU-CD-256 | 0.7851 | 0.8718 | 0.9221 | 0.8261 | 0.7038 | 0.7761 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-Pyramid/Run8/H_NONE/WHU-CD-256 | 0.9282 | 0.9639 | 0.9958 | 0.9457 | 0.8970 | 0.9435 | 1.947 | 2.058 | - | casa_pyramid_hyperbolic
+CASA-STR/Run1/A0_BASE_PLAIN/CDD-CD-256 | 0.9408 | 0.9526 | 0.9869 | 0.9467 | 0.8987 | 0.9392 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A0_BASE_PLAIN/LEVIR-CD-256 | 0.8855 | 0.9130 | 0.9899 | 0.8990 | 0.8166 | 0.8937 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A0_BASE_PLAIN/SYSU-CD-256 | 0.8209 | 0.8284 | 0.9177 | 0.8247 | 0.7016 | 0.7709 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A0_BASE_PLAIN/WHU-CD-256 | 0.9234 | 0.9510 | 0.9951 | 0.9370 | 0.8815 | 0.9344 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A1_CASAA_PLAIN/CDD-CD-256 | 0.9390 | 0.9519 | 0.9866 | 0.9454 | 0.8964 | 0.9378 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/A1_CASAA_PLAIN/LEVIR-CD-256 | 0.8882 | 0.9093 | 0.9898 | 0.8987 | 0.8160 | 0.8933 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/A1_CASAA_PLAIN/SYSU-CD-256 | 0.7966 | 0.8553 | 0.9203 | 0.8249 | 0.7020 | 0.7734 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/A1_CASAA_PLAIN/WHU-CD-256 | 0.9182 | 0.9556 | 0.9951 | 0.9365 | 0.8807 | 0.9340 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/A2_STR_ONLY/CDD-CD-256 | 0.9505 | 0.9602 | 0.9890 | 0.9553 | 0.9145 | 0.9491 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A2_STR_ONLY/LEVIR-CD-256 | 0.8899 | 0.9162 | 0.9902 | 0.9028 | 0.8229 | 0.8977 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A2_STR_ONLY/SYSU-CD-256 | 0.7930 | 0.8594 | 0.9206 | 0.8249 | 0.7019 | 0.7736 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/A2_STR_ONLY/WHU-CD-256 | 0.9215 | 0.9470 | 0.9948 | 0.9341 | 0.8763 | 0.9314 | 2.378 | 2.378 | 1.2051 | casa_str
+CASA-STR/Run1/M1_CASAA_STR/CDD-CD-256 | 0.9506 | 0.9601 | 0.9890 | 0.9554 | 0.9145 | 0.9491 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/M1_CASAA_STR/LEVIR-CD-256 | 0.8947 | 0.9128 | 0.9903 | 0.9037 | 0.8243 | 0.8986 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/M1_CASAA_STR/SYSU-CD-256 | 0.8139 | 0.8472 | 0.9215 | 0.8302 | 0.7097 | 0.7792 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-STR/Run1/M1_CASAA_STR/WHU-CD-256 | 0.9200 | 0.9551 | 0.9951 | 0.9372 | 0.8819 | 0.9347 | 2.416 | 2.416 | 1.2365 | casa_str
+CASA-TViM/Exploration/Exp1/STG_INJ/LEVIR-CD-256 | 0.9038 | 0.9191 | 0.9910 | 0.9114 | 0.8372 | 0.9066 | - | - | - | casa_vmamba_stgeo
+CASA-TViM/Exploration/Exp1/STG_INJ/SYSU-CD-256 | 0.8118 | 0.8219 | 0.9141 | 0.8168 | 0.6904 | 0.7608 | - | - | - | casa_vmamba_stgeo
+CASA-TViM/Exploration/Exp1/STG_SUP/LEVIR-CD-256 | 0.9063 | 0.9156 | 0.9910 | 0.9109 | 0.8364 | 0.9062 | 31.979 | - | - | casa_vmamba_stgeo
+CASA-TViM/Exploration/Exp1/STG_SUP/SYSU-CD-256 | 0.8128 | 0.8275 | 0.9159 | 0.8201 | 0.6950 | 0.7652 | 31.979 | - | - | casa_vmamba_stgeo
+CASA-TViM/Exploration/Exp1/STG_V2/LEVIR-CD-256 | 0.9052 | 0.9185 | 0.9911 | 0.9118 | 0.8379 | 0.9071 | - | - | - | casa_vmamba_stgeo
+CASA-TViM/Exploration/Exp1/STG_V2/SYSU-CD-256 | 0.7934 | 0.8424 | 0.9163 | 0.8172 | 0.6909 | 0.7630 | - | - | - | casa_vmamba_stgeo
+CASA-TViM/Run1/A0_TVIM_PLAIN/CDD-CD-256 | 0.9658 | 0.9694 | 0.9920 | 0.9676 | 0.9373 | 0.9631 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A0_TVIM_PLAIN/LEVIR-CD-256 | 0.8952 | 0.9269 | 0.9911 | 0.9108 | 0.8362 | 0.9061 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A0_TVIM_PLAIN/SYSU-CD-256 | 0.7993 | 0.8501 | 0.9194 | 0.8239 | 0.7006 | 0.7718 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A0_TVIM_PLAIN/WHU-CD-256 | 0.9269 | 0.9696 | 0.9959 | 0.9478 | 0.9008 | 0.9457 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A1_CAACP/CDD-CD-256 | 0.9662 | 0.9688 | 0.9920 | 0.9675 | 0.9370 | 0.9629 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A1_CAACP/LEVIR-CD-256 | 0.8995 | 0.9213 | 0.9910 | 0.9103 | 0.8353 | 0.9055 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A1_CAACP/SYSU-CD-256 | 0.8014 | 0.8418 | 0.9176 | 0.8211 | 0.6965 | 0.7676 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A1_CAACP/WHU-CD-256 | 0.9245 | 0.9737 | 0.9960 | 0.9484 | 0.9019 | 0.9464 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A2_STR/CDD-CD-256 | 0.9702 | 0.9721 | 0.9929 | 0.9711 | 0.9439 | 0.9671 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A2_STR/LEVIR-CD-256 | 0.8959 | 0.9284 | 0.9912 | 0.9119 | 0.8381 | 0.9073 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A2_STR/SYSU-CD-256 | 0.8124 | 0.8529 | 0.9227 | 0.8321 | 0.7125 | 0.7820 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/A2_STR/WHU-CD-256 | 0.9310 | 0.9601 | 0.9957 | 0.9453 | 0.8963 | 0.9431 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/M1_FULL/CDD-CD-256 | 0.9703 | 0.9733 | 0.9930 | 0.9718 | 0.9451 | 0.9678 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/M1_FULL/LEVIR-CD-256 | 0.9033 | 0.9182 | 0.9910 | 0.9107 | 0.8360 | 0.9059 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/M1_FULL/SYSU-CD-256 | 0.8441 | 0.8255 | 0.9212 | 0.8347 | 0.7163 | 0.7829 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run1/M1_FULL/WHU-CD-256 | 0.9356 | 0.9662 | 0.9961 | 0.9507 | 0.9060 | 0.9487 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run2/E1_CP_CAACP/CDD-CD-256 | 0.9702 | 0.9727 | 0.9930 | 0.9714 | 0.9445 | 0.9674 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run2/E1_CP_CAACP/LEVIR-CD-256 | 0.9064 | 0.9164 | 0.9910 | 0.9114 | 0.8372 | 0.9066 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run2/E1_CP_CAACP/SYSU-CD-256 | 0.8094 | 0.8543 | 0.9225 | 0.8313 | 0.7112 | 0.7810 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run2/E1_CP_CAACP/WHU-CD-256 | 0.9374 | 0.9667 | 0.9962 | 0.9518 | 0.9081 | 0.9499 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run2/E2_FRH/CDD-CD-256 | 0.9702 | 0.9733 | 0.9930 | 0.9717 | 0.9450 | 0.9678 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E2_FRH/LEVIR-CD-256 | 0.9022 | 0.9222 | 0.9911 | 0.9121 | 0.8383 | 0.9074 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E2_FRH/SYSU-CD-256 | 0.8010 | 0.8605 | 0.9224 | 0.8297 | 0.7089 | 0.7796 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E2_FRH/WHU-CD-256 | 0.9346 | 0.9600 | 0.9959 | 0.9471 | 0.8995 | 0.9449 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E3_CP_FRH/CDD-CD-256 | 0.9702 | 0.9734 | 0.9930 | 0.9718 | 0.9451 | 0.9678 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E3_CP_FRH/LEVIR-CD-256 | 0.9021 | 0.9241 | 0.9912 | 0.9129 | 0.8398 | 0.9083 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E3_CP_FRH/SYSU-CD-256 | 0.8069 | 0.8512 | 0.9212 | 0.8285 | 0.7072 | 0.7774 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run2/E3_CP_FRH/WHU-CD-256 | 0.9380 | 0.9618 | 0.9961 | 0.9498 | 0.9044 | 0.9477 | 4.881 | 4.881 | 2.6947 | casa_tvim_str
+CASA-TViM/Run3/E4_RA_CAACP/CDD-CD-256 | 0.9702 | 0.9725 | 0.9929 | 0.9713 | 0.9442 | 0.9673 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run3/E4_RA_CAACP/LEVIR-CD-256 | 0.9005 | 0.9212 | 0.9910 | 0.9107 | 0.8360 | 0.9060 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run3/E4_RA_CAACP/SYSU-CD-256 | 0.8144 | 0.8494 | 0.9222 | 0.8316 | 0.7117 | 0.7810 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run3/E4_RA_CAACP/WHU-CD-256 | 0.9342 | 0.9666 | 0.9961 | 0.9502 | 0.9050 | 0.9481 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run3/E5_FS_TAR/CDD-CD-256 | 0.9703 | 0.9724 | 0.9929 | 0.9713 | 0.9443 | 0.9673 | 4.954 | 4.954 | 2.9767 | casa_tvim_str
+CASA-TViM/Run3/E5_FS_TAR/LEVIR-CD-256 | 0.9025 | 0.9212 | 0.9911 | 0.9118 | 0.8378 | 0.9071 | 4.954 | 4.954 | 2.9767 | casa_tvim_str
+CASA-TViM/Run3/E5_FS_TAR/SYSU-CD-256 | 0.8126 | 0.8531 | 0.9228 | 0.8324 | 0.7129 | 0.7823 | 4.954 | 4.954 | 2.9767 | casa_tvim_str
+CASA-TViM/Run3/E5_FS_TAR/WHU-CD-256 | 0.9311 | 0.9678 | 0.9960 | 0.9491 | 0.9031 | 0.9470 | 4.954 | 4.954 | 2.9767 | casa_tvim_str
+CASA-TViM/Run7/E10_HFAE_B/CDD-CD-256 | 0.9697 | 0.9708 | 0.9927 | 0.9702 | 0.9422 | 0.9660 | 4.890 | 4.890 | 2.7170 | casa_tvim_str
+CASA-TViM/Run7/E10_HFAE_B/LEVIR-CD-256 | 0.9015 | 0.9233 | 0.9912 | 0.9123 | 0.8387 | 0.9076 | 4.890 | 4.890 | 2.7170 | casa_tvim_str
+CASA-TViM/Run7/E10_HFAE_B/SYSU-CD-256 | 0.8190 | 0.8453 | 0.9220 | 0.8319 | 0.7122 | 0.7811 | 4.890 | 4.890 | 2.7170 | casa_tvim_str
+CASA-TViM/Run7/E10_HFAE_B/WHU-CD-256 | 0.9402 | 0.9637 | 0.9962 | 0.9518 | 0.9080 | 0.9498 | 4.890 | 4.890 | 2.7170 | casa_tvim_str
+CASA-TViM/Run7/E9_HFAE_A/CDD-CD-256 | 0.9694 | 0.9717 | 0.9927 | 0.9705 | 0.9427 | 0.9664 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/E9_HFAE_A/LEVIR-CD-256 | 0.9009 | 0.9262 | 0.9913 | 0.9134 | 0.8406 | 0.9088 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/E9_HFAE_A/SYSU-CD-256 | 0.8110 | 0.8565 | 0.9234 | 0.8331 | 0.7140 | 0.7835 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/E9_HFAE_A/WHU-CD-256 | 0.9380 | 0.9638 | 0.9961 | 0.9507 | 0.9061 | 0.9487 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/M1_R7CTRL/CDD-CD-256 | 0.9700 | 0.9733 | 0.9930 | 0.9717 | 0.9449 | 0.9677 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/M1_R7CTRL/LEVIR-CD-256 | 0.8963 | 0.9271 | 0.9911 | 0.9115 | 0.8373 | 0.9068 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/M1_R7CTRL/SYSU-CD-256 | 0.8041 | 0.8507 | 0.9205 | 0.8268 | 0.7047 | 0.7753 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run7/M1_R7CTRL/WHU-CD-256 | 0.9344 | 0.9628 | 0.9960 | 0.9484 | 0.9019 | 0.9463 | 4.880 | 4.880 | 2.6747 | casa_tvim_str
+CASA-TViM/Run8/CTRL_R8/LEVIR-CD-256 | 0.9043 | 0.9201 | 0.9911 | 0.9121 | 0.8384 | 0.9074 | 31.026 | 31.026 | 13.6715 | casa_vmamba_str
+CASA-TViM/Run8/CTRL_R8/SYSU-CD-256 | 0.7966 | 0.8422 | 0.9169 | 0.8188 | 0.6932 | 0.7649 | 31.026 | 31.026 | 13.6715 | casa_vmamba_str
+CASA-TViM/Run9/S0_CTRL/CDD-CD-256 | 0.9777 | 0.9777 | 0.9945 | 0.9777 | 0.9565 | 0.9746 | 31.977 | 31.977 | 14.6841 | baseline
+CASA-TViM/Run9/S0_CTRL/LEVIR-CD-256 | 0.8979 | 0.9253 | 0.9911 | 0.9114 | 0.8372 | 0.9067 | 31.977 | 31.977 | 14.6841 | baseline
+CASA-TViM/Run9/S1_HSAM/CDD-CD-256 | 0.9766 | 0.9765 | 0.9942 | 0.9765 | 0.9542 | 0.9732 | 31.977 | 31.977 | 14.7690 | baseline
+CASA-WDMF/Run1/M0_CTRL/SYSU-CD-256 | 0.8027 | 0.8519 | 0.9206 | 0.8265 | 0.7044 | 0.7751 | 3.017 | 3.100 | - | casa_wdmf_str_none
+CASA-WDMF/Run2/M0_CTRL/LEVIR-CD-256 | 0.9120 | 0.9172 | 0.9913 | 0.9146 | 0.8426 | 0.9100 | 3.017 | 3.100 | - | casa_wdmf_str_none
+CASA-WDMF/Run2/M0_CTRL/SYSU-CD-256 | 0.8039 | 0.8289 | 0.9146 | 0.8162 | 0.6895 | 0.7607 | 3.017 | 3.100 | - | casa_wdmf_str_none
+CASA-WDMF/Run2/M0_CTRL/WHU-CD-256 | 0.9261 | 0.9526 | 0.9952 | 0.9392 | 0.8853 | 0.9367 | 3.017 | 3.100 | - | casa_wdmf_str_none
+CASA-WDMF/Run2/M1_HYPER_QKV/LEVIR-CD-256 | 0.9055 | 0.9203 | 0.9912 | 0.9128 | 0.8396 | 0.9082 | 3.050 | 3.133 | - | casa_wdmf_str_hyperbolic
+CASA-WDMF/Run2/M1_HYPER_QKV/SYSU-CD-256 | 0.7867 | 0.8508 | 0.9172 | 0.8175 | 0.6913 | 0.7640 | 3.050 | 3.133 | - | casa_wdmf_str_hyperbolic
+CASA-WDMF/Run2/M1_HYPER_QKV/WHU-CD-256 | 0.9285 | 0.9532 | 0.9954 | 0.9407 | 0.8880 | 0.9383 | 3.050 | 3.133 | - | casa_wdmf_str_hyperbolic
+CASA-WDMF/Run2/M2_CA_QKV/LEVIR-CD-256 | 0.8972 | 0.9312 | 0.9914 | 0.9139 | 0.8414 | 0.9093 | 3.050 | 3.133 | - | casa_wdmf_str_qkv
+CASA-WDMF/Run2/M2_CA_QKV/SYSU-CD-256 | 0.8283 | 0.8286 | 0.9191 | 0.8285 | 0.7072 | 0.7756 | 3.050 | 3.133 | - | casa_wdmf_str_qkv
+CASA-WDMF/Run2/M2_CA_QKV/WHU-CD-256 | 0.9304 | 0.9608 | 0.9957 | 0.9453 | 0.8963 | 0.9431 | 3.050 | 3.133 | - | casa_wdmf_str_qkv
+CASAA/Run1/A1_SAA/LEVIR-CD-256 | 0.9109 | 0.9280 | 0.9919 | 0.9194 | 0.8508 | 0.9151 | 11.754 | 20.661 | 26.3183 | saa
+CASAA/Run1/A1_SAA/SYSU-CD-256 | 0.8030 | 0.8481 | 0.9196 | 0.8250 | 0.7021 | 0.7729 | 11.754 | 20.661 | 26.3183 | saa
+CASAA/Run1/A2_CASAA/LEVIR-CD-256 | 0.9099 | 0.9275 | 0.9918 | 0.9186 | 0.8494 | 0.9143 | 11.754 | 20.661 | 26.2593 | casaa
+CASAA/Run1/A2_CASAA/SYSU-CD-256 | 0.8055 | 0.8423 | 0.9186 | 0.8235 | 0.7000 | 0.7706 | 11.754 | 20.661 | 26.2593 | casaa
+CASAA/Run2/A1_SAA_FROZEN/LEVIR-CD-256 | 0.9138 | 0.9230 | 0.9917 | 0.9184 | 0.8491 | 0.9140 | 11.754 | 15.125 | 26.1484 | saa
+CASAA/Run2/A1_SAA_FROZEN/SYSU-CD-256 | 0.7840 | 0.8603 | 0.9190 | 0.8204 | 0.6955 | 0.7683 | 11.754 | 15.125 | 26.1484 | saa
+CASAA/Run2/A3_ORACLE_FROZEN/LEVIR-CD-256 | 0.9113 | 0.9265 | 0.9918 | 0.9188 | 0.8498 | 0.9145 | 11.754 | 15.125 | 26.0894 | casaa
+CASAA/Run2/A3_ORACLE_FROZEN/SYSU-CD-256 | 0.8204 | 0.8505 | 0.9236 | 0.8352 | 0.7170 | 0.7855 | 11.754 | 15.125 | 26.0894 | casaa
+CASAA/Run3/A4_DETAIL_FROZEN/SYSU-CD-256 | 0.7968 | 0.8428 | 0.9170 | 0.8192 | 0.6937 | 0.7654 | 11.754 | 15.125 | 26.0894 | casaa
+CASA/Run3/M0_CTRL/CDD-CD-256 | 0.9743 | 0.9747 | 0.9937 | 0.9745 | 0.9502 | 0.9709 | 3.017 | 3.100 | - | casa_none
+CASA/Run3/M0_CTRL/LEVIR-CD-256 | 0.9041 | 0.9183 | 0.9910 | 0.9111 | 0.8367 | 0.9064 | 3.017 | 3.100 | - | casa_none
+CASA/Run3/M0_CTRL/SYSU-CD-256 | 0.7981 | 0.8385 | 0.9161 | 0.8178 | 0.6918 | 0.7634 | 3.017 | 3.100 | - | casa_none
+CASA/Run3/M0_CTRL/WHU-CD-256 | 0.9320 | 0.9471 | 0.9952 | 0.9395 | 0.8859 | 0.9370 | 3.017 | 3.100 | - | casa_none
+CASA/Run3/M1_HYPER_QKV/CDD-CD-256 | 0.9748 | 0.9745 | 0.9937 | 0.9747 | 0.9506 | 0.9711 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run3/M1_HYPER_QKV/LEVIR-CD-256 | 0.9061 | 0.9237 | 0.9914 | 0.9148 | 0.8430 | 0.9103 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run3/M1_HYPER_QKV/SYSU-CD-256 | 0.7755 | 0.8581 | 0.9168 | 0.8147 | 0.6873 | 0.7612 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run3/M1_HYPER_QKV/WHU-CD-256 | 0.9250 | 0.9621 | 0.9956 | 0.9432 | 0.8925 | 0.9409 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run3/M2_CA_QKV/CDD-CD-256 | 0.9751 | 0.9745 | 0.9938 | 0.9748 | 0.9509 | 0.9713 | 3.059 | 3.143 | - | casa_qkv
+CASA/Run3/M2_CA_QKV/LEVIR-CD-256 | 0.9058 | 0.9177 | 0.9911 | 0.9117 | 0.8377 | 0.9070 | 3.059 | 3.143 | - | casa_qkv
+CASA/Run3/M2_CA_QKV/SYSU-CD-256 | 0.7670 | 0.8582 | 0.9152 | 0.8101 | 0.6807 | 0.7557 | 3.059 | 3.143 | - | casa_qkv
+CASA/Run3/M2_CA_QKV/WHU-CD-256 | 0.9261 | 0.9531 | 0.9953 | 0.9394 | 0.8858 | 0.9369 | 3.059 | 3.143 | - | casa_qkv
+CASA/Run5/M0_CTRL/CDD-CD-256 | 0.9741 | 0.9743 | 0.9936 | 0.9742 | 0.9498 | 0.9706 | 3.017 | 3.100 | - | casa_none
+CASA/Run5/M0_CTRL/LEVIR-CD-256 | 0.9029 | 0.9258 | 0.9914 | 0.9142 | 0.8419 | 0.9096 | 3.017 | 3.100 | - | casa_none
+CASA/Run5/M0_CTRL/SYSU-CD-256 | 0.8038 | 0.8522 | 0.9209 | 0.8273 | 0.7055 | 0.7760 | 3.017 | 3.100 | - | casa_none
+CASA/Run5/M0_CTRL/WHU-CD-256 | 0.9287 | 0.9604 | 0.9957 | 0.9443 | 0.8944 | 0.9420 | 3.017 | 3.100 | - | casa_none
+CASA/Run5/M1_HYPER_QKV/CDD-CD-256 | 0.9752 | 0.9742 | 0.9938 | 0.9747 | 0.9507 | 0.9711 | 3.061 | 3.144 | - | casa_hyperbolic
+CASA/Run5/M1_HYPER_QKV/LEVIR-CD-256 | 0.9048 | 0.9291 | 0.9916 | 0.9168 | 0.8464 | 0.9124 | 3.061 | 3.144 | - | casa_hyperbolic
+CASA/Run5/M1_HYPER_QKV/SYSU-CD-256 | 0.8320 | 0.8095 | 0.9142 | 0.8206 | 0.6958 | 0.7642 | 3.061 | 3.144 | - | casa_hyperbolic
+CASA/Run5/M1_HYPER_QKV/WHU-CD-256 | 0.9236 | 0.9544 | 0.9952 | 0.9388 | 0.8846 | 0.9363 | 3.061 | 3.144 | - | casa_hyperbolic
+CASA/Run5/M2_CA_QKV/CDD-CD-256 | 0.9743 | 0.9751 | 0.9938 | 0.9747 | 0.9506 | 0.9711 | 3.077 | 3.161 | - | casa_qkv
+CASA/Run5/M2_CA_QKV/LEVIR-CD-256 | 0.9045 | 0.9268 | 0.9915 | 0.9155 | 0.8442 | 0.9111 | 3.077 | 3.161 | - | casa_qkv
+CASA/Run5/M2_CA_QKV/SYSU-CD-256 | 0.7850 | 0.8620 | 0.9197 | 0.8217 | 0.6974 | 0.7700 | 3.077 | 3.161 | - | casa_qkv
+CASA/Run5/M2_CA_QKV/WHU-CD-256 | 0.9188 | 0.9499 | 0.9949 | 0.9341 | 0.8763 | 0.9314 | 3.077 | 3.161 | - | casa_qkv
+CASA/Run6/M0_CTRL/CDD-CD-256 | 0.9750 | 0.9735 | 0.9936 | 0.9743 | 0.9499 | 0.9707 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/LEVIR-CD-256 | 0.9069 | 0.9243 | 0.9915 | 0.9155 | 0.8442 | 0.9110 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/SYSU-CD-256 | 0.8258 | 0.8225 | 0.9169 | 0.8242 | 0.7009 | 0.7698 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M0_CTRL/WHU-CD-256 | 0.9231 | 0.9460 | 0.9949 | 0.9344 | 0.8769 | 0.9317 | 3.017 | 3.100 | - | casa_none
+CASA/Run6/M1_HYPER_QKV/CDD-CD-256 | 0.9753 | 0.9738 | 0.9937 | 0.9745 | 0.9503 | 0.9709 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/LEVIR-CD-256 | 0.9035 | 0.9177 | 0.9910 | 0.9105 | 0.8357 | 0.9058 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/SYSU-CD-256 | 0.7632 | 0.8591 | 0.9146 | 0.8083 | 0.6783 | 0.7537 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M1_HYPER_QKV/WHU-CD-256 | 0.9355 | 0.9595 | 0.9959 | 0.9473 | 0.8999 | 0.9452 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run6/M2_CA_QKV/CDD-CD-256 | 0.9745 | 0.9749 | 0.9938 | 0.9747 | 0.9507 | 0.9712 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/LEVIR-CD-256 | 0.9067 | 0.9258 | 0.9915 | 0.9162 | 0.8453 | 0.9117 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/SYSU-CD-256 | 0.7790 | 0.8742 | 0.9215 | 0.8239 | 0.7005 | 0.7736 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run6/M2_CA_QKV/WHU-CD-256 | 0.9261 | 0.9577 | 0.9954 | 0.9416 | 0.8897 | 0.9393 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run7/M0_CTRL/CDD-CD-256 | 0.9732 | 0.9754 | 0.9937 | 0.9743 | 0.9499 | 0.9707 | 3.017 | 3.100 | - | casa_none
+CASA/Run7/M0_CTRL/LEVIR-CD-256 | 0.8979 | 0.9227 | 0.9910 | 0.9101 | 0.8351 | 0.9054 | 3.017 | 3.100 | - | casa_none
+CASA/Run7/M0_CTRL/SYSU-CD-256 | 0.7992 | 0.8481 | 0.9189 | 0.8229 | 0.6991 | 0.7704 | 3.017 | 3.100 | - | casa_none
+CASA/Run7/M0_CTRL/WHU-CD-256 | 0.9278 | 0.9523 | 0.9953 | 0.9399 | 0.8866 | 0.9375 | 3.017 | 3.100 | - | casa_none
+CASA/Run7/M1_HYPER_QKV/CDD-CD-256 | 0.9749 | 0.9745 | 0.9937 | 0.9747 | 0.9506 | 0.9711 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run7/M1_HYPER_QKV/LEVIR-CD-256 | 0.8974 | 0.9342 | 0.9916 | 0.9154 | 0.8440 | 0.9110 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run7/M1_HYPER_QKV/SYSU-CD-256 | 0.7778 | 0.8404 | 0.9128 | 0.8079 | 0.6777 | 0.7516 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run7/M1_HYPER_QKV/WHU-CD-256 | 0.9305 | 0.9614 | 0.9958 | 0.9457 | 0.8970 | 0.9435 | 3.051 | 3.134 | - | casa_hyperbolic
+CASA/Run7/M2_CA_QKV/CDD-CD-256 | 0.9741 | 0.9753 | 0.9938 | 0.9747 | 0.9506 | 0.9711 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run7/M2_CA_QKV/LEVIR-CD-256 | 0.9068 | 0.9198 | 0.9912 | 0.9133 | 0.8404 | 0.9087 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run7/M2_CA_QKV/SYSU-CD-256 | 0.7718 | 0.8553 | 0.9154 | 0.8114 | 0.6827 | 0.7571 | 3.068 | 3.151 | - | casa_qkv
+CASA/Run7/M2_CA_QKV/WHU-CD-256 | 0.9263 | 0.9655 | 0.9958 | 0.9455 | 0.8967 | 0.9433 | 3.068 | 3.151 | - | casa_qkv
+STR-Fusion/Run2_TASS/C0_TOKEN/CDD-CD-256 | 0.9313 | 0.9516 | 0.9857 | 0.9413 | 0.8891 | 0.9332 | 2.596 | 0.620 | 2.2136 | str_tass
+STR-Fusion/Run2_TASS/C0_TOKEN/LEVIR-CD-256 | 0.8637 | 0.8925 | 0.9878 | 0.8779 | 0.7824 | 0.8714 | 2.596 | 0.620 | 2.2136 | str_tass
+STR-Fusion/Run2_TASS/C0_TOKEN/SYSU-CD-256 | 0.7993 | 0.8450 | 0.9181 | 0.8215 | 0.6971 | 0.7684 | 2.596 | 0.620 | 2.2136 | str_tass
+STR-Fusion/Run2_TASS/C0_TOKEN/WHU-CD-256 | 0.9016 | 0.9397 | 0.9938 | 0.9202 | 0.8523 | 0.9170 | 2.596 | 0.620 | 2.2136 | str_tass
+STR-Fusion/Run2_TASS/M1_TASS/CDD-CD-256 | 0.9470 | 0.9613 | 0.9888 | 0.9541 | 0.9122 | 0.9477 | 3.455 | 1.478 | 3.5459 | str_tass
+STR-Fusion/Run2_TASS/M1_TASS/LEVIR-CD-256 | 0.8842 | 0.9197 | 0.9902 | 0.9016 | 0.8208 | 0.8964 | 3.455 | 1.478 | 3.5459 | str_tass
+STR-Fusion/Run2_TASS/M1_TASS/SYSU-CD-256 | 0.7873 | 0.8498 | 0.9170 | 0.8174 | 0.6911 | 0.7638 | 3.455 | 1.478 | 3.5459 | str_tass
+STR-Fusion/Run2_TASS/M1_TASS/WHU-CD-256 | 0.9164 | 0.9482 | 0.9947 | 0.9320 | 0.8727 | 0.9293 | 3.455 | 1.478 | 3.5459 | str_tass
+UltraLight/Run4/R4_0_A0_FULL12_FROZEN/SYSU-CD-256 | 0.8242 | 0.8387 | 0.9212 | 0.8314 | 0.7114 | 0.7799 | 11.754 | 15.125 | 26.3246 | baseline
+UltraLight/Run4/R4_1_VIT4_OLDHEAD/SYSU-CD-256 | 0.8215 | 0.8340 | 0.9194 | 0.8277 | 0.7061 | 0.7751 | 8.195 | 15.125 | 24.1021 | baseline
+UltraLight/Run4/R4_2_VIT4_LIGHTDETAIL/SYSU-CD-256 | 0.7994 | 0.8479 | 0.9189 | 0.8230 | 0.6992 | 0.7704 | 5.492 | 3.515 | 10.7311 | baseline
+UltraLight/Run4/R4_2b_VIT4_LIGHTDETAIL48/SYSU-CD-256 | 0.8087 | 0.8381 | 0.9181 | 0.8232 | 0.6995 | 0.7699 | 5.533 | 3.556 | 10.9824 | baseline
+UltraLight/Run4/R4_2d_PSD_DETAIL/SYSU-CD-256 | 0.7978 | 0.8439 | 0.9175 | 0.8202 | 0.6952 | 0.7668 | 5.491 | 3.514 | 11.5239 | baseline
+baseline/Run1/CDD-CD-256 | 0.9772 | 0.9778 | 0.9944 | 0.9775 | 0.9560 | 0.9743 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/LEVIR-CD-256 | 0.9157 | 0.9233 | 0.9918 | 0.9195 | 0.8510 | 0.9152 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/SYSU-CD-256 | 0.8077 | 0.8427 | 0.9191 | 0.8248 | 0.7019 | 0.7723 | 11.754 | 20.661 | 26.3246 | baseline
+baseline/Run1/WHU-CD-256 | 0.9362 | 0.9609 | 0.9960 | 0.9484 | 0.9018 | 0.9463 | 11.754 | 20.661 | 26.3246 | baseline
+
+================================================================================
+## SELECTED RUN LOGS WITHOUT FINAL TEST (3)
+================================================================================
+CASA-Pyramid/Run9/E_REFINE/LEVIR-CD-256 | last_logged_steps=222/40182 | no formal metric
+CASA-Pyramid/Run9/H_REFINE/LEVIR-CD-256 | last_logged_steps=222/40182 | no formal metric
+CASA-Pyramid/Run9/M0_CTRL/LEVIR-CD-256 | last_logged_steps=222/40182 | no formal metric

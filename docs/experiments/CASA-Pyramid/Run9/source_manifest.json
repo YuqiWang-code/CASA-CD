@@ -1,0 +1,74 @@
+{
+  "code_baseline": "3a04acadb9fa6695024ad735719c85f178fbe1d4",
+  "protocol": "casa_pyramid_40k_refinement_v9",
+  "phase": "four_dataset_refinement",
+  "target_experiments": 14,
+  "experiments": [
+    "H_REFINE/LEVIR-CD-256",
+    "E_REFINE/LEVIR-CD-256",
+    "M0_CTRL/LEVIR-CD-256",
+    "H_REFINE/SYSU-CD-256",
+    "E_REFINE/SYSU-CD-256",
+    "M0_CTRL/SYSU-CD-256",
+    "E_BASE/SYSU-CD-256",
+    "H_REFINE/WHU-CD-256",
+    "E_REFINE/WHU-CD-256",
+    "M0_CTRL/WHU-CD-256",
+    "E_BASE/WHU-CD-256",
+    "H_REFINE/CDD-CD-256",
+    "E_REFINE/CDD-CD-256",
+    "M0_CTRL/CDD-CD-256"
+  ],
+  "physical_gpus": [
+    1
+  ],
+  "dataset_priority": [
+    "LEVIR-CD-256",
+    "SYSU-CD-256",
+    "WHU-CD-256",
+    "CDD-CD-256"
+  ],
+  "variants": {
+    "H_REFINE": {
+      "module": "hyperbolic",
+      "beta": 1.0
+    },
+    "E_REFINE": {
+      "module": "matched",
+      "beta": 1.0
+    },
+    "M0_CTRL": {
+      "module": "none",
+      "beta": 0.0
+    },
+    "E_BASE": {
+      "module": "matched",
+      "beta": 0.0
+    }
+  },
+  "guide_weight": 0.1,
+  "retrieval_weight": 0.0,
+  "run_seed": 2333,
+  "context_seed": 2333,
+  "source_archive": "source_code.tar.gz",
+  "readiness": "readiness.json",
+  "evaluation_split": "test",
+  "independent_test": false,
+  "initialization": "Fresh MobileNetV2 pretrained encoder and seeded new layers; no earlier or probe weights",
+  "external_references": [
+    {
+      "run": "CASA-Pyramid/Run8",
+      "variant": "H_NONE",
+      "dataset": "SYSU-CD-256",
+      "code_baseline": "dea8421",
+      "use": "H beta0 anchor; retain original metric row"
+    },
+    {
+      "run": "CASA-Pyramid/Run8",
+      "variant": "H_NONE",
+      "dataset": "WHU-CD-256",
+      "code_baseline": "dea8421",
+      "use": "H beta0 anchor; retain original metric row"
+    }
+  ]
+}

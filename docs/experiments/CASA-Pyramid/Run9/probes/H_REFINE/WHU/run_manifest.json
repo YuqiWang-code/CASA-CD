@@ -1,0 +1,123 @@
+{
+  "protocol": "casa_pyramid_40k_refinement_v9",
+  "purpose": "paired attribution health probe",
+  "formal_result": false,
+  "models_dir": "/home/yqwang/projects/CASA-CD/models",
+  "module": "hyperbolic",
+  "dataset": "WHU-CD-256",
+  "seed": 2333,
+  "context_initialization_seed": 2333,
+  "physical_gpu": 1,
+  "epochs": 2,
+  "batch_size": 32,
+  "workers": 1,
+  "train_batches": 185,
+  "train_samples": 5947,
+  "validation_samples": 743,
+  "train_split": "train",
+  "evaluation_split": "val",
+  "selection": "best val F1, ties update",
+  "scheduler_total": 40145,
+  "requested_formal_steps": 40000,
+  "base_lr": 0.0005,
+  "encoder_lr_mult": 1.0,
+  "guide_weight": 0.1,
+  "retrieval_weight": 0.0,
+  "refinement_beta": 1.0,
+  "preprocessing": {
+    "color_order": "RGB",
+    "input_size": [
+      256,
+      256
+    ],
+    "image_interpolation": "bilinear",
+    "mask_interpolation": "nearest",
+    "normalization_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalization_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "label_threshold": 128,
+    "train_crop_probability": 0.5,
+    "train_crop_max_margin": 8,
+    "horizontal_flip_probability": 0.5,
+    "vertical_flip_probability": 0.5,
+    "quarter_turns": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporal_exchange_probability": 0.5,
+    "independent_photometric_augmentation": false,
+    "evaluation_augmentation": false
+  },
+  "loader_randomness": "independent generator shared by train sampler and worker seeding",
+  "train_loader_seed": 2333,
+  "validation_loader_seed": 2334,
+  "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+  "initialization": "fresh pretrained encoder and seeded new layers",
+  "parameters": 2058409,
+  "context_parameters": 11477,
+  "grid_sizes": [
+    8,
+    4,
+    4,
+    4
+  ],
+  "tokens_per_scale": [
+    128,
+    32,
+    32,
+    32
+  ],
+  "qk_geometry": "hyperbolic",
+  "value_geometry": "euclidean",
+  "optimizer_groups": [
+    {
+      "name": "encoder",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "body_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": false
+    },
+    {
+      "name": "context_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0001,
+      "decoupled_weight_decay": true
+    },
+    {
+      "name": "context_no_decay",
+      "lr_scale": 1.0,
+      "weight_decay": 0.0,
+      "decoupled_weight_decay": false
+    }
+  ],
+  "context_projection_decay_parameters": [
+    "context.gate.weight",
+    "context.guide.weight",
+    "context.local_dw.weight",
+    "context.local_out.weight",
+    "context.out.weight",
+    "context.qk.weight",
+    "context.v.weight"
+  ],
+  "precision": {
+    "input": "float32",
+    "amp": false,
+    "cudnn_tf32": true,
+    "matmul_tf32": false
+  },
+  "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization"
+}

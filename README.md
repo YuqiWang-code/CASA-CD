@@ -29,7 +29,11 @@
 
 <!-- CASA_PYRAMID_RUN9_RESULTS_START -->
 
-准备验证与真实数据短训，正式结果0/14。指标表保留263条，全部完成并收集后应为277条。
+2026-10-31 12:43:09 CST正式启动，源码基线`3a04aca`，supervisor PID3226168。仅GPU1；首批LEVIR的H_REFINE、E_REFINE、M0_CTRL三路并行，显存约29.6GiB。已观察各组三个以上完整epoch，主损失由约1.93下降到1.04–1.06；两种模块的精炼权重、原型与残差均发生变化，数值有限。E_REFINE第三轮选模F1回落，主训练损失仍下降，当前无数值或任务梯度故障，继续完整预算观察。
+
+预计全部14项还需约14–18小时，完成窗口为北京时间**11月1日03:00–07:00**。估算基于首批并行训练速度，随跨库数据加载、评价开销和并发组合变化。正式结果0/14，现有指标仍263条。
+
+[启动与健康记录](docs/experiments/CASA-Pyramid/Run9/README.md) · [冻结源码快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run9.txt)。
 
 <!-- CASA_PYRAMID_RUN9_RESULTS_END -->
 

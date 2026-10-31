@@ -1,0 +1,112 @@
+[
+  {
+    "epoch": 1,
+    "step": 375,
+    "lr": 0.0004958036459931793,
+    "train_loss": 2.577932572364807,
+    "main_loss": 2.408538680712382,
+    "guide_loss": 1.6939389390945434,
+    "gradient_norm_mean": 40.650695557912194,
+    "gradient_norm_max": 313.5248718261719,
+    "validation_loss": 2.347696794986725,
+    "validation_metrics": {
+      "Kappa": 0.7227533311339119,
+      "IoU": 0.6439265490999762,
+      "F1": 0.7834005728203735,
+      "OA": 0.9052139968872066,
+      "recall": 0.7961791670185273,
+      "precision": 0.7710258048090117,
+      "Pre": 0.6581167106517134
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.15424481994332412,
+        "recall": 0.18931961337255365,
+        "F1": 0.16999180849166048,
+        "predicted_pixels": 4130505,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.22122258658444913,
+        "recall": 0.27118426993867956,
+        "F1": 0.24366876635493112,
+        "predicted_pixels": 4130505,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.7821146345100763,
+        "recall": 0.8165148035052701,
+        "F1": 0.7989445983284347,
+        "predicted_pixels": 55461187,
+        "target_pixels": 53124580,
+        "tp": 43377006,
+        "fp": 12084181,
+        "fn": 9747574,
+        "tn": 190251169
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "first_validation_batch_diagnostics": {},
+    "epoch_seconds": 101.8066189289093,
+    "elapsed_seconds": 101.80662202835083
+  },
+  {
+    "epoch": 2,
+    "step": 750,
+    "lr": 0.0004915921058075184,
+    "train_loss": 1.9913617862065633,
+    "main_loss": 1.8704231065114338,
+    "guide_loss": 1.2093868543306987,
+    "gradient_norm_mean": 8.76066251373291,
+    "gradient_norm_max": 17.745513916015625,
+    "validation_loss": 2.2435976910591124,
+    "validation_metrics": {
+      "Kappa": 0.7346240117744233,
+      "IoU": 0.6569226481168795,
+      "F1": 0.7929429892271683,
+      "OA": 0.9089551200866695,
+      "recall": 0.809743693402069,
+      "precision": 0.7768253963882958,
+      "Pre": 0.6569211837058146
+    },
+    "spatial": {
+      "boundary_1px": {
+        "precision": 0.17910763976276908,
+        "recall": 0.1876061075032078,
+        "F1": 0.18325839906737187,
+        "predicted_pixels": 3516405,
+        "target_pixels": 3357444
+      },
+      "boundary_2px": {
+        "precision": 0.256724125918374,
+        "recall": 0.2690770121556756,
+        "F1": 0.26275546303844266,
+        "predicted_pixels": 3516405,
+        "target_pixels": 3357444
+      },
+      "interior": {
+        "precision": 0.789562027346571,
+        "recall": 0.828161935586126,
+        "F1": 0.8084014724579387,
+        "predicted_pixels": 55721721,
+        "target_pixels": 53124580,
+        "tp": 43995755,
+        "fp": 11725966,
+        "fn": 9128825,
+        "tn": 190609384
+      },
+      "definition": {
+        "boundary": "3x3 morphological gradient, replicate padding",
+        "boundary_tolerance": "Chebyshev distance in input pixels",
+        "interior": "outside GT dilation2-minus-erosion2 band"
+      }
+    },
+    "first_validation_batch_diagnostics": {},
+    "epoch_seconds": 98.48918318748474,
+    "elapsed_seconds": 200.35016560554504
+  }
+]
