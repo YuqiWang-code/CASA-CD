@@ -6,7 +6,7 @@ import torch
 from model.casa_net import CASANet
 from model.layers.hyperbolic_context import HyperbolicContext
 from model.layers.pyramid_context import project_tokens
-from train_CASA import guide_loss, training_losses, loss_function
+from train_CASA import GUIDE_OBJECTIVE, guide_loss, training_losses, loss_function
 
 
 def manifold_and_radius():
@@ -59,7 +59,7 @@ def content_and_guide_independence():
 def evidence_and_fields():
     op = HyperbolicContext()
     assert op.tokens_per_scale == (128, 32, 32, 32)
-    assert sum(p.numel() for p in op.parameters()) == 11477
+    assert sum(p.numel() for p in op.parameters()) == 11478
     sizes = (16, 8, 4, 4)
     tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
     output, auxiliary = op(tar, return_aux=True)
@@ -75,9 +75,12 @@ def evidence_and_fields():
     assert torch.equal(evidence, expected.reshape(1, 1, 2, 3))
     predictions = tuple(torch.randn_like(target) for _ in range(4))
     loss, _, auxiliary_loss = training_losses(predictions, auxiliary, target)
-    expected_auxiliary = .5 * (guide_loss(auxiliary["guide_logits"], target) + geometry_loss)
+    guide = guide_loss(auxiliary["guide_logits"], target)
+    if GUIDE_OBJECTIVE == "half_raw_half_posterior_area_bce":
+        guide = .5 * (guide + guide_loss(auxiliary["posterior_logits"], target))
+    expected_auxiliary = guide
     assert torch.equal(auxiliary_loss, expected_auxiliary)
-    assert torch.equal(loss, loss_function(predictions, target) + .2 * expected_auxiliary)
+    assert torch.equal(loss, loss_function(predictions, target) + .1 * expected_auxiliary)
     with torch.no_grad():
         op.gamma_context.fill_(.1)
         op.gamma_detail.fill_(.1)
@@ -88,7 +91,7 @@ def evidence_and_fields():
         zeros = [torch.zeros_like(x) for x in fields]
         enhanced, _ = op(zeros)
         assert all(torch.equal(a, b) for a, b in zip(zeros, enhanced))
-    print("224 prototypes, geometric-evidence QK/TAR gradients, 0.1/0.1 loss, constant/zero fields PASS")
+    print("224 prototypes, geometric-evidence QK/TAR gradients, 0.1 guide budget, constant/zero fields PASS")
 
 
 def inference_path():

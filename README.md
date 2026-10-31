@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run9（GPU1，四库精炼与几何对照）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run10（GPU1，几何归属与空间检索）**。Run7的8项正式结果已归档。Run6已停止，日志与权重保留。**Run4作为正向基线完整保留**。
 
-双曲版采用**同内容原型与独立内容门控**：224个跨尺度KV、32维直接Lorentz投影与独立内容门控，部署1.947094M。普通QKV保持Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md) · [短训与检索证据](docs/experiments/CASA-Pyramid/Run7/selection/selection_summary.md)。
+双曲版采用**几何归属与空间检索**：完整Q、224个跨尺度KV、32维直接Lorentz投影，检索内容按空间中心化后门控写回，部署1.947095M。匹配欧式对照保持同构；普通QKV历史版保留Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
 ## 项目定位与固定研究原则
 
@@ -16,28 +16,39 @@
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run9
+## 当前实验：CASA-Pyramid / Run10：几何归属与空间检索
 
-基于Run8完成的监督对照，采用共同主损失＋0.1 guide，retrieval权重固定为0，检验一次区域内内容精炼及双曲距离的贡献。224KV、完整Q、共享K/V内容、独立门控、局部分支和40K预算保持一致；β=1的精炼仅对区域内两类权重做一次余弦重加权，不新增可学习参数。匹配欧式版保留全部结构，仅将双曲距离替换为欧式距离。
+每区域以平方guide权重构造变化/背景P0，用距离差`δ=(d_bg²−d_change²)/(2τ²)`修正归属`r=sigmoid(g+δ)`，再按r与1−r一阶池化P1，同时生成K与欧式V。完整Q、网格(8,4,4,4)、224KV、1头32维，压缩温度初始0.5且可学习。H/E训练2.058410M、部署1.947095M，context 11,478参数。
 
-| 范围 | 新训练 | 比较目的 |
+写回为`W_out[gate·(AV−mean_hw(AV))]`，保留TAR和细层局部残差。不同query检索相同时，全局更新为0，使该分支依赖空间相关的检索内容。H/E在归属修正和最终检索两处分别使用双曲/匹配欧式距离，其余结构一致。
+
+```text
+四尺度TAR → LN → 完整Q / 平方guide加权的两类初始P0
+  → 本区域变化/背景距离差 → 修正软归属r
+  → r与1−r一阶压缩P1 → 同源K/V，共224个
+  → 全局检索AV → 减去同图同尺度空间均值 → 内容门控/输出投影
+  → TAR残差 + 局部高通残差 → DCR
+```
+
+| 范围 | 训练组 | 比较目的 |
 |---|---|---|
-| LEVIR、SYSU、WHU、CDD | H_REFINE、E_REFINE、M0_CTRL，各3项 | 四库模块净收益与匹配几何比较 |
-| SYSU、WHU | E_BASE，各1项 | 与已有Run8 H_NONE组成β=0/1 × H/E对照 |
+| LEVIR、SYSU、WHU、CDD | H_POSTERIOR、E_POSTERIOR、M0_CTRL，各3项 | 相同压缩结构下的几何贡献与模块净收益 |
 
-共**14项新训练**，仅GPU1，优先LEVIR→SYSU→WHU→CDD，按实测显存补位。Run8 H_NONE两项仅作为历史参照，不重复入表。所有新训练均从MobileNetV2预训练初始化，run/context seed2333；不使用探针权重。选模继续按每epoch test F1，完整val用于诊断。普通QKV历史版本与本轮匹配欧式对照分别记录。
+正式计划共12项，仅GPU1，优先LEVIR→SYSU→WHU→CDD，按实测显存补位。协议`casa_pyramid_40k_supervisedposterior_v10`：H/E为main＋0.05 raw guide BCE＋0.05区域后验BCE，CTRL为main＋0.1 raw guide BCE；检索BCE为0，辅助目标均使用四尺度面积标签。共同batch32、40K、seed/context seed2333；正式从MobileNetV2预训练全新初始化，逐epoch test选模。辅助系数总预算相同，监督目标及梯度路径不同。
 
-<!-- CASA_PYRAMID_RUN9_RESULTS_START -->
+<!-- CASA_PYRAMID_RUN10_RESULTS_START -->
 
-2026-10-31 12:43:09 CST正式启动，源码基线`3a04aca`，supervisor PID3226168。仅GPU1；首批LEVIR的H_REFINE、E_REFINE、M0_CTRL三路并行，显存约29.6GiB。已观察各组三个以上完整epoch，主损失由约1.93下降到1.04–1.06；两种模块的精炼权重、原型与残差均发生变化，数值有限。E_REFINE第三轮选模F1回落，主训练损失仍下降，当前无数值或任务梯度故障，继续完整预算观察。
+现行工作版已落实到models，正在核对LEVIR/SYSU共6项train/val配对短训，每项4个完整epoch：中心化H使用raw监督，以及中心化H/E使用raw与后验联合监督。与同温度0.5的H/E及CTRL参照比较；正式启动待完整短训审阅。正式结果**0/12**，指标表**263条**，探针不入表。
 
-预计全部14项还需约14–18小时，完成窗口为北京时间**11月1日03:00–07:00**。估算基于首批并行训练速度，随跨库数据加载、评价开销和并发组合变化。正式结果0/14，现有指标仍263条。
+<!-- CASA_PYRAMID_RUN10_RESULTS_END -->
 
-[启动与健康记录](docs/experiments/CASA-Pyramid/Run9/README.md) · [冻结源码快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run9.txt)。
+[Run10脚本](train_scripts/CASA-Pyramid/Run10/README.md) · [机制、证据与实验安排](docs/temporary/CASA_Pyramid_Run10_区域几何归属方案.md) · [配对短训记录](docs/experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md) · [参考文献](docs/参考文献/双曲类别归属/README.md)。后验监督是压缩归属的任务约束，半径不预设语义层级；双曲度量的额外收益由配对结果判断。
 
-<!-- CASA_PYRAMID_RUN9_RESULTS_END -->
+## 归档实验：CASA-Pyramid / Run9
 
-[Run9脚本与矩阵](train_scripts/CASA-Pyramid/Run9/README.md)。Run8两库对检索监督的效应方向不同；统一关闭该项用于本轮归因，不按数据集选择目标。LEVIR/CDD的精炼净效应未设独立β0臂，四库单seed不提供重复性结论。
+2026-10-31 13:22 CST停止，0项完整TEST，源码基线`3a04aca`及日志、权重保留。固定256张LEVIR val的冻结权重干预中，完整模型F1为91.0789%，关闭全局上下文为91.1318%，关闭局部分支为90.8255%；全局分支尚无净纠错收益。同区域β1精炼强化接近同类均值的内容，缺少变化与背景的相对比较。
+
+[冻结诊断](docs/experiments/CASA-Pyramid/Run10/diagnosis/README.md) · [Run9记录](docs/experiments/CASA-Pyramid/Run9/README.md) · [实际源码快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run9.txt)。停止项及验证干预不计正式指标。
 
 ## 归档实验：CASA-Pyramid / Run8
 
@@ -164,7 +175,7 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 | Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
 | 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
-| 辅助损失 | 双曲：0.1 guide＋0.1类别检索BCE；CTRL/普通：0.2 guide；均为四尺度面积标签 |
+| 辅助损失 | 当前Run10 H/E：0.05 raw guide BCE＋0.05区域后验BCE；CTRL：0.1 raw guide BCE；检索BCE为0，均为四尺度面积标签；历史轮次按各自协议 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
 | 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
 | 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |
@@ -234,8 +245,8 @@ RTX5090、256×256、FP32 batch1，30预热/100次中位数的Run4 CTRL/H/E推�
 | CASA-Pyramid Run1 | TAR后128KV跨尺度检索；初步验证结构，四库收益不一致 | [完整记录](docs/experiments/CASA-Pyramid/Run1/README.md) |
 | 早期CASA与CASA-WDMF | 模块、优化与几何经验保留在各轮冻结TXT | [历史快照](docs/temporary/) / [指标表](docs/experiment_metrics.xlsx) |
 
-已收集正式指标221条，原209条历史记录逐单元格保留。Run4原始源码与全部历史记录保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
+当前指标表保留263条正式记录，全部历史单元格保留。Run4原始源码与全部历史记录保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
 
 ## 已知限制
 
-当前单seed且test参与选模；小幅差异需要进一步复核。Run5平方分配仍可能放大guide高分误报，自身竞争也不是独立可靠性估计；同类单原型不能表示任意多种外观。SYSU长期泛化不足仍存在，本轮双曲几何未表现出额外精度优势。详细证据与方案边界集中在Run5设计文档中。
+当前单seed且正式test参与选模；四轮train/val短训不能替代完整训练。guide与几何原型来自同一特征，归属修正可能强化错误；每区域每类单原型仍可能混合多种外观。空间中心化可能削弱大面积同类变化需要的共享信息，乘空间门控后的最终残差不保证零均值。后验误差、边界F1与最终分割净收益须分别核实，不能用归属更尖锐、几何健康或半径变化证明双曲有效。具体证据与局限见[Run10方案](docs/temporary/CASA_Pyramid_Run10_区域几何归属方案.md)。

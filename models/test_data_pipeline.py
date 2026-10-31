@@ -73,7 +73,7 @@ def main():
                                  for side in (8, 4, 2, 1)))
     outputs = tuple(torch.zeros_like(target, requires_grad=True) for _ in range(4))
     total, main_loss, guide = training_losses(outputs, aux, target)
-    assert torch.equal(total, main_loss + .2 * guide)
+    assert torch.equal(total, main_loss + .1 * guide)
     total.backward()
     assert all(z.grad is not None and torch.isfinite(z.grad).all() and z.grad.abs().sum() > 0
                for z in (*outputs, *aux["guide_logits"]))

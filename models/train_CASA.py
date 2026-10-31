@@ -1,4 +1,4 @@
-"""CASA relative-context training with shared supervision and test selection."""
+"""CASA centered-context training with regional posterior supervision."""
 import argparse
 import copy
 import json
@@ -17,11 +17,12 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_refinement_v9"
+PROTOCOL = "casa_pyramid_40k_supervisedposterior_v10"
+GUIDE_OBJECTIVE = "half_raw_half_posterior_area_bce"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
-GUIDE_WEIGHT = 0.2
+GUIDE_WEIGHT = 0.1
 DATA_PROTOCOL = dict(
     color_order="RGB", input_size=[256, 256], image_interpolation="bilinear",
     mask_interpolation="nearest", normalization_mean=MEAN[:3], normalization_std=STD[:3],
@@ -46,6 +47,22 @@ def guide_loss(logits, target):
                for z in logits)
 
 
+def guide_terms(auxiliary, target):
+    """Training guide objective and its separately named BCE components."""
+    raw = guide_loss(auxiliary["guide_logits"], target)
+    terms = dict(guide=raw, guide_raw=raw)
+    if "posterior_logits" in auxiliary:
+        posterior = guide_loss(auxiliary["posterior_logits"], target)
+        terms.update(guide=.5 * (raw + posterior), guide_posterior=posterior)
+    return terms
+
+
+def guide_effective_coefficients(module, guide_weight):
+    split = module in ("hyperbolic", "matched")
+    return dict(raw=guide_weight * (.5 if split else 1.),
+                posterior=guide_weight * (.5 if split else 0.))
+
+
 def mask_boundary(target, radius=1):
     """Two-sided morphological boundary without an artificial image-frame edge."""
     padded = F.pad(target, (radius,) * 4, mode="replicate")
@@ -54,17 +71,17 @@ def mask_boundary(target, radius=1):
 
 
 def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
-    relational = module in ("hyperbolic", "matched")
-    return dict(guide=(.1 if relational else GUIDE_WEIGHT) if guide_weight is None else guide_weight,
-                geometric_retrieval=(.1 if relational else 0.) if retrieval_weight is None else retrieval_weight)
+    return dict(guide=GUIDE_WEIGHT if guide_weight is None else guide_weight,
+                geometric_retrieval=0. if retrieval_weight is None else retrieval_weight)
 
 
 def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None):
     main = loss_function(outputs, target)
     relational = "geometric_logits" in aux
     weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
-    guide = guide_loss(aux["guide_logits"], target)
-    retrieval = guide_loss(aux["geometric_logits"], target) if relational else guide.new_zeros(())
+    guide = guide_terms(aux, target)["guide"]
+    retrieval = (guide_loss(aux["geometric_logits"], target)
+                 if relational and weights["geometric_retrieval"] > 0 else guide.new_zeros(()))
     scale = weights["guide"] + weights["geometric_retrieval"]
     auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
     return main + scale * auxiliary, main, auxiliary
@@ -150,7 +167,7 @@ def evaluate(model, loader, device, return_diagnostics=False):
 def evaluate_auxiliary(model, loader, device):
     """Measure guide and retrieval BCE on val without using them for selection."""
     model.eval()
-    sums = dict(guide_bce=0., retrieval_bce=0.)
+    sums = dict(retrieval_bce=0.)
     samples = 0
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
@@ -160,7 +177,9 @@ def evaluate_auxiliary(model, loader, device):
         else:
             _, auxiliary = model.context(tar)
         count = len(image)
-        sums["guide_bce"] += float(guide_loss(auxiliary["guide_logits"], target)) * count
+        for name, value in guide_terms(auxiliary, target).items():
+            metric = name + "_bce"
+            sums[metric] = sums.get(metric, 0.) + float(value) * count
         if "geometric_logits" in auxiliary:
             sums["retrieval_bce"] += float(guide_loss(auxiliary["geometric_logits"], target)) * count
         samples += count
@@ -295,9 +314,9 @@ def main():
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=2333)
     parser.add_argument("--context-seed", type=int, default=2333)
+    parser.add_argument("--compression-temperature", type=float, default=0.5)
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
-    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
@@ -329,12 +348,12 @@ def main():
         if index == 0:
             loader.sampler.generator = generator
     model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
-                    refinement_beta=args.refinement_beta).to(device)
+                    compression_temperature=args.compression_temperature).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
-                    context_seed=args.context_seed, refinement_beta=args.refinement_beta,
+                    context_seed=args.context_seed,
                     loader_randomness="independent seeded sampler/worker generators",
                     train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
@@ -360,14 +379,19 @@ def main():
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
                     heads=model.context.heads if args.module != "none" else 0,
                     auxiliary_weights=weights,
+                    guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched") else "raw_area_bce",
+                    guide_effective_coefficients=guide_effective_coefficients(args.module, weights["guide"]),
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
-                    compression_refinement=(dict(
-                        iterations=int(args.refinement_beta != 0), beta=args.refinement_beta,
-                        similarity="cosine of LN features and initial class prototype",
-                        normalization="within region and class", common_key_value_content=True)
+                    initial_compression_power=2 if args.module in ("hyperbolic", "matched") else model.context.compression_power,
+                    compression_temperature_init=args.compression_temperature if args.module in ("hyperbolic", "matched") else None,
+                    compression_reassignment=(dict(
+                        iterations=1, candidates="two same-region class means", initial="squared guide confidence anchors",
+                        distance=model.context.geometry, temperature="independent learnable scalar",
+                        posterior="sigmoid(guide_logit + (d_background_squared - d_change_squared)/(2*tau_squared))",
+                        final_pooling="first-order posterior membership", common_key_value_content=True)
                         if args.module in ("hyperbolic", "matched") else None),
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
@@ -375,8 +399,8 @@ def main():
                                        "hyperbolic": "weighted class occupancy; no entropy penalty",
                                        "matched": "weighted class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
-                                     "hyperbolic": "learned correction gate independent of log-partition",
-                                     "matched": "learned correction gate independent of log-partition"}[args.module],
+                                     "hyperbolic": "learned gate on spatially centered retrieved context",
+                                     "matched": "learned gate on spatially centered retrieved context"}[args.module],
                     hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched") else None,
                     hyperbolic_key="lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None,
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
@@ -396,7 +420,7 @@ def main():
     continuation = None
     if args.resume:
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        for name in ("seed", "context_seed", "refinement_beta", "auxiliary_weights"):
+        for name in ("seed", "context_seed", "compression_reassignment", "compression_temperature_init", "auxiliary_weights", "guide_objective"):
             if checkpoint["manifest"][name] != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
@@ -427,6 +451,7 @@ def main():
     (args.output_dir / "evaluation_manifest.json").write_text(
         json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
     print(f"[PROTOCOL-VERSION] {PROTOCOL}", flush=True)
+    print(f"[GUIDE-OBJECTIVE] {manifest['guide_objective']}", flush=True)
     print(f"[CONFIG] {json.dumps(manifest)}", flush=True)
     print(f"[TOTAL-PARAMS] {params:.6f} M", flush=True)
     print(f"[MAX-STEPS] requested={args.max_steps} actual={actual_steps} epochs={epochs} train_batches={len(train_loader)}", flush=True)
@@ -436,7 +461,7 @@ def main():
     for epoch in range(start_epoch, epochs):
         model.train()
         epoch_loss, main_sum, auxiliary_sum, tick = 0.0, 0.0, 0.0, time.time()
-        guide_sum, retrieval_sum = 0.0, 0.0
+        guide_sums, retrieval_sum = {}, 0.0
         for image, target in train_loader:
             image, target = image.to(device).float(), target.to(device).float()
             lr = learning_rate(5e-4, epoch, step, actual_steps)
@@ -456,15 +481,16 @@ def main():
             main_sum += float(main_loss.detach())
             auxiliary_sum += float(auxiliary_loss.detach())
             with torch.no_grad():
-                raw_guide = guide_loss(auxiliary["guide_logits"], target)
-                guide_sum += float(raw_guide)
+                for name, value in guide_terms(auxiliary, target).items():
+                    guide_sums[name] = guide_sums.get(name, 0.) + float(value)
                 if "geometric_logits" in auxiliary:
                     retrieval_sum += float(guide_loss(auxiliary["geometric_logits"], target))
             step += 1
             if step % 100 == 0:
                 print(f"[TRAIN] step={step}/{actual_steps} loss={float(loss.detach()):.5f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         print(f"[ACTUAL-OPT-STEPS] epoch={epoch} executed={len(train_loader)} cumulative={step}/{actual_steps}", flush=True)
-        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} guide={guide_sum/len(train_loader):.6f} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
+        guide_log = " ".join(f"{name}={value/len(train_loader):.6f}" for name, value in guide_sums.items())
+        print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} {guide_log} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
         eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
         model.context.collect_diag = False
@@ -487,7 +513,8 @@ def main():
     best_auxiliary = evaluate_auxiliary(model, val_loader, device)
     (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
         best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
-        auxiliary_weights=weights), indent=2), encoding="utf-8")
+        auxiliary_weights=weights, guide_objective=manifest["guide_objective"],
+        guide_effective_coefficients=manifest["guide_effective_coefficients"]), indent=2), encoding="utf-8")
     image, _ = next(iter(test_loader))
     image = image[:1].to(device).float()
     deploy, deployment = verify_deployment(model, image)

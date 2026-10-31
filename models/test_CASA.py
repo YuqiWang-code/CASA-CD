@@ -43,7 +43,7 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             logits,aux=model(a,b,return_aux=True)
             loss,main,guide=training_losses(logits,aux,target)
-            assert torch.allclose(loss,main+.2*guide)
+            assert torch.allclose(loss,main+.1*guide)
             loss.backward()
             assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
             optimizer.step()

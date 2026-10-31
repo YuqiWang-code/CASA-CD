@@ -1,0 +1,75 @@
+{
+  "device": "NVIDIA GeForce RTX 5090",
+  "torch_version": "2.14.0+cu132",
+  "batch_size": 1,
+  "input_shape": [
+    1,
+    3,
+    256,
+    256
+  ],
+  "precision": "FP32",
+  "allow_tf32_matmul": false,
+  "allow_tf32_cudnn": true,
+  "outputs": 1,
+  "output_scope": "Final decoder prediction",
+  "warmup": 30,
+  "iterations": 100,
+  "seed": 2333,
+  "context_seed": 2333,
+  "repeats": 3,
+  "compression": "within_region_geometry_class_posterior",
+  "compression_temperature_init": 0.5,
+  "pretrained": false,
+  "weights_scope": "Architecture cost with random weights",
+  "variants": {
+    "none": {
+      "training_learnable_params": 2047125,
+      "deployment_params": 1935810,
+      "latency_ms_median": 3.8754777051508427,
+      "latency_ms_mean": 4.008458852767944,
+      "latency_ms_p95": 4.548849537968636,
+      "repeat_medians_ms": [
+        3.8786730729043484,
+        3.9136954583227634,
+        3.856799565255642
+      ],
+      "repeat_median_std_ms": 0.023433500390962973,
+      "peak_allocated_mib": 54.76318359375,
+      "profiled_flops": 1734139904,
+      "flops_scope": "Supported convolution/matmul operators; elementwise manifold operations excluded"
+    },
+    "hyperbolic": {
+      "training_learnable_params": 2058410,
+      "deployment_params": 1947095,
+      "latency_ms_median": 9.452135767787695,
+      "latency_ms_mean": 9.865003706266483,
+      "latency_ms_p95": 12.001755647361279,
+      "repeat_medians_ms": [
+        9.793606586754322,
+        9.339275304228067,
+        9.36924573034048
+      ],
+      "repeat_median_std_ms": 0.2074708218252495,
+      "peak_allocated_mib": 74.25927734375,
+      "profiled_flops": 2027448520,
+      "flops_scope": "Supported convolution/matmul operators; elementwise manifold operations excluded"
+    },
+    "matched": {
+      "training_learnable_params": 2058410,
+      "deployment_params": 1947095,
+      "latency_ms_median": 8.527438621968031,
+      "latency_ms_mean": 8.625373154257735,
+      "latency_ms_p95": 9.376481175422668,
+      "repeat_medians_ms": [
+        8.524319157004356,
+        8.587520103901625,
+        8.486822247505188
+      ],
+      "repeat_median_std_ms": 0.0415537619550298,
+      "peak_allocated_mib": 62.90087890625,
+      "profiled_flops": 2018842440,
+      "flops_scope": "Supported convolution/matmul operators; elementwise manifold operations excluded"
+    }
+  }
+}

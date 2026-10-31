@@ -1,9 +1,8 @@
-"""Projected radii, class prototypes and independent adoption."""
+"""Cross-scale source and parameter gradients of the centered context."""
 import torch
 
 from model.layers.hyperbolic_context import HyperbolicContext, class_assignments
-from model.layers.pyramid_context import channel_norm, pool_features, project_tokens
-from model.layers.lorentz_ops import pairwise_squared_distance
+from model.layers.pyramid_context import pool_features, project_tokens
 
 
 def compression_and_geometry():
@@ -36,37 +35,6 @@ def compression_and_geometry():
     assert torch.allclose(op.project_keys(two)[0], op.project_keys(large)[0], atol=1e-12)
     assert torch.allclose(project_tokens(op.v, two, op.heads), project_tokens(op.v, large, op.heads), atol=1e-12)
     print('Projected radius, scatter invariance, sparse targets, class prototypes and gradients PASS')
-
-
-def independent_adoption():
-    op = HyperbolicContext().double()
-    feature = torch.randn(1, 64, 2, 2, dtype=torch.double)
-    p = op.guide(feature).sigmoid()
-    query = op.project_queries(feature).flatten(2, 3)
-    prototypes = torch.randn(1, 224, 64, dtype=torch.double)
-    key, p_key = op.project_keys(prototypes)
-    value = project_tokens(op.v, prototypes, op.heads)
-    support = torch.ones(1, 224, dtype=torch.double)
-    attention = op.attention(query, key, support, 0)
-    update, gate, *_ = op.readout(feature, attention, value, p, p_key)
-    with torch.no_grad():
-        op.scale_bias.add_(7.)
-    shifted = op.attention(query, key, support, 0)
-    shifted_update, shifted_gate, *_ = op.readout(feature, shifted, value, p, p_key)
-    assert torch.allclose(shifted, attention, atol=1e-14)
-    assert torch.allclose(shifted_gate, gate, atol=1e-14)
-    assert torch.allclose(update, shifted_update, atol=1e-14)
-    # A single available fine-scale prototype retains its conditional attention mass.
-    rare = torch.zeros_like(attention)
-    rare[..., 0] = 1
-    with torch.no_grad():
-        op.gate.weight.zero_()
-        op.gate.bias.zero_()
-    _, rare_gate, *_ = op.readout(feature, rare, value, p, p_key)
-    assert torch.equal(rare_gate, torch.full_like(rare_gate, .5))
-    radial_flat = HyperbolicContext.geometric_point(torch.nn.functional.normalize(query[..., 1:], dim=-1) * op.head_dim ** .5)
-    assert (pairwise_squared_distance(query, key) - pairwise_squared_distance(radial_flat, key)).abs().max() > 1e-4
-    print('Common logit shift invariance, rare-match adoption and radial sensitivity PASS')
 
 
 def module():
@@ -104,5 +72,4 @@ if __name__ == '__main__':
     torch.set_num_threads(4)
     torch.manual_seed(2333)
     compression_and_geometry()
-    independent_adoption()
     module()

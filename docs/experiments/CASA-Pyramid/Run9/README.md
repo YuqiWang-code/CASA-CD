@@ -30,12 +30,13 @@ F1、Precision/Recall及IoU比较使用同轮CTRL；SYSU/WHU的精炼差值由�
 服务器日志`/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9`；checkpoint位于`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9`。六项两轮train/val探针全部通过后才启动正式队列；正式不用探针权重。
 
 <!-- RUN9_STARTUP_START -->
-2026-10-31 12:43:09 CST正式启动，源码基线`3a04aca`，supervisor PID3226168。仅GPU1；首批LEVIR的H_REFINE、E_REFINE、M0_CTRL三路并行，显存约29.6GiB。已观察各组三个以上完整epoch，主损失由约1.93下降到1.04–1.06；两种模块的精炼权重、原型与残差均发生变化，数值有限。E_REFINE第三轮选模F1回落，主训练损失仍下降，当前无数值或任务梯度故障，继续完整预算观察。
+2026-10-31 12:43 CST启动，13:22:08 CST停止。源码基线`3a04aca`；唯一队列及三项LEVIR子进程均已退出。0项完整TEST，未新增正式指标。日志、checkpoint及实际源码保留；停止前日志随本目录保存。
 
-预计全部14项还需约14–18小时，完成窗口为北京时间**11月1日03:00–07:00**。估算基于首批并行训练速度，随跨库数据加载、评价开销和并发组合变化。正式结果0/14，现有指标仍263条。
+固定256张LEVIR val干预显示：完整模型91.0789%，关闭全局上下文91.1318%，关闭局部90.8255%。全局路径尚无净纠错；[详细诊断](../Run10/diagnosis/README.md)使用冻结权重与验证标签，不是正式测试结果。后续邻域压缩实验见[Run10](../Run10/README.md)。
+
 <!-- RUN9_STARTUP_END -->
 
-[训练脚本](../../../../train_scripts/CASA-Pyramid/Run9/README.md) · [模型与公式](../../../../models/HYPERBOLIC_DESIGN.md) · [Run8结果](../Run8/analysis.md)。正式指标只收完整TEST RESULTS；263条历史保留，新14项收齐应为277条。Run8两条参照保留原身份，不重复计数。
+[训练脚本](../../../../train_scripts/CASA-Pyramid/Run9/README.md) · [实际源码](../../../temporary/models_and_metrics_CASA-Pyramid_Run9.txt) · [Run8结果](../Run8/analysis.md)。正式指标只收完整TEST RESULTS；263条既有记录保留，本轮停止项不入表。Run8两条参照保留原身份，不重复计数。
 
 ## 局限
 

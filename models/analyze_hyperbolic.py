@@ -1,4 +1,4 @@
-"""Validation interventions for radial information and context correction value."""
+"""Validation interventions affecting compression geometry and context retrieval."""
 import argparse
 from contextlib import contextmanager
 import json
@@ -152,7 +152,6 @@ def main():
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--dataset-root', type=Path, required=True)
     parser.add_argument('--module', choices=('hyperbolic','matched'), default='hyperbolic')
-    parser.add_argument('--refinement-beta', type=float, choices=(0.,1.), default=0.)
     parser.add_argument('--split', choices=('train', 'val'), default='val')
     parser.add_argument('--samples', type=int, default=128)
     parser.add_argument('--batch-size', type=int, default=4)
@@ -162,7 +161,7 @@ def main():
     torch.set_num_threads(4)
     device = torch.device(args.device)
     state = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
-    model = CASANet(module=args.module, refinement_beta=args.refinement_beta)
+    model = CASANet(module=args.module)
     model.load_state_dict(state['state_dict'] if 'state_dict' in state else state)
     model = model.to(device).eval()
     source = make_loader(args.dataset_root, args.split, args.batch_size, 0).dataset
@@ -175,7 +174,7 @@ def main():
     report = analyze(model, loader, device)
     report.update(dataset=str(args.dataset_root), split=args.split, sample_indices=indices,
                   threshold=.5, checkpoint=str(args.checkpoint), module=args.module,
-                  refinement_beta=args.refinement_beta, small_object_max_area=64)
+                  compression="within_region_geometry_class_posterior", small_object_max_area=64)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report['interventions']))

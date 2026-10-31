@@ -1,0 +1,1019 @@
+{
+  "purpose": "paired centered readout and supervision probes only",
+  "formal_result": false,
+  "all_health_passed": true,
+  "physical_gpu": 1,
+  "seed": 2333,
+  "compression_temperature_init": 0.5,
+  "probes": {
+    "H_CENTER_RAW/LEVIR": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "raw_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_centeredposterior_v10",
+      "module": "hyperbolic",
+      "dataset": "LEVIR-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 888,
+      "best_epoch": 4,
+      "best_val_f1": 0.856358118283594,
+      "last_three_mean_val_f1": 0.8532209339403384,
+      "elapsed_seconds": 243.27056002616882,
+      "peak_allocated_mib": 10463.6884765625,
+      "peak_reserved_mib": 10502.0,
+      "compression_temperature_init": 0.5
+    },
+    "H_CENTER_SUP/LEVIR": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "half_raw_half_posterior_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+      "module": "hyperbolic",
+      "dataset": "LEVIR-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 888,
+      "best_epoch": 4,
+      "best_val_f1": 0.8659583855554165,
+      "last_three_mean_val_f1": 0.8520559247461726,
+      "elapsed_seconds": 243.8369743824005,
+      "peak_allocated_mib": 10463.6884765625,
+      "peak_reserved_mib": 10502.0,
+      "compression_temperature_init": 0.5
+    },
+    "E_CENTER_SUP/LEVIR": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "half_raw_half_posterior_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+      "module": "matched",
+      "dataset": "LEVIR-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 888,
+      "best_epoch": 4,
+      "best_val_f1": 0.8550237686936442,
+      "last_three_mean_val_f1": 0.846335118840639,
+      "elapsed_seconds": 252.0792031288147,
+      "peak_allocated_mib": 9375.6220703125,
+      "peak_reserved_mib": 9412.0,
+      "compression_temperature_init": 0.5
+    },
+    "H_CENTER_RAW/SYSU": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "raw_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_centeredposterior_v10",
+      "module": "hyperbolic",
+      "dataset": "SYSU-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 1500,
+      "best_epoch": 4,
+      "best_val_f1": 0.8027480309115574,
+      "last_three_mean_val_f1": 0.7954819445872339,
+      "elapsed_seconds": 532.3720285892487,
+      "peak_allocated_mib": 10463.6884765625,
+      "peak_reserved_mib": 10502.0,
+      "compression_temperature_init": 0.5
+    },
+    "H_CENTER_SUP/SYSU": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "half_raw_half_posterior_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+      "module": "hyperbolic",
+      "dataset": "SYSU-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 1500,
+      "best_epoch": 4,
+      "best_val_f1": 0.8040591509165179,
+      "last_three_mean_val_f1": 0.7946492545294235,
+      "elapsed_seconds": 523.0683438777924,
+      "peak_allocated_mib": 10463.6884765625,
+      "peak_reserved_mib": 10502.0,
+      "compression_temperature_init": 0.5
+    },
+    "E_CENTER_SUP/SYSU": {
+      "health_passed": true,
+      "finite_training": true,
+      "task_gradient_check": true,
+      "posterior_gradient_check": true,
+      "guide_objective": "half_raw_half_posterior_area_bce",
+      "seed": 2333,
+      "criterion": "finite training, context task gradients and separate posterior BCE gradients; no accuracy threshold",
+      "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+      "module": "matched",
+      "dataset": "SYSU-CD-256",
+      "retrieval_weight": 0.0,
+      "epochs": 4,
+      "steps": 1500,
+      "best_epoch": 4,
+      "best_val_f1": 0.7999750533917555,
+      "last_three_mean_val_f1": 0.7879798108914988,
+      "elapsed_seconds": 484.9847512245178,
+      "peak_allocated_mib": 9375.6220703125,
+      "peak_reserved_mib": 9414.0,
+      "compression_temperature_init": 0.5
+    }
+  },
+  "controls": {
+    "H_POSTERIOR_T05/LEVIR": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/classposterior/probes/H_POSTERIOR_T05/LEVIR",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "module": "hyperbolic",
+        "dataset": "LEVIR-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 888,
+        "best_epoch": 4,
+        "best_val_f1": 0.8666345555137375,
+        "last_three_mean_val_f1": 0.8482359943454997,
+        "elapsed_seconds": 227.77073049545288,
+        "peak_allocated_mib": 10462.3603515625,
+        "peak_reserved_mib": 10500.0,
+        "compression_temperature_init": 0.5
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "hyperbolic",
+        "dataset": "LEVIR-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 222,
+        "train_samples": 7120,
+        "validation_samples": 1024,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40182,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2058410,
+        "context_parameters": 11478,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          128,
+          32,
+          32,
+          32
+        ],
+        "qk_geometry": "hyperbolic",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.gate.weight",
+          "context.guide.weight",
+          "context.local_dw.weight",
+          "context.local_out.weight",
+          "context.out.weight",
+          "context.qk.weight",
+          "context.v.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization",
+        "compression_temperature_init": 0.5
+      }
+    },
+    "H_POSTERIOR_T05/SYSU": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/classposterior/probes/H_POSTERIOR_T05/SYSU",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "module": "hyperbolic",
+        "dataset": "SYSU-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 1500,
+        "best_epoch": 4,
+        "best_val_f1": 0.7920785958459218,
+        "last_three_mean_val_f1": 0.7902864047396295,
+        "elapsed_seconds": 404.5580270290375,
+        "peak_allocated_mib": 10462.3603515625,
+        "peak_reserved_mib": 10500.0,
+        "compression_temperature_init": 0.5
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "hyperbolic",
+        "dataset": "SYSU-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 375,
+        "train_samples": 12000,
+        "validation_samples": 4000,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40125,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2058410,
+        "context_parameters": 11478,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          128,
+          32,
+          32,
+          32
+        ],
+        "qk_geometry": "hyperbolic",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.gate.weight",
+          "context.guide.weight",
+          "context.local_dw.weight",
+          "context.local_out.weight",
+          "context.out.weight",
+          "context.qk.weight",
+          "context.v.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization",
+        "compression_temperature_init": 0.5
+      }
+    },
+    "E_POSTERIOR_T05/LEVIR": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/classposterior/probes/E_POSTERIOR_T05/LEVIR",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "module": "matched",
+        "dataset": "LEVIR-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 888,
+        "best_epoch": 4,
+        "best_val_f1": 0.8542870269326356,
+        "last_three_mean_val_f1": 0.8406544537755632,
+        "elapsed_seconds": 227.66467452049255,
+        "peak_allocated_mib": 9374.2939453125,
+        "peak_reserved_mib": 9410.0,
+        "compression_temperature_init": 0.5
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "matched",
+        "dataset": "LEVIR-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 222,
+        "train_samples": 7120,
+        "validation_samples": 1024,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40182,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2058410,
+        "context_parameters": 11478,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          128,
+          32,
+          32,
+          32
+        ],
+        "qk_geometry": "euclidean_matched",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.gate.weight",
+          "context.guide.weight",
+          "context.local_dw.weight",
+          "context.local_out.weight",
+          "context.out.weight",
+          "context.qk.weight",
+          "context.v.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization",
+        "compression_temperature_init": 0.5
+      }
+    },
+    "E_POSTERIOR_T05/SYSU": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/classposterior/probes/E_POSTERIOR_T05/SYSU",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "module": "matched",
+        "dataset": "SYSU-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 1500,
+        "best_epoch": 4,
+        "best_val_f1": 0.7987260799428915,
+        "last_three_mean_val_f1": 0.790490526784097,
+        "elapsed_seconds": 429.00802755355835,
+        "peak_allocated_mib": 9374.2939453125,
+        "peak_reserved_mib": 9430.0,
+        "compression_temperature_init": 0.5
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_classposterior_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "matched",
+        "dataset": "SYSU-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 375,
+        "train_samples": 12000,
+        "validation_samples": 4000,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40125,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2058410,
+        "context_parameters": 11478,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          128,
+          32,
+          32,
+          32
+        ],
+        "qk_geometry": "euclidean_matched",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.gate.weight",
+          "context.guide.weight",
+          "context.local_dw.weight",
+          "context.local_out.weight",
+          "context.out.weight",
+          "context.qk.weight",
+          "context.v.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization",
+        "compression_temperature_init": 0.5
+      }
+    },
+    "M0_CTRL/LEVIR": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/neighborhood/probes/M0_CTRL/LEVIR",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_neighborhood_v10",
+        "module": "none",
+        "dataset": "LEVIR-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 888,
+        "best_epoch": 4,
+        "best_val_f1": 0.8565548168189645,
+        "last_three_mean_val_f1": 0.849138663224967,
+        "elapsed_seconds": 222.43242073059082,
+        "peak_allocated_mib": 8167.802734375,
+        "peak_reserved_mib": 8220.0
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_neighborhood_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "none",
+        "dataset": "LEVIR-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 222,
+        "train_samples": 7120,
+        "validation_samples": 1024,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40182,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2047125,
+        "context_parameters": 193,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "qk_geometry": "none",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.guide.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization"
+      }
+    },
+    "M0_CTRL/SYSU": {
+      "path": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/neighborhood/probes/M0_CTRL/SYSU",
+      "health": {
+        "health_passed": true,
+        "finite_training": true,
+        "task_gradient_check": true,
+        "criterion": "finite training and nonzero context task gradients; no accuracy threshold",
+        "protocol": "casa_pyramid_40k_neighborhood_v10",
+        "module": "none",
+        "dataset": "SYSU-CD-256",
+        "retrieval_weight": 0.0,
+        "epochs": 4,
+        "steps": 1500,
+        "best_epoch": 4,
+        "best_val_f1": 0.7972794184687856,
+        "last_three_mean_val_f1": 0.7881445743563741,
+        "elapsed_seconds": 416.62269949913025,
+        "peak_allocated_mib": 8167.802734375,
+        "peak_reserved_mib": 8220.0
+      },
+      "manifest": {
+        "protocol": "casa_pyramid_40k_neighborhood_v10",
+        "purpose": "paired attribution health probe",
+        "formal_result": false,
+        "models_dir": "/home/yqwang/projects/CASA-CD/models",
+        "module": "none",
+        "dataset": "SYSU-CD-256",
+        "seed": 2333,
+        "context_initialization_seed": 2333,
+        "physical_gpu": 1,
+        "epochs": 4,
+        "batch_size": 32,
+        "workers": 1,
+        "train_batches": 375,
+        "train_samples": 12000,
+        "validation_samples": 4000,
+        "train_split": "train",
+        "evaluation_split": "val",
+        "selection": "best val F1, ties update",
+        "scheduler_total": 40125,
+        "requested_formal_steps": 40000,
+        "base_lr": 0.0005,
+        "encoder_lr_mult": 1.0,
+        "guide_weight": 0.1,
+        "retrieval_weight": 0.0,
+        "preprocessing": {
+          "color_order": "RGB",
+          "input_size": [
+            256,
+            256
+          ],
+          "image_interpolation": "bilinear",
+          "mask_interpolation": "nearest",
+          "normalization_mean": [
+            0.485,
+            0.456,
+            0.406
+          ],
+          "normalization_std": [
+            0.229,
+            0.224,
+            0.225
+          ],
+          "label_threshold": 128,
+          "train_crop_probability": 0.5,
+          "train_crop_max_margin": 8,
+          "horizontal_flip_probability": 0.5,
+          "vertical_flip_probability": 0.5,
+          "quarter_turns": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "temporal_exchange_probability": 0.5,
+          "independent_photometric_augmentation": false,
+          "evaluation_augmentation": false
+        },
+        "loader_randomness": "independent generator shared by train sampler and worker seeding",
+        "train_loader_seed": 2333,
+        "validation_loader_seed": 2334,
+        "pretrained": "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth",
+        "initialization": "fresh pretrained encoder and seeded new layers",
+        "parameters": 2047125,
+        "context_parameters": 193,
+        "grid_sizes": [
+          8,
+          4,
+          4,
+          4
+        ],
+        "tokens_per_scale": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "qk_geometry": "none",
+        "value_geometry": "euclidean",
+        "optimizer_groups": [
+          {
+            "name": "encoder",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "body_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": false
+          },
+          {
+            "name": "context_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0001,
+            "decoupled_weight_decay": true
+          },
+          {
+            "name": "context_no_decay",
+            "lr_scale": 1.0,
+            "weight_decay": 0.0,
+            "decoupled_weight_decay": false
+          }
+        ],
+        "context_projection_decay_parameters": [
+          "context.guide.weight"
+        ],
+        "precision": {
+          "input": "float32",
+          "amp": false,
+          "cudnn_tf32": true,
+          "matmul_tf32": false
+        },
+        "checkpoint_usage": "probe analysis only; formal experiments start from fresh initialization"
+      }
+    }
+  },
+  "scheduling": {
+    "physical_gpu": 1,
+    "max_concurrent": 3,
+    "gpu_budget_mib": 31072,
+    "reserved_mib": {
+      "H_CENTER_RAW": 11262,
+      "H_CENTER_SUP": 11262,
+      "E_CENTER_SUP": 10172
+    },
+    "profile_reference": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10/selection/classposterior/profile.json",
+    "seed": 2333,
+    "compression_temperature_init": 0.5,
+    "experiments": [
+      "H_CENTER_RAW/LEVIR",
+      "H_CENTER_SUP/LEVIR",
+      "E_CENTER_SUP/LEVIR",
+      "H_CENTER_RAW/SYSU",
+      "H_CENTER_SUP/SYSU",
+      "E_CENTER_SUP/SYSU"
+    ]
+  }
+}

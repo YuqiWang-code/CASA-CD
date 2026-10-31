@@ -1,4 +1,4 @@
-"""Task-calibrated Lorentz retrieval with aligned content and learned correction."""
+"""Geometric class-membership correction and aligned cross-scale retrieval."""
 import math
 
 import torch
@@ -6,54 +6,29 @@ from torch import nn
 from torch.nn import functional as F
 
 from model.layers.lorentz_ops import lift, pairwise_squared_distance
+from model.layers.posterior_compression import class_assignments, compress_posterior, regional_logits_to_image
 from model.layers.pyramid_context import (
-    attention_diagnostics, channel_norm, feature_regions, highpass, merge_heads,
-    pool_features, project_tokens, regions, rms, source_bias, split_heads,
+    attention_diagnostics, channel_norm, highpass, merge_heads,
+    pool_features, project_tokens, rms, source_bias, split_heads,
 )
 
-
-def class_assignments(probability, grid):
-    """One change and one background representative per spatial region."""
-    positive = feature_regions(probability, grid).squeeze(-1)
-    membership = torch.stack((positive, 1 - positive), dim=2)
-    weights = (membership + 1e-6).square()
-    weights = weights / weights.sum(-1, keepdim=True)
-    support = (weights * membership).sum(-1)
-    return weights, support.flatten(1).clamp_min(1e-6)
-
-
-def refined_assignments(feature, probability, grid, beta):
-    """One within-region cosine reweighting of the two class representatives."""
-    weights, support = class_assignments(probability, grid)
-    if beta == 0:
-        return weights, support
-    blocks = feature_regions(feature, grid)
-    initial = torch.einsum("brtp,brpc->brtc", weights, blocks)
-    affinity = torch.einsum("brpc,brtc->brtp", F.normalize(blocks, dim=-1, eps=1e-6),
-                            F.normalize(initial, dim=-1, eps=1e-6))
-    weights = weights * (beta * affinity).exp()
-    weights = weights / weights.sum(-1, keepdim=True)
-    positive = feature_regions(probability, grid).squeeze(-1)
-    membership = torch.stack((positive, 1 - positive), dim=2)
-    support = (weights * membership).sum(-1).flatten(1).clamp_min(1e-6)
-    return weights, support
 
 
 class HyperbolicContext(nn.Module):
     """Direct projected geometry, pooled K/V content and independently gated readout."""
     geometry = "hyperbolic"
     value_geometry = "euclidean"
-    compression_power = 2
+    initial_compression_power = 2
+    compression_power = 1
     support_power = 1
     self_reference = False
     radius_mode = "asinh(norm(projected_features) / sqrt(head_dim))"
     key_mode = "project_same_pooled_content_as_values_then_lift"
-    readout_mode = "learned_gate_times_conditional_context_minus_query_value"
+    readout_mode = "learned_gate_times_spatially_centered_context"
     squared_distance = staticmethod(pairwise_squared_distance)
 
-    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4), refinement_beta=0.0):
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4), compression_temperature=0.5):
         super().__init__()
-        self.refinement_beta = refinement_beta
         self.heads = heads
         self.head_dim = head_dim
         self.grid_sizes = tuple(grid_sizes)
@@ -71,6 +46,7 @@ class HyperbolicContext(nn.Module):
         self.local_out = nn.Conv2d(channels, channels, 1, bias=False)
         self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
         self.raw_temperature = nn.Parameter(torch.full((heads,), math.log(math.expm1(.5))))
+        self.raw_compression_temperature = nn.Parameter(torch.tensor(math.log(math.expm1(compression_temperature))))
         self.gamma_context = nn.Parameter(torch.zeros(4, channels))
         self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
         self.collect_diag = False
@@ -112,7 +88,7 @@ class HyperbolicContext(nn.Module):
         height, width = feature.shape[-2:]
         retrieved = merge_heads(probability @ values, height, width)
         own_value = self.v(feature)
-        discrepancy = retrieved - own_value
+        discrepancy = retrieved - retrieved.mean((-2, -1), keepdim=True)
         retrieved_occupancy = (probability @ prototype_occupancy[:, None]).mean(1)
         retrieved_occupancy = retrieved_occupancy.transpose(1, 2).reshape(-1, 1, height, width)
         gate = self.gate(torch.cat((own_value, discrepancy, occupancy, retrieved_occupancy), 1)).sigmoid()
@@ -124,17 +100,23 @@ class HyperbolicContext(nn.Module):
         normalized = [channel_norm(self.norm, x) for x in tar]
         guide = [self.guide(x) for x in normalized]
         occupancy = [g.sigmoid() for g in guide]
-        compression = [refined_assignments(x, p, grid, self.refinement_beta)
-                       for x, p, grid in zip(normalized, occupancy, self.grid_sizes)]
-        prototypes = [pool_features(x, weights, grid)
-                      for x, (weights, _), grid in zip(normalized, compression, self.grid_sizes)]
+        initial_weights = [class_assignments(p, grid)[0]
+                           for p, grid in zip(occupancy, self.grid_sizes)]
+        initial = [pool_features(x, weights, grid)
+                   for x, weights, grid in zip(normalized, initial_weights, self.grid_sizes)]
+        queries = [self.project_queries(x) for x in normalized]
+        compression_temperature = F.softplus(self.raw_compression_temperature).expand(self.heads)
+        compression = [compress_posterior(
+            x, logits, query, self.project_keys(base)[0], grid, compression_temperature, self.squared_distance)
+            for x, logits, query, base, grid in zip(normalized, guide, queries, initial, self.grid_sizes)]
+        prototypes = [item[0] for item in compression]
         prototype = torch.cat(prototypes, dim=1)
         key, prototype_occupancy = self.project_keys(prototype)
         values = project_tokens(self.v, prototype, self.heads)
         support = torch.cat([item[1] for item in compression], dim=1)
         enhanced, diagnostics, geometric_logits = [], {}, []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
-            query = self.project_queries(x)
+            query = queries[index]
             logits = self.attention_logits(query.flatten(2, 3), key, support, index)
             probability = logits.softmax(-1)
             if return_aux:
@@ -159,12 +141,12 @@ class HyperbolicContext(nn.Module):
                     direction_k = F.normalize(key[..., 1:], dim=-1, eps=1e-6)
                     angular = (1 - direction_q @ direction_k.transpose(-1, -2)).clamp_min(0)
                     radial = (radius.flatten(2)[..., None] - key_radius[:, :, None]).abs()
-                    weights, class_support = compression[index]
-                    base_weights, _ = class_assignments(p, self.grid_sizes[index])
-                    base_prototype = pool_features(x, base_weights, self.grid_sizes[index])
-                    local_direction = regions(direction_q.reshape(*query.shape[:-1], -1), self.grid_sizes[index])
-                    mean_direction = torch.einsum("brtp,bhrpd->bhrtd", weights, local_direction)
-                    variance = (1 - mean_direction.square().sum(-1)).clamp_min(0)
+                    _, class_support, association = compression[index]
+                    posterior, prior = association["posterior"], association["prior"]
+                    delta, mass = association["delta"], association["class_mass"]
+                    shift = posterior - prior
+                    entropy = -(posterior * posterior.clamp_min(1e-9).log() +
+                                (1 - posterior) * (1 - posterior).clamp_min(1e-9).log()) / math.log(2)
                     diag = dict(
                         queries=x.shape[-2] * x.shape[-1], contexts=key.shape[2],
                         gamma_context=float(self.gamma_context[index].mean()),
@@ -181,11 +163,26 @@ class HyperbolicContext(nn.Module):
                         context_residual_to_feature_rms=float(rms(context_residual) / base),
                         local_residual_to_feature_rms=float(rms(local_residual) / base),
                         guide_mean=float(p.mean()), class_support_mean=float(class_support.mean()),
-                        refinement_beta=float(self.refinement_beta),
-                        compression_weight_tv=float((weights - base_weights).abs().sum(-1).mean() / 2),
-                        compression_effective_pixels=float(weights.square().sum(-1).reciprocal().mean()),
-                        compression_base_effective_pixels=float(base_weights.square().sum(-1).reciprocal().mean()),
-                        prototype_refinement_to_feature_rms=float(rms(prototypes[index] - base_prototype) / rms(x).clamp_min(1e-8)),
+                        compression_temperature=float(F.softplus(self.raw_compression_temperature)),
+                        posterior_delta_mean=float(delta.mean()),
+                        posterior_delta_abs_mean=float(delta.abs().mean()),
+                        posterior_delta_std=float(delta.std(unbiased=False)),
+                        posterior_shift_mean=float(shift.mean()),
+                        posterior_shift_abs_mean=float(shift.abs().mean()),
+                        posterior_to_background_fraction=float((shift < -.1).float().mean()),
+                        posterior_to_change_fraction=float((shift > .1).float().mean()),
+                        posterior_entropy=float(entropy.mean()),
+                        posterior_mean=float(posterior.mean()),
+                        posterior_low_saturation_fraction=float((posterior < .01).float().mean()),
+                        posterior_high_saturation_fraction=float((posterior > .99).float().mean()),
+                        prior_low_saturation_fraction=float((prior < .01).float().mean()),
+                        prior_high_saturation_fraction=float((prior > .99).float().mean()),
+                        compression_effective_pixels=float(association["effective_pixels"].mean()),
+                        compression_effective_pixels_change=float(association["effective_pixels"][:, :, 0].mean()),
+                        compression_effective_pixels_background=float(association["effective_pixels"][:, :, 1].mean()),
+                        compression_mass_min=float(mass.min()), compression_mass_mean=float(mass.mean()),
+                        compression_empty_fraction=float((mass == 0).float().mean()),
+                        prototype_reassignment_to_feature_rms=float(rms(prototypes[index] - initial[index]) / rms(x).clamp_min(1e-8)),
                         class_support_min=float(class_support.min()),
                         retrieved_rms=float(rms(retrieved)), self_value_rms=float(rms(own_value)),
                         retrieved_spatial_rms=float(rms(retrieved - retrieved.mean((-2, -1), keepdim=True))),
@@ -198,7 +195,6 @@ class HyperbolicContext(nn.Module):
                         key_radius_mean=float(key_radius.mean()),
                         radial_gap_attention_mean=float((probability * radial).sum(-1).mean()),
                         angular_gap_attention_mean=float((probability * angular).sum(-1).mean()),
-                        prototype_direction_variance_mean=float(variance.mean()),
                         finite=bool(torch.isfinite(result).all()))
                     diag.update(attention_diagnostics(probability, self.tokens_per_scale))
                     diag.pop("self_mass_mean")
@@ -214,6 +210,9 @@ class HyperbolicContext(nn.Module):
         auxiliary = dict(guide_logits=tuple(guide))
         if return_aux:
             auxiliary["geometric_logits"] = tuple(geometric_logits)
+            auxiliary["posterior_logits"] = tuple(
+                regional_logits_to_image(item[2]["posterior_logits"], grid, *x.shape[-2:])
+                for item, grid, x in zip(compression, self.grid_sizes, tar))
         return enhanced, auxiliary
 
 

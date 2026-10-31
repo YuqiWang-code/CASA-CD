@@ -1,0 +1,97 @@
+{
+  "protocol": "casa_pyramid_40k_supervisedposterior_v10",
+  "guide_objective": "half_raw_half_posterior_area_bce",
+  "compression_temperature_init": 0.5,
+  "passed": true,
+  "decision": "proceed_with_controlled_full_budget",
+  "scope": "Admission to 12 fresh formal runs; not proof of final or SOTA accuracy",
+  "paired": {
+    "H_CENTER_RAW/LEVIR": {
+      "last_f1": 0.856358118283594,
+      "mean_epoch2_to4_f1": 0.8532209339403384,
+      "boundary_f1": 0.6868067401340814,
+      "auxiliary": {
+        "samples": 1024,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 0.32425592467188835,
+        "retrieval_bce": 0.4182438310235739,
+        "posterior_bce": 0.4962259610183537
+      }
+    },
+    "H_CENTER_RAW/SYSU": {
+      "last_f1": 0.8027480309115574,
+      "mean_epoch2_to4_f1": 0.7954819445872339,
+      "boundary_f1": 0.22308032758730964,
+      "auxiliary": {
+        "samples": 4000,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 1.2101844136714934,
+        "retrieval_bce": 1.4138303718566894,
+        "posterior_bce": 1.51068767285347
+      }
+    },
+    "H_CENTER_SUP/LEVIR": {
+      "last_f1": 0.8659583855554165,
+      "mean_epoch2_to4_f1": 0.8520559247461726,
+      "boundary_f1": 0.7047659097433685,
+      "auxiliary": {
+        "samples": 1024,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 0.31336119875777513,
+        "retrieval_bce": 0.4687564962077886,
+        "posterior_bce": 0.3151802222710103
+      }
+    },
+    "H_CENTER_SUP/SYSU": {
+      "last_f1": 0.8040591509165179,
+      "mean_epoch2_to4_f1": 0.7946492545294235,
+      "boundary_f1": 0.22442536780774747,
+      "auxiliary": {
+        "samples": 4000,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 1.2143421239852905,
+        "retrieval_bce": 1.6367423992156982,
+        "posterior_bce": 1.2214014809131621
+      }
+    },
+    "E_CENTER_SUP/LEVIR": {
+      "last_f1": 0.8550237686936442,
+      "mean_epoch2_to4_f1": 0.846335118840639,
+      "boundary_f1": 0.6487789913723946,
+      "auxiliary": {
+        "samples": 1024,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 0.3160536971408874,
+        "retrieval_bce": 0.46022372879087925,
+        "posterior_bce": 0.32270543032791466
+      }
+    },
+    "E_CENTER_SUP/SYSU": {
+      "last_f1": 0.7999750533917555,
+      "mean_epoch2_to4_f1": 0.7879798108914988,
+      "boundary_f1": 0.21971268349795298,
+      "auxiliary": {
+        "samples": 4000,
+        "split": "val",
+        "used_for_checkpoint_selection": false,
+        "guide_bce": 1.2140105588436128,
+        "retrieval_bce": 1.6434756231307983,
+        "posterior_bce": 1.2212180585861205
+      }
+    }
+  },
+  "evidence": "selection/centered/probe_comparison.md",
+  "mechanism": "Task-supervised regional membership and query-dependent centered cross-scale readout",
+  "limits": [
+    "Four epochs and one paired seed; final H/E/CTRL attribution remains open.",
+    "H_SUP last-three mean is slightly below H_CENTER_RAW in both datasets.",
+    "Posterior-off and compression-metric interventions have small effects after short training.",
+    "LEVIR context improves F1 via FN/FP tradeoff; total pixel errors do not decrease.",
+    "Formal checkpoints selected on test each epoch; not an independent blind test."
+  ]
+}

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
-VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'H_REFINE': 'H-refine (beta=1)', 'E_REFINE': 'E-refine (beta=1)', 'E_BASE': 'E-base (beta=0)', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
+VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'H_POSTERIOR': 'H-posterior', 'E_POSTERIOR': 'E-posterior', 'H_NEIGHBOR': 'H-neighbor', 'E_NEIGHBOR': 'E-neighbor', 'H_REFINE': 'H-refine (beta=1)', 'E_REFINE': 'E-refine (beta=1)', 'E_BASE': 'E-base (beta=0)', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 
 
@@ -88,7 +88,7 @@ def diagnostic_rows(events):
 
 
 def curves(destination, dataset, records, selection_split):
-    colors = {'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'H_REFINE': '#2266AA', 'E_REFINE': '#D47718', 'E_BASE': '#7D5AB5', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
+    colors = {'H_POSTERIOR': '#1f77b4', 'E_POSTERIOR': '#d62728', 'H_NEIGHBOR': '#1f77b4', 'E_NEIGHBOR': '#d62728', 'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'H_REFINE': '#2266AA', 'E_REFINE': '#D47718', 'E_BASE': '#7D5AB5', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
     manifest = next(iter(records.values()))[2]
     guide_weight = manifest.get('auxiliary_weights', {}).get('guide', manifest.get('guide_weight', 0.2))
     boundary_weight = manifest.get('boundary_weight', 0.0)

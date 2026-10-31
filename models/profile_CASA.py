@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 from model.casa_net import CASANet
-from train_CASA import PROTOCOL, auxiliary_weights, make_loader, training_losses, make_optimizer
+from train_CASA import PROTOCOL, GUIDE_OBJECTIVE, guide_effective_coefficients, auxiliary_weights, make_loader, training_losses, make_optimizer
 
 
 def main():
@@ -19,10 +19,10 @@ def main():
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched"),
-                        default=("none", "hyperbolic", "qkv"))
+                        default=("none", "hyperbolic", "matched"))
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
-    parser.add_argument("--refinement-beta", type=float, choices=(0., 1.), default=0.)
+    parser.add_argument("--compression-temperature", type=float, default=0.5)
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -33,7 +33,7 @@ def main():
     results = {}
     for variant in args.modules:
         torch.manual_seed(2333)
-        model = CASANet(args.pretrained, variant, refinement_beta=args.refinement_beta).cuda().train()
+        model = CASANet(args.pretrained, variant, compression_temperature=args.compression_temperature).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -59,12 +59,16 @@ def main():
         context_mib = process_mib - torch.cuda.memory_reserved() / 1024**2
         result = dict(protocol=PROTOCOL, batch_size=image.shape[0],
                       training_outputs=4, training_prediction_format="logits",
+                      guide_objective=GUIDE_OBJECTIVE if variant in ("hyperbolic", "matched") else "raw_area_bce",
+                      guide_effective_coefficients=guide_effective_coefficients(variant, auxiliary_weights(variant, args.guide_weight, args.retrieval_weight)["guide"]),
                       auxiliary_weights=auxiliary_weights(variant, args.guide_weight, args.retrieval_weight),
-                      refinement_beta=args.refinement_beta, encoder_lr_mult=1.0,
+                      compression="within_region_geometry_class_posterior" if variant in ("hyperbolic", "matched") else "none", encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
+                      initial_compression_power=2 if variant in ("hyperbolic", "matched") else model.context.compression_power,
+                      compression_temperature_init=args.compression_temperature if variant in ("hyperbolic", "matched") else None,
                       compression_power=model.context.compression_power,
                       support_power=model.context.support_power,
                       self_reference=model.context.self_reference,

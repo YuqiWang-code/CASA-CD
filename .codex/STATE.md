@@ -2,17 +2,15 @@
 
 更新：2026-10-31。
 
-## CASA-Pyramid / Run9 训练中
+## CASA-Pyramid / Run10 待启动正式对照
 
-2026-10-31 12:43:09 CST正式启动，源码基线`3a04aca`，supervisor PID3226168。仅GPU1；首批LEVIR的H_REFINE、E_REFINE、M0_CTRL三路并行，显存约29.6GiB。已观察各组三个以上完整epoch，主损失由约1.93下降到1.04–1.06；两种模块的精炼权重、原型与残差均发生变化，数值有限。E_REFINE第三轮选模F1回落，主训练损失仍下降，当前无数值或任务梯度故障，继续完整预算观察。
+Run9于2026-10-31 13:22:08 CST按用户要求停止，0项完整TEST；源码3a04aca、日志及checkpoint保留，不恢复。GPU1为本轮唯一授权卡，GPU0是独立MoE任务。
 
-预计全部14项还需约14–18小时，完成窗口为北京时间**11月1日03:00–07:00**。估算基于首批并行训练速度，随跨库数据加载、评价开销和并发组合变化。正式结果0/14，现有指标仍263条。
+六项四轮train/val配对短训与冻结分析已全部结束，原探针supervisor3239297已退出。实际源、脚本、权重和记录在Run10/selection/centered/{raw,supervised,scripts,probes,analysis}；probe_source_code.tar.gz已归档。两库H_SUP末轮F1为86.5958/80.4059，H/E相同目标对照及空间检索干预支持进入完整预算评价；不能宣称四轮已证明全库优势。先前配对控制在selection/classposterior与selection/neighborhood。
 
-协议casa_pyramid_40k_refinement_v9；用户授权仅GPU1，GPU0有无关任务，不操作。14项：四库H_REFINE(hyperbolic,β1)/E_REFINE(matched,β1)/M0_CTRL(none,β0)，SYSU/WHU各补E_BASE(matched,β0)。Run8 H_NONE两项作β0双曲外部参照，不重复入表。全部main+.1guide、retrieval0，seed/context seed2333，fresh MobileNetV2预训练、40K、batch32，逐epoch test选模。
+本地与服务器主models现为casa_pyramid_40k_supervisedposterior_v10：区域两类距离差修正r，K/V共享P1；门控写回AV−空间均值AV。H/E主损失+.05原guide+.05后验，CTRL主损失+.1原guide；旧检索BCE0，压缩温度初值.5。224KV、1头32维、batch32、seed/context2333、40K、预训练骨干全新初始化。默认训练参数已与正式配置一致。服务器最终验证、恢复、折叠和实测显存通过；review_decision允许进入正式对照。尚未启动正式队列，勿重复探针。
 
-唯一调度器train_scripts/CASA-Pyramid/Run9/pipeline.py；初始PID3226168。首批GPU1 LEVIR H_REFINE PID3226170、E_REFINE PID3226198、CTRL PID3226228，以实时pipeline_status.json为准。GPU预算31072MiB，H/E/CTRL/E_BASE预留11270/10188/8852/10098MiB；动态按容量补位，允许跨库填空。优先LEVIR→SYSU→WHU→CDD。不得重复启动或覆盖活动源码，不恢复历史队列。
-
-日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run9；checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run9。源码以本轮source_code.tar.gz为准，本地已下载，基线3a04aca。六项两轮train/val探针全部通过，正式没有使用探针权重。记录见docs/experiments/CASA-Pyramid/Run9，快照Run9/current均已生成。完整TEST出现后用Run9/collect_results.py和tools/export_training_records.py收集，原263条逐单元格保留，14新项全收后至少277条。当前无定时自动化。
+下一步提交源码基线、归档实际源，启动唯一train_scripts/CASA-Pyramid/Run10/pipeline.py：H_POSTERIOR/E_POSTERIOR/M0_CTRL四库12项，LEVIR→SYSU→WHU→CDD，GPU1按实测容量补位；观察正式前三epoch。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run10。现有263条正式记录，新12项全收至少275，保留其他新增。逐epoch test选模，非独立盲测。无定时自动化。
 
 ## CASA-MoE / Run3 GPU0串行训练中
 

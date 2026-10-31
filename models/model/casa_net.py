@@ -12,7 +12,7 @@ from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanC
 
 
 class CASANet(nn.Module):
-    def __init__(self, pretrained_path=None, module="none", context_seed=2333, refinement_beta=0.0):
+    def __init__(self, pretrained_path=None, module="none", context_seed=2333, compression_temperature=0.5):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
@@ -24,7 +24,7 @@ class CASANet(nn.Module):
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)
-            self.context = (context_type(refinement_beta=refinement_beta)
+            self.context = (context_type(compression_temperature=compression_temperature)
                             if module in ("hyperbolic", "matched") else context_type())
 
     def _decode(self, a, b, return_aux=False):
