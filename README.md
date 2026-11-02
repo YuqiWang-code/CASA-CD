@@ -38,13 +38,26 @@
 
 <!-- CASA_PYRAMID_RUN10_RESULTS_START -->
 
-2026-10-31 15:41 CST正式启动，源码基线`8e8e559`。GPU1当前三路：LEVIR的H_POSTERIOR、E_POSTERIOR、M0_CTRL；后续自动按容量补位。正式结果0/12，指标表仍为263条。
+状态更新：2026-11-02 15:45:32 CST；队列 `complete`；正式结果 **12/12**。
 
-六项四轮train/val配对完成，双曲末轮F1相对CTRL在LEVIR/SYSU提高0.9404/0.6780pp。正式首发三组前4轮主损失分别由1.9292→1.0482、1.9297→1.0469、1.9304→1.0460；损失和诊断有限，H/E四层上下文输出非零。当前GPU1约29.9GiB、利用率采样96%。按初期吞吐估计余下约12–15小时，预计北京时间11月1日04:00–07:00结束。
-
-[完整配对与干预](docs/experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md) · [正式初期记录](docs/experiments/CASA-Pyramid/Run10/initial_health.json) · [训练日志及成本](docs/experiments/CASA-Pyramid/Run10/README.md) · [冻结源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run10.txt)。
+| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |
+|---|---|---|---:|---:|
+| LEVIR | `H_POSTERIOR` | 完成 | 91.01 | 83.50 |
+| LEVIR | `E_POSTERIOR` | 完成 | 91.12 | 83.68 |
+| LEVIR | `M0_CTRL` | 完成 | 91.01 | 83.50 |
+| SYSU | `H_POSTERIOR` | 完成 | 82.67 | 70.47 |
+| SYSU | `E_POSTERIOR` | 完成 | 82.86 | 70.73 |
+| SYSU | `M0_CTRL` | 完成 | 82.93 | 70.84 |
+| WHU | `H_POSTERIOR` | 完成 | 94.18 | 89.01 |
+| WHU | `E_POSTERIOR` | 完成 | 94.65 | 89.84 |
+| WHU | `M0_CTRL` | 完成 | 94.80 | 90.12 |
+| CDD | `H_POSTERIOR` | 完成 | 96.93 | 94.05 |
+| CDD | `E_POSTERIOR` | 完成 | 96.95 | 94.08 |
+| CDD | `M0_CTRL` | 完成 | 96.95 | 94.07 |
 
 <!-- CASA_PYRAMID_RUN10_RESULTS_END -->
+
+Run10已于2026-11-01 03:44 CST完成12/12项。结果已下载、汇表并冻结，指标表275条，原263条逐单元格保留。双曲/匹配欧式相对CTRL四库平均F1分别−0.2199/−0.0291pp；WHU双曲下降0.6195pp，SYSU后期泛化和漏检问题仍在，未形成整体改善。Run4继续作为正向基线。[完整训练记录](docs/experiments/CASA-Pyramid/Run10/README.md) · [正式分析](docs/experiments/CASA-Pyramid/Run10/RESULT_ANALYSIS.md) · [冻结TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run10.txt)。
 
 [Run10脚本](train_scripts/CASA-Pyramid/Run10/README.md) · [机制、证据与实验安排](docs/temporary/CASA_Pyramid_Run10_区域几何归属方案.md) · [配对短训记录](docs/experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md) · [参考文献](docs/参考文献/双曲类别归属/README.md)。后验监督是压缩归属的任务约束，半径不预设语义层级；双曲度量的额外收益由配对结果判断。
 

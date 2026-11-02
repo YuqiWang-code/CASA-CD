@@ -1,18 +1,12 @@
 # 当前状态
 
-更新：2026-10-31。
+更新：2026-11-02。
 
-## CASA-Pyramid / Run10 GPU1正式训练中
+## CASA-Pyramid / Run10 已完成并收集
 
-2026-10-31 15:41:14 CST正式启动，唯一supervisor3242840。初始GPU1三路：LEVIR H_POSTERIOR3242842、E_POSTERIOR3242876、M0_CTRL3242908，以实时pipeline_status.json为准。12项，LEVIR→SYSU→WHU→CDD，允许跨库填位；GPU预算31072MiB，H/E/CTRL预留11424/10332/8852MiB。GPU0属于独立MoE任务，不操作。Run9已停止，0项正式TEST，旧源3a04aca、日志与checkpoint保留，不恢复。
+2026-11-01 03:44:17 CST完成12/12项，无失败、无活动子进程，supervisor已退出。源码8e8e559，协议casa_pyramid_40k_supervisedposterior_v10，仅GPU1。Run9停止产物保留，不恢复旧队列。
 
-源码基线8e8e559，协议casa_pyramid_40k_supervisedposterior_v10。当前主models与服务器正式源一致：平方guide的P0→两类距离差修正r→一阶P1同源K/V；完整Q/224KV/1头32维；门控写回AV−空间均值AV。H/E主损失+.05原guide+.05后验，CTRL主损失+.1原guide；检索BCE权重0，压缩温度初值.5。40K整epoch、batch32、seed/context2333，从MobileNetV2预训练全新初始化。不要覆盖运行中的models/训练脚本。
-
-六项4epoch train/val配对、冻结干预、几何/梯度/恢复/部署/显存验证完成。双曲相对CTRL短训末轮LEVIR/SYSU F1 +.9404/+.6780pp，后验本身的独立推理贡献仍小。正式前三组前4轮已观察：主损失H1.9292→1.0482、E1.9297→1.0469、CTRL1.9304→1.0460；无非有限值/OOM，四层全局残差非零。initial_health.json与日志已保存。采样GPU1 30620MiB/96%；预计余下12–15h，约11月1日04:00–07:00 CST。无自动监控任务。
-
-实际source_code.tar.gz、source_manifest.json、environment.json在服务器与本地outputs/CASA-Pyramid/Run10；冻结TXT已从实际归档生成。历史配对源/产物在selection/neighborhood、classposterior、centered，不算正式结果。日志/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run10，checkpoint/share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run10；调度器train_scripts/CASA-Pyramid/Run10/pipeline.py。
-
-下次先查实时状态与日志，不重复启动。正式每epoch test选模，非独立盲测。完整TEST出现后使用collect_results.py及tools汇表/快照，现有263条历史不改；本轮12项收齐至少275条，其他新增全部保留。新故障先读取具体原因并保留产物。
+2026-11-02下载334项产物；12条完整TEST结果已入Excel，共275条，原263条逐单元格保留。冻结TXT来自实际source_code.tar.gz，current TXT同步更新；完整日志/逐轮CSV/诊断/曲线/结果在docs/experiments/CASA-Pyramid/Run10，分析见RESULT_ANALYSIS.md。本轮H/E四库平均同轮F1净增益−0.2199/−0.0291pp，WHU H−0.6195pp，SYSU后期泛化问题仍在；数值和折叠检查正常。保留Run4正向基线，未启动新训练，无监控自动化。后续新方案和训练按用户指令。
 
 ## CASA-MoE / Run3 GPU0串行训练中
 

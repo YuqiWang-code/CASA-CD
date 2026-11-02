@@ -25,7 +25,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 【双曲模块】完整Q，224KV，1头32维。平方guide权重形成区域内变化/背景P0；共享投影Q与K0计算δ=(d_bg²-d_change²)/(2tau_c²)，r=sigmoid(g+δ)；P1按r/1-r一阶池化，同时生成K和欧式V，support同权聚合原p/1-p。Q/K投影除√32后直接Lorentz提升，曲率固定-1，不用密集流形点质心。写回为Wout[gate·(AV−mean_hw(AV))]，均值按每样本每尺度的空间维计算并反传；66→1门控读Vquery、中心化检索内容、p和检索guide值，保留TAR与细层高通。query无关检索产生零全局更新，门控后的最终残差不保证零均值。压缩温度初始.5且可学习；H/E在压缩与检索两处切换距离，其余同构。训练/部署2.058410/1.947095M，context11478。后验监督约束压缩归属，不预设半径的置信/层级含义，不把归属变尖或梯度非零当作有效。
 
-【训练协议】当前CASA-Pyramid/Run10协议casa_pyramid_40k_supervisedposterior_v10，仅GPU1，正式四库各H_POSTERIOR/E_POSTERIOR/M0_CTRL，共12项，已于2026-10-31 15:41 CST启动，源码基线8e8e559。H/E主损失+.05 raw guide BCE+.05区域posterior BCE；CTRL主损失+.1 raw guide BCE，检索BCE为0。辅助系数预算相同，监督目标与梯度路径不同；posterior使用g+δ的原logit和面积标签。共同设置：256×256、batch32、run/context seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice，辅助BCE按四尺度求和；无边界辅助训练目标。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重；训练/评估DataLoader使用独立配对随机流。
+【训练协议】当前CASA-Pyramid/Run10协议casa_pyramid_40k_supervisedposterior_v10，仅GPU1，正式四库各H_POSTERIOR/E_POSTERIOR/M0_CTRL，共12项，已于2026-10-31 15:41 CST启动，源码基线8e8e559，12项已完成并收集。H/E主损失+.05 raw guide BCE+.05区域posterior BCE；CTRL主损失+.1 raw guide BCE，检索BCE为0。辅助系数预算相同，监督目标与梯度路径不同；posterior使用g+δ的原logit和面积标签。共同设置：256×256、batch32、run/context seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice，辅助BCE按四尺度求和；无边界辅助训练目标。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重；训练/评估DataLoader使用独立配对随机流。
 
 【数据处理】按RGB读取，图像双线性缩放至256×256，标签最近邻；像素除255，RGB均值[0.485,0.456,0.406]、标准差[0.229,0.224,0.225]。训练开启0.5概率裁剪四边各0～8像素后恢复、水平/垂直各0.5概率翻转、等概率0/90/180/270度旋转、0.5概率时相交换。A/B与标签空间变换同步，增强后归一化，不添加独立光度扰动。评价不增强，保留全部样本；训练shuffle并drop_last。LEVIR/WHU重点观察小建筑与边界，SYSU关注多类地表变化及伪变化，CDD关注季节/光照差异；这些是分析方向，精度收益须由实际结果验证。
 
@@ -44,7 +44,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 ## 当前状态摘要
 
-Run10现行工作版为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式启动待完整短训审阅，正式0/12。指标表保留263条，全收至少275条；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
+Run10现行工作版为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式已于2026-11-01 03:44 CST完成12/12，无失败；2026-11-02收集后指标表275条，原263条保留；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
 
 Run9于2026-10-31 13:22 CST停止，0项完整TEST，日志、源码与checkpoint保留。
 
@@ -99,7 +99,7 @@ Run5队列已结束，不重启历史队列；当前轮次以Run10实时状态�
 
 [CASA-Pyramid/Run5完整记录](experiments/CASA-Pyramid/Run5/README.md)提供12项完整日志、逐轮曲线、诊断及正式测试；[结果分析](experiments/CASA-Pyramid/Run5/analysis.md)对照同轮CTRL和Run4。
 
-当前Run10的[配对短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)用于结构评价，尚无正式TEST结果。文献与官方来源见[文献索引](参考文献/文献索引.md)及[双曲类别归属文献](参考文献/双曲类别归属/README.md)；[Run5调研](参考文献/Run5_原型选择与自参照检索/README.md)保留为历史来源。
+当前Run10的[配对短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)用于结构评价，正式12项已收集，分析见experiments/CASA-Pyramid/Run10/RESULT_ANALYSIS.md。文献与官方来源见[文献索引](参考文献/文献索引.md)及[双曲类别归属文献](参考文献/双曲类别归属/README.md)；[Run5调研](参考文献/Run5_原型选择与自参照检索/README.md)保留为历史来源。
 
 [CASA-Pyramid/Run3完整记录](experiments/CASA-Pyramid/Run3/README.md)保存12项完整日志、逐轮表格、曲线和模块诊断；[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)对照同轮CTRL与Run2解释精度、泛化和开销。
 
