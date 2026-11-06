@@ -16,7 +16,6 @@ def main():
     parser.add_argument('--modules',nargs='+',choices=('none','hyperbolic','qkv','matched'),
                         default=('none','hyperbolic','matched'))
     parser.add_argument('--repeats',type=int,default=3)
-    parser.add_argument('--compression-temperature',type=float,default=.5)
     args=parser.parse_args()
     sys.path.insert(0,str(args.models_dir.resolve()))
     from model.casa_net import CASANet
@@ -29,7 +28,7 @@ def main():
     results={}
     for mode in args.modules:
         torch.manual_seed(2333)
-        model=CASANet(module=mode, compression_temperature=args.compression_temperature).cuda().eval()
+        model=CASANet(module=mode).cuda().eval()
         training_params=sum(p.numel() for p in model.parameters())
         model.switch_to_deploy()
         deployment_params=sum(p.numel() for p in model.parameters())
@@ -62,7 +61,7 @@ def main():
         input_shape=[1,3,256,256],precision='FP32',allow_tf32_matmul=torch.backends.cuda.matmul.allow_tf32,
         allow_tf32_cudnn=torch.backends.cudnn.allow_tf32,outputs=1,
         output_scope='Final decoder prediction',warmup=30,iterations=100,
-        seed=2333,context_seed=2333,repeats=args.repeats,compression="within_region_geometry_class_posterior",compression_temperature_init=args.compression_temperature,pretrained=False,weights_scope='Architecture cost with random weights',variants=results)
+        seed=2333,context_seed=2333,repeats=args.repeats,compression="first_order_class_pooling",pretrained=False,weights_scope='Architecture cost with random weights',variants=results)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2))
 

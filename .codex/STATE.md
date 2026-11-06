@@ -1,6 +1,14 @@
 # 当前状态
 
-更新：2026-11-02。
+更新：2026-11-06。
+
+## CASA-Pyramid / Run11 准备与真实配对短训
+
+用户2026-11-06授权仅GPU1，结构简化与内部加权分开对照。四库H/E/CTRL×普通/1.25内部正样本BCE，共24项。协议casa_pyramid_40k_linearpool_interior_v11，来源为当前models。一阶guide压缩，无后验；H/E保持可变半径和完整224KV；辅助统一0.1 raw-guide BCE，加权仅首级BCE，Dice/其他头不变。
+
+独立runtime=/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11/runtime；预检源source_preflight.tar.gz已归档。prepare初始PID1991396，先通过模型/损失/梯度/部署及恢复/数据检查，再测batch32显存，完成六组SYSU+双曲两组WHU各2完整train/val epoch。当前准备进度见probe_status.json；不得重复启动。模型冻结等价性四层差均0。GPU1约8GiB为其他进程，保留并按剩余显存补位，不操作GPU0。
+
+完成短训且人工阅读损失与诊断后，保存正式源码/配置/环境，再唯一启动runtime/train_scripts/CASA-Pyramid/Run11/pipeline.py。正式全部从预训练重新初始化，不能用探针续训。旧Run10已完成，历史275条指标保持；新轮全收至少299，其他新增全部保留。
 
 ## CASA-Pyramid / Run10 已完成并收集
 

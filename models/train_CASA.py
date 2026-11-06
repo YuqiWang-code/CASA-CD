@@ -1,4 +1,4 @@
-"""CASA centered-context training with regional posterior supervision."""
+"""CASA first-order context and foreground-interior loss controls."""
 import argparse
 import copy
 import json
@@ -17,8 +17,8 @@ from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
 
-PROTOCOL = "casa_pyramid_40k_supervisedposterior_v10"
-GUIDE_OBJECTIVE = "half_raw_half_posterior_area_bce"
+PROTOCOL = "casa_pyramid_40k_linearpool_interior_v11"
+GUIDE_OBJECTIVE = "raw_area_bce"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
 STD = [0.229, 0.224, 0.225] * 2
@@ -32,13 +32,14 @@ DATA_PROTOCOL = dict(
     independent_photometric_augmentation=False, evaluation_augmentation=False)
 
 
-def loss_function(outputs, target):
+def loss_function(outputs, target, interior_positive_weight=1.0):
     loss = target.new_zeros(())
-    for logits in outputs:
+    for index, logits in enumerate(outputs):
         output = logits.sigmoid()
         intersection = (output * target).sum()
         dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
-        loss = loss + F.binary_cross_entropy_with_logits(logits, target) + 1 - dice
+        bce = foreground_interior_bce(logits, target, interior_positive_weight if index == 0 else 1.)
+        loss = loss + bce + 1 - dice
     return loss
 
 
@@ -51,16 +52,11 @@ def guide_terms(auxiliary, target):
     """Training guide objective and its separately named BCE components."""
     raw = guide_loss(auxiliary["guide_logits"], target)
     terms = dict(guide=raw, guide_raw=raw)
-    if "posterior_logits" in auxiliary:
-        posterior = guide_loss(auxiliary["posterior_logits"], target)
-        terms.update(guide=.5 * (raw + posterior), guide_posterior=posterior)
     return terms
 
 
 def guide_effective_coefficients(module, guide_weight):
-    split = module in ("hyperbolic", "matched")
-    return dict(raw=guide_weight * (.5 if split else 1.),
-                posterior=guide_weight * (.5 if split else 0.))
+    return dict(raw=guide_weight, posterior=0.)
 
 
 def mask_boundary(target, radius=1):
@@ -70,13 +66,22 @@ def mask_boundary(target, radius=1):
     return F.max_pool2d(padded, kernel, 1) + F.max_pool2d(-padded, kernel, 1)
 
 
+def foreground_interior_bce(logits, target, positive_weight=1.0):
+    """Normalize the first-output BCE by total pixel weight."""
+    if positive_weight == 1.0:
+        return F.binary_cross_entropy_with_logits(logits, target)
+    interior_positive = target * (mask_boundary(target, 2) == 0)
+    weight = 1 + (positive_weight - 1) * interior_positive
+    return (weight * F.binary_cross_entropy_with_logits(logits, target, reduction="none")).sum() / weight.sum()
+
+
 def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
     return dict(guide=GUIDE_WEIGHT if guide_weight is None else guide_weight,
                 geometric_retrieval=0. if retrieval_weight is None else retrieval_weight)
 
 
-def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None):
-    main = loss_function(outputs, target)
+def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None, interior_positive_weight=1.0):
+    main = loss_function(outputs, target, interior_positive_weight)
     relational = "geometric_logits" in aux
     weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
     guide = guide_terms(aux, target)["guide"]
@@ -314,11 +319,13 @@ def main():
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=2333)
     parser.add_argument("--context-seed", type=int, default=2333)
-    parser.add_argument("--compression-temperature", type=float, default=0.5)
+    parser.add_argument("--interior-positive-weight", type=float, default=1.0)
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    if args.interior_positive_weight < 1:
+        parser.error("interior positive weight must be at least 1")
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
     if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
         parser.error("guide weight must be positive and retrieval weight nonnegative")
@@ -347,8 +354,7 @@ def main():
         loader.generator = generator
         if index == 0:
             loader.sampler.generator = generator
-    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
-                    compression_temperature=args.compression_temperature).to(device)
+    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -385,14 +391,11 @@ def main():
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
-                    initial_compression_power=2 if args.module in ("hyperbolic", "matched") else model.context.compression_power,
-                    compression_temperature_init=args.compression_temperature if args.module in ("hyperbolic", "matched") else None,
-                    compression_reassignment=(dict(
-                        iterations=1, candidates="two same-region class means", initial="squared guide confidence anchors",
-                        distance=model.context.geometry, temperature="independent learnable scalar",
-                        posterior="sigmoid(guide_logit + (d_background_squared - d_change_squared)/(2*tau_squared))",
-                        final_pooling="first-order posterior membership", common_key_value_content=True)
-                        if args.module in ("hyperbolic", "matched") else None),
+                    initial_compression_power=model.context.compression_power,
+                    compression_reassignment=None,
+                    interior_positive_weight=args.interior_positive_weight,
+                    interior_weighting=dict(output=0, gt_boundary_radius=2,
+                                           normalization="sum_weighted_bce/sum_pixel_weights"),
                     support_power=model.context.support_power,
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
@@ -420,7 +423,7 @@ def main():
     continuation = None
     if args.resume:
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        for name in ("seed", "context_seed", "compression_reassignment", "compression_temperature_init", "auxiliary_weights", "guide_objective"):
+        for name in ("seed", "context_seed", "compression_reassignment", "auxiliary_weights", "guide_objective", "interior_positive_weight"):
             if checkpoint["manifest"][name] != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
@@ -470,9 +473,16 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"])
+            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"], args.interior_positive_weight)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
+            if step % len(train_loader) == 0:
+                with torch.no_grad():
+                    print("[LOSS-DIAG] " + json.dumps(dict(
+                        epoch=epoch, interior_positive_weight=args.interior_positive_weight,
+                        interior_foreground_fraction=float((target * (mask_boundary(target, 2) == 0)).mean()),
+                        main_unweighted=float(loss_function(outputs, target)),
+                        main_optimized=float(main_loss))), flush=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"),
                                             error_if_nonfinite=True, foreach=True)

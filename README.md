@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run10（GPU1，几何归属与空间检索）**。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run11（GPU1，一阶压缩与内部漏检对照）**。**Run4作为正向基线完整保留**。
 
-双曲版采用**几何归属与空间检索**：完整Q、224个跨尺度KV、32维直接Lorentz投影，检索内容按空间中心化后门控写回，部署1.947095M。匹配欧式对照保持同构；普通QKV历史版保留Run5结构。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
+双曲版采用完整Q、224个跨尺度KV和32维直接Lorentz投影，K/V共用一阶guide池化内容；空间中心化检索后门控写回。匹配欧式同构，H/E部署1.947094M。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
 ## 项目定位与固定研究原则
 
@@ -16,7 +16,17 @@
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run10：几何归属与空间检索
+## 当前实验：CASA-Pyramid / Run11
+
+一阶guide内容池化，保留可变半径、完整Q、224KV、跨尺度门控和细节分支。H/E/CTRL分别对照首级内部正样本BCE权重1/1.25，共24项，仅GPU1。结构比较与训练损失比较分开解释，辅助统一0.1 raw-guide BCE。实现与检查见[Run11脚本](train_scripts/CASA-Pyramid/Run11/README.md)。
+
+<!-- CASA_PYRAMID_RUN11_RESULTS_START -->
+
+准备模型/损失检查及2epoch真实数据配对探针；正式0/24。
+
+<!-- CASA_PYRAMID_RUN11_RESULTS_END -->
+
+## 归档实验：CASA-Pyramid / Run10：几何归属与空间检索
 
 每区域以平方guide权重构造变化/背景P0，用距离差`δ=(d_bg²−d_change²)/(2τ²)`修正归属`r=sigmoid(g+δ)`，再按r与1−r一阶池化P1，同时生成K与欧式V。完整Q、网格(8,4,4,4)、224KV、1头32维，压缩温度初始0.5且可学习。H/E训练2.058410M、部署1.947095M，context 11,478参数。
 

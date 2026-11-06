@@ -174,7 +174,7 @@ def main():
     report = analyze(model, loader, device)
     report.update(dataset=str(args.dataset_root), split=args.split, sample_indices=indices,
                   threshold=.5, checkpoint=str(args.checkpoint), module=args.module,
-                  compression="within_region_geometry_class_posterior", small_object_max_area=64)
+                  compression="first_order_class_pooling", small_object_max_area=64)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report['interventions']))

@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ['LEVIR-CD-256', 'SYSU-CD-256', 'WHU-CD-256', 'CDD-CD-256']
-VARIANTS = {'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'H_POSTERIOR': 'H-posterior', 'E_POSTERIOR': 'E-posterior', 'H_NEIGHBOR': 'H-neighbor', 'E_NEIGHBOR': 'E-neighbor', 'H_REFINE': 'H-refine (beta=1)', 'E_REFINE': 'E-refine (beta=1)', 'E_BASE': 'E-base (beta=0)', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
+VARIANTS = {'H_SIMPLE': 'H-simple', 'H_INTERIOR': 'H-interior', 'E_SIMPLE': 'E-simple',
+            'E_INTERIOR': 'E-interior', 'CTRL_INTERIOR': 'CTRL-interior', 'M0_CTRL': 'CTRL', 'M1_HYPER_QKV': 'Hyperbolic', 'M2_CA_QKV': 'Euclidean', 'H_CLASS': 'H-class', 'H_NONE': 'H-none', 'H_POSTERIOR': 'H-posterior', 'E_POSTERIOR': 'E-posterior', 'H_NEIGHBOR': 'H-neighbor', 'E_NEIGHBOR': 'E-neighbor', 'H_REFINE': 'H-refine (beta=1)', 'E_REFINE': 'E-refine (beta=1)', 'E_BASE': 'E-base (beta=0)', 'M_T_TAR': 'TAR-only', 'M_S_STATIC': 'Static', 'M_D_DYNAMIC': 'Dynamic'}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 
 
@@ -40,6 +41,10 @@ def parse_log(text):
     epochs, diagnostics = {}, []
     current = None
     for line in text.splitlines():
+        if line.startswith('[LOSS-DIAG] '):
+            data = json.loads(line.split(' ', 1)[1])
+            row = epochs.setdefault(data['epoch'], {'epoch': data['epoch']})
+            row.update({'first_batch_' + key: value for key, value in data.items() if key != 'epoch'})
         if line.startswith('[TRAIN-EPOCH] '):
             data = values(line)
             current = int(data.pop('epoch'))
@@ -88,7 +93,8 @@ def diagnostic_rows(events):
 
 
 def curves(destination, dataset, records, selection_split):
-    colors = {'H_POSTERIOR': '#1f77b4', 'E_POSTERIOR': '#d62728', 'H_NEIGHBOR': '#1f77b4', 'E_NEIGHBOR': '#d62728', 'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'H_REFINE': '#2266AA', 'E_REFINE': '#D47718', 'E_BASE': '#7D5AB5', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
+    colors = {'H_SIMPLE': '#2266AA', 'H_INTERIOR': '#55AAEE', 'E_SIMPLE': '#D47718',
+              'E_INTERIOR': '#F0B055', 'CTRL_INTERIOR': '#999999', 'H_POSTERIOR': '#1f77b4', 'E_POSTERIOR': '#d62728', 'H_NEIGHBOR': '#1f77b4', 'E_NEIGHBOR': '#d62728', 'M0_CTRL': '#555555', 'M1_HYPER_QKV': '#2266AA', 'M2_CA_QKV': '#D47718', 'H_CLASS': '#2266AA', 'H_NONE': '#D47718', 'H_REFINE': '#2266AA', 'E_REFINE': '#D47718', 'E_BASE': '#7D5AB5', 'M_T_TAR': '#555555', 'M_S_STATIC': '#D47718', 'M_D_DYNAMIC': '#2266AA'}
     manifest = next(iter(records.values()))[2]
     guide_weight = manifest.get('auxiliary_weights', {}).get('guide', manifest.get('guide_weight', 0.2))
     boundary_weight = manifest.get('boundary_weight', 0.0)
@@ -184,7 +190,7 @@ def main():
             selection_split = manifest.get('selection_split', 'val')
             expected_evaluation_epochs = set(range(evaluation_start, manifest['epochs']))
             assert {row['epoch'] for row in rows if 'val_F1' in row} == expected_evaluation_epochs
-            if variant != 'M0_CTRL':
+            if manifest.get('module') != 'none' and variant != 'M0_CTRL':
                 assert len(diagnostics) == len(expected_evaluation_epochs)
                 assert {event['epoch'] for event in diagnostics} == expected_evaluation_epochs
             best = next(row for row in rows if row['epoch'] == result['best_epoch'])
@@ -209,6 +215,7 @@ def main():
                        best_val_F1_pct=best['val_F1'] * 100, optimizer_steps=result['optimizer_steps'],
                        **{'test_' + key + '_pct': result['metrics'][key] * 100
                           for key in ('recall', 'precision', 'OA', 'F1', 'IoU', 'Kappa')},
+                       interior_positive_weight=manifest.get('interior_positive_weight', 1.),
                        training_params_M=result['total_params_m'], deploy_params_M=result['deploy_params_m'],
                        deploy_max_diff=result['deploy_max_diff'],
                        deploy_binary_disagreement=result['deploy_binary_disagreement'])

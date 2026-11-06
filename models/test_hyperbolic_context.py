@@ -20,7 +20,7 @@ def compression_and_geometry():
     sparse = torch.full_like(p, .05)
     sparse[..., 0, 0] = .6
     sparse_weights, _ = class_assignments(sparse, 1)
-    assert .69 < sparse_weights[0, 0, 0, 0] < .70
+    assert .15 < sparse_weights[0, 0, 0, 0] < .17
     q = torch.randn(1, op.heads, 12, op.head_dim, dtype=torch.double)
     points = op.geometric_point(q)
     radius = torch.asinh(points[..., 1:].norm(dim=-1))

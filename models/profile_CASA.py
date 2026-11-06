@@ -22,7 +22,7 @@ def main():
                         default=("none", "hyperbolic", "matched"))
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
-    parser.add_argument("--compression-temperature", type=float, default=0.5)
+    parser.add_argument("--interior-positive-weight", type=float, default=1.0)
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -33,7 +33,7 @@ def main():
     results = {}
     for variant in args.modules:
         torch.manual_seed(2333)
-        model = CASANet(args.pretrained, variant, compression_temperature=args.compression_temperature).cuda().train()
+        model = CASANet(args.pretrained, variant).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -42,7 +42,7 @@ def main():
             start = time.time()
             optimizer.zero_grad(set_to_none=True)
             logits, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
-            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target, args.guide_weight, args.retrieval_weight)
+            loss, main_loss, auxiliary_loss = training_losses(logits, auxiliary, target, args.guide_weight, args.retrieval_weight, args.interior_positive_weight)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"), error_if_nonfinite=True, foreach=True)
             optimizer.step()
@@ -62,13 +62,13 @@ def main():
                       guide_objective=GUIDE_OBJECTIVE if variant in ("hyperbolic", "matched") else "raw_area_bce",
                       guide_effective_coefficients=guide_effective_coefficients(variant, auxiliary_weights(variant, args.guide_weight, args.retrieval_weight)["guide"]),
                       auxiliary_weights=auxiliary_weights(variant, args.guide_weight, args.retrieval_weight),
-                      compression="within_region_geometry_class_posterior" if variant in ("hyperbolic", "matched") else "none", encoder_lr_mult=1.0,
+                      compression="first_order_class_pooling" if variant in ("hyperbolic", "matched") else "none", encoder_lr_mult=1.0,
                       inference_method="predict", inference_outputs=1,
                       grid_sizes=list(model.context.grid_sizes),
                       contexts_per_scale=list(model.context.tokens_per_scale),
                       joint_contexts=sum(model.context.tokens_per_scale),
-                      initial_compression_power=2 if variant in ("hyperbolic", "matched") else model.context.compression_power,
-                      compression_temperature_init=args.compression_temperature if variant in ("hyperbolic", "matched") else None,
+                      initial_compression_power=model.context.compression_power,
+                      interior_positive_weight=args.interior_positive_weight,
                       compression_power=model.context.compression_power,
                       support_power=model.context.support_power,
                       self_reference=model.context.self_reference,

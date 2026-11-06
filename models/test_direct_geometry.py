@@ -59,7 +59,7 @@ def content_and_guide_independence():
 def evidence_and_fields():
     op = HyperbolicContext()
     assert op.tokens_per_scale == (128, 32, 32, 32)
-    assert sum(p.numel() for p in op.parameters()) == 11478
+    assert sum(p.numel() for p in op.parameters()) == 11477
     sizes = (16, 8, 4, 4)
     tar = [torch.randn(1, 64, n, n, requires_grad=True) for n in sizes]
     output, auxiliary = op(tar, return_aux=True)
@@ -76,8 +76,6 @@ def evidence_and_fields():
     predictions = tuple(torch.randn_like(target) for _ in range(4))
     loss, _, auxiliary_loss = training_losses(predictions, auxiliary, target)
     guide = guide_loss(auxiliary["guide_logits"], target)
-    if GUIDE_OBJECTIVE == "half_raw_half_posterior_area_bce":
-        guide = .5 * (guide + guide_loss(auxiliary["posterior_logits"], target))
     expected_auxiliary = guide
     assert torch.equal(auxiliary_loss, expected_auxiliary)
     assert torch.equal(loss, loss_function(predictions, target) + .1 * expected_auxiliary)

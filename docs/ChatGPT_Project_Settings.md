@@ -1,6 +1,6 @@
 # ChatGPT 项目设置
 
-_CASA-CD 项目指令，更新于 2026-10-31。_
+_CASA-CD 项目指令，更新于 2026-11-06。_
 
 ## 名称
 
@@ -19,32 +19,33 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 
 【研究原则】贡献聚焦两个独立实验版本：双曲压缩QKV和普通变化感知上下文压缩QKV。保持完整Q空间位置，仅压缩KV，分别验证设计及收益。结构应简单、问题明确、机制有依据，避免无关组件堆叠或特殊激活函数，使提升可归因于核心机制。不把loss、剪枝或量化包装成主要创新，不按测试结果挑选阈值或seed。诊断、选样和结构设计优先使用训练/验证材料；当前按用户指定的测试集选模协议，每epoch评价test并以最高F1选权重，结果须注明不属于独立盲测。历史独立val选模与当前test选模分别标识；跨协议差异不能直接作为模块收益。SOTA或稳定提升须有一致评价口径及足够证据支持。
 
-【当前模型】工作源码为CASA-Pyramid/Run10“几何归属与空间检索”，普通QKV历史版保持Run5。共享MobileNetV2原生四尺度24/32/96/320通道，经TAR统一64通道，在DCR前进行跨尺度上下文检索；完整5440Q。双曲及匹配欧式224KV、1头32维；历史普通224KV、4头16维；网格(8,4,4,4)。不使用HFEA。结构与来源见models/README.md、models/SOURCES.md和models/HYPERBOLIC_DESIGN.md。
+【当前模型】工作源码为CASA-Pyramid/Run11“一阶压缩与内部漏检对照”，历史普通QKV保持Run5。共享MobileNetV2四尺度24/32/96/320→TAR统一64通道→完整5440Q与224KV的跨尺度context→DCR；H/E为1头32维，网格8/4/4/4。模型说明见models/README.md和HYPERBOLIC_DESIGN.md。
 
 【普通模块】euclidean_context.py与pyramid_context.py。X=LN(T)，完整Q=WqkX/√16。每区域按(p+eps)²和(1−p+eps)²分别归一化池化X，K=WqkP/√16，V=WvP；同层同区域两个原型共224token。类别支持度r=Σw·p²（背景同理），它不是独立正确性概率，logits=−欧氏距离²/(2τ²)+log(r)+尺度bias−log(源尺度token数)。每个query的自身候选logit为0，与224个原型联合softmax。V与输出均无bias；令g为压缩原型总权重，回写out(AV−g·WvX)，减少不匹配内容采用并保持常量场。S1/S2另由X−avg3(X)经DW3×3及PW1×1产生局部细节残差。逐通道gamma零初始化，卷积正常初始化。
 
-【双曲模块】完整Q，224KV，1头32维。平方guide权重形成区域内变化/背景P0；共享投影Q与K0计算δ=(d_bg²-d_change²)/(2tau_c²)，r=sigmoid(g+δ)；P1按r/1-r一阶池化，同时生成K和欧式V，support同权聚合原p/1-p。Q/K投影除√32后直接Lorentz提升，曲率固定-1，不用密集流形点质心。写回为Wout[gate·(AV−mean_hw(AV))]，均值按每样本每尺度的空间维计算并反传；66→1门控读Vquery、中心化检索内容、p和检索guide值，保留TAR与细层高通。query无关检索产生零全局更新，门控后的最终残差不保证零均值。压缩温度初始.5且可学习；H/E在压缩与检索两处切换距离，其余同构。训练/部署2.058410/1.947095M，context11478。后验监督约束压缩归属，不预设半径的置信/层级含义，不把归属变尖或梯度非零当作有效。
+【双曲模块】X=LN(T)，p=sigmoid(guide(X))，按区域p/1−p一阶归一化池化P；Q/K共享投影并直接Lorentz提升，K和欧式V共用P，支持度同权聚合类概率。曲率−1，保留可变半径与全局检索温度。logits包含距离、log支持度、尺度bias与−log源token数。写回Wout[gate·(AV−mean_hw(AV))]，保留TAR和细两层高通，gamma零初始化。匹配E仅替换检索距离。训练/部署2.058409/1.947094M，context11477。没有后验或压缩温度。
 
-【训练协议】当前CASA-Pyramid/Run10协议casa_pyramid_40k_supervisedposterior_v10，仅GPU1，正式四库各H_POSTERIOR/E_POSTERIOR/M0_CTRL，共12项，已于2026-10-31 15:41 CST启动，源码基线8e8e559，12项已完成并收集。H/E主损失+.05 raw guide BCE+.05区域posterior BCE；CTRL主损失+.1 raw guide BCE，检索BCE为0。辅助系数预算相同，监督目标与梯度路径不同；posterior使用g+δ的原logit和面积标签。共同设置：256×256、batch32、run/context seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice，辅助BCE按四尺度求和；无边界辅助训练目标。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重；训练/评估DataLoader使用独立配对随机流。
+【训练协议】CASA-Pyramid/Run11协议casa_pyramid_40k_linearpool_interior_v11，仅GPU1。四库H_SIMPLE/E_SIMPLE/M0_CTRL及H_INTERIOR/E_INTERIOR/CTRL_INTERIOR共24项。辅助统一0.1 raw-guide面积BCE，检索BCE为0；同损失比较H/E/CTRL，同结构比较普通与加权。共同设置：256×256、batch32、run/context seed2333；Adam全网lr5e-4，betas(.9,.99)、eps1e-8，骨干倍率1.0。context的Conv/Linear权重使用decoupled_weight_decay=True、WD1e-4，LN/bias/温度/gamma/尺度bias为0；encoder/body保持Adam耦合L2衰减1e-4。前200步warmup后poly^.9，40K整epoch取整，LEVIR/SYSU/WHU/CDD分别40182/40125/40145/40248步。主损失四级BCEWithLogits+sigmoidDice；INTERIOR仅首级BCE对GT两像素边界带之外的正像素乘1.25，按总权重归一化，其他头和Dice不变，辅助BCE按四尺度求和；无边界辅助训练目标。每epoch test F1选best，同值更新；最终复测不属于独立盲测。正式从MobileNetV2预训练全新初始化，不用探针或历史权重；训练/评估DataLoader使用独立配对随机流。
 
 【数据处理】按RGB读取，图像双线性缩放至256×256，标签最近邻；像素除255，RGB均值[0.485,0.456,0.406]、标准差[0.229,0.224,0.225]。训练开启0.5概率裁剪四边各0～8像素后恢复、水平/垂直各0.5概率翻转、等概率0/90/180/270度旋转、0.5概率时相交换。A/B与标签空间变换同步，增强后归一化，不添加独立光度扰动。评价不增强，保留全部样本；训练shuffle并drop_last。LEVIR/WHU重点观察小建筑与边界，SYSU关注多类地表变化及伪变化，CDD关注季节/光照差异；这些是分析方向，精度收益须由实际结果验证。
 
-【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回seg_logits及guide_logits，H/E训练另返回区域posterior_logits；predict只输出第一级。CTRL训练/部署2.047125/1.935810M，历史普通模块2.064537/1.953222M、context17605；工作H/E为2.058410/1.947095M、context11478。Run5在RTX5090、FP32、batch1下延迟CTRL/H/普通为3.75/6.83/5.84ms；Run10同设备口径的CTRL/H/匹配E中位延迟为3.875/9.452/8.527ms，详见inference_benchmark.json。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级阈值2e-4。检查稀疏原型、低支持类别、区域空间复原、常量检索、主任务与辅助梯度、Lorentz单位约束/距离/零距离梯度及部署一致性。TAR有序时相融合，整网不承诺严格交换不变或相同输入恒零。
+【部署与检查】TAR/DCR在eval下折叠；forward默认四级概率，return_aux=True返回seg_logits及guide_logits；predict只输出第一级。CTRL训练/部署2.047125/1.935810M，历史普通模块2.064537/1.953222M、context17605；工作H/E为2.058409/1.947094M、context11477。Run5在RTX5090、FP32、batch1下延迟CTRL/H/普通为3.75/6.83/5.84ms；Run10同设备口径的CTRL/H/匹配E中位延迟为3.875/9.452/8.527ms，详见inference_benchmark.json。strict_fp32_fold_v1关闭TF32，记录四级最大差及首级二值差，首级阈值2e-4。检查稀疏原型、低支持类别、区域空间复原、常量检索、主任务与辅助梯度、Lorentz单位约束/距离/零距离梯度及部署一致性。TAR有序时相融合，整网不承诺严格交换不变或相同输入恒零。
 
-【证据与诊断】区分事实、推断、假设与缺失信息。正式指标只取同一train_log.txt最后一个完整“=== TEST RESULTS ===”到“=== END TEST RESULTS ===”区块，不能用验证行、探针或checkpoint名字代替。报告Recall/Precision/OA/F1/IoU/Kappa及参数、计算与实测效率，说明单位和范围。FLOPs遗漏双曲逐元素运算须注明；延迟记录硬件、输入、batch、精度和测量方法。单seed或微小差异不称稳定普适增益。当前检查原p和r的软标签误差、纠错/误改、P0/P1内容保留、门控、中心化检索与context/local残差、QK/V权重、gamma、半径及方向/距离分布。归属、内容与最终分割分别判断；F1提高不等同FP+FN下降。raw/posterior BCE分别报告，联合监督的guide_loss均值不当作raw BCE。中心化后的mean_attention=global_off属于结构性质，不单独证明几何有效；结合配对H/E、query对应打乱及实际任务梯度评价。
+【证据与诊断】正式指标只采纳完整TEST区块。当前检查池化权重、稀疏类支持、QK/V任务梯度、半径CV、跨尺度路由、内容门控及context/local残差。LOSS-DIAG分别记录加权与未加权主损失及内部正样本比例；不能把不同损失定义的数值直接当作拟合优劣。SYSU重点看内部FN与匹配误报量下的召回，WHU看1px边界F1及误报。少参数不等于低延迟，单seed不作稳定提升结论。冻结关断依赖、同轮重训收益及跨轮差异分别解释。
 
 【状态与来源】长期规则见AGENTS.md及README，当次任务以用户最新指令为准。区分工作源码、已部署训练源码和历史源码，实际运行实现以该轮source_code.tar.gz及manifest为准，不用当前models解释未对应的历史结果。状态见.codex/STATE.md及指定轮次实时pipeline_status.json、进程、日志；正式结果见指标表及完整TEST。材料冲突时指出具体不一致并用对应运行证据核实。网页对话没有本地/SSH能力时依据上传材料分析，不声称已读取服务器。
 
 【环境与操作】本地F:\Code_Repositories_2\CursorCode\CASA-CD；服务器RSML-3，项目/home/yqwang/projects/CASA-CD，环境casacd，两张RTX5090。数据/share_datasets/CD；日志/home/yqwang/outputs/CASA-CD/<tag>/<Run>，checkpoint /share_datasets/yqwang/checkpoints/CASA-CD/<tag>/<Run>；预训练pretrained_weight/mobilenet_v2-b0353104.pth。环境激活及依赖路径以.codex/SERVER.md和对应run_one.sh为准。连接用.codex/ssh.py或.codex/status.py，仅从.vscode/sftp.json读取连接信息，不展示凭据；现主线不依赖SS2D或selective_scan kernel。
 
-【训练与结果管理】启动、停止、续训、改协议按用户授权；先查实时队列和GPU，不重复启动、不停止无关进程，不覆盖活动源码。脚本放train_scripts/<tag>/<Run>/，pipeline.py为该轮唯一调度器，placement记录物理GPU。Run10仅授权物理GPU1，按实测显存与1GiB留量并行补位，优先LEVIR→SYSU→WHU→CDD，正式12项，可补空闲容量；不沿用历史两卡授权。新失败保留日志/权重并查原因，不擅自重启。精确续训检查optimizer、步数和随机状态，缺失时说明轨迹差异。日志、样本和特征放outputs/<tag>/<Run>/，分析放analysis子目录。使用项目tools及该轮collector汇表，逐单元格保留全部历史；冻结TXT用实际运行源码，current TXT用当前源码。按用户任务更新README并提交推送，Git只含源码、文档、指标表与规定快照，数据、权重、outputs、凭据不提交。自动化由桌面应用工具管理，不把工具目录当作自动化状态。
+【训练与结果管理】启动、停止、续训、改协议按用户授权；先查实时队列和GPU，不重复启动、不停止无关进程，不覆盖活动源码。脚本放train_scripts/<tag>/<Run>/，pipeline.py为该轮唯一调度器，placement记录物理GPU。Run11仅授权物理GPU1，按实测显存与1GiB留量并行补位，优先LEVIR→SYSU→WHU→CDD，正式24项，可补空闲容量；不沿用历史两卡授权。新失败保留日志/权重并查原因，不擅自重启。精确续训检查optimizer、步数和随机状态，缺失时说明轨迹差异。日志、样本和特征放outputs/<tag>/<Run>/，分析放analysis子目录。使用项目tools及该轮collector汇表，逐单元格保留全部历史；冻结TXT用实际运行源码，current TXT用当前源码。按用户任务更新README并提交推送，Git只含源码、文档、指标表与规定快照，数据、权重、outputs、凭据不提交。自动化由桌面应用工具管理，不把工具目录当作自动化状态。
 
 【研究协作】读相关材料后围绕真实薄弱点给出机制、依据、最小改动及必要对照，说明如何验证和什么结果会否定假设。多个方案合理时选一个并解释取舍，不强制每次列候选、证据表或大清单。文献优先2024–2026年相关高水平工作，基础理论可引用更早原始文献；核实题名、年份、venue与官方代码，区分会议/期刊和发表/预印本，不虚构引用。避免过度防御、兼容框架及无用开关，不新增哈希/校验和。只运行会影响下一步判断的检查，授权范围内直接推进。交付文字只呈现准确的最终内容，注意事项集中说明，不加入生成署名或试错叙事。
 ```
 
 ## 当前状态摘要
+Run11执行一阶压缩与内部加权的24项配对。部署前进行冻结等价性、数学/损失/梯度/部署检查，六组SYSU及双曲两组WHU各2epoch train/val探针。实际状态以.codex/STATE.md及服务器本轮队列为准，正式源码在Run11独立runtime中，按用户最新授权仅使用GPU1。当前指标表275条；Run11全收至少299条，其他新增全部保留。
 
-Run10现行工作版为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式已于2026-11-01 03:44 CST完成12/12，无失败；2026-11-02收集后指标表275条，原263条保留；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
+历史Run10为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式已于2026-11-01 03:44 CST完成12/12，无失败；2026-11-02收集后指标表275条，原263条保留；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
 
 Run9于2026-10-31 13:22 CST停止，0项完整TEST，日志、源码与checkpoint保留。
 
