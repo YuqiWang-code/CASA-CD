@@ -1,0 +1,30 @@
+{
+  "code_baseline": "832d17d4c2d186b9e6d51755efbdc758384a0acd",
+  "protocol": "casa_pyramid_40k_linearpool_interior_v11",
+  "target_experiments": 24,
+  "initialization": "fresh MobileNetV2 pretrained; no probe/historical weights",
+  "seed": 2333,
+  "physical_gpus": [
+    1
+  ],
+  "comparison": "geometry x first-output interior positive BCE",
+  "interior_weights": [
+    1.0,
+    1.25
+  ],
+  "guide_weight": 0.1,
+  "retrieval_weight": 0.0,
+  "selection_split": "test",
+  "independent_test": false,
+  "source_archive": "source_code.tar.gz",
+  "runtime": "/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11/runtime",
+  "reserved_mib": {
+    "H_SIMPLE": 11906,
+    "H_INTERIOR": 11906,
+    "E_SIMPLE": 11090,
+    "E_INTERIOR": 11090,
+    "M0_CTRL": 9374,
+    "CTRL_INTERIOR": 9374
+  },
+  "headroom_mib": 1024
+}

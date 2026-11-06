@@ -43,7 +43,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 ```
 
 ## 当前状态摘要
-Run11执行一阶压缩与内部加权的24项配对。部署前进行冻结等价性、数学/损失/梯度/部署检查，六组SYSU及双曲两组WHU各2epoch train/val探针。实际状态以.codex/STATE.md及服务器本轮队列为准，正式源码在Run11独立runtime中，按用户最新授权仅使用GPU1。当前指标表275条；Run11全收至少299条，其他新增全部保留。
+Run11执行一阶压缩与内部加权的24项配对，已于2026-11-06启动，源码832d17d。冻结等价性、数学/损失/梯度/部署检查及八项2epoch train/val探针通过，正式首发前3轮正常。实际状态以.codex/STATE.md及服务器本轮队列为准，正式源码在Run11独立runtime中，按用户最新授权仅使用GPU1。当前指标表275条；Run11全收至少299条，其他新增全部保留。
 
 历史Run10为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式已于2026-11-01 03:44 CST完成12/12，无失败；2026-11-02收集后指标表275条，原263条保留；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
 

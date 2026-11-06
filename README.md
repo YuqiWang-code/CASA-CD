@@ -22,7 +22,11 @@
 
 <!-- CASA_PYRAMID_RUN11_RESULTS_START -->
 
-准备模型/损失检查及2epoch真实数据配对探针；正式0/24。
+2026-11-06 10:23:43 CST正式启动，源码832d17d。GPU1首发H_SIMPLE/LEVIR与M0_CTRL/LEVIR，两路按实测显存补位；24项，正式0/24。八项2epoch真实探针全部通过，冻结posterior_off与直接池化四层差均0。
+
+正式首发前三轮主损失H为1.9253→1.2052→1.1026，CTRL为1.9291→1.2068→1.1179；无非有限值/OOM，H四层全局分支非零。早期评估有波动，不作最终收益结论。按当前两路吞吐预计余下34–42小时，约11月7日晚至8日凌晨，随共享GPU负载变化。
+
+[启动与探针记录](docs/experiments/CASA-Pyramid/Run11/README.md) · [初期健康](docs/experiments/CASA-Pyramid/Run11/initial_health.json) · [实际源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run11.txt)。
 
 <!-- CASA_PYRAMID_RUN11_RESULTS_END -->
 

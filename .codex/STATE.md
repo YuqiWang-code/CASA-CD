@@ -2,13 +2,17 @@
 
 更新：2026-11-06。
 
-## CASA-Pyramid / Run11 准备与真实配对短训
+## CASA-Pyramid / Run11 GPU1正式训练中
 
-用户2026-11-06授权仅GPU1，结构简化与内部加权分开对照。四库H/E/CTRL×普通/1.25内部正样本BCE，共24项。协议casa_pyramid_40k_linearpool_interior_v11，来源为当前models。一阶guide压缩，无后验；H/E保持可变半径和完整224KV；辅助统一0.1 raw-guide BCE，加权仅首级BCE，Dice/其他头不变。
+2026-11-06 10:23:43 CST正式启动，唯一supervisor2007146。首发GPU1两路：H_SIMPLE/LEVIR PID2007167、M0_CTRL/LEVIR PID2007305，以实时pipeline_status.json为准。四库H/E/CTRL×普通/1.25内部正样本BCE，共24项；LEVIR→SYSU→WHU→CDD，按剩余显存补位。GPU1另有约8GiB进程，不停止无关任务，不操作GPU0。
 
-独立runtime=/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11/runtime；预检源source_preflight.tar.gz已归档。prepare初始PID1991396，先通过模型/损失/梯度/部署及恢复/数据检查，再测batch32显存，完成六组SYSU+双曲两组WHU各2完整train/val epoch。当前准备进度见probe_status.json；不得重复启动。模型冻结等价性四层差均0。GPU1约8GiB为其他进程，保留并按剩余显存补位，不操作GPU0。
+源码832d17d，协议casa_pyramid_40k_linearpool_interior_v11。实际runtime=/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11/runtime；训练入口runtime/models/train_CASA.py，唯一调度runtime/train_scripts/CASA-Pyramid/Run11/pipeline.py。源以source_code.tar.gz和manifest为准，已本地下载并冻结TXT。不得覆盖活动模型/训练代码。
 
-完成短训且人工阅读损失与诊断后，保存正式源码/配置/环境，再唯一启动runtime/train_scripts/CASA-Pyramid/Run11/pipeline.py。正式全部从预训练重新初始化，不能用探针续训。旧Run10已完成，历史275条指标保持；新轮全收至少299，其他新增全部保留。
+一阶guide压缩，无后验；H/E保持可变半径、224KV和中心化写回。辅助统一0.1 raw-guide BCE，加权仅首级BCE对GT两像素边界带之外正像素乘1.25并归一化；Dice/其他头/推理不变。共同40K/batch32/seed2333，从预训练全新初始化，不用探针权重。每epoch test选模，非独立盲测。
+
+八项2epoch真实train/val探针已完成，损失、任务梯度与折叠正常；冻结等价性四层误差0。正式首发前三轮主损失H1.9253→1.2052→1.1026、CTRL1.9291→1.2068→1.1179，无NaN/OOM，四层全局分支非零；initial_health.json与日志已保存。早期F1波动，不代表最终有效性。按当前吞吐估计余下34–42h，约11月7日晚至8日凌晨。无定时自动化。
+
+现有275条正式指标不变；Run11全收至少299条，其他新增保留。下次先读实时状态，不重复启动；完整TEST出现后调用Run11/collect_results.py汇表/冻结TXT；完整日志、逐轮与曲线使用tools/export_training_records.py。新失败先读原因保留日志/checkpoint，不擅自重复启动。用户后续指令优先。
 
 ## CASA-Pyramid / Run10 已完成并收集
 

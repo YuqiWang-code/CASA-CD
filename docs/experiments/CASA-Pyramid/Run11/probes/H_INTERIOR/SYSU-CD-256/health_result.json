@@ -1,0 +1,39 @@
+{
+  "protocol": "casa_pyramid_40k_linearpool_interior_v11",
+  "passed": true,
+  "epochs": 2,
+  "step": 750,
+  "module": "hyperbolic",
+  "interior_positive_weight": 1.25,
+  "task_gradients": {
+    "context.scale_bias": 0.0003398695553187281,
+    "context.raw_temperature": 0.012258189730346203,
+    "context.gamma_context": 0.000748486490920186,
+    "context.gamma_detail": 0.00011680325405905023,
+    "context.norm.weight": 0.0005119896959513426,
+    "context.norm.bias": 0.00017306212976109236,
+    "context.guide.weight": 0.00027099892031401396,
+    "context.guide.bias": 5.187521310290322e-05,
+    "context.qk.weight": 0.00030685047386214137,
+    "context.v.weight": 0.00016569225408602506,
+    "context.out.weight": 4.977668868377805e-05,
+    "context.gate.weight": 0.0009529670351184905,
+    "context.gate.bias": 0.002103927079588175,
+    "context.local_dw.weight": 4.603673005476594e-05,
+    "context.local_out.weight": 1.7219797882717103e-05
+  },
+  "fold": {
+    "policy": "strict_fp32_fold_v1",
+    "tolerance": 0.0002,
+    "max_diff": 4.76837158203125e-07,
+    "per_scale_max_diff": [
+      4.76837158203125e-07,
+      4.76837158203125e-07,
+      4.76837158203125e-07,
+      4.172325134277344e-07
+    ],
+    "binary_disagreement": 0
+  },
+  "initial_train_main": 2.426496718088786,
+  "final_train_main": 1.878599857012431
+}

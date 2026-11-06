@@ -1,0 +1,39 @@
+{
+  "protocol": "casa_pyramid_40k_linearpool_interior_v11",
+  "passed": true,
+  "epochs": 2,
+  "step": 750,
+  "module": "matched",
+  "interior_positive_weight": 1.0,
+  "task_gradients": {
+    "context.scale_bias": 0.00022693054052069783,
+    "context.raw_temperature": 0.009418349713087082,
+    "context.gamma_context": 0.0007350001251325011,
+    "context.gamma_detail": 0.0001729553914628923,
+    "context.norm.weight": 0.0005725725786760449,
+    "context.norm.bias": 0.00015041499864310026,
+    "context.guide.weight": 0.0003849051718134433,
+    "context.guide.bias": 9.484970360063016e-05,
+    "context.qk.weight": 0.00033737040939740837,
+    "context.v.weight": 0.0001983004913199693,
+    "context.out.weight": 7.119766814867035e-05,
+    "context.gate.weight": 0.0012883621966466308,
+    "context.gate.bias": 0.0016038140747696161,
+    "context.local_dw.weight": 5.147796400706284e-05,
+    "context.local_out.weight": 1.847724888648372e-05
+  },
+  "fold": {
+    "policy": "strict_fp32_fold_v1",
+    "tolerance": 0.0002,
+    "max_diff": 3.2782554626464844e-07,
+    "per_scale_max_diff": [
+      3.2782554626464844e-07,
+      4.172325134277344e-07,
+      4.172325134277344e-07,
+      1.7881393432617188e-07
+    ],
+    "binary_disagreement": 0
+  },
+  "initial_train_main": 2.414158933321635,
+  "final_train_main": 1.8667617950439452
+}
