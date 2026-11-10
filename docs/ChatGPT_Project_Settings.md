@@ -1,6 +1,6 @@
 # ChatGPT 项目设置
 
-_CASA-CD 项目指令，更新于 2026-11-06。_
+_CASA-CD 项目指令，更新于 2026-11-10。_
 
 ## 名称
 
@@ -43,7 +43,7 @@ CASA-CD 轻量遥感二值变化检测（双曲QKV / 变化感知压缩QKV + 结
 ```
 
 ## 当前状态摘要
-Run11执行一阶压缩与内部加权的24项配对，已于2026-11-06启动，源码832d17d。冻结等价性、数学/损失/梯度/部署检查及八项2epoch train/val探针通过，正式首发前3轮正常。实际状态以.codex/STATE.md及服务器本轮队列为准，正式源码在Run11独立runtime中，按用户最新授权仅使用GPU1。当前指标表275条；Run11全收至少299条，其他新增全部保留。
+Run11 的 24 项配对已于 2026-11-10 10:36 CST 全部完成，源码基线 832d17d，使用 GPU1。当前指标表 299 条。SYSU H-simple 相对 CTRL 的 F1 提高 0.50 个百分点，主要来自误报减少；内部正像素加权在三种结构中均降低 SYSU 内部召回。WHU 的 E-simple 提高 1 像素边界 F1，H-simple 的边界 F1 低于 CTRL。所有正式结果均为 test 选模后同集复测。[完整记录](experiments/CASA-Pyramid/Run11/README.md) · [结果分析](experiments/CASA-Pyramid/Run11/RESULT_ANALYSIS.md)。
 
 历史Run10为“几何归属与空间检索”，源码采用区域后验监督和空间中心化读出。LEVIR/SYSU共6项配对train/val短训，每项4轮：H_CENTER_RAW、H_CENTER_SUP、E_CENTER_SUP；温度初始均为0.5，与同设置H05/E05及CTRL记录比较。正式已于2026-11-01 03:44 CST完成12/12，无失败；2026-11-02收集后指标表275条，原263条保留；探针不入表，正式单seed和test选模口径保持。公式、参数、监督差异及已有指标见[Run10方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md)和[短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)。
 
@@ -78,7 +78,7 @@ Run5于2026-10-27 12:54:33 CST启动，2026-10-27 22:10:22 CST完成，历时9�
 
 117份日志与JSON已下载至`outputs/CASA-Pyramid/Run5`；指标表共221条正式记录，原209条历史单元格完整保留。Run5冻结TXT来自该轮`source_code.tar.gz`内实际运行源码，current TXT来自工作源码。完整日志、逐轮CSV、曲线、实际best_epoch及模块诊断见`docs/experiments/CASA-Pyramid/Run5`。
 
-Run5队列已结束，不重启历史队列；当前轮次以Run10实时状态为准。长期规则与工作实现见README、AGENTS及models说明。
+当前轮次为 Run11，运行状态见 `.codex/STATE.md`。长期规则与工作实现见 README、AGENTS 及 models 说明。
 
 ## 建议放入项目来源
 
@@ -89,7 +89,7 @@ Run5队列已结束，不重启历史队列；当前轮次以Run10实时状态�
 | [.codex/STATE.md](../.codex/STATE.md) | 当前状态与源码基线 |
 | [.codex/SERVER.md](../.codex/SERVER.md) | 连接入口、环境与服务器路径 |
 | [models/SOURCES.md](../models/SOURCES.md) | 当前实现来源 |
-| [Run10机制方案](temporary/CASA_Pyramid_Run10_区域几何归属方案.md) | 几何归属、空间检索与监督目标 |
+| [Run11结果分析](experiments/CASA-Pyramid/Run11/RESULT_ANALYSIS.md) | 一阶池化、几何距离和内部加权的正式配对证据 |
 | [文献索引](参考文献/文献索引.md) | 原始论文、官方来源及本地全文 |
 | [experiment_metrics.xlsx](experiment_metrics.xlsx) | 全部正式历史指标 |
 | [本文件](ChatGPT_Project_Settings.md) | 可复制的项目指令 |
@@ -100,7 +100,7 @@ Run5队列已结束，不重启历史队列；当前轮次以Run10实时状态�
 
 [CASA-Pyramid/Run5完整记录](experiments/CASA-Pyramid/Run5/README.md)提供12项完整日志、逐轮曲线、诊断及正式测试；[结果分析](experiments/CASA-Pyramid/Run5/analysis.md)对照同轮CTRL和Run4。
 
-当前Run10的[配对短训记录](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md)用于结构评价，正式12项已收集，分析见experiments/CASA-Pyramid/Run10/RESULT_ANALYSIS.md。文献与官方来源见[文献索引](参考文献/文献索引.md)及[双曲类别归属文献](参考文献/双曲类别归属/README.md)；[Run5调研](参考文献/Run5_原型选择与自参照检索/README.md)保留为历史来源。
+[Run10 结果分析](experiments/CASA-Pyramid/Run10/RESULT_ANALYSIS.md)记录历史区域后验与中心化检索实验。[配对短训](experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md) · [文献索引](参考文献/文献索引.md) · [双曲类别归属文献](参考文献/双曲类别归属/README.md)。
 
 [CASA-Pyramid/Run3完整记录](experiments/CASA-Pyramid/Run3/README.md)保存12项完整日志、逐轮表格、曲线和模块诊断；[结果分析](experiments/CASA-Pyramid/Run3/analysis.md)对照同轮CTRL与Run2解释精度、泛化和开销。
 
@@ -114,10 +114,9 @@ Run5队列已结束，不重启历史队列；当前轮次以Run10实时状态�
 |---|---|
 | `docs/temporary/models_and_metrics_CASA-Pyramid_current.txt` | 当前模型源码与全部正式指标 |
 | `docs/temporary/models_and_metrics_CASA-Pyramid_Run2.txt` | CASA-Pyramid Run2实际运行源码与指标冻结快照 |
-| `docs/temporary/CASA_Pyramid_Run10_区域几何归属方案.md` | 当前几何归属、空间检索、监督与配对证据 |
-| `train_scripts/CASA-Pyramid/Run10/README.md`及相关脚本 | 本轮变体、协议、探针与调度说明 |
-| `docs/experiments/CASA-Pyramid/Run10/selection/centered/probe_comparison.md` | 当前六项配对短训记录及独立BCE |
-| `outputs/CASA-Pyramid/Run10/<variant>/<dataset>/train_log.txt`、`result.json`和manifest | 正式训练后对应的测试、配置与部署校验 |
+| `docs/temporary/models_and_metrics_CASA-Pyramid_Run11.txt` | Run11 实际训练源码与冻结指标 |
+| `train_scripts/CASA-Pyramid/Run11/README.md`及相关脚本 | 本轮变体、协议、探针与调度说明 |
+| `docs/experiments/CASA-Pyramid/Run11/` | 正式日志、逐轮曲线、空间诊断、探针、测试与部署校验 |
 | `docs/temporary/CASA-Pyramid_Run5_design.md` | 历史普通QKV与自身竞争检索依据 |
 | `docs/temporary/CASA_Run6_analysis_Run7_design.md` | Run6验证分析及Run7机制依据 |
 | `outputs/<tag>/<Run>/analysis/`中的相关样本、统计和特征 | 数据集特征、压缩与几何诊断 |

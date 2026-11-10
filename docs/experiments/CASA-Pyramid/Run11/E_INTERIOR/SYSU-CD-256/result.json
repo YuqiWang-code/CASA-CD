@@ -1,0 +1,94 @@
+{
+  "protocol": "casa_pyramid_40k_linearpool_interior_v11",
+  "module": "matched",
+  "metrics": {
+    "Kappa": 0.7778326648214213,
+    "IoU": 0.7059847970370008,
+    "F1": 0.8276565506833798,
+    "OA": 0.9225131111145015,
+    "recall": 0.7889659579135636,
+    "precision": 0.8703377084393402,
+    "Pre": 0.6512228549565384
+  },
+  "best_epoch": 12,
+  "selection_split": "test",
+  "independent_test": false,
+  "optimizer_steps": 40125,
+  "test_loss": 2.1108424172401428,
+  "spatial_diagnostics": {
+    "boundary_1px": {
+      "precision": 0.25142824582257683,
+      "recall": 0.23709644956602102,
+      "F1": 0.244052122514407,
+      "predicted_pixels": 3158945,
+      "target_pixels": 3358688
+    },
+    "boundary_2px": {
+      "precision": 0.34841980471328243,
+      "recall": 0.3296733724597224,
+      "F1": 0.33878745847424974,
+      "predicted_pixels": 3158945,
+      "target_pixels": 3358688
+    },
+    "interior": {
+      "precision": 0.8841377032745402,
+      "recall": 0.8085849016451698,
+      "F1": 0.844675194583273,
+      "predicted_pixels": 53504610,
+      "target_pixels": 58503990,
+      "tp": 47305443,
+      "fp": 6199167,
+      "fn": 11198547,
+      "tn": 190749164
+    },
+    "definition": {
+      "boundary": "3x3 morphological gradient, replicate padding",
+      "boundary_tolerance": "Chebyshev distance in input pixels",
+      "interior": "outside GT dilation2-minus-erosion2 band"
+    }
+  },
+  "total_params_m": 2.058409,
+  "deploy_params_m": 1.947094,
+  "elapsed_seconds": 5164.844490289688,
+  "elapsed_scope": "current_session",
+  "session_optimizer_steps": 20625,
+  "continuation": {
+    "start_epoch": 52,
+    "start_step": 19500,
+    "remaining_steps": 20625,
+    "source_files": [
+      "models/analyze_hyperbolic.py",
+      "models/dataset/casa_transforms.py",
+      "models/dataset/dataset.py",
+      "models/model/casa_net.py",
+      "models/model/layers/__init__.py",
+      "models/model/layers/class_pooling.py",
+      "models/model/layers/euclidean_context.py",
+      "models/model/layers/hyperbolic_context.py",
+      "models/model/layers/lorentz_ops.py",
+      "models/model/layers/pyramid_context.py",
+      "models/model/metric_tool.py",
+      "models/model/mobilenet_v2.py",
+      "models/model/str_dcr.py",
+      "models/model/str_reparam.py",
+      "models/model/str_tar.py",
+      "models/profile_CASA.py",
+      "models/test_CASA.py",
+      "models/test_CASA_resume.py",
+      "models/test_attribution.py",
+      "models/test_centered_readout.py",
+      "models/test_context_geometry.py",
+      "models/test_data_pipeline.py",
+      "models/test_direct_geometry.py",
+      "models/test_hyperbolic_context.py",
+      "models/test_interior_loss.py",
+      "models/test_pyramid_context.py",
+      "models/train_CASA.py"
+    ],
+    "rng_state": "restored",
+    "session_started": "2026-11-09 12:13:40"
+  },
+  "deploy_verification": "strict_fp32_fold_v1",
+  "deploy_max_diff": 1.1920928955078125e-06,
+  "deploy_binary_disagreement": 0
+}

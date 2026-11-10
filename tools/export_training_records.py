@@ -199,8 +199,9 @@ def main():
             for filename in ('train_log.txt', 'run_manifest.json', 'evaluation_manifest.json',
                              'result.json', 'deploy_check.json', 'arch.json', 'placement.json'):
                 shutil.copyfile(original / filename, published / filename)
-            if (original / 'auxiliary_validation.json').exists():
-                shutil.copyfile(original / 'auxiliary_validation.json', published / 'auxiliary_validation.json')
+            for filename in ('auxiliary_validation.json', 'continuations.json'):
+                if (original / filename).exists():
+                    shutil.copyfile(original / filename, published / filename)
             write_csv(published / 'epochs.csv', rows)
             with (published / 'module_diagnostics.jsonl').open('w', encoding='utf-8') as file:
                 for event in diagnostics:
@@ -232,7 +233,7 @@ def main():
     for filename in ('environment.json', source_record, 'pipeline_status.json', 'pipeline.log',
                      'scheduling.json', 'profile.json', inference_record):
         shutil.copyfile(source / filename, destination / filename)
-    for filename in ('validation.log', 'startup_health.json'):
+    for filename in ('validation.log', 'startup_health.json', 'user_resume.json'):
         if (source / filename).exists():
             shutil.copyfile(source / filename, destination / filename)
     probe_names = [path.parent.relative_to(source / 'probes').as_posix()
@@ -260,6 +261,10 @@ def main():
                   '圆点为实际选中checkpoint的验证F1，正式测试值不混入验证曲线。')
     guide_weight = manifest.get('auxiliary_weights', {}).get('guide', manifest.get('guide_weight', 0.2))
     boundary_weight = manifest.get('boundary_weight', 0.0)
+    weighted_interior = any(item.get('interior_positive_weight', 1.) != 1.
+                            for item in variant_manifests.values())
+    loss_comparison = (f'主损失图记录各组实际优化的训练BCE+Dice及{evaluation_name}未加权BCE+Dice。'
+                       if weighted_interior else f'主损失图比较相同定义的训练/{evaluation_name}BCE+Dice。')
     loss_formula = f'main+{guide_weight:g}×guide'
     loss_note = '评分损失单独展示'
     boundary_note = ''
@@ -305,7 +310,7 @@ epoch沿用日志的0起始索引，例如177表示第178轮。{selection_note}`
 
 ## 完整训练与{evaluation_name}曲线
 
-曲线逐epoch绘制，不平滑、不省略后期。主损失图比较相同定义的训练/{evaluation_name}BCE+Dice；{loss_note}，总训练损失为{loss_formula}。{curve_note}
+曲线逐epoch绘制，不平滑、不省略后期。{loss_comparison}{loss_note}，总训练损失为{loss_formula}。{curve_note}
 
 '''
     for dataset in datasets:

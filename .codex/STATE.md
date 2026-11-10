@@ -1,18 +1,16 @@
 # 当前状态
 
-更新：2026-11-06。
+更新：2026-11-10。
 
-## CASA-Pyramid / Run11 GPU1正式训练中
+## CASA-Pyramid / Run11 已完成并收集
 
-2026-11-06 10:23:43 CST正式启动，唯一supervisor2007146。首发GPU1两路：H_SIMPLE/LEVIR PID2007167、M0_CTRL/LEVIR PID2007305，以实时pipeline_status.json为准。四库H/E/CTRL×普通/1.25内部正样本BCE，共24项；LEVIR→SYSU→WHU→CDD，按剩余显存补位。GPU1另有约8GiB进程，不停止无关任务，不操作GPU0。
+2026-11-10 10:36:14 CST 完成 24/24 项，队列无失败。24 项部署折叠通过，最大绝对差 3.994e-6，首级二值差均为 0。仅 GPU1，协议 casa_pyramid_40k_linearpool_interior_v11，模型与训练源码基线 832d17d。每 epoch test F1 选模，同集复测。
 
-源码832d17d，协议casa_pyramid_40k_linearpool_interior_v11。实际runtime=/home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11/runtime；训练入口runtime/models/train_CASA.py，唯一调度runtime/train_scripts/CASA-Pyramid/Run11/pipeline.py。源以source_code.tar.gz和manifest为准，已本地下载并冻结TXT。不得覆盖活动模型/训练代码。
+2026-11-09 12:13:36 CST 恢复队列，SYSU E_SIMPLE/E_INTERIOR 分别从 23,250/19,500 步接续，恢复优化器与随机状态。恢复前记录见服务器 Run11/archive/resume_20261109_121333。日志与源码根为 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run11，权重根为 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run11。
 
-一阶guide压缩，无后验；H/E保持可变半径、224KV和中心化写回。辅助统一0.1 raw-guide BCE，加权仅首级BCE对GT两像素边界带之外正像素乘1.25并归一化；Dice/其他头/推理不变。共同40K/batch32/seed2333，从预训练全新初始化，不用探针权重。每epoch test选模，非独立盲测。
+24 条完整 TEST 已入表，共 299 条，原 275 条历史单元格保留。冻结 TXT 来自 source_code.tar.gz，current TXT 来自工作源码。完整日志、逐轮 CSV、诊断、曲线、续训和结果分析见 docs/experiments/CASA-Pyramid/Run11。
 
-八项2epoch真实train/val探针已完成，损失、任务梯度与折叠正常；冻结等价性四层误差0。正式首发前三轮主损失H1.9253→1.2052→1.1026、CTRL1.9291→1.2068→1.1179，无NaN/OOM，四层全局分支非零；initial_health.json与日志已保存。早期F1波动，不代表最终有效性。按当前吞吐估计余下34–42h，约11月7日晚至8日凌晨。无定时自动化。
-
-现有275条正式指标不变；Run11全收至少299条，其他新增保留。下次先读实时状态，不重复启动；完整TEST出现后调用Run11/collect_results.py汇表/冻结TXT；完整日志、逐轮与曲线使用tools/export_training_records.py。新失败先读原因保留日志/checkpoint，不擅自重复启动。用户后续指令优先。
+SYSU H-simple 相对 CTRL 提高 0.4971pp，主要来自误报减少。SYSU 三种结构的内部正像素加权均降低内部召回，后期评估回落仍在。WHU E-simple 的 1px 边界 F1 提高 0.6226pp，H-simple 下降 0.8986pp。
 
 ## CASA-Pyramid / Run10 已完成并收集
 

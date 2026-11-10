@@ -1,35 +1,75 @@
-# Run11：一阶压缩与内部漏检对照
+# CASA-Pyramid / Run11 完整训练记录
 
-源码832d17d，协议casa_pyramid_40k_linearpool_interior_v11。GPU1，24项：H/E/CTRL×普通或1.25内部正样本BCE×四库。训练入口位于本轮冻结runtime，不覆盖旧轮次运行源码。
+协议`casa_pyramid_40k_linearpool_interior_v11`，模型/训练源码基线`832d17d4c2d186b9e6d51755efbdc758384a0acd`。本目录保存24项正式实验的实际日志、逐轮指标、模块诊断和最终测试，来源为`outputs/CASA-Pyramid/Run11`。本轮于2026-11-06 10:23:43 CST启动，2026-11-10 10:36:14 CST完成。
 
-## 配对探针与准入
+## 训练接续
 
-各项2个完整train/val epoch，seed/context2333、batch32、40K正式LR日程，预训练全新初始化。该表只用于健康检查，不是正式指标或完整预算收益。训练主损失按各组实际目标记录，跨权重直接比较数值大小不能代表优劣。
+LEVIR 六组完成后暂停队列，2026-11-09 12:13:36 CST 恢复。SYSU 的 E_SIMPLE 和 E_INTERIOR 分别从 23,250 和 19,500 步接续，恢复优化器及随机状态。续训组 `result.json` 的 `elapsed_seconds` 仅计恢复后的会话，`optimizer_steps` 记录全程总步数。原始日志保留接续前后记录，逐轮 CSV 使用对应轮次最后记录的训练值。
 
-| 数据集 | 组别 | 主训练损失 epoch0→1 | val F1 epoch0→1 (%) | 最大折叠差 |
-|---|---|---|---|
-| SYSU | CTRL_INTERIOR | 2.4236→1.8784 | 78.880→78.809 | 4.768e-07 |
-| SYSU | E_INTERIOR | 2.4282→1.8887 | 78.570→78.671 | 6.258e-07 |
-| SYSU | E_SIMPLE | 2.4142→1.8668 | 78.513→79.406 | 3.278e-07 |
-| SYSU | H_INTERIOR | 2.4265→1.8786 | 78.835→78.521 | 4.768e-07 |
-| WHU | H_INTERIOR | 2.0542→1.2226 | 85.917→83.612 | 4.657e-09 |
-| SYSU | H_SIMPLE | 2.4103→1.8660 | 78.676→79.028 | 6.258e-07 |
-| WHU | H_SIMPLE | 2.0393→1.1923 | 85.144→84.275 | 1.024e-08 |
-| SYSU | M0_CTRL | 2.4082→1.8660 | 78.396→79.057 | 5.364e-07 |
+[续训记录](user_resume.json) · [初期健康](initial_health.json) · [模型验证](validation_result.json) · [正式结果分析](RESULT_ANALYSIS.md)
 
-所有组有限梯度，H/E主任务对QK/V/out/gate/guide及局部投影梯度非零，四层全局残差非零。冻结Run10 WHU上下文禁用后验后，与新直接池化的四层输出差均0。首级BCE归一化、加权范围、常量/稀疏输入、几何、恢复和部署检查通过。加权组早期val有波动，尚不能判断有效。
+## 正式结果与最佳epoch
 
-[显存profile](profile.json)使用加权1.25覆盖所有模块。实测process memory CTRL/H/E为9246/11778/10962MiB；按peak reserved+CUDA上下文+128MiB预留，并另外保留1GiB。GPU1另有约8GiB进程，不停止无关任务。共享GPU期间未进行独占batch1延迟测量。
+epoch沿用日志的0起始索引，例如177表示第178轮。每个epoch在test集评估并按最高F1选模，相同F1更新；最后用选中的checkpoint在同一test集复测。test参与checkpoint选择，最终数值不属于独立盲测。`summary.csv`提供选模split、独立测试标记、全部Recall/Precision/OA/F1/IoU/Kappa、参数与部署误差。
 
-## 启动与评价
+| 数据集 | 变体 | best_epoch (0起始) | 最佳test选模F1(%) | 最终test复测F1(%) | 实际记录 |
+|---|---|---:|---:|---:|---|
+| LEVIR | H_SIMPLE | 169 | 91.039 | 91.039 | [日志](H_SIMPLE/LEVIR-CD-256/train_log.txt) / [逐轮](H_SIMPLE/LEVIR-CD-256/epochs.csv) / [结果](H_SIMPLE/LEVIR-CD-256/result.json) |
+| LEVIR | H_INTERIOR | 168 | 91.041 | 91.041 | [日志](H_INTERIOR/LEVIR-CD-256/train_log.txt) / [逐轮](H_INTERIOR/LEVIR-CD-256/epochs.csv) / [结果](H_INTERIOR/LEVIR-CD-256/result.json) |
+| LEVIR | E_SIMPLE | 155 | 91.136 | 91.136 | [日志](E_SIMPLE/LEVIR-CD-256/train_log.txt) / [逐轮](E_SIMPLE/LEVIR-CD-256/epochs.csv) / [结果](E_SIMPLE/LEVIR-CD-256/result.json) |
+| LEVIR | E_INTERIOR | 174 | 91.038 | 91.038 | [日志](E_INTERIOR/LEVIR-CD-256/train_log.txt) / [逐轮](E_INTERIOR/LEVIR-CD-256/epochs.csv) / [结果](E_INTERIOR/LEVIR-CD-256/result.json) |
+| LEVIR | M0_CTRL | 172 | 91.046 | 91.046 | [日志](M0_CTRL/LEVIR-CD-256/train_log.txt) / [逐轮](M0_CTRL/LEVIR-CD-256/epochs.csv) / [结果](M0_CTRL/LEVIR-CD-256/result.json) |
+| LEVIR | CTRL_INTERIOR | 171 | 91.040 | 91.040 | [日志](CTRL_INTERIOR/LEVIR-CD-256/train_log.txt) / [逐轮](CTRL_INTERIOR/LEVIR-CD-256/epochs.csv) / [结果](CTRL_INTERIOR/LEVIR-CD-256/result.json) |
+| SYSU | H_SIMPLE | 12 | 83.520 | 83.520 | [日志](H_SIMPLE/SYSU-CD-256/train_log.txt) / [逐轮](H_SIMPLE/SYSU-CD-256/epochs.csv) / [结果](H_SIMPLE/SYSU-CD-256/result.json) |
+| SYSU | H_INTERIOR | 11 | 83.086 | 83.086 | [日志](H_INTERIOR/SYSU-CD-256/train_log.txt) / [逐轮](H_INTERIOR/SYSU-CD-256/epochs.csv) / [结果](H_INTERIOR/SYSU-CD-256/result.json) |
+| SYSU | E_SIMPLE | 12 | 83.025 | 83.025 | [日志](E_SIMPLE/SYSU-CD-256/train_log.txt) / [逐轮](E_SIMPLE/SYSU-CD-256/epochs.csv) / [结果](E_SIMPLE/SYSU-CD-256/result.json) |
+| SYSU | E_INTERIOR | 12 | 82.766 | 82.766 | [日志](E_INTERIOR/SYSU-CD-256/train_log.txt) / [逐轮](E_INTERIOR/SYSU-CD-256/epochs.csv) / [结果](E_INTERIOR/SYSU-CD-256/result.json) |
+| SYSU | M0_CTRL | 30 | 83.023 | 83.023 | [日志](M0_CTRL/SYSU-CD-256/train_log.txt) / [逐轮](M0_CTRL/SYSU-CD-256/epochs.csv) / [结果](M0_CTRL/SYSU-CD-256/result.json) |
+| SYSU | CTRL_INTERIOR | 3 | 82.969 | 82.969 | [日志](CTRL_INTERIOR/SYSU-CD-256/train_log.txt) / [逐轮](CTRL_INTERIOR/SYSU-CD-256/epochs.csv) / [结果](CTRL_INTERIOR/SYSU-CD-256/result.json) |
+| WHU | H_SIMPLE | 153 | 94.592 | 94.592 | [日志](H_SIMPLE/WHU-CD-256/train_log.txt) / [逐轮](H_SIMPLE/WHU-CD-256/epochs.csv) / [结果](H_SIMPLE/WHU-CD-256/result.json) |
+| WHU | H_INTERIOR | 182 | 94.329 | 94.329 | [日志](H_INTERIOR/WHU-CD-256/train_log.txt) / [逐轮](H_INTERIOR/WHU-CD-256/epochs.csv) / [结果](H_INTERIOR/WHU-CD-256/result.json) |
+| WHU | E_SIMPLE | 188 | 94.640 | 94.640 | [日志](E_SIMPLE/WHU-CD-256/train_log.txt) / [逐轮](E_SIMPLE/WHU-CD-256/epochs.csv) / [结果](E_SIMPLE/WHU-CD-256/result.json) |
+| WHU | E_INTERIOR | 164 | 94.367 | 94.366 | [日志](E_INTERIOR/WHU-CD-256/train_log.txt) / [逐轮](E_INTERIOR/WHU-CD-256/epochs.csv) / [结果](E_INTERIOR/WHU-CD-256/result.json) |
+| WHU | M0_CTRL | 187 | 94.617 | 94.617 | [日志](M0_CTRL/WHU-CD-256/train_log.txt) / [逐轮](M0_CTRL/WHU-CD-256/epochs.csv) / [结果](M0_CTRL/WHU-CD-256/result.json) |
+| WHU | CTRL_INTERIOR | 167 | 94.440 | 94.440 | [日志](CTRL_INTERIOR/WHU-CD-256/train_log.txt) / [逐轮](CTRL_INTERIOR/WHU-CD-256/epochs.csv) / [结果](CTRL_INTERIOR/WHU-CD-256/result.json) |
+| CDD | H_SIMPLE | 128 | 96.931 | 96.931 | [日志](H_SIMPLE/CDD-CD-256/train_log.txt) / [逐轮](H_SIMPLE/CDD-CD-256/epochs.csv) / [结果](H_SIMPLE/CDD-CD-256/result.json) |
+| CDD | H_INTERIOR | 128 | 96.944 | 96.944 | [日志](H_INTERIOR/CDD-CD-256/train_log.txt) / [逐轮](H_INTERIOR/CDD-CD-256/epochs.csv) / [结果](H_INTERIOR/CDD-CD-256/result.json) |
+| CDD | E_SIMPLE | 128 | 96.930 | 96.930 | [日志](E_SIMPLE/CDD-CD-256/train_log.txt) / [逐轮](E_SIMPLE/CDD-CD-256/epochs.csv) / [结果](E_SIMPLE/CDD-CD-256/result.json) |
+| CDD | E_INTERIOR | 128 | 96.910 | 96.910 | [日志](E_INTERIOR/CDD-CD-256/train_log.txt) / [逐轮](E_INTERIOR/CDD-CD-256/epochs.csv) / [结果](E_INTERIOR/CDD-CD-256/result.json) |
+| CDD | M0_CTRL | 128 | 96.939 | 96.939 | [日志](M0_CTRL/CDD-CD-256/train_log.txt) / [逐轮](M0_CTRL/CDD-CD-256/epochs.csv) / [结果](M0_CTRL/CDD-CD-256/result.json) |
+| CDD | CTRL_INTERIOR | 128 | 96.935 | 96.935 | [日志](CTRL_INTERIOR/CDD-CD-256/train_log.txt) / [逐轮](CTRL_INTERIOR/CDD-CD-256/epochs.csv) / [结果](CTRL_INTERIOR/CDD-CD-256/result.json) |
 
-正式从预训练重新初始化，独立数据随机流；每epoch test F1选模，同集复测非独立盲测。实验顺序LEVIR→SYSU→WHU→CDD。后续正式结果只取完整TEST区块，现有275条历史保留；全收至少299条，其他新增保留。初期LOSS-DIAG记录优化/未加权主损失及前景内部比例。
+## 文件与数值口径
 
-[脚本与矩阵](../../../../train_scripts/CASA-Pyramid/Run11/README.md) · [模型公式](../../../../models/HYPERBOLIC_DESIGN.md) · [冻结验证依据](basis/REPORT.md)
+- 每项的`train_log.txt`是完整原始日志，包括训练后期、test选模评估行、实际MODULE-DIAG及最终TEST RESULTS。
+- `epochs.csv`保存每轮训练总损失、主损失、评分损失、学习率，以及test选模Loss/Recall/Precision/OA/F1/IoU/Kappa和耗时；指标沿用日志的0～1单位。逐轮评估从epoch0开始。
+- CSV沿用`val_`列名前缀和`best_val_F1_pct`字段，数据来源由`summary.csv`及manifest的`selection_split`明确：本轮为`test`。字段前缀不表示独立验证集。
+- `module_diagnostics.jsonl`按epoch保存四级完整诊断；`module_diagnostics.csv`按epoch/stage展开温度各头、gamma、归一化注意力熵、原型分配TV、预测变化概率、分支RMS、跨尺度注意力质量，以及双曲半径和裁剪比例。源日志未记录的量不补造。
+- MODULE-DIAG来自当轮test选模的首个batch，不是整个评估集的统计。温度跨四尺度共享；`scale_mass_head0_source1`表示第0头分配给第1尺度KV的注意力质量。CTRL没有注意力模块，诊断JSONL为空。
+- `result.json`保留完整精度的正式测试与实际最佳epoch；`run_manifest.json`、`evaluation_manifest.json`和`deploy_check.json`给出配置及折叠检查，`placement.json`记录物理GPU。`arch.json`记录结构配置。
+- 根目录的`environment.json`、`source_manifest.json`、`pipeline_status.json`、`pipeline.log`及`scheduling.json`保存实际环境、源码基线和调度记录；`profile.json`与`inference_benchmark.json`记录显存和推理测量。
+- `probes/`保存8项成功健康探针的完整日志、逐轮损失和任务梯度；探针不作为正式指标。
 
+## 完整训练与test选模曲线
 
-## 正式初期健康
+曲线逐epoch绘制，不平滑、不省略后期。主损失图记录各组实际优化的训练BCE+Dice及test选模未加权BCE+Dice。评分损失单独展示，总训练损失为main+0.1×guide。圆点为实际选中checkpoint的test选模F1；最终折叠模型的复测结果单独保存在result.json。
 
-2026-11-06 10:23:43 CST启动，supervisor2007146，首发GPU1 H_SIMPLE/LEVIR PID2007167、M0_CTRL/LEVIR PID2007305。前三轮主损失H1.9253→1.2052→1.1026、CTRL1.9291→1.2068→1.1179；loss/梯度有限、四层全局写回非零。初期test选模指标有波动，尚无正式TEST结果。
+### LEVIR-CD-256
 
-[实际初期记录](initial_health.json)保存前三轮、半径CV/注意力熵/残差、PID和口径；各组目录为日志快照及CSV。按当前吞吐预计余下34–42小时，约11月7日晚至8日凌晨。其他组的前2轮检查见配对探针。训练未设置自动监控，队列的非有限值/进程失败会停止本轮活动子进程并保留产物。
+![LEVIR-CD-256训练与test选模曲线](curves/LEVIR-CD-256.png)
+
+### SYSU-CD-256
+
+![SYSU-CD-256训练与test选模曲线](curves/SYSU-CD-256.png)
+
+### WHU-CD-256
+
+![WHU-CD-256训练与test选模曲线](curves/WHU-CD-256.png)
+
+### CDD-CD-256
+
+![CDD-CD-256训练与test选模曲线](curves/CDD-CD-256.png)
+
+## 关联材料
+
+[运行说明](../../../../train_scripts/CASA-Pyramid/Run11/README.md)、[冻结源码与指标](../../../temporary/models_and_metrics_CASA-Pyramid_Run11.txt)。

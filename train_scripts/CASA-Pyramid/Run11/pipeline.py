@@ -1,4 +1,5 @@
 """Run CASA ablations on GPU1 using measured per-variant memory."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -89,6 +90,9 @@ def interrupted(signum, frame):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--resume', action='store_true', help='resume jobs from a stopped queue')
+    args = parser.parse_args()
     pidfile = ROOT / 'pipeline.pid'
     if pidfile.exists():
         old = Path('/proc') / pidfile.read_text().strip() / 'cmdline'
@@ -109,6 +113,9 @@ def main():
     state['experiments'] = experiments()
     state['completed'] = [name for name in pending_runs([], []) if complete(name)]
     prior = json.loads((ROOT / 'pipeline_status.json').read_text()) if (ROOT / 'pipeline_status.json').exists() else {}
+    if args.resume and (prior.get('status') != 'stopped' or prior.get('active') or prior.get('failed')):
+        raise RuntimeError('--resume requires a stopped queue without active or failed jobs')
+    resumable = set(prior.get('stopped', [])) if args.resume else set()
     for pid_text, name in prior.get('active', {}).items():
         if name in state['completed']:
             continue
@@ -118,6 +125,7 @@ def main():
         active[pid] = dict(name=name, gpu=prior['active_gpus'][pid_text],
                            reserved_mib=requirements[name.split('/')[0]], process=None)
     pending = pending_runs(state['completed'], [job['name'] for job in active.values()])
+    pending.sort(key=lambda name: name not in resumable)
     (ROOT / 'pipeline.pid').write_text(str(os.getpid()))
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
@@ -143,9 +151,13 @@ def main():
                 name, gpu, reserved = selected
                 pending.remove(name)
                 variant, dataset = name.split('/')
-                print(f'[START] {name} gpu={gpu} reserved={reserved}MiB {time.strftime("%F %T")}', flush=True)
-                process = subprocess.Popen(['bash', str(HERE / 'run_one.sh'), variant, dataset, str(gpu)],
-                                           start_new_session=True)
+                resume = name in resumable
+                mode = 'RESUME' if resume else 'START'
+                print(f'[{mode}] {name} gpu={gpu} reserved={reserved}MiB {time.strftime("%F %T")}', flush=True)
+                command = ['bash', str(HERE / 'run_one.sh'), variant, dataset, str(gpu)]
+                if resume:
+                    command.append('--resume')
+                process = subprocess.Popen(command, start_new_session=True)
                 active[process.pid] = dict(name=name, gpu=gpu, reserved_mib=reserved, process=process)
                 directory = ROOT / name
                 directory.mkdir(parents=True, exist_ok=True)

@@ -56,7 +56,7 @@ def main():
     prior = json.loads(prior_path.read_text()) if prior_path.exists() else {'formal_runs': []}
     active = set(status.get('active', {}).values())
     failed = {item['run'] for item in status.get('failed', [])}
-    rows, formal = [], []
+    rows, formal, scores = [], [], {}
     for dataset in DATASETS:
         for variant in VARIANTS:
             name = f'{variant}/{dataset}'
@@ -69,6 +69,7 @@ def main():
             if block:
                 metrics = parse_block(block)
                 formal.append(name)
+                scores[name] = metrics['F1'] * 100
                 progress = '完成'
                 f1, iou = f"{metrics['F1']*100:.2f}", f"{metrics['IoU']*100:.2f}"
             elif name in active:
@@ -81,15 +82,22 @@ def main():
             else:
                 progress = '待启动'
             rows.append(f"| {dataset.split('-')[0]} | `{variant}` | {progress} | {f1} | {iou} |")
-    observed = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
-    section = f"状态更新：{observed} CST；队列 `{status['status']}`；正式结果 **{len(formal)}/24**。\n\n"
-    section += '| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |\n|---|---|---|---:|---:|\n'
-    section += '\n'.join(rows)
+    if status['status'] == 'complete' and set(formal) == set(experiments()):
+        section = f"{status['updated']} CST 完成全部 **24/24** 项正式测试。下表为 test 选模后的复测 F1（%）。\n\n"
+        section += '| 数据集 | ' + ' | '.join(VARIANTS) + ' |\n'
+        section += '|---|' + '---:|' * len(VARIANTS) + '\n'
+        section += '\n'.join(f"| {dataset.split('-')[0]} | " +
+                             ' | '.join(f"{scores[f'{variant}/{dataset}']:.2f}" for variant in VARIANTS) + ' |'
+                             for dataset in DATASETS)
+    else:
+        observed = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+        section = f"状态更新：{observed} CST；队列 `{status['status']}`；正式结果 **{len(formal)}/24**。\n\n"
+        section += '| 数据集 | 实验 | 状态 / 步数 | F1 (%) | IoU (%) |\n|---|---|---|---:|---:|\n'
+        section += '\n'.join(rows)
     path = ROOT / 'README.md'
     text = path.read_text(encoding='utf-8')
-    begin, end = '<!-- CASA_PYRAMID_RUN10_RESULTS_START -->', '<!-- CASA_PYRAMID_RUN10_RESULTS_END -->'
+    begin, end = '<!-- CASA_PYRAMID_RUN11_RESULTS_START -->', '<!-- CASA_PYRAMID_RUN11_RESULTS_END -->'
     start, stop = text.index(begin) + len(begin), text.index(end)
-    path.write_text(text[:start] + '\n\n' + section + '\n\n' + text[stop:], encoding='utf-8', newline='\n')
     if set(formal) - set(prior['formal_runs']):
         workbook = ROOT / 'docs/experiment_metrics.xlsx'
         original = workbook.read_bytes()
@@ -107,6 +115,7 @@ def main():
         models_dir = training_source_dir(base).relative_to(ROOT).as_posix()
         command('tools/models_to_txt.py', '--tag', 'CASA-Pyramid', '--run', 'Run11',
                 '--models-dir', models_dir)
+    path.write_text(text[:start] + '\n\n' + section + '\n\n' + text[stop:], encoding='utf-8', newline='\n')
     prior_path.write_text(json.dumps(dict(formal_runs=formal, pipeline_status=status['status']), indent=2))
     print(f"CASA-Pyramid Run11 formal={len(formal)}/24, status={status['status']}")
 

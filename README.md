@@ -22,13 +22,20 @@
 
 <!-- CASA_PYRAMID_RUN11_RESULTS_START -->
 
-2026-11-06 10:23:43 CST正式启动，源码832d17d。GPU1首发H_SIMPLE/LEVIR与M0_CTRL/LEVIR，两路按实测显存补位；24项，正式0/24。八项2epoch真实探针全部通过，冻结posterior_off与直接池化四层差均0。
+2026-11-10 10:36:14 CST 完成全部 **24/24** 项正式测试。下表为 test 选模后的复测 F1（%）。
 
-正式首发前三轮主损失H为1.9253→1.2052→1.1026，CTRL为1.9291→1.2068→1.1179；无非有限值/OOM，H四层全局分支非零。早期评估有波动，不作最终收益结论。按当前两路吞吐预计余下34–42小时，约11月7日晚至8日凌晨，随共享GPU负载变化。
-
-[启动与探针记录](docs/experiments/CASA-Pyramid/Run11/README.md) · [初期健康](docs/experiments/CASA-Pyramid/Run11/initial_health.json) · [实际源码TXT](docs/temporary/models_and_metrics_CASA-Pyramid_Run11.txt)。
+| 数据集 | H_SIMPLE | H_INTERIOR | E_SIMPLE | E_INTERIOR | M0_CTRL | CTRL_INTERIOR |
+|---|---:|---:|---:|---:|---:|---:|
+| LEVIR | 91.04 | 91.04 | 91.14 | 91.04 | 91.05 | 91.04 |
+| SYSU | 83.52 | 83.09 | 83.03 | 82.77 | 83.02 | 82.97 |
+| WHU | 94.59 | 94.33 | 94.64 | 94.37 | 94.62 | 94.44 |
+| CDD | 96.93 | 96.94 | 96.93 | 96.91 | 96.94 | 96.93 |
 
 <!-- CASA_PYRAMID_RUN11_RESULTS_END -->
+
+SYSU 双曲简化版相对同轮 CTRL 的 F1 提高 **0.50 个百分点**，主要来自误报减少。SYSU 后期评估回落仍在，内部正样本加权使三种结构的内部召回均下降。WHU 的欧式简化版提高 1 像素边界 F1 **0.62 个百分点**。24 项部署折叠检查通过，首级二值预测差异为 0。
+
+[完整日志、逐轮指标与曲线](docs/experiments/CASA-Pyramid/Run11/README.md) · [结果分析](docs/experiments/CASA-Pyramid/Run11/RESULT_ANALYSIS.md) · [冻结源码与指标](docs/temporary/models_and_metrics_CASA-Pyramid_Run11.txt) · [指标表](docs/experiment_metrics.xlsx)。
 
 ## 归档实验：CASA-Pyramid / Run10：几何归属与空间检索
 
@@ -205,8 +212,8 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 | 优化器 | Adam，全网lr5e-4，betas(.9,.99)，eps1e-8 |
 | Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
-| 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和 |
-| 辅助损失 | 当前Run10 H/E：0.05 raw guide BCE＋0.05区域后验BCE；CTRL：0.1 raw guide BCE；检索BCE为0，均为四尺度面积标签；历史轮次按各自协议 |
+| 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和。Run11 INTERIOR 组仅将首级 BCE 的内部正像素权重设为 1.25，按权重总和归一化 |
+| 辅助损失 | Run11 各组统一 0.1 raw guide BCE，使用四尺度面积标签，检索 BCE 系数为 0。历史轮次按各自协议 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
 | 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
 | 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |
@@ -276,8 +283,8 @@ RTX5090、256×256、FP32 batch1，30预热/100次中位数的Run4 CTRL/H/E推�
 | CASA-Pyramid Run1 | TAR后128KV跨尺度检索；初步验证结构，四库收益不一致 | [完整记录](docs/experiments/CASA-Pyramid/Run1/README.md) |
 | 早期CASA与CASA-WDMF | 模块、优化与几何经验保留在各轮冻结TXT | [历史快照](docs/temporary/) / [指标表](docs/experiment_metrics.xlsx) |
 
-当前指标表保留263条正式记录，全部历史单元格保留。Run4原始源码与全部历史记录保留。正式指标只取完整TEST RESULTS，探针与验证干预不入表。历史冻结TXT用对应运行源码，current TXT用工作源码。
+指标表收录 299 条正式记录，其中 Run11 新增 24 条。正式指标只取完整 TEST RESULTS。历史冻结 TXT 使用对应运行源码，current TXT 使用工作源码。
 
 ## 已知限制
 
-当前单seed且正式test参与选模；四轮train/val短训不能替代完整训练。guide与几何原型来自同一特征，归属修正可能强化错误；每区域每类单原型仍可能混合多种外观。空间中心化可能削弱大面积同类变化需要的共享信息，乘空间门控后的最终残差不保证零均值。后验误差、边界F1与最终分割净收益须分别核实，不能用归属更尖锐、几何健康或半径变化证明双曲有效。具体证据与局限见[Run10方案](docs/temporary/CASA_Pyramid_Run10_区域几何归属方案.md)。
+Run11 为单 seed，使用 test 选模后同集复测。每区域每类一个原型可能合并不同外观，空间中心化可能削弱大面积同类变化需要的共享信息。模块收益按同轮配对结果评价，边界、内部召回和总体 F1 分开报告。[Run11 结果分析](docs/experiments/CASA-Pyramid/Run11/RESULT_ANALYSIS.md)。

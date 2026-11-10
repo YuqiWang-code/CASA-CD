@@ -39,8 +39,12 @@ python prepare.py
 python pipeline.py
 ```
 
+经授权接续已停止的队列时，在对应 `runtime` 目录运行 `python pipeline.py --resume`。调度器优先从最后完整 epoch 接续原停止项，保留优化器、最佳权重与随机状态，跳过完整 TEST 已存在的实验。
+
 本地收集：`python train_scripts/CASA-Pyramid/Run11/collect_results.py`。源码、配置、环境、物理GPU和初期健康记录随本轮归档。短训和验证干预不进入正式指标表。
 
 ## 评价重点
 
 同损失下比较H/E/CTRL，同结构下比较普通/加权；SYSU关注内部FN和匹配误报量的召回，WHU关注1px边界F1及误报。历史Run10同时改变了压缩和辅助目标，跨轮差值不能单独归因于池化公式。
+
+[正式结果与续训记录](../../../docs/experiments/CASA-Pyramid/Run11/README.md) · [结果分析](../../../docs/experiments/CASA-Pyramid/Run11/RESULT_ANALYSIS.md)。
