@@ -92,9 +92,20 @@ def main():
         assert all(torch.isfinite(out).all() for out in outputs)
         logits, aux = model(image[:, :3], image[:, 3:], return_aux=True)
         logits[0].mean().backward()
+        geometry_path = profile in ('HYPERBOLIC', 'EUCLIDEAN')
+        if geometry_path:
+            # gamma_context starts at zero, so the retrieval write-back is gated off at
+            # initialisation and every parameter behind it receives an exact zero gradient.
+            assert model.context.gamma_context.grad is not None, profile
+            assert model.context.gamma_context.grad.norm() > 0, profile
+            model.zero_grad(set_to_none=True)
+            with torch.no_grad():
+                model.context.gamma_context.fill_(0.5)
+            logits, aux = model(image[:, :3], image[:, 3:], return_aux=True)
+            logits[0].mean().backward()
         gradients = {name: param.grad for name, param in model.named_parameters()}
-        required = {'HYPERBOLIC': ['context.qk.weight', 'context.out.weight'],
-                    'EUCLIDEAN': ['context.qk.weight', 'context.out.weight'],
+        required = {'HYPERBOLIC': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
+                    'EUCLIDEAN': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
                     'TAR_DIFF': ['tar.stage1.temporal.proj.weight', 'tar.stage2.temporal.proj.weight'],
                     'DCR_SINGLE': ['decoder.proj.weight', 'decoder.block.dw.weight']}[profile]
         for name in required:
