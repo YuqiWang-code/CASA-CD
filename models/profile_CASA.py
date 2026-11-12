@@ -26,8 +26,8 @@ def main():
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--detail-head", action="store_true")
     parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain"), default="reparam")
-    parser.add_argument("--decoder-variant", choices=("reparam", "plain"), default="reparam")
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff"), default="reparam")
+    parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
