@@ -148,6 +148,58 @@ class PlainTARStage(nn.Module):
         return self
 
 
+class DifferenceTemporal1x1(nn.Module):
+    """Ablation: fixed absolute temporal difference plus one 1x1 read-out.
+
+    Removes the learned bi-temporal mixing entirely: the two dates are compared
+    by |P - Q| and only a per-channel projection is learned.
+    """
+
+    def __init__(self, in_channels, out_channels, deploy=False):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.deploy = deploy
+        self.proj = nn.Conv2d(in_channels, out_channels, 1, bias=deploy)
+        if not deploy:
+            self.bn = nn.BatchNorm2d(out_channels)
+            nn.init.kaiming_normal_(self.proj.weight, mode="fan_out", nonlinearity="relu")
+
+    def forward(self, P, Q):
+        fused = self.proj((P - Q).abs())
+        return fused if self.deploy else self.bn(fused)
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = fold_conv_bn(self.proj.weight, None, self.bn)
+        self.proj = nn.Conv2d(self.in_channels, self.out_channels, 1, bias=True)
+        self.proj.weight.data = kernel.float()
+        self.proj.bias.data = bias.float()
+        self.deploy = True
+        if hasattr(self, "bn"):
+            del self.bn
+        return self
+
+
+class DifferenceTARStage(nn.Module):
+    """Ablation: one scale with fixed absolute difference and plain local refinement."""
+
+    def __init__(self, in_channels, dim, deploy=False):
+        super().__init__()
+        self.temporal = DifferenceTemporal1x1(in_channels, dim, deploy=deploy)
+        self.block = PlainLocalBlock(dim, deploy=deploy)
+        self.act = nn.SiLU()
+
+    def forward(self, P, Q):
+        return self.block(self.act(self.temporal(P, Q)))
+
+    def switch_to_deploy(self):
+        self.temporal.switch_to_deploy()
+        self.block.switch_to_deploy()
+        return self
+
+
 class MultiScaleTAR(nn.Module):
     """Four-scale temporal fusion from paired encoder features to decoder inputs.
 
@@ -159,7 +211,7 @@ class MultiScaleTAR(nn.Module):
                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False,
                  variant="reparam"):
         super().__init__()
-        if variant not in ("reparam", "plain"):
+        if variant not in ("reparam", "plain", "diff"):
             raise ValueError(f"unknown TAR variant: {variant}")
         self.variant = variant
         if variant == "reparam":
@@ -171,11 +223,16 @@ class MultiScaleTAR(nn.Module):
                                    use_residual, deploy)
             self.stage4 = TARStage(encoder_dims[3], dim, use_temporal_aux, use_dcr_aux,
                                    use_residual, deploy)
-        else:
+        elif variant == "plain":
             self.stage1 = PlainTARStage(encoder_dims[0], dim, deploy)
             self.stage2 = PlainTARStage(encoder_dims[1], dim, deploy)
             self.stage3 = PlainTARStage(encoder_dims[2], dim, deploy)
             self.stage4 = PlainTARStage(encoder_dims[3], dim, deploy)
+        else:
+            self.stage1 = DifferenceTARStage(encoder_dims[0], dim, deploy)
+            self.stage2 = DifferenceTARStage(encoder_dims[1], dim, deploy)
+            self.stage3 = DifferenceTARStage(encoder_dims[2], dim, deploy)
+            self.stage4 = DifferenceTARStage(encoder_dims[3], dim, deploy)
 
     def forward(self, pre_feats, post_feats):
         t1 = self.stage1(pre_feats[0], post_feats[0])

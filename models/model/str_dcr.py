@@ -102,6 +102,59 @@ class PlainFuse1x1(nn.Module):
         return self
 
 
+class SingleLevelDecoder(nn.Module):
+    """Ablation: one learned decoding level, no multi-scale fusion stack.
+
+    Only the coarsest TAR feature goes through the projection and local mixer;
+    finer levels are added on top-down as a parameter-free residual, so the
+    finer TAR stages still receive gradient instead of becoming dead weights.
+    """
+
+    def __init__(self, dim=64, deploy=False):
+        super().__init__()
+        self.dim = dim
+        self.deploy = deploy
+        self.proj = nn.Conv2d(dim, dim, 1, bias=deploy)
+        if not deploy:
+            self.bn = nn.BatchNorm2d(dim)
+        self.block = PlainLocalBlock(dim, deploy=deploy)
+        self.act = nn.SiLU()
+
+    def forward(self, feats):
+        return self.forward_pyramid(feats)[0]
+
+    def forward_pyramid(self, feats):
+        t1, t2, t3, t4 = feats
+        x = self.proj(t4)
+        if not self.deploy:
+            x = self.bn(x)
+        d4 = self.block(self.act(x))
+        d3 = t3 + F.interpolate(d4, size=t3.shape[-2:], mode="bilinear", align_corners=False)
+        d2 = t2 + F.interpolate(d3, size=t2.shape[-2:], mode="bilinear", align_corners=False)
+        d1 = t1 + F.interpolate(d2, size=t1.shape[-2:], mode="bilinear", align_corners=False)
+        return [d1, d2, d3, d4]
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = fold_conv_bn(self.proj.weight, None, self.bn)
+        self.proj = nn.Conv2d(self.dim, self.dim, 1, bias=True)
+        self.proj.weight.data, self.proj.bias.data = kernel.float(), bias.float()
+        self.deploy = True
+        if hasattr(self, "bn"):
+            del self.bn
+        self.block.switch_to_deploy()
+        return self
+
+
+def build_decoder(dim=64, use_aux=True, use_residual=True, deploy=False, variant="reparam"):
+    """Build the decoder for a given ablation variant."""
+    if variant == "none":
+        return SingleLevelDecoder(dim, deploy=deploy)
+    return DCRDecoder(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy,
+                      variant=variant)
+
+
 class DCRDecoder(nn.Module):
     """Top-down multi-scale decoder over TAR features [t1, t2, t3, t4] (dim ch)."""
 

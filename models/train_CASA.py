@@ -342,8 +342,9 @@ def main():
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain"), default="reparam")
-    parser.add_argument("--decoder-variant", choices=("reparam", "plain"), default="reparam")
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff"), default="reparam")
+    parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
+    parser.add_argument("--selection-split", choices=("test", "val"), default="test")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -370,10 +371,12 @@ def main():
         raise RuntimeError("training directory already contains a checkpoint")
     train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
+    val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
+    select_loader = test_loader if args.selection_split == "test" else val_loader
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
-    for index, loader in enumerate((train_loader, test_loader)):
-        generator = torch.Generator().manual_seed(args.seed + index)
+    for index, loader in enumerate((train_loader, test_loader, val_loader)):
+        generator = torch.Generator().manual_seed(args.seed + (0 if index == 0 else 1))
         loader.generator = generator
         if index == 0:
             loader.sampler.generator = generator
@@ -402,8 +405,9 @@ def main():
                                            weight_decay=g["weight_decay"], lr=g["lr"],
                                            decoupled_weight_decay=g["decoupled_weight_decay"])
                                       for g in optimizer.param_groups],
-                    selection="best test F1 at threshold 0.5 each epoch, ties update", selection_split="test",
-                    independent_test=False, evaluation_starts_at_epoch=0,
+                    selection=f"best {args.selection_split} F1 at threshold 0.5 each epoch, ties update",
+                    selection_split=args.selection_split,
+                    independent_test=args.selection_split == "val", evaluation_starts_at_epoch=0,
                     detail_head=args.detail_head, detail_supervision_weight=1. if args.detail_head else 0.,
                     detail_target=args.detail_target if args.detail_head else None,
                     context_heads=args.context_heads, test_primary_threshold=.5, calibration_split="val",
@@ -440,7 +444,7 @@ def main():
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
-                    warmup_steps=200, evaluation_split="test",
+                    warmup_steps=200, evaluation_split=args.selection_split,
                     precision=dict(input="float32", amp=False, cudnn_tf32=True,
                                    matmul_tf32=False, cudnn_benchmark=True),
                     context_values={"none": "guide_only",
@@ -476,17 +480,21 @@ def main():
                 json.dumps(manifest["continuations"], indent=2), encoding="utf-8")
         print(f"[RESUME] {json.dumps(continuation)}", flush=True)
         train_loader.generator.set_state(checkpoint["loader_rng_state"]["train"])
-        test_loader.generator.set_state(checkpoint["loader_rng_state"]["evaluation"])
+        select_loader.generator.set_state(checkpoint["loader_rng_state"]["evaluation"])
         del checkpoint
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
             (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
                                                               str_dim=64, context_heads=args.context_heads,
+                                                              tar_variant=args.tar_variant,
+                                                              decoder_variant=args.decoder_variant,
+                                                              selection_split=args.selection_split,
                                                               detail_head=args.detail_head), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
-                               selection_split="test", independent_test=False, calibration_split="val",
+                               selection_split=args.selection_split,
+                               independent_test=args.selection_split == "val", calibration_split="val",
                                test_backend="training settings restored after fold verification")
     (args.output_dir / "evaluation_manifest.json").write_text(
         json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
@@ -540,12 +548,12 @@ def main():
         guide_log = " ".join(f"{name}={value/len(train_loader):.6f}" for name, value in guide_sums.items())
         print(f"[TRAIN-EPOCH] epoch={epoch} loss={epoch_loss/len(train_loader):.6f} main={main_sum/len(train_loader):.6f} auxiliary={auxiliary_sum/len(train_loader):.6f} {guide_log} retrieval={retrieval_sum/len(train_loader):.6f} lr={lr:.8f} encoder_lr={lr*args.encoder_lr_mult:.8f}", flush=True)
         model.context.collect_diag = True
-        eval_loss, score, spatial = evaluate(model, test_loader, device, return_diagnostics=True)
+        eval_loss, score, spatial = evaluate(model, select_loader, device, return_diagnostics=True)
         model.context.collect_diag = False
         print(f"Epoch {epoch}/{epochs} | Loss={eval_loss:.6f} | Recall={score['recall']:.6f} | Precision={score['precision']:.6f} | OA={score['OA']:.6f} | F1={score['F1']:.6f} | IoU={score['IoU']:.6f} | Kappa={score['Kappa']:.6f} | t={time.time()-tick:.1f}s", flush=True)
         if model.context.geometry != "none":
             print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
-        print(f"[SPATIAL-DIAG] {json.dumps(dict(epoch=epoch, split='test', **spatial))}", flush=True)
+        print(f"[SPATIAL-DIAG] {json.dumps(dict(epoch=epoch, split=args.selection_split, **spatial))}", flush=True)
         improved = score["F1"] >= best_f1
         if improved:
             best_f1, best_epoch = float(score["F1"]), epoch
@@ -557,8 +565,7 @@ def main():
                                                    evaluation=test_loader.generator.get_state())), checkpoint_path)
         if improved:
             save_checkpoint(best_weights, args.checkpoint_dir / "best_model.pth")
-    val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
-    val_loader.generator = torch.Generator().manual_seed(args.seed+1)
+    val_loader.generator = torch.Generator().manual_seed(args.seed + 1)
     last_auxiliary = evaluate_auxiliary(model, val_loader, device)
     _, last_val_score = evaluate(model, val_loader, device)
     save_checkpoint(best_weights, args.checkpoint_dir / "best_model.pth")
@@ -582,11 +589,12 @@ def main():
     test_loss, score, spatial = evaluate(deploy, test_loader, device, return_diagnostics=True,
                                          operating_point=secondary)
     (args.output_dir / "operating_point.json").write_text(json.dumps(dict(
-        selection_split="test", calibration_split="val", best_epoch=best_epoch, validation=calibration,
-        test_calibrated=secondary.curve()[0]), indent=2), encoding="utf-8")
+        selection_split=args.selection_split, calibration_split="val", best_epoch=best_epoch,
+        validation=calibration, test_calibrated=secondary.curve()[0]), indent=2), encoding="utf-8")
     deploy_params = sum(p.numel() for p in deploy.parameters()) / 1e6
     result = dict(protocol=PROTOCOL, module=args.module, metrics=score, best_epoch=best_epoch,
-                  selection_split="test", independent_test=False, best_selection_f1=best_f1,
+                  selection_split=args.selection_split,
+                  independent_test=args.selection_split == "val", best_selection_f1=best_f1,
                   last_val_f1=last_val_score['F1'], calibration_split="val",
                   test_threshold=.5, test_calibrated=secondary.curve()[0],
                   optimizer_steps=step, test_loss=test_loss, spatial_diagnostics=spatial, total_params_m=params,

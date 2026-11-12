@@ -5,12 +5,15 @@ import torch
 from torch import nn
 
 from model.casa_net import CASANet
-from model.str_dcr import DCRDecoder, PlainFuse1x1, PlainLocalBlock
-from model.str_tar import MultiScaleTAR, PlainTARStage, PlainTemporal1x1
+from model.str_dcr import DCRDecoder, PlainFuse1x1, PlainLocalBlock, SingleLevelDecoder, build_decoder
+from model.str_tar import (DifferenceTARStage, DifferenceTemporal1x1, MultiScaleTAR,
+                           PlainTARStage, PlainTemporal1x1)
 
-PARAMS = {("reparam", "reparam"): 2047125, ("plain", "reparam"): 1974157,
-          ("reparam", "plain"): 2010250, ("plain", "plain"): 1937282}
-DEPLOY = 1935810
+PARAMS = {("reparam", "reparam"): (2047125, 1935810), ("reparam", "plain"): (2010250, 1935810),
+          ("reparam", "none"): (1974730, 1900802), ("plain", "reparam"): (1974157, 1935810),
+          ("plain", "plain"): (1937282, 1935810), ("plain", "none"): (1901762, 1900802),
+          ("diff", "reparam"): (1943949, 1905602), ("diff", "plain"): (1907074, 1905602),
+          ("diff", "none"): (1871554, 1870594)}
 
 
 def build(tar, decoder, seed=2333):
@@ -21,34 +24,50 @@ def build(tar, decoder, seed=2333):
 def main():
     torch.set_num_threads(4)
     image = torch.randn(2, 6, 256, 256)
-    reference = None
-    for (tar, decoder), expected in PARAMS.items():
+    outputs_by_arm = {}
+    for (tar, decoder), (expected, deployed) in PARAMS.items():
         model = build(tar, decoder).eval()
-        assert sum(p.numel() for p in model.parameters()) == expected
+        assert sum(p.numel() for p in model.parameters()) == expected, (tar, decoder)
         folded = copy.deepcopy(model).eval().switch_to_deploy()
-        assert sum(p.numel() for p in folded.parameters()) == DEPLOY
+        assert sum(p.numel() for p in folded.parameters()) == deployed
         with torch.no_grad():
             outputs = model(image[:, :3], image[:, 3:])
-            deployed = folded(image[:, :3], image[:, 3:])
+            moved = folded(image[:, :3], image[:, 3:])
         assert len(outputs) == 4 and all(out.shape == (2, 1, 256, 256) for out in outputs)
-        assert all(torch.allclose(a, b, atol=2e-4) for a, b in zip(outputs, deployed))
-        if reference is None:
-            reference = outputs
-    # Plain variants keep the backbone path, so the finest logits stay finite and non-degenerate.
-    assert all(torch.isfinite(out).all() for out in reference)
+        assert all(torch.allclose(a, b, atol=2e-4) for a, b in zip(outputs, moved))
+        assert all(torch.isfinite(out).all() for out in outputs)
+        outputs_by_arm[(tar, decoder)] = outputs
+    # Removing a module must change behaviour (relative to the arm's own output scale),
+    # and the graph itself must differ, otherwise the arm is a silent no-op.
+    control = outputs_by_arm[("reparam", "reparam")]
+    for arm in (("diff", "reparam"), ("reparam", "none"), ("diff", "none")):
+        difference = max(float((a - b).abs().max()) for a, b in zip(control, outputs_by_arm[arm]))
+        assert difference > 1e-4, arm
+    diff_model = build("diff", "none")
+    assert isinstance(diff_model.tar.stage1, DifferenceTARStage)
+    assert isinstance(diff_model.tar.stage4, DifferenceTARStage)
+    assert isinstance(diff_model.decoder, SingleLevelDecoder)
+    assert not hasattr(diff_model.decoder, "fuse1") and not hasattr(diff_model.decoder, "refine")
 
-    plain = build("plain", "plain")
+    gradients = {("plain", "plain"): ["tar.stage1.temporal.proj.weight", "tar.stage4.temporal.proj.weight",
+                                      "decoder.fuse1.fuse.weight", "decoder.refine.dw.weight"],
+                 ("diff", "reparam"): ["tar.stage1.temporal.proj.weight", "tar.stage4.temporal.proj.weight",
+                                       "decoder.fuse1.fuse_c.weight", "decoder.block1.dw.dw3.weight"],
+                 ("reparam", "none"): ["tar.stage1.temporal.proj_c.weight", "decoder.proj.weight",
+                                       "decoder.block.dw.weight"]}
     losses = nn.BCEWithLogitsLoss()
-    logits, _ = plain(image[:, :3], image[:, 3:], return_aux=True)
-    losses(logits[0], (torch.rand(2, 1, 256, 256) > .5).float()).backward()
-    names = ["tar.stage1.temporal.proj.weight", "tar.stage4.temporal.proj.weight",
-             "decoder.fuse1.fuse.weight", "decoder.refine.dw.weight"]
-    grads = dict(plain.named_parameters())
-    for name in names:
-        assert grads[name].grad is not None and torch.isfinite(grads[name].grad).all()
-        assert grads[name].grad.norm() > 0, name
+    for (tar, decoder), names in gradients.items():
+        model = build(tar, decoder)
+        logits, _ = model(image[:, :3], image[:, 3:], return_aux=True)
+        losses(logits[0], (torch.rand(2, 1, 256, 256) > .5).float()).backward()
+        parameters = dict(model.named_parameters())
+        for name in names:
+            assert parameters[name].grad is not None, name
+            assert torch.isfinite(parameters[name].grad).all(), name
+            assert parameters[name].grad.norm() > 0, name
 
-    for factory in (lambda: MultiScaleTAR(variant="bogus"), lambda: DCRDecoder(variant="bogus")):
+    for factory in (lambda: MultiScaleTAR(variant="bogus"), lambda: DCRDecoder(variant="bogus"),
+                    lambda: build_decoder(variant="bogus")):
         try:
             factory()
         except ValueError:
@@ -63,7 +82,17 @@ def main():
     assert isinstance(DCRDecoder(variant="plain").fuse1, PlainFuse1x1)
     assert isinstance(DCRDecoder(variant="plain").refine, PlainLocalBlock)
     assert isinstance(DCRDecoder().refine, nn.Module) and DCRDecoder().variant == "reparam"
-    print("TAR/DCR plain variants: parameter counts, folding and gradients PASS")
+
+    difference_stage = DifferenceTARStage(24, 64)
+    assert isinstance(difference_stage.temporal, DifferenceTemporal1x1)
+    assert difference_stage(feature, -feature).shape == (1, 64, 32, 32)
+    single = build_decoder(variant="none")
+    assert isinstance(single, SingleLevelDecoder)
+    pyramid = single.forward_pyramid([torch.randn(1, 64, 64, 64), torch.randn(1, 64, 32, 32),
+                                      torch.randn(1, 64, 16, 16), torch.randn(1, 64, 8, 8)])
+    assert [tuple(x.shape) for x in pyramid] == [(1, 64, 64, 64), (1, 64, 32, 32),
+                                                 (1, 64, 16, 16), (1, 64, 8, 8)]
+    print("TAR/DCR ablation variants: parameter counts, folding, gradients and no-op guards PASS")
 
 
 if __name__ == "__main__":
