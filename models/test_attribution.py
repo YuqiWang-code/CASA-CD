@@ -13,7 +13,7 @@ def main():
     x=torch.randn(1,64,8,8)
     qh,qe=h.project_queries(x),e.project_queries(x)
     assert torch.equal(qh,qe)
-    assert sum(p.numel() for p in h.parameters())==sum(p.numel() for p in e.parameters())==11478
+    assert sum(p.numel() for p in h.parameters())==sum(p.numel() for p in e.parameters())==11477
     assert not torch.allclose(h.squared_distance(qh.flatten(2,3),qh.flatten(2,3)),e.squared_distance(qe.flatten(2,3),qe.flatten(2,3)))
     target=torch.randint(0,2,(1,1,32,32)).float()
     outputs=tuple(torch.randn_like(target) for _ in range(4))

@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run11（GPU1，一阶压缩与内部漏检对照）**。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run12（四头检索与高分辨率细节对照）**。**Run4作为正向基线完整保留**。
 
-双曲版采用完整Q、224个跨尺度KV和32维直接Lorentz投影，K/V共用一阶guide池化内容；空间中心化检索后门控写回。匹配欧式同构，H/E部署1.947094M。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
+双曲版采用完整 Q、224 个跨尺度 KV 和直接 Lorentz 投影，K/V 共用一阶 guide 池化内容，空间中心化检索后门控写回。Run12 对照 1×32、2×16 和 4×16，H/E 各配置同构，部署约 1.95M 参数。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
 ## 项目定位与固定研究原则
 
@@ -12,11 +12,81 @@
 
 结构须对应可验证的实际问题，保持简洁。避免无关组件、特殊激活函数和额外几何运算堆叠；不将损失、剪枝或量化包装成主要创新。修改前核对日志、运行源码与历史经验，修改后审查公式、卷积/池化、融合/残差、维度与前后梯度，并用真实数据短训检查。
 
-同轮各组使用相同骨干、增强、优化和训练预算及选模规则；模块专用辅助项明确记录。当前按每epoch的test F1选模，最终复测属于**test参与选模的结果**，不能称独立盲测。结构设计与干预使用train/val；阈值固定0.5，不按测试成绩选seed。单seed小差异不作为稳定领先证据，跨协议涨幅与模块收益分别解释。
+同轮各组使用相同骨干、增强、优化、训练预算及选模规则，专用监督单独记录。Run12 使用每轮 test F1 选权重，正式复测主阈值固定 0.5，次指标阈值在 val 校准。复测沿用 test 选模口径。结构设计与干预使用 train/val，跨协议差异与模块收益分别解释。
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
-## 当前实验：CASA-Pyramid / Run11
+## 项目导航
+
+| 要找的内容 | 位置 |
+|---|---|
+| 主线模型、训练与测试 | [models/](models/)，模型入口 `model/casa_net.py`，训练入口 `train_CASA.py` |
+| 各轮实验矩阵、调度与收集 | [train_scripts/CASA-Pyramid/](train_scripts/CASA-Pyramid/) 下对应的 `RunN/` |
+| 服务器连接、环境和状态 | [.codex/SERVER.md](.codex/SERVER.md)、[.codex/STATE.md](.codex/STATE.md)，实时状态用 `.codex/status.py` |
+| 日志、指标、曲线和冻结源码 | 本地 `outputs/<tag>/<Run>/`，已归档材料见 [docs/experiments/](docs/experiments/)、[指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/) |
+| 下载、汇表与导出工具 | [tools/](tools/) |
+| 独立的 MoE 探索线 | [README_MoE.md](README_MoE.md) 与 [models_v1/](models_v1/) |
+
+代码仓库为 [YuqiWang-code/CASA-CD](https://github.com/YuqiWang-code/CASA-CD)，训练服务器为 RSML-3。
+
+## 消融实验：CASA-Pyramid / Run13：TAR 与 DCR 的可折叠多分支
+
+两条单因子臂，控制支路为 `module=none`、1 头、无细节头（Run12 的 `CTRL_ANCHOR`/`CTRL_REPEAT`/`DETAIL_OFF` 配置）。`TAR_PLAIN` 把 `TemporalRep1x1` 的 concat/P+Q/Q−P 三支换成单个 1×1+BN、`RepLocalBlock` 换成普通 DW3×3+PW1×1+BN；`DCR_PLAIN` 把 `RepPairFuse1x1` 的 concat/sum/diff 换成单个 1×1+BN，局部块同样退化。四尺度拓扑、通道、解码顺序、损失、增广与 40K 预算均不变。
+
+北京时间 **2026-11-12 22:00** 完成 6 项（两臂 × WHU/SYSU/LEVIR），无失败：
+
+| 数据集 | 臂 | F1（%） | 控制 F1（%） | Δ（pp） | 同配置复跑跨度（pp） |
+|---|---|---:|---:|---:|---:|
+| WHU | `TAR_PLAIN` | 94.7843 | 94.6403 | +0.144 | 0.177 |
+| WHU | `DCR_PLAIN` | 94.7339 | 94.6403 | +0.094 | 0.177 |
+| SYSU | `TAR_PLAIN` | 82.3698 | 82.5512 | −0.181 | 0.319 |
+| SYSU | `DCR_PLAIN` | 82.3239 | 82.5512 | −0.227 | 0.319 |
+| LEVIR | `TAR_PLAIN` | 91.0016 | 91.0455 | −0.044 | 单次控制 |
+| LEVIR | `DCR_PLAIN` | 91.1427 | 91.0455 | +0.097 | 单次控制 |
+
+全部差值都在同配置复跑跨度以内。这些分支只在训练期存在，折叠后三臂部署参数同为 1,935,810，RTX 5090 单张 256²、FP32、batch 1 中位延迟 3.678 / 3.680 / 3.672 ms，训练参数分别为 2.0471M / 1.9742M / 2.0103M。因此 TAR 与 DCR 的多分支可作为"可折叠的实现选择"表述，不能作为精度来源；H/E 几何与细节头的对照仍取 Run12。
+
+[实验矩阵与结果](train_scripts/CASA-Pyramid/Run13/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run13.txt)。
+
+## 主线实验：CASA-Pyramid / Run12
+
+GPU 1 运行 26 项。WHU/SYSU 比较四头双曲、同构欧式、CTRL 和一头复跑。WHU 增加等宽 2×16 对照、seed 2334、二值细节监督及上下文交互；WHU/LEVIR 分别比较 128² 细节头有无，部署增加 2,689 参数。保留完整 40K 预算，每轮以 test F1 选最优权重。val 校准范围为 0.10–0.70。
+
+逐轮 test 选模分数、最终 test 复测与独立 val 诊断分栏记录。主分析使用固定窗口与逐轮配对差，末 10 轮和共享的探索窗口作为补充。
+
+[实验矩阵](train_scripts/CASA-Pyramid/Run12/README.md) · [冻结验证与阈值分析](docs/experiments/CASA-Pyramid/Run12/README.md) · [Run11 归因方案](docs/temporary/CASA-Pyramid_Run11_结果归因与Run12方案.md)。
+
+### 阶段结果
+
+北京时间 **2026-11-11 12:29**，正式完成 **18/26** 项，WHU 全部完成。GPU 1 同时运行 SYSU 四头双曲和 CTRL 锚点，分别完成 81/107 和 42/107 轮，另有 6 项排队。队列无失败，GPU 1 为 66°C，显存占用 27,683/32,607 MiB。18 项均有完整 `TEST RESULTS`，部署折叠后首级二值预测差异为 0。结果暂存于服务器，待全轮收齐后归档。
+
+| WHU 配置 | seed 2333 F1（%） | seed 2334 F1（%） |
+|---|---:|---:|
+| CTRL 锚点 / 同 seed 复跑 | 94.6403 / 94.8173 | 94.5184 |
+| 单头双曲 / 欧式 | 94.7712 / 94.6534 | 94.8220 / 94.4923 |
+| 双头双曲 / 欧式 | 94.3130 / 94.0082 | — |
+| 四头双曲 / 欧式 | 94.3013 / 94.5422 | 94.5969 / 94.2547 |
+| 无细节头 / 软标签 / 硬标签 | 94.7832 / 94.2791 / 94.6561 | — |
+| 单头双曲＋细节头 / 单头欧式＋细节头 | 94.2854 / 94.2914 | — |
+
+单头双曲在两个 seed 上均高于匹配欧式，差值为 +0.118 和 +0.330 个百分点。同 seed 的 CTRL 锚点与复跑相差 0.177 个百分点。四头双曲在两个 seed 上均低于同 seed 单头双曲。相对无细节头，软标签细节头的总体 F1 和 1px 边界 F1 分别下降 0.504 和 0.460 个百分点。硬标签细节头的 1px 边界 F1 提高 0.247 个百分点，总体 F1 下降 0.127 个百分点。以上为 test 参与选模的同集复测结果，完整比较使用预设固定窗口和同 seed 对照。
+
+### 参数与部署计算量
+
+| 配置 | 训练参数（M） | 部署参数（M） | 部署 GFLOPs（双曲 / 欧式） |
+|---|---:|---:|---:|
+| CTRL | 2.0471 | 1.9358 | 1.7341 |
+| CTRL＋细节头 | 2.0498 | 1.9385 | 1.8223 |
+| 单头 QKV（1×32） | 2.0584 | 1.9471 | 2.0243 / 2.0158 |
+| 双头 QKV（2×16） | 2.0585 | 1.9472 | 2.0396 / 2.0226 |
+| 四头 QKV（4×16） | 2.0651 | 1.9537 | 2.2980 / 2.2638 |
+| 单头 QKV＋细节头 | 2.0611 | 1.9498 | 2.1124 / 2.1039 |
+
+FLOPs 以本轮冻结源码的折叠部署图统计，输入为一对 256×256 RGB 图像，一次乘加按 2 FLOPs。PyTorch profiler 计入卷积、矩阵乘和部分逐元素运算，双曲距离中的 `sqrt`、`log1p` 等算子未计入。单头 QKV 相对 CTRL 净增 11,284 个参数。RTX 5090 上 CTRL、单头双曲和单头欧式的 FP32、batch 1 实测中位延迟分别为 3.72、6.56 和 6.13 ms。[测量设置与各配置延迟](docs/experiments/CASA-Pyramid/Run12/README.md#修订版部署实测)。
+
+从仓库根目录用 `python .codex/status.py --tag CASA-Pyramid --run Run12` 查实时状态。收齐后用 `python train_scripts/CASA-Pyramid/Run12/collect_results.py` 下载完整正式结果、更新指标表和 TXT，并导出固定窗口报告及逐轮记录。
+
+## 归档实验：CASA-Pyramid / Run11
 
 一阶guide内容池化，保留可变半径、完整Q、224KV、跨尺度门控和细节分支。H/E/CTRL分别对照首级内部正样本BCE权重1/1.25，共24项，仅GPU1。结构比较与训练损失比较分开解释，辅助统一0.1 raw-guide BCE。实现与检查见[Run11脚本](train_scripts/CASA-Pyramid/Run11/README.md)。
 
@@ -212,11 +282,11 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 | 优化器 | Adam，全网lr5e-4，betas(.9,.99)，eps1e-8 |
 | Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
-| 主损失 | 四级BCEWithLogits + sigmoid Dice，等权求和。Run11 INTERIOR 组仅将首级 BCE 的内部正像素权重设为 1.25，按权重总和归一化 |
-| 辅助损失 | Run11 各组统一 0.1 raw guide BCE，使用四尺度面积标签，检索 BCE 系数为 0。历史轮次按各自协议 |
+| 主损失 | 四级 BCEWithLogits + sigmoid Dice，等权求和。Run12 DETAIL_ON 额外监督 128² 合成 logit |
+| 辅助损失 | Run12 各组统一 0.1 raw guide BCE，使用四尺度面积标签，检索 BCE 系数为 0 |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
-| 评估与选模 | 每epoch（包括0）在test评估，第一级F1最高选best，相同值更新 |
-| 最终结果 | 折叠best后在同一test复测；明确标记test参与选模、非独立测试 |
+| 评估与选模 | Run12 每 epoch 在 test 评估，第一级 F1 最高选 best，相同值更新 |
+| 最终结果 | 折叠 best 后在同一 test 复测，主指标阈值 0.5，次指标使用 val 校准阈值 |
 | 部署检查 | strict_fp32_fold_v1；关闭TF32检查，首级最大差阈值2e-4并记录二值差 |
 
 参考[ChangeMamba的2024官方训练脚本](https://github.com/ChenHongruixuan/ChangeMamba/blob/72597fa4a1fde0bffa94c94302a6dc848898be13/changedetection/script/train_MambaBCD.py)使用test参与选模；其原实现每500步评估并按Kappa选模，本项目采用每epoch与F1。该设置不代表所有RSCD工作的统一规范。

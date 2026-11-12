@@ -1,1 +1,1 @@
-"""Change-aware compressed attention and Poincare geometry."""
+"""Change-aware compressed attention and direct Lorentz geometry."""

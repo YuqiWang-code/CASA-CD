@@ -1,9 +1,14 @@
-"""Four-scale temporal fusion with foldable concat, sum and signed-difference branches."""
+"""Four-scale temporal fusion with foldable concat, sum and signed-difference branches.
+
+The ``plain`` variant keeps the same stage topology (temporal 1x1 -> local block)
+but uses a single concat 1x1 convolution plus batch norm instead of the foldable
+three-branch re-parameterization.
+"""
 import torch
 import torch.nn as nn
 
 from model.str_reparam import fold_conv_bn, switch_module_to_deploy
-from model.str_dcr import RepLocalBlock
+from model.str_dcr import PlainLocalBlock, RepLocalBlock
 
 
 class TemporalRep1x1(nn.Module):
@@ -95,6 +100,54 @@ class TARStage(nn.Module):
         return self
 
 
+class PlainTemporal1x1(nn.Module):
+    """Ablation: single concat 1x1 convolution plus batch norm, no auxiliary branches."""
+
+    def __init__(self, in_channels, out_channels, deploy=False):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.deploy = deploy
+        self.proj = nn.Conv2d(2 * in_channels, out_channels, 1, bias=deploy)
+        if not deploy:
+            self.bn = nn.BatchNorm2d(out_channels)
+            nn.init.kaiming_normal_(self.proj.weight, mode="fan_out", nonlinearity="relu")
+
+    def forward(self, P, Q):
+        fused = self.proj(torch.cat([P, Q], dim=1))
+        return fused if self.deploy else self.bn(fused)
+
+    def switch_to_deploy(self):
+        if self.deploy:
+            return self
+        kernel, bias = fold_conv_bn(self.proj.weight, None, self.bn)
+        self.proj = nn.Conv2d(2 * self.in_channels, self.out_channels, 1, bias=True)
+        self.proj.weight.data = kernel.float()
+        self.proj.bias.data = bias.float()
+        self.deploy = True
+        if hasattr(self, "bn"):
+            del self.bn
+        return self
+
+
+class PlainTARStage(nn.Module):
+    """Ablation: one scale with plain temporal fusion and plain local refinement."""
+
+    def __init__(self, in_channels, dim, deploy=False):
+        super().__init__()
+        self.temporal = PlainTemporal1x1(in_channels, dim, deploy=deploy)
+        self.block = PlainLocalBlock(dim, deploy=deploy)
+        self.act = nn.SiLU()
+
+    def forward(self, P, Q):
+        return self.block(self.act(self.temporal(P, Q)))
+
+    def switch_to_deploy(self):
+        self.temporal.switch_to_deploy()
+        self.block.switch_to_deploy()
+        return self
+
+
 class MultiScaleTAR(nn.Module):
     """Four-scale temporal fusion from paired encoder features to decoder inputs.
 
@@ -103,16 +156,26 @@ class MultiScaleTAR(nn.Module):
     """
 
     def __init__(self, encoder_dims=(64, 64, 64, 64), dim=64,
-                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False):
+                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False,
+                 variant="reparam"):
         super().__init__()
-        self.stage1 = TARStage(encoder_dims[0], dim, use_temporal_aux, use_dcr_aux,
-                               use_residual, deploy)
-        self.stage2 = TARStage(encoder_dims[1], dim, use_temporal_aux, use_dcr_aux,
-                               use_residual, deploy)
-        self.stage3 = TARStage(encoder_dims[2], dim, use_temporal_aux, use_dcr_aux,
-                               use_residual, deploy)
-        self.stage4 = TARStage(encoder_dims[3], dim, use_temporal_aux, use_dcr_aux,
-                               use_residual, deploy)
+        if variant not in ("reparam", "plain"):
+            raise ValueError(f"unknown TAR variant: {variant}")
+        self.variant = variant
+        if variant == "reparam":
+            self.stage1 = TARStage(encoder_dims[0], dim, use_temporal_aux, use_dcr_aux,
+                                   use_residual, deploy)
+            self.stage2 = TARStage(encoder_dims[1], dim, use_temporal_aux, use_dcr_aux,
+                                   use_residual, deploy)
+            self.stage3 = TARStage(encoder_dims[2], dim, use_temporal_aux, use_dcr_aux,
+                                   use_residual, deploy)
+            self.stage4 = TARStage(encoder_dims[3], dim, use_temporal_aux, use_dcr_aux,
+                                   use_residual, deploy)
+        else:
+            self.stage1 = PlainTARStage(encoder_dims[0], dim, deploy)
+            self.stage2 = PlainTARStage(encoder_dims[1], dim, deploy)
+            self.stage3 = PlainTARStage(encoder_dims[2], dim, deploy)
+            self.stage4 = PlainTARStage(encoder_dims[3], dim, deploy)
 
     def forward(self, pre_feats, post_feats):
         t1 = self.stage1(pre_feats[0], post_feats[0])

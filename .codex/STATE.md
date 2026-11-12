@@ -1,6 +1,22 @@
 # 当前状态
 
-更新：2026-11-10。
+更新：2026-11-12。
+
+## CASA-Pyramid / Run13 结构消融已完成并收集
+
+2026-11-12 22:00 CST 完成 6/6 项，队列无失败，两张 RTX 5090 各并发 2 路。协议沿用 casa_pyramid_40k_testselect_heads_detail_v12r3，臂为 `TAR_PLAIN`（TAR 的 concat/P+Q/Q−P 换单支 1×1+BN、RepLocalBlock 换普通 DW3×3+PW1×1）与 `DCR_PLAIN`（RepPairFuse1x1 换单支 1×1+BN），各跑 WHU/SYSU/LEVIR，控制值复用 Run12 同配置结果。
+
+结果：WHU TAR/DCR 94.7843/94.7339（控制 94.6403，噪声 0.177pp）；SYSU 82.3698/82.3239（控制 82.5512，噪声 0.319pp）；LEVIR 91.0016/91.1427（控制 91.0455，单次）。全部差值在复跑跨度内，部署参数三臂同为 1,935,810，延迟 3.678/3.680/3.672 ms。结论：可折叠多分支不承载可测精度收益，只能作为实现选择表述；H/E 与细节头对照仍取 Run12。
+
+运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run13，checkpoint 根 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run13，冻结源码见运行目录 source_code.tar.gz。6 条完整 TEST 已入表，共 305 条；TXT 快照 docs/temporary/models_and_metrics_CASA-Pyramid_Run13.txt，消融表 outputs/CASA-Pyramid/Run13/ablation_table.{json,md}。
+
+## CASA-Pyramid / Run12 test 选模 GPU1 正式训练中
+
+2026-11-10 12:46:57 CST 从预训练骨干重新启动 26 项，唯一 supervisor 177805。仅物理 GPU1，首发 A_H/WHU PID178183、CTRL_ANCHOR/WHU PID178319，实时以 pipeline_status.json 为准。WHU 18、SYSU 6、LEVIR 2，模型、seed 2333/2334、batch32、40K 和显存调度沿用上一尝试。
+
+协议 casa_pyramid_40k_testselect_heads_detail_v12r3。每轮在 test 按阈值 0.5 的 F1 选权重，最终在同一 test 复测。阈值在 val 的 0.10–0.70 网格校准，作为次指标。沿用同结构 GPU 资源和探针结果，test 选模、val 校准及 checkpoint 恢复专项通过。
+
+此前 val 选模尝试按用户要求停止，完成 0 项。日志和权重归档为 CASA-Pyramid/archive/Run12_valselect_20261110_124522。运行根为 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run12，checkpoint 根为 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run12。实际训练源码见运行目录 source_code.tar.gz。正式收集仅使用本协议完整 TEST 区块。
 
 ## CASA-Pyramid / Run11 已完成并收集
 

@@ -16,8 +16,9 @@ from dataset.dataset import Dataset
 from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
 from model.metric_tool import ConfuseMatrixMeter
+from operating_point import THRESHOLDS, ThresholdCounts
 
-PROTOCOL = "casa_pyramid_40k_linearpool_interior_v11"
+PROTOCOL = "casa_pyramid_40k_testselect_heads_detail_v12r3"
 GUIDE_OBJECTIVE = "raw_area_bce"
 DEPLOY_POLICY = "strict_fp32_fold_v1"
 MEAN = [0.485, 0.456, 0.406] * 2
@@ -82,6 +83,11 @@ def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
 
 def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None, interior_positive_weight=1.0):
     main = loss_function(outputs, target, interior_positive_weight)
+    if "detail_logits" in aux:
+        detail = aux["detail_logits"]
+        detail_target = (F.adaptive_avg_pool2d(target, detail.shape[-2:]) if aux["detail_target"] == "area"
+                         else F.interpolate(target, size=detail.shape[-2:], mode="nearest-exact"))
+        main = main + loss_function((detail,), detail_target)
     relational = "geometric_logits" in aux
     weights = auxiliary_weights("hyperbolic" if relational else "none", guide_weight, retrieval_weight)
     guide = guide_terms(aux, target)["guide"]
@@ -94,8 +100,10 @@ def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=No
 
 class SpatialMetrics:
     """Dataset-level boundary matching and segmentation outside a fixed GT band."""
+    radii = (0, 1, 2, 3)
+
     def __init__(self, device):
-        self.boundary_counts = torch.zeros((2, 4), dtype=torch.int64, device=device)
+        self.boundary_counts = torch.zeros((len(self.radii), 4), dtype=torch.int64, device=device)
         self.interior_counts = torch.zeros(4, dtype=torch.int64, device=device)
 
     @torch.no_grad()
@@ -103,7 +111,7 @@ class SpatialMetrics:
         prediction, truth = prediction.bool(), target.bool()
         predicted_edge = mask_boundary(prediction.float()).bool()
         true_edge = mask_boundary(target.float()).bool()
-        for index, radius in enumerate((1, 2)):
+        for index, radius in enumerate(self.radii):
             kernel = 2 * radius + 1
             near_truth = F.max_pool2d(true_edge.float(), kernel, 1, radius).bool()
             near_prediction = F.max_pool2d(predicted_edge.float(), kernel, 1, radius).bool()
@@ -124,8 +132,8 @@ class SpatialMetrics:
                   0.0 if positives else None)
             return dict(precision=precision, recall=recall, F1=f1,
                         predicted_pixels=predicted, target_pixels=positives)
-        result = {f"boundary_{index+1}px": rates(*counts)
-                  for index, counts in enumerate(self.boundary_counts.cpu().tolist())}
+        result = {f"boundary_{radius}px": rates(*counts)
+                  for radius, counts in zip(self.radii, self.boundary_counts.cpu().tolist())}
         tp, fp, fn, tn = self.interior_counts.cpu().tolist()
         result["interior"] = dict(**rates(tp, tp+fp, tp, tp+fn),
                                   tp=tp, fp=fp, fn=fn, tn=tn)
@@ -149,7 +157,7 @@ def make_loader(root, split, batch_size=32, workers=1):
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, return_diagnostics=False):
+def evaluate(model, loader, device, return_diagnostics=False, operating_point=None):
     model.eval()
     meter = ConfuseMatrixMeter(n_class=2)
     losses = []
@@ -162,6 +170,8 @@ def evaluate(model, loader, device, return_diagnostics=False):
             raise FloatingPointError("non-finite evaluation prediction")
         losses.append(float(loss_function(outputs, target)))
         meter.update_cm(pr=(outputs[0] > 0).long().cpu().numpy(), gt=target.cpu().numpy())
+        if operating_point is not None:
+            operating_point.update(outputs[0].sigmoid().cpu().numpy(), target.cpu().numpy())
         if spatial is not None:
             spatial.update(outputs[0] > 0, target)
     result = (sum(losses) / len(losses), meter.get_scores())
@@ -170,7 +180,7 @@ def evaluate(model, loader, device, return_diagnostics=False):
 
 @torch.no_grad()
 def evaluate_auxiliary(model, loader, device):
-    """Measure guide and retrieval BCE on val without using them for selection."""
+    """Measure guide and retrieval BCE separately from selection F1."""
     model.eval()
     sums = dict(retrieval_bce=0.)
     samples = 0
@@ -236,6 +246,12 @@ def rng_state():
     return dict(python=random.getstate(), numpy=np.random.get_state(),
                 torch=torch.get_rng_state(),
                 cuda=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+
+
+def save_checkpoint(value, path):
+    temporary = path.with_suffix('.tmp')
+    torch.save(value, temporary)
+    temporary.replace(path)
 
 
 def restore_training_state(checkpoint, model, optimizer, actual_steps, train_batches):
@@ -319,10 +335,15 @@ def main():
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=2333)
     parser.add_argument("--context-seed", type=int, default=2333)
+    parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--detail-head", action="store_true")
+    parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
     parser.add_argument("--interior-positive-weight", type=float, default=1.0)
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--tar-variant", choices=("reparam", "plain"), default="reparam")
+    parser.add_argument("--decoder-variant", choices=("reparam", "plain"), default="reparam")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -331,6 +352,8 @@ def main():
         parser.error("guide weight must be positive and retrieval weight nonnegative")
     if args.module not in ("hyperbolic", "matched") and weights["geometric_retrieval"]:
         parser.error("retrieval supervision requires the matched H/E context")
+    if args.context_heads != 1 and args.module not in ("hyperbolic", "matched"):
+        parser.error("multihead ablation requires the matched H/E context")
     torch.set_num_threads(4)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -354,11 +377,15 @@ def main():
         loader.generator = generator
         if index == 0:
             loader.sampler.generator = generator
-    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed).to(device)
+    model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
+                    context_heads=args.context_heads, detail_head=args.detail_head,
+                    detail_target=args.detail_target, tar_variant=args.tar_variant,
+                    decoder_variant=args.decoder_variant).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
+                    tar_variant=args.tar_variant, decoder_variant=args.decoder_variant,
                     context_seed=args.context_seed,
                     loader_randomness="independent seeded sampler/worker generators",
                     train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
@@ -375,8 +402,12 @@ def main():
                                            weight_decay=g["weight_decay"], lr=g["lr"],
                                            decoupled_weight_decay=g["decoupled_weight_decay"])
                                       for g in optimizer.param_groups],
-                    selection="best test F1 each epoch, ties update", selection_split="test",
+                    selection="best test F1 at threshold 0.5 each epoch, ties update", selection_split="test",
                     independent_test=False, evaluation_starts_at_epoch=0,
+                    detail_head=args.detail_head, detail_supervision_weight=1. if args.detail_head else 0.,
+                    detail_target=args.detail_target if args.detail_head else None,
+                    context_heads=args.context_heads, test_primary_threshold=.5, calibration_split="val",
+                    validation_threshold_grid=[float(f"{x:.3f}") for x in THRESHOLDS],
                     preprocessing=DATA_PROTOCOL, deep_supervision=4,
                     label_threshold=128, context_grid_sizes=list(model.context.grid_sizes),
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
@@ -420,15 +451,20 @@ def main():
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
     start_epoch, step, best_f1, best_epoch = 0, 0, -1.0, -1
+    best_weights = None
     continuation = None
     if args.resume:
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        for name in ("seed", "context_seed", "compression_reassignment", "auxiliary_weights", "guide_objective", "interior_positive_weight"):
+        for name in ("seed", "context_seed", "compression_reassignment", "auxiliary_weights", "guide_objective",
+                     "interior_positive_weight", "context_heads", "detail_head", "detail_target",
+                     "tar_variant", "decoder_variant",
+                     "selection_split", "dataset", "batch_size", "validation_threshold_grid"):
             if checkpoint["manifest"][name] != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
             checkpoint, model, optimizer, actual_steps, len(train_loader))
         best_f1, best_epoch = checkpoint["best_f1"], checkpoint["best_epoch"]
+        best_weights = checkpoint["best_state_dict"]
         manifest = dict(checkpoint["manifest"])
         continuation = dict(start_epoch=start_epoch, start_step=step,
                             remaining_steps=actual_steps-step, source_files=identity,
@@ -446,10 +482,11 @@ def main():
         for parent in [args.output_dir, args.checkpoint_dir]:
             (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
-                                                              str_dim=64), indent=2), encoding="utf-8")
+                                                              str_dim=64, context_heads=args.context_heads,
+                                                              detail_head=args.detail_head), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
-                               selection_split="test", independent_test=False,
+                               selection_split="test", independent_test=False, calibration_split="val",
                                test_backend="training settings restored after fold verification")
     (args.output_dir / "evaluation_manifest.json").write_text(
         json.dumps(evaluation_manifest, indent=2), encoding="utf-8")
@@ -482,6 +519,7 @@ def main():
                         epoch=epoch, interior_positive_weight=args.interior_positive_weight,
                         interior_foreground_fraction=float((target * (mask_boundary(target, 2) == 0)).mean()),
                         main_unweighted=float(loss_function(outputs, target)),
+                        detail_supervision_weight=manifest['detail_supervision_weight'],
                         main_optimized=float(main_loss))), flush=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"),
@@ -508,32 +546,49 @@ def main():
         if model.context.geometry != "none":
             print(f"[MODULE-DIAG] {json.dumps(model.diagnostics())}", flush=True)
         print(f"[SPATIAL-DIAG] {json.dumps(dict(epoch=epoch, split='test', **spatial))}", flush=True)
-        if score["F1"] >= best_f1:
+        improved = score["F1"] >= best_f1
+        if improved:
             best_f1, best_epoch = float(score["F1"]), epoch
-            torch.save(model.state_dict(), args.checkpoint_dir / "best_model.pth")
-        torch.save(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
-                        optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
-                        manifest=manifest, rng_state=rng_state(),
-                        loader_rng_state=dict(train=train_loader.generator.get_state(),
-                                              evaluation=test_loader.generator.get_state())), args.checkpoint_dir / "last.pth")
+            best_weights = {name: tensor.detach().to('cpu', copy=True) for name, tensor in model.state_dict().items()}
+        save_checkpoint(dict(epoch=epoch + 1, step=step, state_dict=model.state_dict(),
+                             optimizer=optimizer.state_dict(), best_f1=best_f1, best_epoch=best_epoch,
+                             best_state_dict=best_weights, manifest=manifest, rng_state=rng_state(),
+                             loader_rng_state=dict(train=train_loader.generator.get_state(),
+                                                   evaluation=test_loader.generator.get_state())), checkpoint_path)
+        if improved:
+            save_checkpoint(best_weights, args.checkpoint_dir / "best_model.pth")
     val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
-    val_loader.generator = torch.Generator().manual_seed(args.seed+2)
+    val_loader.generator = torch.Generator().manual_seed(args.seed+1)
     last_auxiliary = evaluate_auxiliary(model, val_loader, device)
-    model.load_state_dict(torch.load(args.checkpoint_dir / "best_model.pth", map_location=device, weights_only=True))
+    _, last_val_score = evaluate(model, val_loader, device)
+    save_checkpoint(best_weights, args.checkpoint_dir / "best_model.pth")
+    model.load_state_dict(best_weights)
     best_auxiliary = evaluate_auxiliary(model, val_loader, device)
     (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
         best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
         auxiliary_weights=weights, guide_objective=manifest["guide_objective"],
         guide_effective_coefficients=manifest["guide_effective_coefficients"]), indent=2), encoding="utf-8")
-    image, _ = next(iter(test_loader))
+    image, _ = next(iter(val_loader))
     image = image[:1].to(device).float()
     deploy, deployment = verify_deployment(model, image)
     difference, disagreement = deployment["max_diff"], deployment["binary_disagreement"]
     (args.output_dir / "deploy_check.json").write_text(json.dumps(deployment, indent=2), encoding="utf-8")
-    test_loss, score, spatial = evaluate(deploy, test_loader, device, return_diagnostics=True)
+    operating_point = ThresholdCounts()
+    evaluate(deploy, val_loader, device, operating_point=operating_point)
+    calibration = operating_point.summary()
+    threshold = calibration['best']['threshold']
+    test_loader.generator = torch.Generator().manual_seed(args.seed+2)
+    secondary = ThresholdCounts([threshold])
+    test_loss, score, spatial = evaluate(deploy, test_loader, device, return_diagnostics=True,
+                                         operating_point=secondary)
+    (args.output_dir / "operating_point.json").write_text(json.dumps(dict(
+        selection_split="test", calibration_split="val", best_epoch=best_epoch, validation=calibration,
+        test_calibrated=secondary.curve()[0]), indent=2), encoding="utf-8")
     deploy_params = sum(p.numel() for p in deploy.parameters()) / 1e6
     result = dict(protocol=PROTOCOL, module=args.module, metrics=score, best_epoch=best_epoch,
-                  selection_split="test", independent_test=False,
+                  selection_split="test", independent_test=False, best_selection_f1=best_f1,
+                  last_val_f1=last_val_score['F1'], calibration_split="val",
+                  test_threshold=.5, test_calibrated=secondary.curve()[0],
                   optimizer_steps=step, test_loss=test_loss, spatial_diagnostics=spatial, total_params_m=params,
                   deploy_params_m=deploy_params, elapsed_seconds=time.time()-started,
                   elapsed_scope="current_session" if args.resume else "complete_run",

@@ -23,6 +23,11 @@ def main():
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--interior-positive-weight", type=float, default=1.0)
+    parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--detail-head", action="store_true")
+    parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
+    parser.add_argument("--tar-variant", choices=("reparam", "plain"), default="reparam")
+    parser.add_argument("--decoder-variant", choices=("reparam", "plain"), default="reparam")
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.backends.cudnn.benchmark = True
@@ -33,7 +38,9 @@ def main():
     results = {}
     for variant in args.modules:
         torch.manual_seed(2333)
-        model = CASANet(args.pretrained, variant).cuda().train()
+        model = CASANet(args.pretrained, variant, context_heads=args.context_heads,
+                        detail_head=args.detail_head, detail_target=args.detail_target,
+                        tar_variant=args.tar_variant, decoder_variant=args.decoder_variant).cuda().train()
         optimizer = make_optimizer(model)
         torch.cuda.reset_peak_memory_stats()
         times = []
@@ -69,6 +76,7 @@ def main():
                       joint_contexts=sum(model.context.tokens_per_scale),
                       initial_compression_power=model.context.compression_power,
                       interior_positive_weight=args.interior_positive_weight,
+                      detail_head=args.detail_head,
                       compression_power=model.context.compression_power,
                       support_power=model.context.support_power,
                       self_reference=model.context.self_reference,
