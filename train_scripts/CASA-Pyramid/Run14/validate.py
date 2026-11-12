@@ -118,7 +118,7 @@ def main():
         if profile in ('TAR_DIFF', 'DCR_SINGLE'):
             assert not torch.allclose(outputs[0], control, atol=1e-6), profile
         if geometry_path:
-            assert float(model.context.gamma_context.abs().sum()) == 0.0, profile
+            assert float(model.context.gamma_context.abs().sum()) > 0, profile
             assert float(model.context.out.weight.abs().sum()) > 0, profile
     # Paired initialisation: identical states for H and E at the same seed.
     torch.manual_seed(2333)
