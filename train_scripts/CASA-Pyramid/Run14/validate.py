@@ -103,6 +103,8 @@ def main():
                 model.context.gamma_context.fill_(0.5)
             logits, aux = model(image[:, :3], image[:, 3:], return_aux=True)
             logits[0].mean().backward()
+            with torch.no_grad():
+                outputs = model(image[:, :3], image[:, 3:])
         gradients = {name: param.grad for name, param in model.named_parameters()}
         required = {'HYPERBOLIC': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
                     'EUCLIDEAN': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
