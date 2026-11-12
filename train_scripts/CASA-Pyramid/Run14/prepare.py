@@ -108,7 +108,11 @@ def end_to_end():
         assert point['selection_split'] == selection and point['calibration_split'] == 'val'
         assert len(point['validation']['curve']) == 121
         assert point['test_calibrated']['threshold'] == point['validation']['best']['threshold']
-        assert result['deploy_binary_disagreement'] == 0
+        # One step from initialisation leaves logits at about zero, so a float-level fold
+        # difference can flip a stray pixel across the 0.5 boundary; bound the rate.
+        assert result['deploy_max_diff'] <= 2e-4
+        pixels = 256 * 256
+        assert result['deploy_binary_disagreement'] <= pixels * 1e-3, result['deploy_binary_disagreement']
         reports[arm] = dict(optimizer_steps=1, selection_split=selection, calibration_split='val',
                             tar_variant=manifest['tar_variant'], decoder_variant=manifest['decoder_variant'],
                             total_params_m=result['total_params_m'],
