@@ -1,6 +1,14 @@
 # 当前状态
 
-更新：2026-11-12。
+更新：2026-11-13。
+
+## CASA-Pyramid / Run14 配对 seed 与去模块消融（GPU1 正式训练中）
+
+2026-11-13 00:55 CST 启动 30 项，仅物理 GPU1、两槽并发，首发 H_S2333/WHU 与 H_S2333/SYSU。协议仍为 casa_pyramid_40k_testselect_heads_detail_v12r3，源码基线 d08080d，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run14，checkpoint 根 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run14。GPU0 被他人进程占用，未使用。
+
+两段式设计：Part A 为 H/E 配对（Module `hyperbolic`/`matched`、1 head×32、同 seed 同初始化），四库×seed 2333/2334/2335 共 24 项，统一改为 **val 选模**（`--selection-split val`，test 仅末次复测，`independent_test=true`），得到无偏 test 分数与配对差；Part B 为去模块臂 `TAR_DIFF`（时相混合换固定 |P−Q| + 1×1）与 `DCR_SINGLE`（仅最粗层解码 + 参数自由上采样残差）各三库共 6 项，仍用 test 选模，以便与 Run13 的 CTRL/TAR_PLAIN/DCR_PLAIN 构成 full→plain→removed 三级阶梯。
+
+预检：30 项矩阵、H/E 同 seed 逐项 state_dict 相等、四 profile 参数与折叠、被删结构梯度非零、val 选模冒烟与两 epoch 探针均通过（`[READY] Run14 CPU audit and GPU preflight passed`）。训练参数 HYPERBOLIC/EUCLIDEAN 2.058409M、TAR_DIFF 1.943949M、DCR_SINGLE 1.974730M；部署 1.947094M / 1.905602M / 1.900802M。显存预留 HYPERBOLIC 12314、EUCLIDEAN 11098、TAR_DIFF 9272、DCR_SINGLE 8544 MiB。预计墙钟 38–42 h。
 
 ## CASA-Pyramid / Run13 结构消融已完成并收集
 
