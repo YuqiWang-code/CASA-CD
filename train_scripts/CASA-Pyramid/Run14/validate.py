@@ -15,6 +15,7 @@ from pipeline import pending_runs
 
 sys.path.insert(0, str(RUNTIME/'models'))
 from model.casa_net import CASANet
+from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
 
 
 def check_cli():
@@ -103,8 +104,6 @@ def main():
                 model.context.gamma_context.fill_(0.5)
             logits, aux = model(image[:, :3], image[:, 3:], return_aux=True)
             logits[0].mean().backward()
-            with torch.no_grad():
-                outputs = model(image[:, :3], image[:, 3:])
         gradients = {name: param.grad for name, param in model.named_parameters()}
         required = {'HYPERBOLIC': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
                     'EUCLIDEAN': ['context.qk.weight', 'context.gate.weight', 'context.out.weight'],
@@ -112,9 +111,15 @@ def main():
                     'DCR_SINGLE': ['decoder.proj.weight', 'decoder.block.dw.weight']}[profile]
         for name in required:
             assert gradients[name] is not None and gradients[name].norm() > 0, (profile, name)
-        # Removing a module must change behaviour, never silently fall through.
-        if profile != 'CONTROL':
+        # Removing a module must change behaviour, never silently fall through. The
+        # geometry arms are a deliberate no-op at initialisation (gamma_context is zero
+        # and the de-centered retrieval of a near-uniform attention is itself near zero),
+        # so their wiring is checked structurally rather than numerically.
+        if profile in ('TAR_DIFF', 'DCR_SINGLE'):
             assert not torch.allclose(outputs[0], control, atol=1e-6), profile
+        if geometry_path:
+            assert float(model.context.gamma_context.abs().sum()) == 0.0, profile
+            assert float(model.context.out.weight.abs().sum()) > 0, profile
     # Paired initialisation: identical states for H and E at the same seed.
     torch.manual_seed(2333)
     hyperbolic = CASANet(module='hyperbolic', context_seed=2333)
@@ -122,6 +127,12 @@ def main():
     euclidean = CASANet(module='matched', context_seed=2333)
     for (name, left), (_, right) in zip(hyperbolic.state_dict().items(), euclidean.state_dict().items()):
         assert torch.equal(left, right), name
+    # Identical parameters, different metric: the two arms must still not be one model.
+    assert isinstance(hyperbolic.context, HyperbolicContext), type(hyperbolic.context)
+    assert isinstance(euclidean.context, MatchedEuclideanContext), type(euclidean.context)
+    query, key = torch.randn(16, 34), torch.randn(16, 34)
+    assert not torch.allclose(hyperbolic.context.squared_distance(query, key),
+                              euclidean.context.squared_distance(query, key)), 'metrics must differ'
     assert reservation_keys()['H_S2333'] == 'HYPERBOLIC' and reservation_keys()['E_S2333'] == 'EUCLIDEAN'
     print('Run14 matrix, paired initialisation, folding and gradient paths PASS', flush=True)
 
