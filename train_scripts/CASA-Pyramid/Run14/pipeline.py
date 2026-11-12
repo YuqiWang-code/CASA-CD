@@ -25,7 +25,10 @@ def fit(pending, active, budget, reservations, gpu):
         return None
     available = min(budget - sum(job[2] for job in active.values()), free_memory(gpu) - HEADROOM)
     keys = reservation_keys()
-    return next((name for name in pending if reservations[keys[name.split('/')[0]]] <= available), None)
+    # Pending entries are arms during a real run and profile keys during the preflight
+    # probe, so fall back to the entry itself when it is not an arm name.
+    return next((name for name in pending
+                 if reservations[keys.get(name.split('/')[0], name.split('/')[0])] <= available), None)
 
 
 def write_json(path, value):
