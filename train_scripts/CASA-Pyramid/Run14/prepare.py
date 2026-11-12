@@ -3,6 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -74,6 +75,10 @@ def end_to_end():
     reports = {}
     for arm in ('H_S2333', 'DCR_SINGLE'):
         target = ROOT/'smoke'/arm
+        if target.exists():
+            # A previous preflight may have been interrupted after the smoke step; these
+            # artifacts are disposable, so rebuild them instead of refusing to continue.
+            shutil.rmtree(target)
         data = target/'data'
         (data/'list').mkdir(parents=True, exist_ok=True)
         source = DATA/'WHU-CD-256'
@@ -89,8 +94,6 @@ def end_to_end():
         args = (RUNTIME/'models/train_CASA.py', '--dataset-root', data, '--output-dir', target/'logs',
                 '--checkpoint-dir', target/'weights', '--pretrained', PRETRAINED, '--module', module,
                 *model_options(arm), '--max-steps', 1, '--num-workers', '0')
-        if (target/'readiness.json').exists():
-            raise RuntimeError(f'smoke artifacts already exist: {arm}')
         command(*args)
         result = json.loads((target/'logs/result.json').read_text())
         manifest = json.loads((target/'logs/run_manifest.json').read_text())
