@@ -1,14 +1,18 @@
-# 当前状态
+﻿# 当前状态
 
-更新：2026-11-13。
+更新：2026-11-14。
 
-## CASA-Pyramid / Run14 配对 seed 与去模块消融（GPU1 正式训练中）
+## CASA-Pyramid / Run15 历史版本统一口径消融（GPU1 正式训练中）
 
-2026-11-13 00:55 CST 启动 30 项，仅物理 GPU1、两槽并发，首发 H_S2333/WHU 与 H_S2333/SYSU。协议仍为 casa_pyramid_40k_testselect_heads_detail_v12r3，源码基线 d08080d，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run14，checkpoint 根 /share_datasets/yqwang/checkpoints/CASA-CD/CASA-Pyramid/Run14。GPU0 被他人进程占用，未使用。
+2026-11-14 21:09 CST 启动 20 项（Run1/Run4 各 none/hyperbolic/qkv，Run10 加 matched，统一 WHU+SYSU、val 选模），源码基线 1b38732 后的 f233c43，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run15。三个历史版本源码树已落到仓库根 `models_Run1/`、`models_Run4/`、`models_Run10/`（含 SOURCE.md 记 sha256 与补丁说明）。Run1 为 Poincaré 早期实现且归一化均值为 BGR 顺序，只在本轮内部可比；Run4/Run10 仅新增 `--selection-split {test,val}`（默认 test 保持原行为）。
 
-两段式设计：Part A 为 H/E 配对（Module `hyperbolic`/`matched`、1 head×32、同 seed 同初始化），四库×seed 2333/2334/2335 共 24 项，统一改为 **val 选模**（`--selection-split val`，test 仅末次复测，`independent_test=true`），得到无偏 test 分数与配对差；Part B 为去模块臂 `TAR_DIFF`（时相混合换固定 |P−Q| + 1×1）与 `DCR_SINGLE`（仅最粗层解码 + 参数自由上采样残差）各三库共 6 项，仍用 test 选模，以便与 Run13 的 CTRL/TAR_PLAIN/DCR_PLAIN 构成 full→plain→removed 三级阶梯。
+预检通过（`[READY] Run15 audit and smoke tests passed`）：三版本各 1 次 val 选模端到端 smoke，参数 Run1 2.063581M / Run4 2.064537M / Run10 2.058410M，折叠最大差 ≤8.6e-7、二值差 0。GPU1 两槽，WHU 约 36 s/epoch、SYSU 约 93 s/epoch，预计墙钟约 25 h。
 
-预检：30 项矩阵、H/E 同 seed 逐项 state_dict 相等、四 profile 参数与折叠、被删结构梯度非零、val 选模冒烟与两 epoch 探针均通过（`[READY] Run14 CPU audit and GPU preflight passed`）。训练参数 HYPERBOLIC/EUCLIDEAN 2.058409M、TAR_DIFF 1.943949M、DCR_SINGLE 1.974730M；部署 1.947094M / 1.905602M / 1.900802M。显存预留 HYPERBOLIC 12314、EUCLIDEAN 11098、TAR_DIFF 9272、DCR_SINGLE 8544 MiB。预计墙钟 38–42 h。
+## CASA-Pyramid / Run14 配对 seed 与去模块消融已完成并收集
+
+2026-11-14 14:32 CST 完成 30/30 项，无失败、无停止，墙钟约 37.6 h，仅物理 GPU1 两槽（GPU0 全程被他人进程占用）。协议沿用 v12r3 训练配置；Part A 的 H/E 配对臂改为 val 选模（`--selection-split val`，test 仅末次复测，`independent_test=true`），Part B 的 TAR_DIFF/DCR_SINGLE 仍为 test 选模，用于与 Run13 构成 full→plain→removed 阶梯。
+
+配对结论：WHU/SYSU/LEVIR/CDD 四库 H−E 配对差为 −0.692/+0.057/−0.023/−0.009 pp，12 对均值 −0.167 pp（sd 0.64，se 0.19，t=−0.90），双曲几何在读模口径下无精度收益。去模块：TAR 换固定 |P−Q| 后 WHU −0.441、SYSU +0.363、LEVIR −0.198 pp（跨库约 −0.09），学习式时相混合不承载收益；DCR 换单层解码后 WHU −0.305、SYSU −0.384、LEVIR −0.973 pp，是唯一稳定正向模块。val 选模下 H/E 的 WHU 93.19/93.88 比 Run12 test 选模的 94.6–94.8 低 1.4–1.5 pp，跨轮不可直接比。
 
 ## CASA-Pyramid / Run13 结构消融已完成并收集
 
@@ -184,3 +188,5 @@ Run2于2026-10-25 13:58:47 CST启动，21:35:15 CST完成，历时7小时36分28
 ## GitHub公开训练记录
 
 docs/experiments/CASA-Pyramid/Run1保存12项完整日志、逐轮CSV、实际最佳epoch、完整训练/验证曲线、逐轮模块诊断CSV/JSONL、成功探针及环境。导出入口tools/export_training_records.py。模块诊断是每轮验证首个batch的实际测量值，epoch从0开始。
+
+
