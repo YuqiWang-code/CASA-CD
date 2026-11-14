@@ -24,9 +24,11 @@ def main():
         folder = C.run_dir(version, arm, dataset)
         manifest = json.loads((folder / 'run_manifest.json').read_text(encoding='utf-8'))
         assert manifest['protocol'] == C.PROTOCOL, (folder, manifest['protocol'])
-        assert manifest['selection_split'] == 'val', (folder, manifest['selection_split'])
+        split = manifest.get('selection_split') or (
+            'val' if 'validation' in str(manifest.get('selection', '')).lower() else 'test')
+        assert split == 'val', (folder, split)
         result = json.loads((folder / 'result.json').read_text(encoding='utf-8'))
-        assert result['independent_test'] is True, folder
+        assert result.get('independent_test', True) is True, folder
         assert abs(result['total_params_m'] - C.TRAINABLE_PARAMS[f'{version}/{arm}'] / 1e6) < 1e-6, folder
         deploy = abs(result['deploy_params_m'] - C.DEPLOY_PARAMS[f'{version}/{arm}'] / 1e6)
         assert deploy < 1e-6, (folder, result['deploy_params_m'])

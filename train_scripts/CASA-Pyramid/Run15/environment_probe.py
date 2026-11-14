@@ -1,4 +1,4 @@
-﻿"""Record the interpreter, CUDA and GPU facts of the Run15 runtime."""
+"""Record the interpreter, CUDA and GPU facts of the Run15 runtime."""
 import json
 import platform
 import subprocess

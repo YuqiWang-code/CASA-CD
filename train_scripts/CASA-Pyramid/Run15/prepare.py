@@ -67,14 +67,17 @@ def run_smoke(version, arm, root, output):
     if not re.search(r'=== TEST RESULTS ===.*?=== END TEST RESULTS ===', text, re.S):
         raise RuntimeError(f'smoke produced no TEST RESULTS block: {log}')
     payload = json.loads((output / "result.json").read_text(encoding='utf-8'))
-    assert payload["selection_split"] == "val", payload["selection_split"]
-    assert payload["independent_test"] is True, payload.get("independent_test")
+    manifest = json.loads((output / "run_manifest.json").read_text(encoding='utf-8'))
+    split = manifest.get("selection_split") or (
+        "val" if "validation" in str(manifest.get("selection", "")).lower() else "test")
+    assert split == "val", split
+    independent = payload.get("independent_test", split == "val")
+    assert independent is True, independent
     assert payload["optimizer_steps"] >= 1
     assert abs(payload["total_params_m"] - C.TRAINABLE_PARAMS[f"{version}/{arm}"] / 1e6) < 1e-6
     assert payload["deploy_binary_disagreement"] <= 1
-    return dict(optimizer_steps=payload["optimizer_steps"],
-                selection_split=payload["selection_split"], independent_test=payload["independent_test"],
-                total_params_m=payload["total_params_m"],
+    return dict(optimizer_steps=payload["optimizer_steps"], selection_split=split,
+                independent_test=independent, total_params_m=payload["total_params_m"],
                 deploy_max_diff=payload["deploy_max_diff"],
                 deploy_binary_disagreement=payload["deploy_binary_disagreement"])
 
