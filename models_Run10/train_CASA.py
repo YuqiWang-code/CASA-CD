@@ -350,6 +350,8 @@ def main():
         loader.generator = generator
         if index == 0:
             loader.sampler.generator = generator
+    if val_loader.generator is None:
+        val_loader.generator = torch.Generator().manual_seed(args.seed + 1)
     model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
                     compression_temperature=args.compression_temperature).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
