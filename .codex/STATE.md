@@ -1,6 +1,16 @@
 # 当前状态
 
-更新：2026-11-15。
+更新：2026-11-16。
+
+## CASA-Pyramid / Run16 模块去留（TAR/DCR × 三个历史版本）已完成并收集
+
+2026-11-15 15:12 启动、2026-11-15 23:56 CST 完成 12/12 项，无失败，双卡各两槽，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run16。协议 `casa_pyramid_40k_valselect_module_removal_v1`，全部验证集选模，控制值复用 Run15 同版本 `none`。两条臂只换单阶段内容：`TAR_DIFF` 把学习式时相混合换成固定 `|P−Q|`+1×1（训练 1.943949 M、部署 1.905602 M），`DCR_SINGLE` 把多级解码换成单层上采样（1.974730 M / 1.900802 M）。
+
+结果（Δ 对同版本控制）：Run1 TAR +0.126/+0.410、DCR −0.337/−1.034；Run4 TAR +0.807/−0.379、DCR +0.596/−3.159；Run10 TAR −0.005/+1.468、DCR −0.547/+0.347。
+
+结论：①TAR 的学习式时相混合不承载精度——六项平均 +0.405 pp，无一掉出 0.18–0.32 pp 噪声，叠加 Run14（−0.297/+0.181/−0.242）仍为正，换固定绝对差还能省 103,176 个训练参数、30,208 个部署参数且延迟不变。②DCR 是唯一平均为正贡献的模块——六项平均 −0.689 pp，四负两正，最差 Run4/SYSU −3.159，最好 Run4/WHU +0.596；连同 Run14（WHU −0.212/SYSU −0.611/LEVIR −0.876），多级解码在小目标密、边界碎的 SYSU 上最不能少，结论应写成"平均有效、逐库逐基线报告"。③两模块符号均随库翻转（TAR：WHU +0.126/+0.807/−0.005、SYSU +0.410/−0.379/+1.468），跨版本只能比版本内 Δ。
+
+数据：`docs/experiment_metrics.xlsx` 337 行（其中 Run16 12 行，身份为 `Run16` + `Run1/TAR_DIFF` 三级目录）；TXT 快照 docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt；对照表 outputs/CASA-Pyramid/Run16/comparison.{json,md}；训练记录 docs/experiments/CASA-Pyramid/Run16/（本地产物，未入库）。三个版本树已加 `--tar-variant/--decoder-variant` 超集开关（默认 reparam 与原行为一致）。
 
 ## CASA-Pyramid / Run15 历史版本统一口径消融已完成并收集
 
