@@ -5,22 +5,27 @@ from torch.nn import functional as F
 
 from model.mobilenet_v2 import mobilenet_v2
 from model.str_tar import MultiScaleTAR
-from model.str_dcr import DCRDecoder
+from model.str_dcr import build_decoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
 from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
 
 
 class CASANet(nn.Module):
-    def __init__(self, pretrained_path=None, module="none", context_seed=2333, compression_temperature=0.5):
+    def __init__(self, pretrained_path=None, module="none", context_seed=2333, compression_temperature=0.5,
+                 tar_variant="reparam", decoder_variant="reparam"):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
         self.module = module
+        self.tar_variant = tar_variant
+        self.decoder_variant = decoder_variant
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
-                                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True)
-        self.decoder = DCRDecoder(dim=64, use_aux=True, use_residual=True)
+                                 use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
+                                 variant=tar_variant)
+        self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
+                                     variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)

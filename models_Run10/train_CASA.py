@@ -308,6 +308,8 @@ def main():
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched"], required=True)
+    parser.add_argument("--tar-variant", choices=["reparam", "plain", "diff"], default="reparam")
+    parser.add_argument("--decoder-variant", choices=["reparam", "plain", "none"], default="reparam")
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
@@ -353,11 +355,12 @@ def main():
     if val_loader.generator is None:
         val_loader.generator = torch.Generator().manual_seed(args.seed + 1)
     model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
-                    compression_temperature=args.compression_temperature).to(device)
+                    compression_temperature=args.compression_temperature,
+                    tar_variant=args.tar_variant, decoder_variant=args.decoder_variant).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
-    manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
+    manifest = dict(protocol=PROTOCOL, module=args.module, tar_variant=args.tar_variant, decoder_variant=args.decoder_variant, seed=args.seed,
                     context_seed=args.context_seed,
                     loader_randomness="independent seeded sampler/worker generators",
                     train_loader_seed=args.seed, evaluation_loader_seed=args.seed+1,
@@ -448,7 +451,7 @@ def main():
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
             (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
+            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module, tar_variant=args.tar_variant, decoder_variant=args.decoder_variant,
                                                               str_dim=64), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,

@@ -168,6 +168,8 @@ def main():
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--module", choices=["none", "hyperbolic", "qkv"], required=True)
+    parser.add_argument("--tar-variant", choices=["reparam", "plain", "diff"], default="reparam")
+    parser.add_argument("--decoder-variant", choices=["reparam", "plain", "none"], default="reparam")
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
@@ -190,11 +192,12 @@ def main():
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     epochs = math.ceil(args.max_steps / len(train_loader))
     actual_steps = epochs * len(train_loader)
-    model = CASANet(args.pretrained, module=args.module).to(device)
+    model = CASANet(args.pretrained, module=args.module, tar_variant=args.tar_variant,
+                    decoder_variant=args.decoder_variant).to(device)
     optimizer = make_optimizer(model)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
-    manifest = dict(protocol=PROTOCOL, module=args.module, seed=2333,
+    manifest = dict(protocol=PROTOCOL, module=args.module, tar_variant=args.tar_variant, decoder_variant=args.decoder_variant, seed=2333,
                     max_steps_requested=args.max_steps, actual_steps=actual_steps,
                     epochs=epochs, train_batches=len(train_loader), batch_size=args.batch_size,
                     lr=5e-4, optimizer="Adam(0.9,0.99),eps=1e-8",
@@ -228,7 +231,7 @@ def main():
     else:
         for parent in [args.output_dir, args.checkpoint_dir]:
             (parent / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module,
+            (parent / "arch.json").write_text(json.dumps(dict(arch="casa", module=args.module, tar_variant=args.tar_variant, decoder_variant=args.decoder_variant,
                                                               str_dim=64), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
