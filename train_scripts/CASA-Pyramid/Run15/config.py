@@ -35,6 +35,7 @@ VERSIONS = {
         selection_flag=None,
         selection="val",
         note="Poincare-ball hyperbolic context; selects on validation F1 natively",
+        protocol="casa_pyramid_40k_guide02_v1",
     ),
     "Run4": dict(
         model_dir="models_Run4",
@@ -44,6 +45,7 @@ VERSIONS = {
         selection_flag="--selection-split",
         selection="val",
         note="direct Lorentz geometry; test-selection patched to val for this ablation",
+        protocol="casa_pyramid_40k_relative_adamwctx_v4",
     ),
     "Run10": dict(
         model_dir="models_Run10",
@@ -53,6 +55,7 @@ VERSIONS = {
         selection_flag="--selection-split",
         selection="val",
         note="posterior-compression line; matched Euclidean is the isomorphic twin",
+        protocol="casa_pyramid_40k_supervisedposterior_v10",
     ),
 }
 

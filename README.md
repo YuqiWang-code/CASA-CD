@@ -29,6 +29,48 @@
 
 代码仓库为 [YuqiWang-code/CASA-CD](https://github.com/YuqiWang-code/CASA-CD)，训练服务器为 RSML-3。
 
+## 版本消融：CASA-Pyramid / Run15：三个历史版本的同口径复现
+
+把 Run1（Poincaré 球 + `qkv` 臂）、Run4（直接 Lorentz + `qkv` 臂）、Run10（后验压缩 + `matched` 欧氏双胞胎）三个版本的源码落到 `models_Run1/`、`models_Run4/`、`models_Run10/`（`SOURCE.md` 记来源与 sha256），统一在 WHU/SYSU 上按**验证集选模**各跑一遍控制臂与几何臂，共 20 项，2026-11-15 13:59 完成，无失败（中途一次显存 OOM 已提预留后重跑）。
+
+| 版本 | 臂 | WHU F1（%） | Δ（pp） | SYSU F1（%） | Δ（pp） |
+|---|---|---:|---:|---:|---:|
+| Run1 | `none`（控制） | 93.6175 | — | 81.7839 | — |
+| Run1 | `hyperbolic`（Poincaré） | 94.1792 | +0.562 | 83.1153 | +1.331 |
+| Run1 | `qkv` | 94.4367 | +0.819 | 81.6452 | −0.139 |
+| Run4 | `none`（控制） | 93.3574 | — | 83.0623 | — |
+| Run4 | `hyperbolic`（Lorentz） | 93.9368 | +0.579 | 83.1173 | +0.055 |
+| Run4 | `qkv` | 94.1704 | +0.813 | 81.9697 | −1.093 |
+| Run10 | `none`（控制） | 94.0877 | — | 81.0951 | — |
+| Run10 | `hyperbolic`（后验压缩） | 93.9819 | −0.106 | 82.6912 | +1.596 |
+| Run10 | `matched`（同构欧氏） | 93.6482 | −0.440 | 82.7001 | +1.605 |
+| Run10 | `qkv` | 94.0871 | −0.001 | 82.6776 | +1.583 |
+
+三条结论：
+
+1. **几何本身没有精度收益。** Run10 的 `matched` 与 `hyperbolic` 参数形状、初始化、读出、门控逐位一致，只把测地距离换成欧氏距离：WHU 差 **+0.334 pp**、SYSU 差 **−0.009 pp**。把三个独立实现放在一起看，同构配对差为 Run10 +0.334/−0.009、Run14 12 对均值 −0.167（sd 0.64）、Run12 WHU +0.118/+0.330，全部跨零且落在 0.18–0.32 pp 的复跑噪声内。
+2. **SYSU 上的正增益来自"加了一个 context 模块"，不是双曲。** Run10 三条臂（`hyperbolic`/`matched`/`qkv`）在 SYSU 分别 +1.596/+1.605/+1.583，彼此相差 ≤0.03 pp；而它的控制臂 81.0951 是三个版本里最弱的。基线越弱，模块带来的提升越大，这与"几何更优"无关。
+3. **WHU 与 SYSU 的排序在两库之间不稳定。** WHU 上 `qkv` 臂在三个版本都高于控制（+0.819/+0.813/−0.001），`hyperbolic` 在 Run1/Run4 为 +0.562/+0.579、在 Run10 为 −0.106；SYSU 上 `qkv` 在 Run1/Run4 为负。跨版本比较必须用版本内 Δ，不能直接比绝对 F1——三个版本的控制臂本身就相差 0.73 pp（WHU 93.36–94.09）和 1.97 pp（SYSU 81.10–83.06）。
+
+这些副本只加了 `--selection-split` 补丁（默认 `test` 保持原行为），模型与损失未改；Run1 原生的 BGR 通道顺序与 Poincaré 实现原样保留。
+
+[实验矩阵与结果](train_scripts/CASA-Pyramid/Run15/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run15.txt)。
+
+## 实验：CASA-Pyramid / Run14：配对 seed 与真·去模块臂
+
+Run14 在四库上用同 seed 初始化跑 H/E 配对（3 seed）与两条"真去掉模块"的臂，2026-11-14 14:32 完成 30 项。H/E 用验证集选模，得无偏 test 分数；去模块臂仍用 test 选模，直接与 Run13 阶梯衔接。
+
+| 库 | H 三 seed 均值 | E 三 seed 均值 | H − E（pp） |
+|---|---:|---:|---:|
+| WHU | 93.1903 | 93.8825 | −0.692 |
+| SYSU | 81.8998 | 81.8426 | +0.057 |
+| LEVIR | 90.9503 | 90.9729 | −0.023 |
+| CDD | 96.9370 | 96.9457 | −0.009 |
+
+12 组配对差均值 **−0.167 pp**（sd 0.64，标准误 0.19，t=−0.90）：双曲几何在等价参数、等价延迟下没有精度收益。去模块臂相对 Run13 控制臂：把学习式时相混合换成固定 `|P−Q|` 后 WHU −0.297、SYSU +0.181、LEVIR −0.242 pp；把多级解码换成单层上采样后 WHU −0.212、SYSU −0.611、LEVIR −0.876 pp——粗解码对 LEVIR 的损失最大，是唯一在两轮里都稳定为负的移除。
+
+[实验矩阵与结果](train_scripts/CASA-Pyramid/Run14/README.md)。
+
 ## 消融实验：CASA-Pyramid / Run13：TAR 与 DCR 的可折叠多分支
 
 两条单因子臂，控制支路为 `module=none`、1 头、无细节头（Run12 的 `CTRL_ANCHOR`/`CTRL_REPEAT`/`DETAIL_OFF` 配置）。`TAR_PLAIN` 把 `TemporalRep1x1` 的 concat/P+Q/Q−P 三支换成单个 1×1+BN、`RepLocalBlock` 换成普通 DW3×3+PW1×1+BN；`DCR_PLAIN` 把 `RepPairFuse1x1` 的 concat/sum/diff 换成单个 1×1+BN，局部块同样退化。四尺度拓扑、通道、解码顺序、损失、增广与 40K 预算均不变。

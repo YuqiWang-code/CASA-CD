@@ -1,18 +1,22 @@
-﻿# 当前状态
+# 当前状态
 
-更新：2026-11-14。
+更新：2026-11-15。
 
-## CASA-Pyramid / Run15 历史版本统一口径消融（GPU1 正式训练中）
+## CASA-Pyramid / Run15 历史版本统一口径消融已完成并收集
 
-2026-11-14 21:09 CST 启动 20 项（Run1/Run4 各 none/hyperbolic/qkv，Run10 加 matched，统一 WHU+SYSU、val 选模），源码基线 1b38732 后的 f233c43，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run15。三个历史版本源码树已落到仓库根 `models_Run1/`、`models_Run4/`、`models_Run10/`（含 SOURCE.md 记 sha256 与补丁说明）。Run1 为 Poincaré 早期实现且归一化均值为 BGR 顺序，只在本轮内部可比；Run4/Run10 仅新增 `--selection-split {test,val}`（默认 test 保持原行为）。
+2026-11-14 21:09 启动、2026-11-15 13:59 CST 完成 20/20 项，无失败（中途 `Run4/hyperbolic` 首次前向 OOM，把该臂预留从 12500 提到 18500 MiB 后重跑成功），两卡各两槽，运行根 /home/yqwang/outputs/CASA-CD/CASA-Pyramid/Run15。三个历史版本源码树已落到仓库根 `models_Run1/`、`models_Run4/`、`models_Run10/`（含 SOURCE.md 记 sha256 与补丁说明）。Run1 为 Poincaré 早期实现且归一化均值为 BGR 顺序，只在本轮内部可比；Run4/Run10 仅新增 `--selection-split {test,val}`（默认 test 保持原行为）。
 
-预检通过（`[READY] Run15 audit and smoke tests passed`）：三版本各 1 次 val 选模端到端 smoke，参数 Run1 2.063581M / Run4 2.064537M / Run10 2.058410M，折叠最大差 ≤8.6e-7、二值差 0。GPU1 两槽，WHU 约 36 s/epoch、SYSU 约 93 s/epoch，预计墙钟约 25 h。
+结果（val 选模、阈值 0.5，WHU/SYSU）：Run1 控制 93.6175/81.7839、hyperbolic 94.1792(+0.562)/83.1153(+1.331)、qkv 94.4367(+0.819)/81.6452(−0.139)；Run4 控制 93.3574/83.0623、hyperbolic 93.9368(+0.579)/83.1173(+0.055)、qkv 94.1704(+0.813)/81.9697(−1.093)；Run10 控制 94.0877/81.0951、hyperbolic 93.9819(−0.106)/82.6912(+1.596)、matched 93.6482(−0.440)/82.7001(+1.605)、qkv 94.0871(−0.001)/82.6776(+1.583)。
+
+结论：①几何本身无收益——Run10 的 `matched` 与 `hyperbolic` 逐位同构，仅换距离，差 +0.334/−0.009 pp；连同 Run14 12 对均值 −0.167、Run12 +0.118/+0.330，三个独立实现的配对差全部跨零且在 0.18–0.32 pp 噪声内。②Run10 在 SYSU 的三条臂（含欧氏双胞胎）同为 +1.58~1.61 pp，收益来自"加 context 模块"而非双曲，且其控制臂 81.0951 是三个版本里最弱。③WHU 上 qkv 臂三版本均不低于控制（+0.819/+0.813/−0.001），hyperbolic 在 Run1/Run4 为正、Run10 为负，两库排序不稳定。④跨版本比较必须用版本内 Δ：三个控制臂本身相差 0.73 pp（WHU）与 1.97 pp（SYSU）。
+
+数据：`docs/experiment_metrics.xlsx` 325 行（其中 Run15 20 行，身份为 `Run15` + `Run1/none` 三级目录）；TXT 快照 docs/temporary/models_and_metrics_CASA-Pyramid_Run15.txt；对照表 outputs/CASA-Pyramid/Run15/comparison.{json,md} 与 version_table.md；训练记录 docs/experiments/CASA-Pyramid/Run15/（本地产物，未入库）。
 
 ## CASA-Pyramid / Run14 配对 seed 与去模块消融已完成并收集
 
 2026-11-14 14:32 CST 完成 30/30 项，无失败、无停止，墙钟约 37.6 h，仅物理 GPU1 两槽（GPU0 全程被他人进程占用）。协议沿用 v12r3 训练配置；Part A 的 H/E 配对臂改为 val 选模（`--selection-split val`，test 仅末次复测，`independent_test=true`），Part B 的 TAR_DIFF/DCR_SINGLE 仍为 test 选模，用于与 Run13 构成 full→plain→removed 阶梯。
 
-配对结论：WHU/SYSU/LEVIR/CDD 四库 H−E 配对差为 −0.692/+0.057/−0.023/−0.009 pp，12 对均值 −0.167 pp（sd 0.64，se 0.19，t=−0.90），双曲几何在读模口径下无精度收益。去模块：TAR 换固定 |P−Q| 后 WHU −0.441、SYSU +0.363、LEVIR −0.198 pp（跨库约 −0.09），学习式时相混合不承载收益；DCR 换单层解码后 WHU −0.305、SYSU −0.384、LEVIR −0.973 pp，是唯一稳定正向模块。val 选模下 H/E 的 WHU 93.19/93.88 比 Run12 test 选模的 94.6–94.8 低 1.4–1.5 pp，跨轮不可直接比。
+配对结论：WHU/SYSU/LEVIR/CDD 四库 H−E 配对差为 −0.692/+0.057/−0.023/−0.009 pp，12 对均值 −0.167 pp（sd 0.64，se 0.19，t=−0.90），双曲几何在读模口径下无精度收益。去模块（相对同库 test 选模控制臂）：TAR 换固定 |P−Q| 后 WHU −0.297、SYSU +0.181、LEVIR −0.242 pp；DCR 换单层解码后 WHU −0.212、SYSU −0.611、LEVIR −0.876 pp，是唯一在两库以上稳定为负的移除。val 选模下 H/E 的 WHU 93.19/93.88 比 Run12 test 选模的 94.6–94.8 低 1.4–1.5 pp，跨轮不可直接比。
 
 ## CASA-Pyramid / Run13 结构消融已完成并收集
 

@@ -1,13 +1,13 @@
 """Download Run15 logs, verify the protocol, and refresh the shared metric tables."""
 import argparse
 import json
+import os
 import subprocess
 import sys
-from pathlib import Path
 
 import config as C
 
-REPO = Path('/home/yqwang/projects/CASA-CD')
+REPO = C.Path(os.environ.get('CASA_REPO', '/home/yqwang/projects/CASA-CD'))
 TOLERANCE = 0.0
 
 
@@ -23,7 +23,7 @@ def main():
     for version, arm, dataset in C.experiments():
         folder = C.run_dir(version, arm, dataset)
         manifest = json.loads((folder / 'run_manifest.json').read_text(encoding='utf-8'))
-        assert manifest['protocol'] == C.PROTOCOL, (folder, manifest['protocol'])
+        assert manifest['protocol'] == C.VERSIONS[version]['protocol'], (folder, manifest['protocol'])
         split = manifest.get('selection_split') or (
             'val' if 'validation' in str(manifest.get('selection', '')).lower() else 'test')
         assert split == 'val', (folder, split)
@@ -40,7 +40,7 @@ def main():
     subprocess.run([sys.executable, str(REPO / 'tools/extract_metrics_to_excel.py')], check=True)
     subprocess.run([sys.executable, str(REPO / 'tools/models_to_txt.py'),
                     '--tag', 'CASA-Pyramid', '--run', args.run], check=False)
-    subprocess.run([sys.executable, str(Path(__file__).resolve().parent / 'compare.py')], check=True)
+    subprocess.run([sys.executable, str(C.Path(__file__).resolve().parent / 'compare.py')], check=True)
     subprocess.run([sys.executable, str(REPO / 'tools/export_training_records.py'),
                     '--tag', 'CASA-Pyramid', '--run', args.run], check=False)
 

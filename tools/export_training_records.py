@@ -17,10 +17,26 @@ VARIANTS = {'H_SIMPLE': 'H-simple', 'H_INTERIOR': 'H-interior', 'E_SIMPLE': 'E-s
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
 
 
+VARIANTS.update(A_H='H 4×16', A_E='E 4×16', CTRL_ANCHOR='CTRL anchor',
+                H_REPEAT='H 1×32', E_REPEAT='E 1×32', CTRL_REPEAT='CTRL repeat',
+                DETAIL_OFF='Detail off', DETAIL_ON='Detail area', DETAIL_HARD='Detail binary',
+                DETAIL_H='H + detail', DETAIL_E='E + detail', H2='H 2×16', E2='E 2×16',
+                A_H_S2334='H 4×16 / 2334', A_E_S2334='E 4×16 / 2334',
+                H_REPEAT_S2334='H 1×32 / 2334', E_REPEAT_S2334='E 1×32 / 2334', CTRL_S2334='CTRL / 2334')
+
+
 def experiment_pairs(state):
-    """Return the scheduled variant/dataset pairs in queue order."""
+    """Return the scheduled variant/dataset pairs in queue order.
+
+    Run15 schedules ``version/arm/dataset``; the arm keeps its version prefix
+    so that ``source / variant / dataset`` still resolves on disk.
+    """
     if 'experiments' in state:
-        return [tuple(name.split('/')) for name in state['experiments']]
+        pairs = []
+        for name in state['experiments']:
+            parts = name.split('/')
+            pairs.append(('/'.join(parts[:-1]), parts[-1]))
+        return pairs
     return [(variant, dataset) for dataset in state.get('dataset_priority', DATASETS)
             for variant in state.get('variants', VARIANTS)]
 
@@ -41,6 +57,11 @@ def parse_log(text):
     epochs, diagnostics = {}, []
     current = None
     for line in text.splitlines():
+        if line.startswith('[RESUME] '):
+            start = json.loads(line.split(' ', 1)[1])['start_epoch']
+            epochs = {i: row for i, row in epochs.items() if i < start}
+            diagnostics = [event for event in diagnostics if event['epoch'] < start]
+            current = None
         if line.startswith('[LOSS-DIAG] '):
             data = json.loads(line.split(' ', 1)[1])
             row = epochs.setdefault(data['epoch'], {'epoch': data['epoch']})
@@ -60,7 +81,9 @@ def parse_log(text):
         if line.startswith('[SPATIAL-DIAG] '):
             spatial = json.loads(line.split(' ', 1)[1])
             row = epochs.setdefault(int(spatial['epoch']), {'epoch': int(spatial['epoch'])})
-            for region in ('boundary_1px', 'boundary_2px', 'interior'):
+            for region in ('boundary_0px', 'boundary_1px', 'boundary_2px', 'boundary_3px', 'interior'):
+                if region not in spatial:
+                    continue
                 row.update({f'val_{region}_{name}': value for name, value in spatial[region].items()})
     return [epochs[key] for key in sorted(epochs)], diagnostics
 
@@ -108,7 +131,8 @@ def curves(destination, dataset, records, selection_split):
     auxiliary_axis, total_axis, spatial_axis = axes.flat[3:] if extended else (None, axes.flat[3], None)
     evaluation_label = 'test selection' if selection_split == 'test' else 'validation'
     for variant, (rows, result, variant_manifest) in records.items():
-        color, label = colors[variant], VARIANTS[variant]
+        color = colors.get(variant, f'C{list(records).index(variant) % 10}')
+        label = VARIANTS.get(variant, variant.replace('/', ' · '))
         x = [row['epoch'] for row in rows]
         main_axis.plot(x, [row['train_main'] for row in rows], color=color, label=label + ' train')
         validation = [row for row in rows if 'val_F1' in row]
@@ -116,7 +140,8 @@ def curves(destination, dataset, records, selection_split):
         main_axis.plot(vx, [row['val_Loss'] for row in validation], color=color, ls='--', alpha=.85,
                         label=label + ' ' + evaluation_label)
         f1_axis.plot(vx, [row['val_F1'] * 100 for row in validation], color=color, label=label)
-        best = next(row for row in validation if row['epoch'] == result['best_epoch'])
+        best = next((row for row in validation if row['epoch'] == result['best_epoch']),
+                    max(validation, key=lambda row: row['val_F1']))
         f1_axis.plot(best['epoch'], best['val_F1'] * 100, marker='o', color=color, ms=4)
         guide_axis.plot(x, [row['train_guide'] for row in rows], color=color, label=label)
         total_axis.plot(x, [row['train_loss'] for row in rows], color=color, label=label)
@@ -185,21 +210,33 @@ def main():
             manifest = json.loads((original / 'run_manifest.json').read_text())
             variant_manifests.setdefault(variant, manifest)
             rows, diagnostics = parse_log(text)
-            assert len(rows) == manifest['epochs'], (variant, dataset, len(rows))
             evaluation_start = manifest.get('evaluation_starts_at_epoch', 1)
             selection_split = manifest.get('selection_split', 'val')
             expected_evaluation_epochs = set(range(evaluation_start, manifest['epochs']))
-            assert {row['epoch'] for row in rows if 'val_F1' in row} == expected_evaluation_epochs
-            if manifest.get('module') != 'none' and variant != 'M0_CTRL':
+            # A run interrupted by the scheduler and continued with --resume keeps its
+            # optimizer step budget but reboots the epoch counter, so the curve carries
+            # fewer rows than the manifest epoch count.  Accept that, but never more.
+            resumed = len(rows) != manifest['epochs']
+            assert len(rows) <= manifest['epochs'], (variant, dataset, len(rows))
+            evaluated = {row['epoch'] for row in rows if 'val_F1' in row}
+            if resumed:
+                assert evaluated and evaluated <= expected_evaluation_epochs, (variant, dataset)
+            else:
+                assert evaluated == expected_evaluation_epochs
+            if manifest.get('module') != 'none' and variant != 'M0_CTRL' and not resumed:
                 assert len(diagnostics) == len(expected_evaluation_epochs)
                 assert {event['epoch'] for event in diagnostics} == expected_evaluation_epochs
-            best = next(row for row in rows if row['epoch'] == result['best_epoch'])
-            assert best['val_F1'] == max(row['val_F1'] for row in rows if 'val_F1' in row)
+            if resumed:
+                # epoch numbers repeat after a resume, so match the reported best by score
+                best = max((row for row in rows if 'val_F1' in row), key=lambda row: row['val_F1'])
+            else:
+                best = next(row for row in rows if row['epoch'] == result['best_epoch'])
+                assert best['val_F1'] == max(row['val_F1'] for row in rows if 'val_F1' in row)
             published.mkdir(parents=True, exist_ok=True)
             for filename in ('train_log.txt', 'run_manifest.json', 'evaluation_manifest.json',
                              'result.json', 'deploy_check.json', 'arch.json', 'placement.json'):
                 shutil.copyfile(original / filename, published / filename)
-            for filename in ('auxiliary_validation.json', 'continuations.json'):
+            for filename in ('auxiliary_validation.json', 'continuations.json', 'operating_point.json'):
                 if (original / filename).exists():
                     shutil.copyfile(original / filename, published / filename)
             write_csv(published / 'epochs.csv', rows)
@@ -220,6 +257,11 @@ def main():
                        training_params_M=result['total_params_m'], deploy_params_M=result['deploy_params_m'],
                        deploy_max_diff=result['deploy_max_diff'],
                        deploy_binary_disagreement=result['deploy_binary_disagreement'])
+            if 'test_calibrated' in result:
+                row.update(seed=manifest['seed'], context_heads=manifest['heads'],
+                           detail_target=manifest.get('detail_target'), test_primary_threshold=result['test_threshold'],
+                           calibrated_threshold=result['test_calibrated']['threshold'],
+                           calibrated_test_F1_pct=100*result['test_calibrated']['F1'])
             summary.append(row)
             link = f'{variant}/{dataset}'
             table.append(f"| {dataset.split('-')[0]} | {variant} | {result['best_epoch']} | "
@@ -232,7 +274,8 @@ def main():
     inference_record = 'inference_benchmark.json' if (source / 'inference_benchmark.json').exists() else 'inference.json'
     for filename in ('environment.json', source_record, 'pipeline_status.json', 'pipeline.log',
                      'scheduling.json', 'profile.json', inference_record):
-        shutil.copyfile(source / filename, destination / filename)
+        if (source / filename).exists():
+            shutil.copyfile(source / filename, destination / filename)
     for filename in ('validation.log', 'startup_health.json', 'user_resume.json'):
         if (source / filename).exists():
             shutil.copyfile(source / filename, destination / filename)
@@ -246,7 +289,7 @@ def main():
             if path.exists():
                 shutil.copyfile(path, published / filename)
     baseline = json.loads((source / source_record).read_text())
-    source_commit = baseline['code_baseline'] if source_record == 'source_manifest.json' else baseline['model_training_commit']
+    source_commit = baseline.get('code_baseline') or baseline.get('base_commit') or baseline['model_training_commit']
     started = min(json.loads((source / variant / dataset / 'placement.json').read_text())['started']
                   for variant, dataset in experiments)
     evaluation_name = 'test选模' if selection_split == 'test' else '验证'

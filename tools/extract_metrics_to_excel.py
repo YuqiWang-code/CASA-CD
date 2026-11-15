@@ -83,7 +83,7 @@ def parse_path(rel):
     run = ""
     exp_parts = []
     for p in rest[1:]:
-        if re.match(r"^Run\d+(_\w+)?$", p):
+        if not run and re.match(r"^Run\d+(_\w+)?$", p):
             run = p
         else:
             exp_parts.append(p)
