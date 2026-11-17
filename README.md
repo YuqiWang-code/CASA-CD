@@ -1,6 +1,6 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。当前主线 **CASA-Pyramid / Run12（四头检索与高分辨率细节对照）**。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。几何与压缩的主线归档在 **CASA-Pyramid / Run12**，小目标改进的当前线是 **CASA-MinorGoal / Run1（多尺度差分池化 + 差分条件检索）**。**Run4作为正向基线完整保留**。
 
 双曲版采用完整 Q、224 个跨尺度 KV 和直接 Lorentz 投影，K/V 共用一阶 guide 池化内容，空间中心化检索后门控写回。Run12 对照 1×32、2×16 和 4×16，H/E 各配置同构，部署约 1.95M 参数。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
@@ -21,13 +21,43 @@
 | 要找的内容 | 位置 |
 |---|---|
 | 主线模型、训练与测试 | [models/](models/)，模型入口 `model/casa_net.py`，训练入口 `train_CASA.py` |
-| 各轮实验矩阵、调度与收集 | [train_scripts/CASA-Pyramid/](train_scripts/CASA-Pyramid/) 下对应的 `RunN/` |
+| 各轮实验矩阵、调度与收集 | [train_scripts/CASA-Pyramid/](train_scripts/CASA-Pyramid/) 与 [train_scripts/CASA-MinorGoal/](train_scripts/CASA-MinorGoal/) 下对应的 `RunN/` |
 | 服务器连接、环境和状态 | [.codex/SERVER.md](.codex/SERVER.md)、[.codex/STATE.md](.codex/STATE.md)，实时状态用 `.codex/status.py` |
 | 日志、指标、曲线和冻结源码 | 本地 `outputs/<tag>/<Run>/`，已归档材料见 [docs/experiments/](docs/experiments/)、[指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/) |
 | 下载、汇表与导出工具 | [tools/](tools/) |
 | 独立的 MoE 探索线 | [README_MoE.md](README_MoE.md) 与 [models_v1/](models_v1/) |
 
 代码仓库为 [YuqiWang-code/CASA-CD](https://github.com/YuqiWang-code/CASA-CD)，训练服务器为 RSML-3。
+
+## 小目标改进：CASA-MinorGoal / Run1：多尺度差分池化与差分条件检索
+
+前几轮把几何与检索的对照做完后，问题落在两处结构而不是距离函数：**双曲侧的 KV 来自融合特征，回答不了"这里变没变"**，检索在信息不足时退化成去均值恒等；**TAR 只有一个 1×1 的时相混合**，看不到小目标需要的多尺度上下文。Run1 针对这两点各改一处，其余（骨干、四尺度拓扑、DCR、损失、增广、40K 预算、验证集选模）全部不动。
+
+- `--tar-variant spp`：TAR 每尺度在时相融合之外并行一条 `|P−Q|` 支路——1×1 升维后接 `RepSPPBlock`，四支并行深度卷积（1×1 / 3×3 / 5×5 / 7×7，3/5/7 支 BN 从 0 开始），训练期多分支、部署折叠成**单个 7×7 DW + 1×1**，实测 `max_diff 1.19e-7`。
+- `--module difference`：新增 `DifferenceContext`，与 `HyperbolicContext` 逐项同构，只多一层 `LayerNorm(D_s)`；Q 仍是 `T_s` 的全位置，KV 换成 `|P−Q|` 的类条件池化原型（224 个），使注意力权重本身编码变化强度。
+- 依据的 2024–2026 工作（SET、BoltzFormer、OKNet、Hyperbolic Change Monitoring、CoSA、SCA-Net 等）存于 [参考文献](docs/参考文献/MinorGoal_差分挖掘与多尺度池化/)，核心代码在 `others/`。
+
+| 数据集 | 臂 | 训练/部署参数（M） | Recall | Precision | F1（%） | Δ（pp） |
+|---|---|---:|---:|---:|---:|---:|
+| WHU | CTRL | 2.047 / 1.936 | 93.15 | 94.10 | 93.6234 | — |
+| WHU | `SPP` | 2.118 / 1.996 | 92.89 | 94.51 | 93.6925 | +0.069 |
+| WHU | `DIFF` | 2.130 / 2.007 | 93.15 | **95.57** | **94.3468** | **+0.723** |
+| SYSU | CTRL | 2.047 / 1.936 | 80.07 | 83.46 | 81.7290 | — |
+| SYSU | `SPP` | 2.118 / 1.996 | 80.20 | **85.56** | **82.7915** | **+1.062** |
+| SYSU | `DIFF` | 2.130 / 2.007 | 81.08 | 84.30 | 82.6630 | **+0.934** |
+| LEVIR | CTRL | 2.047 / 1.936 | 89.76 | 91.96 | 90.8488 | — |
+| LEVIR | `SPP` | 2.118 / 1.996 | 90.43 | 91.70 | 91.0612 | +0.212 |
+| LEVIR | `DIFF` | 2.130 / 2.007 | 90.12 | 91.59 | 90.8535 | +0.005 |
+
+五条结论：
+
+1. **多尺度空间池化有效，且增益在精度侧。** SYSU **+1.062 pp**（P 83.46 → 85.56，R 几乎不动），是本项目第一次在单库上把控制臂拉开 1 pp 以上；LEVIR +0.212、WHU +0.069 落在噪声内（LEVIR 复现对照差 0.197 pp，WHU 噪声约 0.18 pp，SYSU 约 0.32 pp）。机制上是"少报错"，不是"多检出"。
+2. **双曲不缺几何，缺的是 KV 内容。** 换成差分原型后 WHU **+0.723 pp**，P 从 94.10 升到 95.57；SYSU +0.934 pp。同一套检索在 KV 用融合特征时与欧氏双胞胎无差（Run14 十二对均值 −0.167 pp），换上差分内容后才有信号——这解释了此前"双曲无收益"的结论其实测的是"检索内容没有差分"。
+3. **两处改动不叠加。** `DIFF` 减 `SPP`：WHU **+0.654**、SYSU **−0.129**、LEVIR **−0.208**。SPP 已经把多尺度差分证据写进主干，再叠一层差分检索只在 WHU 有额外收益，在 SYSU/LEVIR 反而略降。
+4. **代价必须一起报。** 部署参数 1.936 → 1.996（SPP，+3.1%）→ 2.007 M（DIFF）；batch1 256² FP32 延迟 5.880 → 5.987 ms（+1.8%）→ 8.883 ms（**+51%**）。按性价比，SPP 单独可用；DIFF 只在 WHU 值这 51%。
+5. **可信度边界。** 单 seed；`SYSU +1.06`、`DIFF/WHU +0.72`、`DIFF/SYSU +0.93` 超出噪声，`SPP/WHU +0.07`、`SPP/LEVIR +0.21`、`DIFF/LEVIR +0.005` 不能当信号。另外 SPP/WHU 的 val 峰值 94.709 对应 test 93.693（−1.02 pp），说明该臂在 WHU 上踩着噪声点选模；SYSU 的最优 epoch 是 6–15，前几轮即到顶、后续全是过拟合。
+
+[实验矩阵与结果](train_scripts/CASA-MinorGoal/Run1/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-MinorGoal_Run1.txt)。
 
 ## 模块消融：CASA-Pyramid / Run16：TAR 与 DCR 在三个历史版本上的去留
 

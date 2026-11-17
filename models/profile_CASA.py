@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched"),
+    parser.add_argument("--modules", nargs="+", choices=("none", "hyperbolic", "qkv", "matched", "difference"),
                         default=("none", "hyperbolic", "matched"))
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--detail-head", action="store_true")
     parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff"), default="reparam")
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1"), default="reparam")
     parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     args = parser.parse_args()
     torch.set_num_threads(4)

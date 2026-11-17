@@ -9,6 +9,7 @@ from model.str_dcr import build_decoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
 from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
+from model.layers.difference_context import DifferenceContext
 
 
 class CASANet(nn.Module):
@@ -17,14 +18,19 @@ class CASANet(nn.Module):
                  tar_variant="reparam", decoder_variant="reparam"):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
-                        "qkv": EuclideanContext, "matched": MatchedEuclideanContext}[module]
+                        "qkv": EuclideanContext, "matched": MatchedEuclideanContext,
+                        "difference": DifferenceContext}[module]
+        if module == "difference" and tar_variant not in ("spp", "spp1", "diff"):
+            raise ValueError("the difference context needs a temporal difference stream "
+                             "(--tar-variant spp, spp1 or diff)")
         self.module = module
         self.tar_variant = tar_variant
         self.decoder_variant = decoder_variant
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
-                                 variant=tar_variant)
+                                 variant=tar_variant,
+                                 return_difference=module == "difference")
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
@@ -44,11 +50,16 @@ class CASANet(nn.Module):
 
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a), self.encoder(b)
-        tar = self.tar(features_a[1:], features_b[1:])
-        if self.module in ("hyperbolic", "matched"):
-            enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+        if self.module == "difference":
+            tar, difference = self.tar(features_a[1:], features_b[1:])
+            enhanced, auxiliary = self.context(tar, difference,
+                                               return_aux=return_aux and self.training)
         else:
-            enhanced, auxiliary = self.context(tar)
+            tar = self.tar(features_a[1:], features_b[1:])
+            if self.module in ("hyperbolic", "matched"):
+                enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+            else:
+                enhanced, auxiliary = self.context(tar)
         detail = self.detail(torch.cat((features_a[0], features_b[0]), 1)) if self.detail is not None else None
         return self.decoder.forward_pyramid(enhanced), auxiliary, detail
 

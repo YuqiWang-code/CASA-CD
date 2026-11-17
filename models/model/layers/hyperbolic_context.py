@@ -95,13 +95,18 @@ class HyperbolicContext(nn.Module):
         gated = gate_map * discrepancy
         return self.out(gated), gate, retrieved, own_value, discrepancy, gated
 
-    def forward(self, tar, return_aux=False):
+    def prototype_features(self, normalized, difference=None):
+        """Content the retrieval keys and values are built from (fused feature by default)."""
+        return normalized
+
+    def forward(self, tar, difference=None, return_aux=False):
         normalized = [channel_norm(self.norm, x) for x in tar]
-        guide = [self.guide(x) for x in normalized]
+        sources = self.prototype_features(normalized, difference)
+        guide = [self.guide(x) for x in sources]
         occupancy = [g.sigmoid() for g in guide]
         compressed = [class_assignments(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
         prototypes = [pool_features(x, weights, grid)
-                      for x, (weights, _), grid in zip(normalized, compressed, self.grid_sizes)]
+                      for x, (weights, _), grid in zip(sources, compressed, self.grid_sizes)]
         queries = [self.project_queries(x) for x in normalized]
         prototype = torch.cat(prototypes, dim=1)
         key, prototype_occupancy = self.project_keys(prototype)

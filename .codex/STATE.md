@@ -1,6 +1,18 @@
 # 当前状态
 
-更新：2026-11-16。
+更新：2026-11-17。
+
+## CASA-MinorGoal / Run1 多尺度差分池化与差分条件检索 已完成并收集
+
+2026-11-16 12:22 启动、当日完成 9/9 项（`CTRL`/`SPP`/`DIFF` × WHU/SYSU/LEVIR），仅用物理 GPU1 两槽；`SPP` 三臂在训练结束后崩于部署折叠的 GPU 设备不一致（`torch.zeros` 未继承 `device`），修好后用 `--resume` 只重做评测（24–108 s/项），权重取自 `last.pth` 的 `best_state_dict`。协议 `casa_minor_spp_diff_v1`，全部**验证集选模**、阈值 0.5、seed 2333。
+
+改动：①`--tar-variant spp` 在时相融合之外并行 `|P−Q|` 支路，1×1 升维后接 `RepSPPBlock`（1/3/5/7 并行 DW，宽支 BN γ/β 从 0 开始），部署折叠成单个 7×7 DW + 1×1（`max_diff 1.19e-7`）；②新增 `DifferenceContext`（`HyperbolicContext` + `LN(D_s)`），Q 仍是 `T_s` 全位置 5,440，KV 换成 `|P−Q|` 的 224 个类条件原型。
+
+结果（F1%，Δ 对同轮 CTRL）：CTRL 93.6234 / 81.7290 / 90.8488（2.047125 M 训练、1.935810 M 部署）；SPP 93.6925(+0.069) / **82.7915(+1.062)** / 91.0612(+0.212)（2.118293/1.995714）；DIFF **94.3468(+0.723)** / 82.6630(+0.934) / 90.8535(+0.005)（2.129705/2.007126）。延迟 5.880 / 5.987 / 8.883 ms（同会话 benchmark，batch1 256² FP32 deploy 形态）。
+
+结论：①多尺度空间池化有效且增益在精度侧（SYSU P 83.46→85.56，R 不动），是本项目首次单库拉开控制臂 1 pp 以上；②双曲不缺几何、缺的是 KV 内容——KV 换成差分原型后 WHU +0.723 pp（P 94.10→95.57），此前"双曲无收益"测的其实是"检索内容没有差分"；③两处改动不叠加（DIFF−SPP：WHU +0.654、SYSU −0.129、LEVIR −0.208），SPP 单独性价比更好，DIFF 的 51% 延迟只换 WHU 的 0.65 pp；④单 seed，SYSU/WHU 的 +0.7~+1.1 pp 超出噪声（WHU 0.18、SYSU 0.32），SPP/WHU +0.07、DIFF/LEVIR +0.005 不能当信号；SPP/WHU 的 val 峰值 94.709 对应 test 93.693（−1.02 pp），是按 val 选模踩在噪声点上的典型。
+
+数据：`docs/experiment_metrics.xlsx` 346 行（其中 Run1 9 行，身份为 `CASA-MinorGoal` + `Run1` + `CTRL/SPP/DIFF`）；TXT 快照 docs/temporary/models_and_metrics_CASA-MinorGoal_Run1.txt；对照表 outputs/CASA-MinorGoal/Run1/comparison.{json,md}；延迟 outputs/CASA-MinorGoal/Run1/inference_benchmark.json；训练记录 docs/experiments/CASA-MinorGoal/Run1/（本地产物，未入库）。
 
 ## CASA-Pyramid / Run16 模块去留（TAR/DCR × 三个历史版本）已完成并收集
 
