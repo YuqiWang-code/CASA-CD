@@ -2,6 +2,16 @@
 
 更新：2026-11-17。
 
+## CASA-MinorGoal / Run2 复现 seed 与解耦臂 正在训练
+
+2026-11-17 08:3x 启动，18 项（9 臂 × WHU/SYSU），仅物理 GPU1 两槽，运行根 `/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run2`，协议 `casa_minor_spp_diff_seeds_v2`，全部验证集选模、阈值 0.5。
+
+九臂分两类：①复现 `CTRL/SPP/DIFF` 在 seed 2334、2335 下各一遍（seed 2333 直接复用 Run1），用于给出配对差的均值±sd；②解耦臂——`SPP1`（`--tar-variant spp1`，SPP 阶段只保留 1×1 窗口）、`DIFF_SPP1`（差分检索 + 1×1 池化）、`DIFF_NOSPP`（`--tar-variant diff`，无 SPP 阶段），回答"多尺度窗口本身贡献多少"与"差分 KV 是否依赖多尺度池化"。参数：SPP1 2.095509/1.983426 M、DIFF_SPP1 2.106921/1.994838 M、DIFF_NOSPP 1.955361/1.917014 M，折叠 `max_diff ≤ 1.19e-7`。
+
+代码改动：`--tar-variant` 增加 `spp1`（`SPPTARStage(kernels=(1,))`），`DifferenceTARStage` 支持 `--tar-variant diff` 直出差分流，`casa_net.py` 的 difference 硬依赖从 `spp` 放宽到 `spp|spp1|diff`；`prepare.py` 的 `fold_on_accelerator` 改为 `copy.deepcopy(model).switch_to_deploy()`（原先把训练权重载入新建 deploy 模型会缺键）。
+
+结果：待收（预计 2026-11-18 07:30 前后）。收集后 `collect_results.py` → `compare.py` 输出同 seed 控制对照与跨种子小节。
+
 ## CASA-MinorGoal / Run1 多尺度差分池化与差分条件检索 已完成并收集
 
 2026-11-16 12:22 启动、当日完成 9/9 项（`CTRL`/`SPP`/`DIFF` × WHU/SYSU/LEVIR），仅用物理 GPU1 两槽；`SPP` 三臂在训练结束后崩于部署折叠的 GPU 设备不一致（`torch.zeros` 未继承 `device`），修好后用 `--resume` 只重做评测（24–108 s/项），权重取自 `last.pth` 的 `best_state_dict`。协议 `casa_minor_spp_diff_v1`，全部**验证集选模**、阈值 0.5、seed 2333。
