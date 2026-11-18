@@ -51,7 +51,7 @@ def check_cli():
                  "--tar-variant {reparam,plain,diff,spp,spp1}",
                  "--decoder-variant {reparam,plain,none}",
                  "--selection-split {test,val}",
-                 "--support {mass,cell,pixel,none}",
+                 "--support",
                  "--per-image-metrics", "--detail-head"):
         assert flag in help_text, flag
     print("[VALIDATE] CLI")

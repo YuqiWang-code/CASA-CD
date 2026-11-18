@@ -1,6 +1,16 @@
 # 当前状态
 
-更新：2026-11-17。
+更新：2026-11-18。
+
+## CASA-MinorGoal / Run3 归因跑 已排队（等 GPU1）
+
+Run3 的四条定向臂已全部修完并排队，运行根 `/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run3`，协议 `casa_minor_run3_attribution_v1`，只用物理 GPU1、两槽。预检 `readiness.json` 于 2026-11-17 18:21 通过（三臂折叠 `max_diff 5.96e-8`、二值差 0、`detail_loss.ratio 0.254`、`additive=true`）。
+
+排队方式：`wait_and_start.sh`（无 deadline，最长 7 天）每分钟查 GPU1 空闲显存，≥25000 MiB 时 `exec python pipeline.py`；脚本目录 `Run3/runtime/train_scripts/CASA-MinorGoal/Run3`，runtime/models 仍是 Run1/Run2 那一代冻结树（`support="mass"` 时代、flat、不冻 τ），语义等价，不重新 staging。
+
+本轮修的审查问题：`config.REFERENCE` 的 2334 基准改回 `SPP_S2334`（WHU 93.8540 / SYSU 82.2689，原来误用 2333 的 93.6925 / 82.7915，会让 SYSU 的 Δ 虚高 0.52 pp 跨过 +0.47 门限）；`GATES` 与 `LEVIR_DETAIL_GATES` 进代码；`--support` 重新接受 `mass|cell|pixel|none`；补 `bootstrap/benchmark/collect_results/compare/environment*`；`per_image_cm.npz` 加 list 哈希等采信字段；smoke 的 BCE 改到 logits 上；nested 聚合补测试；删两处死代码；`pipeline.py` 完成判定的正则原来被双转义（永远是 failed），已修。
+
+当前阻塞：GPU0/GPU1 都被他人进程占满（各约 30 GB、100%），GPU1 空闲显存 1472 MiB，队列在等。
 
 ## CASA-MinorGoal / Run2 复现 seed 与解耦臂 正在训练
 
