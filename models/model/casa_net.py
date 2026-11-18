@@ -15,7 +15,8 @@ from model.layers.difference_context import DifferenceContext
 class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none", context_seed=2333,
                  context_heads=1, detail_head=False, detail_target="area",
-                 tar_variant="reparam", decoder_variant="reparam"):
+                 tar_variant="reparam", decoder_variant="reparam", support="cell",
+                 kv_hierarchy="flat", freeze_tau=False):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext,
@@ -37,6 +38,10 @@ class CASANet(nn.Module):
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)
             options = dict(heads=context_heads, head_dim=16) if context_heads != 1 else {}
+            if module in ("hyperbolic", "matched", "difference"):
+                options["support_mode"] = support
+                options["kv_hierarchy"] = kv_hierarchy
+                options["freeze_tau"] = freeze_tau
             self.context = context_type(**options)
             self.detail = None
             self.detail_target = detail_target

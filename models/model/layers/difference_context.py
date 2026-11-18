@@ -22,10 +22,11 @@ class DifferenceContext(HyperbolicContext):
 
     geometry = "hyperbolic_difference"
     key_mode = "project_pooled_temporal_difference_prototypes"
-    support_mode = "class_mass_of_temporal_difference"
 
-    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4)):
-        super().__init__(channels, heads, head_dim, grid_sizes)
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4),
+                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False):
+        super().__init__(channels, heads, head_dim, grid_sizes, support_mode,
+                         kv_hierarchy, freeze_tau)
         self.norm_diff = nn.LayerNorm(channels)
 
     def prototype_features(self, normalized, difference=None):

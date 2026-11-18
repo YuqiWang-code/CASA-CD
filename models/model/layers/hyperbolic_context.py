@@ -7,11 +7,20 @@ from torch.nn import functional as F
 
 from model.layers.lorentz_ops import lift, pairwise_squared_distance
 from model.layers.class_pooling import class_assignments
+from model.layers.pyramid_context import feature_regions
 from model.layers.pyramid_context import (
     attention_diagnostics, channel_norm, highpass, merge_heads,
     pool_features, project_tokens, rms, source_bias, split_heads,
 )
 
+
+
+FLAT_GRIDS = (8, 4, 4, 4)
+# Nested hierarchy: every child cell covers exactly a 2x2 block of its parent.
+NESTED_GRIDS = (8, 4, 2, 1)
+# Median of the D0 measured `softplus(raw_temperature)` over the nine trained
+# checkpoints (Run1 x 3 datasets + Run14 H/E pairs); used by --freeze-tau.
+FROZEN_TAU = 0.4696
 
 
 class HyperbolicContext(nn.Module):
@@ -27,8 +36,22 @@ class HyperbolicContext(nn.Module):
     readout_mode = "learned_gate_times_spatially_centered_context"
     squared_distance = staticmethod(pairwise_squared_distance)
 
-    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4)):
+    def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
+                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False):
         super().__init__()
+        if support_mode not in ("mass", "cell", "pixel", "none"):
+            raise ValueError(f"unknown support_mode {support_mode!r}")
+        if kv_hierarchy not in ("flat", "nested"):
+            raise ValueError(f"unknown kv_hierarchy {kv_hierarchy!r}")
+        support_mode = "mass" if support_mode == "cell" else support_mode
+        if kv_hierarchy == "nested":
+            grid_sizes = NESTED_GRIDS
+            for parent, child in zip(grid_sizes[:-1], grid_sizes[1:]):
+                if parent != 2 * child:
+                    raise ValueError(f"nested grids must halve per scale, got {grid_sizes}")
+        self.support_prior = support_mode
+        self.kv_hierarchy = kv_hierarchy
+        self.freeze_tau = bool(freeze_tau)
         self.heads = heads
         self.head_dim = head_dim
         self.grid_sizes = tuple(grid_sizes)
@@ -46,6 +69,10 @@ class HyperbolicContext(nn.Module):
         self.local_out = nn.Conv2d(channels, channels, 1, bias=False)
         self.scale_bias = nn.Parameter(torch.zeros(heads, 4, 4))
         self.raw_temperature = nn.Parameter(torch.full((heads,), math.log(math.expm1(.5))))
+        if self.freeze_tau:
+            with torch.no_grad():
+                self.raw_temperature.fill_(math.log(math.expm1(FROZEN_TAU)))
+            self.raw_temperature.requires_grad_(False)
         self.gamma_context = nn.Parameter(torch.zeros(4, channels))
         self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
         self.collect_diag = False
@@ -64,6 +91,46 @@ class HyperbolicContext(nn.Module):
         projected = project_tokens(self.qk, prototype, self.heads)
         occupancy = F.linear(prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
         return self.geometric_point(projected), occupancy
+
+    def class_support(self, probability, grid):
+        """Per-cell class prior used as ``log(support)`` in the attention logits.
+
+        mass   (default, historical): ``sum_i w_ci * m_ci`` with ``w = m / sum_i m`` --
+               a participation ratio that shrinks when a class is diluted by the
+               other class inside the cell.
+        pixel  : area-normalised mean membership per cell, ``mean_i m_ci`` --
+               the pixel-level class fraction instead of the pooled mass.
+        none   : a flat prior (``support == 1``, so ``log(support) == 0``).
+        """
+        weights, support = class_assignments(probability, grid)
+        if self.support_prior == "mass":
+            return weights, support
+        if self.support_prior == "none":
+            return weights, torch.ones_like(support)
+        # pixel: area-normalised class fraction per cell (adaptive average pooling),
+        # instead of the participation mass that shrinks under class mixing.
+        change = F.adaptive_avg_pool2d(probability, grid).flatten(2)
+        pair = torch.stack((change, 1 - change), dim=-1)
+        return weights, pair.reshape(pair.shape[0], -1).clamp_min(1e-6)
+
+    def aggregate_nested(self, prototypes):
+        """Child prototype = (own + mean of its 2x2 parent block) / 2; 0 new parameters."""
+        aggregated = [prototypes[0]]
+        for child in prototypes[1:]:
+            parent = aggregated[-1]
+            parent_grid = int(round((parent.shape[1] / 2) ** 0.5))
+            child_grid = int(round((child.shape[1] / 2) ** 0.5))
+            if child_grid * 2 != parent_grid:
+                raise ValueError("nested aggregation expects child grid = parent grid / 2")
+            batch, _, dim = parent.shape
+            # Tokens are laid out as (cell_row, cell_col, prototype): two
+            # prototypes per cell, so the trailing axis inside each cell is the
+            # prototype index and the two spatial factors are the 2x2 split.
+            blocked = parent.reshape(batch, parent_grid, parent_grid, 2, dim)
+            blocked = blocked.reshape(batch, child_grid, 2, child_grid, 2, 2, dim).mean(dim=(2, 4))
+            pooled = blocked.reshape(batch, -1, dim)
+            aggregated.append(0.5 * (child + pooled))
+        return aggregated
 
     def attention_logits(self, query, key, support, query_scale):
         temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
@@ -104,9 +171,11 @@ class HyperbolicContext(nn.Module):
         sources = self.prototype_features(normalized, difference)
         guide = [self.guide(x) for x in sources]
         occupancy = [g.sigmoid() for g in guide]
-        compressed = [class_assignments(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
+        compressed = [self.class_support(p, grid) for p, grid in zip(occupancy, self.grid_sizes)]
         prototypes = [pool_features(x, weights, grid)
                       for x, (weights, _), grid in zip(sources, compressed, self.grid_sizes)]
+        if self.kv_hierarchy == "nested":
+            prototypes = self.aggregate_nested(prototypes)
         queries = [self.project_queries(x) for x in normalized]
         prototype = torch.cat(prototypes, dim=1)
         key, prototype_occupancy = self.project_keys(prototype)

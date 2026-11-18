@@ -1,6 +1,7 @@
 """CASA first-order context and foreground-interior loss controls."""
 import argparse
 import copy
+import hashlib
 import json
 import math
 import random
@@ -157,7 +158,8 @@ def make_loader(root, split, batch_size=32, workers=1):
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, return_diagnostics=False, operating_point=None):
+def evaluate(model, loader, device, return_diagnostics=False, operating_point=None,
+             per_image=None):
     model.eval()
     meter = ConfuseMatrixMeter(n_class=2)
     losses = []
@@ -169,7 +171,16 @@ def evaluate(model, loader, device, return_diagnostics=False, operating_point=No
         if not all(torch.isfinite(x).all() for x in outputs):
             raise FloatingPointError("non-finite evaluation prediction")
         losses.append(float(loss_function(outputs, target)))
-        meter.update_cm(pr=(outputs[0] > 0).long().cpu().numpy(), gt=target.cpu().numpy())
+        prediction = outputs[0] > 0
+        meter.update_cm(pr=prediction.long().cpu().numpy(), gt=target.cpu().numpy())
+        if per_image is not None:
+            predicted = prediction.cpu().numpy()
+            truth = target.cpu().numpy()
+            for offset in range(predicted.shape[0]):
+                hit = predicted[offset, 0] > 0
+                real = truth[offset, 0] > 0
+                per_image.append((len(per_image), int((hit & real).sum()),
+                                  int((hit & ~real).sum()), int((~hit & real).sum())))
         if operating_point is not None:
             operating_point.update(outputs[0].sigmoid().cpu().numpy(), target.cpu().numpy())
         if spatial is not None:
@@ -343,6 +354,15 @@ def main():
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--detail-head", action="store_true")
     parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
+    parser.add_argument("--support", choices=("mass", "cell", "pixel", "none"), default="cell",
+                        help="class prior added as log(support) to the context logits; "
+                             "cell is the historical alias of mass")
+    parser.add_argument("--kv-hierarchy", choices=("flat", "nested"), default="flat",
+                        help="flat: 8/4/4/4 grids (224 KV); nested: 8/4/2/1 with parent-to-child pooling (170 KV)")
+    parser.add_argument("--freeze-tau", action="store_true",
+                        help="freeze the context temperature at the measured D0 median (0.4696)")
+    parser.add_argument("--per-image-metrics", action="store_true",
+                        help="store test-time per-image TP/FP/FN in per_image_cm.npz")
     parser.add_argument("--interior-positive-weight", type=float, default=1.0)
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
@@ -391,7 +411,8 @@ def main():
     model = CASANet(args.pretrained, module=args.module, context_seed=args.context_seed,
                     context_heads=args.context_heads, detail_head=args.detail_head,
                     detail_target=args.detail_target, tar_variant=args.tar_variant,
-                    decoder_variant=args.decoder_variant).to(device)
+                    decoder_variant=args.decoder_variant, support=args.support,
+                    kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -440,6 +461,11 @@ def main():
                     interior_weighting=dict(output=0, gt_boundary_radius=2,
                                            normalization="sum_weighted_bce/sum_pixel_weights"),
                     support_power=model.context.support_power,
+                    support=args.support,
+                    kv_hierarchy=args.kv_hierarchy,
+                    freeze_tau=args.freeze_tau,
+                    kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
+                               if args.module in ("hyperbolic", "matched", "difference") else 0),
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
                                        "hyperbolic": "weighted class occupancy; no entropy penalty",
@@ -474,7 +500,8 @@ def main():
         for name in ("seed", "context_seed", "compression_reassignment", "auxiliary_weights", "guide_objective",
                      "interior_positive_weight", "context_heads", "detail_head", "detail_target",
                      "tar_variant", "decoder_variant",
-                     "selection_split", "dataset", "batch_size", "validation_threshold_grid"):
+                     "selection_split", "dataset", "batch_size", "validation_threshold_grid",
+                     "support", "kv_hierarchy", "freeze_tau"):
             if checkpoint["manifest"][name] != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
@@ -502,7 +529,11 @@ def main():
                                                               tar_variant=args.tar_variant,
                                                               decoder_variant=args.decoder_variant,
                                                               selection_split=args.selection_split,
-                                                              detail_head=args.detail_head), indent=2), encoding="utf-8")
+                                                              detail_head=args.detail_head,
+                                                              support=args.support,
+                                                              kv_hierarchy=args.kv_hierarchy,
+                                                              freeze_tau=args.freeze_tau,
+                                                              kv_tokens=manifest["kv_tokens"]), indent=2), encoding="utf-8")
     evaluation_manifest = dict(protocol=PROTOCOL, deploy_verification=DEPLOY_POLICY,
                                tolerance=2e-4, source_files=identity, continuation=continuation,
                                selection_split=args.selection_split,
@@ -598,8 +629,26 @@ def main():
     threshold = calibration['best']['threshold']
     test_loader.generator = torch.Generator().manual_seed(args.seed+2)
     secondary = ThresholdCounts([threshold])
-    test_loss, score, spatial = evaluate(deploy, test_loader, device, return_diagnostics=True,
-                                         operating_point=secondary)
+    per_image_rows = []
+    test_loss, score, spatial = evaluate(
+        deploy, test_loader, device, return_diagnostics=True, operating_point=secondary,
+        per_image=per_image_rows if args.per_image_metrics else None)
+    if args.per_image_metrics:
+        import numpy as np
+        table = np.asarray(per_image_rows, dtype=np.int64)
+        list_path = Path(args.dataset_root) / "list" / "test.txt"
+        list_lines = list_path.read_text(encoding="utf-8").splitlines() if list_path.is_file() else []
+        np.savez(args.output_dir / "per_image_cm.npz", index=table[:, 0],
+                 tp=table[:, 1], fp=table[:, 2], fn=table[:, 3],
+                 # Provenance: the per-image rows are positional, so the split,
+                 # threshold and list hash have to travel with them.
+                 dataset=str(Path(args.dataset_root).name), split="test",
+                 batch_size=args.batch_size, threshold=.5, images=len(table),
+                 list_entries=len(list_lines), list_path=str(list_path),
+                 list_sha256=hashlib.sha256("\n".join(list_lines).encode("utf-8")).hexdigest(),
+                 protocol=PROTOCOL, seed=args.seed, selection_split=args.selection_split)
+        print(f"[PER-IMAGE-CM] {len(table)} images -> per_image_cm.npz "
+              f"(list {len(list_lines)} entries)", flush=True)
     (args.output_dir / "operating_point.json").write_text(json.dumps(dict(
         selection_split=args.selection_split, calibration_split="val", best_epoch=best_epoch,
         validation=calibration, test_calibrated=secondary.curve()[0]), indent=2), encoding="utf-8")

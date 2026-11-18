@@ -231,3 +231,33 @@ def test_difference_context_still_requires_a_difference_stream():
         assert "temporal difference stream" in str(error)
     else:
         raise AssertionError("the difference context accepted a fused-only TAR")
+
+def test_nested_aggregation_matches_the_2x2_parent_mean():
+    torch.manual_seed(0)
+    context = HyperbolicContext(channels=8, kv_hierarchy="nested")
+    assert context.tokens_per_scale == (128, 32, 8, 2), context.tokens_per_scale
+    prototypes = [torch.randn(1, 2 * grid ** 2, 8) for grid in (8, 4, 2, 1)]
+    aggregated = context.aggregate_nested(prototypes)
+    assert len(aggregated) == 4
+    # child at scale 1 was built from the scale-0 grid, so check one token by hand
+    parent = prototypes[0].reshape(1, 8, 8, 2, 8)
+    expected = parent[:, 0:2, 0:2, 0, :].mean(dim=(1, 2)).reshape(1, 1, 8)
+    actual = aggregated[1].reshape(1, 4, 4, 2, 8)[:, 0, 0, 0, :].reshape(1, 1, 8)
+    assert 0.5 * (prototypes[1].reshape(1, 4, 4, 2, 8)[:, 0, 0, 0, :].reshape(1, 1, 8)
+                  + expected).allclose(actual, atol=1e-6)
+
+
+def test_support_cell_is_the_mass_alias():
+    cell = HyperbolicContext(channels=8, support_mode="cell")
+    mass = HyperbolicContext(channels=8, support_mode="mass")
+    assert cell.support_prior == mass.support_prior == "mass"
+    assert cell.tokens_per_scale == mass.tokens_per_scale
+    assert count(cell) == count(mass)
+    for mode in ("pixel", "none"):
+        assert HyperbolicContext(channels=8, support_mode=mode).support_prior == mode
+    try:
+        HyperbolicContext(channels=8, support_mode="bogus")
+    except ValueError as error:
+        assert "unknown support_mode" in str(error)
+    else:
+        raise AssertionError("an unknown support mode was accepted")
