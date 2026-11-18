@@ -1,30 +1,86 @@
-# CASA-Pyramid / Run11 工作源码
+# CASA-CD 工作模型源码
 
-共享MobileNetV2原生四尺度特征→四级TAR（64通道）→跨尺度context→DCR→共享预测头。完整Q共5440位置，224KV按128/32/32/32分配，H/E为1头32维；匹配H/E只在检索距离上不同。
+共享 MobileNetV2 四尺度特征（24/32/96/320 通道，64²/32²/16²/8²）→ 四级 TAR（64 通道）→ 跨尺度检索/上下文 → DCR → 共享 1×1 预测头。检索始终保留**完整 Q（5,440 个位置）**，只把 KV 压缩成**224 个类条件原型**（128/32/32/32）。
 
-## 压缩与检索
+当前小目标主线是 **CASA-MinorGoal / Run2**：`--tar-variant spp` 给 TAR 加多尺度差分池化，`--module difference` 把 KV 换成 `|P−Q|` 的类条件原型。几何对照线（H/E 配对）归档在 CASA-Pyramid / Run12–Run16，`qkv` 臂是 Run5 遗留实现，不与 H/E 同构。
 
-X=LN(TAR)，p=sigmoid(guide(X))。各区域按p、1−p分别归一化池化P，K和欧式V共用P，支持度为相同权重下的类概率均值。Q/K共享投影，双曲版直接Lorentz提升，曲率−1、半径可学习，无径向裁剪。全局检索保留支持度、尺度偏置和数量先验校正。
+## 组件与开关
 
-读出为Wout[gate·(AV−空间均值AV)]，随后乘各尺度gamma；细两层保留局部高通分支。不同query检索相同时全局更新为0。gamma零初始化，out正常初始化。旧普通QKV的Run5实现独立保留，不参与本轮几何配对。
+### TAR：时相融合与通道投影（`model/str_tar.py`）
 
-H/E训练2.058409M、部署1.947094M，context11,477参数；CTRL训练2.047125M、部署1.935810M。参数量不代表延迟，显存与吞吐按实际profile记录。
+| `--tar-variant` | 每尺度结构 | 训练/部署参数* | 用途 |
+|---|---|---|---|
+| `reparam`（默认） | `TemporalRep1x1`（concat / P+Q / Q−P 三支 1×1+BN，可折叠）→ SiLU → `RepLocalBlock` | 2.047125 / 1.935810 M | 主线基线 |
+| `plain` | 单 1×1+BN → SiLU → `PlainLocalBlock` | 1.974157 / 1.935810 M | 去可折叠冗余的对照 |
+| `diff` | `(P−Q).abs()` → 1×1+BN → SiLU → `PlainLocalBlock` | 1.943949 / 1.905602 M | 去掉学习式时相混合 |
+| `spp` | 融合支 + `\|P−Q\|`→1×1→`RepSPPBlock`（1/3/5/7 DW 并行，可折叠成单个 7×7 DW + 1×1）→ 相加 → `RepLocalBlock` | 2.118293 / 1.995714 M | 多尺度差分池化 |
+| `spp1` | 同上，但 SPP 只有 1×1 窗口 | 2.095509 / 1.983426 M | 分离"多尺度窗口"本身 |
 
-## 训练对照
+\* 指 `--module none` + `--decoder-variant reparam` 时的整网参数。`spp`/`spp1` 额外输出每尺度差分特征 `D_s`，供 `--module difference` 使用；`diff` 在 `return_difference=True` 时也直接给出 `D_s`。
 
-协议casa_pyramid_40k_linearpool_interior_v11。六组为H/E/CTRL分别使用普通或内部正样本加权损失，四库共24项，仅GPU1。辅助统一0.1 raw-guide面积BCE。四级主损失为BCE+Dice之和；加权组仅首级BCE对GT两像素边界带之外的正像素乘1.25，并按权重总和归一化。其余三头、Dice和推理路径相同。
+### 上下文：检索与写回（`model/layers/`）
 
-256RGB、batch32、40K整epoch、seed/context2333、预训练全新初始化；Adam、LR5e−4、编码器倍率1、warmup200、poly^.9及衰减分组保持共同协议。同步裁剪、水平/垂直翻转、90°旋转、时相交换和ImageNet归一化固定。训练与评估使用独立配对随机流。正式每epoch test F1选best，最终复测非独立盲测；探针train/val不算正式指标。
+| `--module` | 类 | 几何 | KV 来源 | context 参数 |
+|---|---|---|---|---|
+| `none` | `AuxiliaryContext` | — | 无检索，只出 guide | 193 |
+| `hyperbolic` | `HyperbolicContext` | 曲率 −1 Lorentz 测地平方距离 | `T_s` 的类池化原型 | 11,477 |
+| `matched` | `MatchedEuclideanContext` | 同一空间坐标的欧氏平方距离 | 同 H（逐位同构） | 11,477 |
+| `difference` | `DifferenceContext` | 同 H | `\|P−Q\|` 的类池化原型（多一层 `LayerNorm(D_s)`） | 11,605 |
+| `qkv` | `EuclideanContext` | 欧氏 | Run5 遗留：压缩方式、读出、门控都不同 | 11,477 |
 
-forward返回四级概率，return_aux=True返回logits和辅助；predict仅第一级。strict_fp32_fold_v1关闭TF32检查折叠、记录二值差。训练日志LOSS-DIAG记录优化与未加权主损失及前景内部比例，MODULE-DIAG记录半径CV、路由、写回和局部残差。
+共同实现（`pyramid_context.py` / `hyperbolic_context.py`）：`X=LN(T_s)`，`p=σ(guide(X))`；按 `p`、`1−p` 分别归一化池化得到 `P⁺/P⁻`；`K=L(W_qk P/√d)`、`V=W_v P`（K、V 共用同一内容统计，`V` 留在欧氏空间），`Q=L(W_qk X/√d)`。打分 `−d²/(2τ²)+log(support)+scale_bias−log(M)`，τ 可学习（初值 0.5）。读出 `U=W_out[gate·(AV−mean_hw(AV))]`，残差 `T'_s=T_s+γ_s·U_s+local_s`（`local` 只在最细两层）。`γ` 零初始化，因此**推理时模块与 CTRL 等价**；训练开始后自行打开。
+
+- `--support {mass,cell,pixel,none}`：类先验 `log(support)` 的来源；`cell` 是 `mass` 的别名。
+- `--kv-hierarchy {flat,nested}`：`flat` 为 8/4/4/4（224 KV）；`nested` 为 8/4/2/1 并做父子 2×2 聚合（170 KV）。
+- `--freeze-tau`：把 τ 冻结在实测中位数 0.4696。
+- `--context-heads {1,2,4}`：1 头 32 维（默认）；多头时 `head_dim=16`。
+
+### 解码器与预测头（`model/str_dcr.py`、`model/casa_net.py`）
+
+| `--decoder-variant` | 结构 | 部署参数增量 |
+|---|---|---|
+| `reparam`（默认） | 三级 `RepPairFuse1x1`（concat/sum/diff，可折叠）+ `RepLocalBlock`，再 `refine` | 基线 |
+| `plain` | 融合换单 1×1+BN，局部块换普通 DW3+PW1 | −0.037 M |
+| `none` | `SingleLevelDecoder`：只在最粗尺度上采样，细尺度只做残差相加 | −0.072 M |
+
+预测头为 1×1（64→1），四级各算 BCE+Dice 深监督。**128² 细节头**（`--detail-head`）：两时相 128² 特征拼接 → 1×1(64) → DW3×3(replicate) → SiLU → 1×1(1，零初始化)，与上采样的 coarse 相加，新增 2,689 参数；`--detail-target {area,nearest-exact}` 决定 GT 下采样方式。guide 头只在训练期提供 0.1 系数（默认）的面积 BCE。
+
+## 参数速查（训练 / 部署，M）
+
+| module | tar | decoder | train / deploy |
+|---|---|---|---:|
+| none | reparam | reparam | 2.047125 / 1.935810 |
+| none | spp | reparam | 2.118293 / 1.995714 |
+| none | spp1 | reparam | 2.095509 / 1.983426 |
+| none | diff | reparam | 1.943949 / 1.905602 |
+| none | reparam | none | 1.974730 / 1.900802 |
+| hyperbolic / matched | reparam | reparam | 2.058409 / 1.947094 |
+| hyperbolic | spp | reparam | 2.129577 / 2.006998 |
+| difference | spp | reparam | 2.129705 / 2.007126 |
+| difference | diff | reparam | 1.955361 / 1.917014 |
+
+所有组合的部署折叠 `max|Δlogit| ≤ 5.96e-8`（CPU）/ `1.19e-7`（GPU），二值预测零像素差。
+
+## 训练协议（`train_CASA.py`）
+
+`--module`、`--tar-variant`、`--decoder-variant` 之外，还有 `--selection-split {test,val}`、`--detail-head`、`--detail-target`、`--support`、`--kv-hierarchy`、`--freeze-tau`、`--per-image-metrics`、`--interior-positive-weight`、`--guide-weight`、`--retrieval-weight`、`--encoder-lr-mult`、`--context-heads`、`--resume`。
+
+- 每 epoch 在 `select_loader`（test 或 val，由 `--selection-split` 决定）上按阈值 0.5 的 F1 选权重，tie 时更新；manifest 记 `selection_split` / `independent_test`，val 选模才可称独立。
+- 训练结束后在 val 上做 121 点阈值校准（`operating_point.py`），再在 test 上复测主阈值 0.5 与校准阈值。
+- `--per-image-metrics` 在 test 时写 `per_image_cm.npz`（`index/tp/fp/fn` + `dataset/split/batch_size/threshold/list_sha256/protocol/seed/selection_split`），供图像级 bootstrap；`.dup-*` 中断目录没有 TEST 块，汇表时会被跳过。
+- `strict_fp32_fold_v1`：关 TF32/开最高精度的上下文里做部署折叠对比，写 `deploy_check.json`；`verify_deployment` 首级容差 2e-4。
+- forward 返回四级概率；`return_aux=True` 时返回 logits 与辅助量；`predict` 只出第一级；`diagnostics()` 给出半径、熵、尺度路由、门控与局部残差比例。
 
 ## 文件
 
-- model/layers/class_pooling.py：一阶类归属与共享池化。
-- model/layers/hyperbolic_context.py：匹配H/E检索、门控与细节分支。
-- train_CASA.py：主损失、内部加权、训练与测试记录。
-- test_interior_loss.py：归一化、GT边界带、梯度与首级作用范围。
-- test_centered_readout.py、test_context_geometry.py、test_hyperbolic_context.py：空间读出、数学和梯度。
-- train_scripts/CASA-Pyramid/Run11：冻结等价性验证、真实探针、显存准入、唯一调度与收集。
+- `model/casa_net.py`：整网、module/变体装配、128² 细节分支与部署折叠。
+- `model/str_tar.py`：`TemporalRep1x1`、`DifferenceTemporal1x1`、`RepSPPBlock`、`SPPTARStage`、`MultiScaleTAR`。
+- `model/str_dcr.py`：`RepPairFuse1x1`、`RepLocalBlock`、`PlainFuse1x1`、`PlainLocalBlock`、`SingleLevelDecoder`、`build_decoder`。
+- `model/str_reparam.py`：DW3/PW1x1/PairFuse 的 FP64 折叠实现。
+- `model/layers/pyramid_context.py`：池化、先验、尺度偏置、局部高通、诊断；`hyperbolic_context.py`：Lorentz 检索与门控写回；`difference_context.py`：差分 KV；`lorentz_ops.py`：提升与距离；`class_pooling.py`：一阶类池化。
+- `dataset/`：列表读取、BGR→RGB、同步增广、ImageNet 归一化；`model/metric_tool.py`：混淆矩阵与指标。
+- `train_CASA.py` / `operating_point.py` / `profile_CASA.py`：训练、阈值校准、显存与吞吐测量。
+- 测试：`test_CASA.py`、`test_ablation_variants.py`、`test_attribution.py`、`test_centered_readout.py`、`test_context_geometry.py`、`test_direct_geometry.py`、`test_hyperbolic_context.py`、`test_minor_goal.py`、`test_pyramid_context.py`、`test_interior_loss.py`、`test_data_pipeline.py`、`test_CASA_resume.py`（直接 `python <file>.py` 运行，全部通过；`check_run3_switches.py`、`check_per_image_metrics.py` 为在线检查脚本）。
+- 诊断脚本：`analyze_hyperbolic.py`（冻结干预）、`analyze_arm_diagnostics.py`、`analyze_geometry_degeneracy.py`、`analyze_selectivity_ablation.py`、`analyze_evidence_postproc.py`（后两个依赖 scipy）。
 
-实际Run10归档与冻结权重的posterior_off用于验证池化等价性。历史运行源码以各轮归档和TXT为准。
+实验矩阵与结论见根目录 [README.md](../README.md)、[SOURCES.md](SOURCES.md)、[HYPERBOLIC_DESIGN.md](HYPERBOLIC_DESIGN.md)，以及 `train_scripts/CASA-MinorGoal/Run{1,2,3}/` 与 `train_scripts/CASA-Pyramid/Run13–Run16/`。

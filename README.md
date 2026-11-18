@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。几何与压缩的主线归档在 **CASA-Pyramid / Run12**，小目标改进的当前线是 **CASA-MinorGoal / Run1（多尺度差分池化 + 差分条件检索）**。**Run4作为正向基线完整保留**。
+普通RGB双时相影像的全监督遥感二值变化检测。**当前主线是 CASA-MinorGoal / Run2**：TAR 加多尺度差分池化（`--tar-variant spp`）、检索的 KV 换成 `|P−Q|` 类条件原型（`--module difference`）。几何与压缩的对照线归档在 **CASA-Pyramid / Run12–Run16**，正向基线 **Run4 完整保留**。
 
-双曲版采用完整 Q、224 个跨尺度 KV 和直接 Lorentz 投影，K/V 共用一阶 guide 池化内容，空间中心化检索后门控写回。Run12 对照 1×32、2×16 和 4×16，H/E 各配置同构，部署约 1.95M 参数。[设计与公式](models/HYPERBOLIC_DESIGN.md)。
+三 seed 配对结果（WHU/SYSU，验证集选模）：差分 KV 相对 CTRL **+0.679 / +0.750 pp**（t-LCB +0.460 / +0.474），是唯一在双库显著的效果；多尺度窗口本身不承载收益（`spp1` 单 1×1 与 `diff` 无 SPP 都在噪声内）。双曲几何无稳定精度收益：Run14 十二对配对均值 −0.167 pp。检索结构始终是完整 Q（5,440 个位置）+ 压缩 KV（224 个类条件原型），[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
 ## 项目定位与固定研究原则
 
@@ -12,7 +12,7 @@
 
 结构须对应可验证的实际问题，保持简洁。避免无关组件、特殊激活函数和额外几何运算堆叠；不将损失、剪枝或量化包装成主要创新。修改前核对日志、运行源码与历史经验，修改后审查公式、卷积/池化、融合/残差、维度与前后梯度，并用真实数据短训检查。
 
-同轮各组使用相同骨干、增强、优化、训练预算及选模规则，专用监督单独记录。Run12 使用每轮 test F1 选权重，正式复测主阈值固定 0.5，次指标阈值在 val 校准。复测沿用 test 选模口径。结构设计与干预使用 train/val，跨协议差异与模块收益分别解释。
+同轮各组使用相同骨干、增强、优化、训练预算及选模规则，专用监督单独记录。选模划分由 `--selection-split` 决定：CASA-Pyramid / Run12–Run13 与 MinorGoal 的解耦臂用 test 选模（结果标注 test 参与选模），Run14–Run16 与 MinorGoal 的 H/E、SPP、DIFF 主臂用 val 选模（`independent_test=true`）。正式复测主阈值固定 0.5，次指标阈值在 val 校准。结构设计与干预使用 train/val，跨协议差异与模块收益分别解释。
 
 文献优先2024–2026年相关高水平工作，基础理论追溯原始论文，核实题名、年份、venue与官方代码。参考材料持续维护于[文献索引](docs/参考文献/文献索引.md)，核心代码与许可证放在`others/`。工作约定见[AGENTS.md](AGENTS.md)，研究对话设置见[ChatGPT_Project_Settings.md](docs/ChatGPT_Project_Settings.md)。
 
@@ -58,6 +58,40 @@
 5. **可信度边界。** 单 seed；`SYSU +1.06`、`DIFF/WHU +0.72`、`DIFF/SYSU +0.93` 超出噪声，`SPP/WHU +0.07`、`SPP/LEVIR +0.21`、`DIFF/LEVIR +0.005` 不能当信号。另外 SPP/WHU 的 val 峰值 94.709 对应 test 93.693（−1.02 pp），说明该臂在 WHU 上踩着噪声点选模；SYSU 的最优 epoch 是 6–15，前几轮即到顶、后续全是过拟合。
 
 [实验矩阵与结果](train_scripts/CASA-MinorGoal/Run1/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-MinorGoal_Run1.txt)。
+
+## 小目标改进：CASA-MinorGoal / Run2：三 seed 配对与解耦臂
+
+Run1 是单 seed 的两条改动，Run2 把它做成可以下结论的形状：三条主臂 `CTRL` / `SPP` / `DIFF` 在 seed 2333/2334/2335 各跑一遍（WHU、SYSU，共 18 项），再加三个只跑 seed 2333 的解耦臂——`SPP1`（SPP 只留 1×1 窗口）、`DIFF_SPP1`（差分检索 + 1×1 池化）、`DIFF_NOSPP`（`--tar-variant diff`，没有 SPP 阶段）。全部验证集选模、阈值 0.5。
+
+| 数据集 | CTRL（三 seed） | SPP（三 seed） | DIFF（三 seed） | DIFF−CTRL |
+|---|---|---|---|---:|
+| WHU | 93.6234 / 93.6438 / 93.1478（均 93.4717） | 93.6925 / 93.8540 / 93.5517（93.6994） | 94.3468 / 94.4244 / 93.6808（94.1507） | **+0.679**（sd 0.130，LCB +0.460） |
+| SYSU | 81.7290 / 82.0917 / 81.8966（81.9058） | 82.7915 / 82.2689 / 82.3727（82.4777） | 82.6630 / 82.7106 / 82.5949（82.6562） | **+0.750**（sd 0.164，LCB +0.474） |
+
+预登记门限 Δ*：WHU 0.36 pp、SYSU 0.47 pp（t(0.95,2)=2.92，按 3 seed 配对差）。四条判读：
+
+1. **差分 KV 是唯一双库显著的改动。** DIFF−CTRL 在 WHU +0.679（LCB +0.460）、SYSU +0.750（LCB +0.474），两个下界都过了门限。
+2. **SPP 单独不显著。** SPP−CTRL：WHU +0.228（LCB −0.056，无效应）、SYSU +0.572（sd 0.450，仅方向性）。DIFF−SPP 只有 WHU +0.451（LCB −0.024）算方向性，SYSU +0.178 无效应。
+3. **多尺度窗口本身不承载收益。** `SPP1` 换成单 1×1 后 WHU 94.0123（对 SPP +0.32）、SYSU 82.7656（对 SPP −0.03）；`DIFF_NOSPP` 去掉 SPP 后 WHU 94.3919（对 DIFF +0.05）、SYSU **83.4440**（对 DIFF +0.78）。即"1×1/3×3/5×5/7×7 的窗口集"没有可测贡献，起作用的是差分内容本身。
+4. **收益仍来自同一套检索机制，而不是几何。** DIFF 与 H 逐项同构（只多一层 `LayerNorm(D_s)`），所以 H/E 配对结论（几何无收益）与差分 KV 的正收益不矛盾：换的是 KV 内容，不是距离函数。
+
+口径提醒：三条主臂共用同一实现、同一骨干、同一预算；`DIFF_NOSPP` / `SPP1` / `DIFF_SPP1` 只有 seed 2333，不能当作三 seed 结论，只用于回答"哪一部分在起作用"。
+
+[实验矩阵与结果](train_scripts/CASA-MinorGoal/Run2/README.md) · 逐项见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-MinorGoal_Run2.txt)。
+
+## 归因实验：CASA-MinorGoal / Run3（已排队）
+
+Run2 之后剩下的问题是"收益到底来自模块存在、KV 内容，还是训练期多出来的容量"。Run3 用四条定向臂回答，不再铺笛卡尔积（协议 `casa_minor_run3_attribution_v1`，只用 GPU1 两槽）：
+
+| 臂 | 配置 | 要回答的问题 | 预登记判据 |
+|---|---|---|---|
+| `ARM_C/WHU`、`ARM_C/SYSU` | `hyperbolic` + `spp`，seed 2334 | 同一模块但 KV 换回 `T_s`：模块存在的效应有多大 | 对同 seed `SPP` 的 Δ ≥ +0.36（WHU）/ +0.47（SYSU）才算模块效应主导；\|Δ\| ≤ 噪声（0.18/0.32）算无模块效应 |
+| `SUPP_PIX/SYSU` | 同上 + `--support pixel` | 类先验是不是第二个杠杆 | 对 `ARM_C` Δ ≥ +0.47 才认 |
+| `DETAIL/LEVIR` | `difference` + `spp` + `--detail-head`，seed 2333 | 128² 边界分支是否值得 | 总 F1 ≥ 91.2135、0 px 边界 F1 ≥ 62.486、内部 F1 ≥ 96.169、边界占正类 31.41% |
+
+`DETAIL` 同时改了边界分支与一项额外深监督，属已登记的混杂；要单独归因需再跑"只开 `--detail-head` 不加 detail 深监督"的分离臂。每项测试时都落 `per_image_cm.npz`（`index/tp/fp/fn` + list 哈希等采信字段），供图像级 bootstrap；判据与门限写死在 `train_scripts/CASA-MinorGoal/Run3/config.py` 的 `GATES`/`LEVIR_DETAIL_GATES`，`compare.py` 直接出裁决。
+
+状态：预检 2026-11-17 18:21 通过（三臂折叠 max_diff 5.96e-8、二值差 0、detail/main 损失比 0.254），因两卡被外部进程占满而排队；`wait_and_start.sh` 等 GPU1 空闲 ≥25 GB 后自动起跑。
 
 ## 模块消融：CASA-Pyramid / Run16：TAR 与 DCR 在三个历史版本上的去留
 
@@ -375,11 +409,11 @@ Run5针对Run4实测的稀疏变化混合：区域权重由`m/Σm`改为`(m+eps)
 | 优化器 | Adam，全网lr5e-4，betas(.9,.99)，eps1e-8 |
 | Weight decay | context卷积/线性weight为解耦衰减1e-4，其他context为0；网络其余保持Adam耦合L2衰减1e-4 |
 | 学习率 / 预算 | 前200步warmup，之后poly^0.9，骨干倍率1.0；40K按完整epoch上取整 |
-| 主损失 | 四级 BCEWithLogits + sigmoid Dice，等权求和。Run12 DETAIL_ON 额外监督 128² 合成 logit |
-| 辅助损失 | Run12 各组统一 0.1 raw guide BCE，使用四尺度面积标签，检索 BCE 系数为 0 |
+| 主损失 | 四级 BCEWithLogits + sigmoid Dice，等权求和；`--detail-head` 时额外监督 128² 合成 logit（area 或 nearest-exact） |
+| 辅助损失 | 0.1 raw guide BCE，使用四尺度面积标签；检索 BCE 系数默认 0（`--retrieval-weight`） |
 | 精度 | FP32，AMP关闭；cuDNN TF32开启，matmul TF32关闭，benchmark开启 |
-| 评估与选模 | Run12 每 epoch 在 test 评估，第一级 F1 最高选 best，相同值更新 |
-| 最终结果 | 折叠 best 后在同一 test 复测，主指标阈值 0.5，次指标使用 val 校准阈值 |
+| 评估与选模 | 每 epoch 在 `--selection-split` 指定的划分上评估（test 或 val），第一级 F1 最高选 best，相同值更新 |
+| 最终结果 | 折叠 best 后在 test 复测，主指标阈值 0.5，次指标使用 val 校准阈值；val 选模的项记 `independent_test=true`，test 选模的项不得称独立盲测 |
 | 部署检查 | strict_fp32_fold_v1；关闭TF32检查，首级最大差阈值2e-4并记录二值差 |
 
 参考[ChangeMamba的2024官方训练脚本](https://github.com/ChenHongruixuan/ChangeMamba/blob/72597fa4a1fde0bffa94c94302a6dc848898be13/changedetection/script/train_MambaBCD.py)使用test参与选模；其原实现每500步评估并按Kappa选模，本项目采用每epoch与F1。该设置不代表所有RSCD工作的统一规范。
