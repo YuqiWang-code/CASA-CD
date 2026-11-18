@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import io
 import tarfile
 from pathlib import Path
 
@@ -39,8 +40,13 @@ def digest(path):
 
 def add(tar, source, name):
     info = tar.gettarinfo(str(source), arcname=name)
-    with source.open('rb') as stream:
-        tar.addfile(info, stream)
+    data = source.read_bytes()
+    if source.suffix == '.sh':
+        # the local tree is CRLF; bash on the server chokes on it (conda.sh\r)
+        data = data.replace(b'\r\n', b'\n')
+    if len(data) != info.size:
+        info.size = len(data)
+    tar.addfile(info, io.BytesIO(data))
 
 
 def run(client, command):

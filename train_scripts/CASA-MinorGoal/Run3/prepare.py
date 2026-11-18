@@ -13,9 +13,10 @@ import torch
 
 import config as C
 
-LOCAL_MODELS = Path(C.SCRIPTS.parents[2] / "models")
+SOURCE_MODELS = Path(os.environ.get(
+    "MINOR_SOURCE_MODELS", "/home/yqwang/projects/CASA-CD/models"))
 RUNTIME_MODELS = Path(C.RUNTIME / "models")
-sys.path.insert(0, str(RUNTIME_MODELS if RUNTIME_MODELS.is_dir() else LOCAL_MODELS))
+sys.path.insert(0, str(RUNTIME_MODELS if RUNTIME_MODELS.is_dir() else SOURCE_MODELS))
 
 from model.casa_net import CASANet  # noqa: E402
 
@@ -29,16 +30,27 @@ def count(model):
 
 
 def build_runtime():
-    """Freeze the current ``models/`` tree so later edits cannot change this run."""
-    if RUNTIME_MODELS.exists():
-        shutil.rmtree(RUNTIME_MODELS)
-    shutil.copytree(LOCAL_MODELS, RUNTIME_MODELS,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    """Fingerprint the staged runtime; only copy when bootstrap did not stage one.
+
+    bootstrap.py is the staging path (it packs the local tree and normalises shell
+    scripts). prepare.py must never delete the staged tree: on this layout
+    ``C.SCRIPTS.parents[2] / "models"`` *is* ``RUNTIME / "models"``.
+    """
+    if RUNTIME_MODELS.is_dir():
+        source = RUNTIME_MODELS
+        mode = "staged"
+    else:
+        source = SOURCE_MODELS
+        mode = "copied"
+        if not source.is_dir():
+            raise SystemExit(f"no staged runtime and no source tree at {source}")
+        shutil.copytree(source, RUNTIME_MODELS,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     files = {}
     for path in sorted(RUNTIME_MODELS.rglob("*.py")):
         files[str(path.relative_to(RUNTIME_MODELS))] = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
-    write(C.ROOT / "runtime_manifest.json", dict(source=str(LOCAL_MODELS), files=files))
-    print(f"[PREPARE] runtime frozen: {len(files)} python files -> {RUNTIME_MODELS}")
+    write(C.ROOT / "runtime_manifest.json", dict(source=str(source), files=files))
+    print(f"[PREPARE] runtime {mode}: {len(files)} python files -> {RUNTIME_MODELS}")
     return files
 
 

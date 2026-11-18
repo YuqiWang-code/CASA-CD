@@ -634,7 +634,6 @@ def main():
         deploy, test_loader, device, return_diagnostics=True, operating_point=secondary,
         per_image=per_image_rows if args.per_image_metrics else None)
     if args.per_image_metrics:
-        import numpy as np
         table = np.asarray(per_image_rows, dtype=np.int64)
         list_path = Path(args.dataset_root) / "list" / "test.txt"
         list_lines = list_path.read_text(encoding="utf-8").splitlines() if list_path.is_file() else []
