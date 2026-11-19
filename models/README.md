@@ -33,6 +33,7 @@
 - `--support {mass,cell,pixel,none}`：类先验 `log(support)` 的来源；`cell` 是 `mass` 的别名。
 - `--kv-hierarchy {flat,nested}`：`flat` 为 8/4/4/4（224 KV）；`nested` 为 8/4/2/1 并做父子 2×2 聚合（170 KV）。
 - `--freeze-tau`：把 τ 冻结在实测中位数 0.4696。
+- `--edge-weight` / `--edge-dilate` / `--edge-detach {none,retrieval}`：GT Sobel 边缘监督的权重、膨胀半径与梯度落点。`retrieval`（**默认**）让检索回写的边缘头输入先 `detach()`，边缘梯度只经 TAR 的 `D_s` 回传；Run6 在 SYSU 上实测 `none` 82.01 → `retrieval` 83.09（+1.09 pp，噪声 0.32），因此默认切断。
 - `--context-heads {1,2,4}`：1 头 32 维（默认）；多头时 `head_dim=16`。
 
 ### 解码器与预测头（`model/str_dcr.py`、`model/casa_net.py`）
@@ -63,7 +64,7 @@
 
 ## 训练协议（`train_CASA.py`）
 
-`--module`、`--tar-variant`、`--decoder-variant` 之外，还有 `--selection-split {test,val}`、`--detail-head`、`--detail-target`、`--support`、`--kv-hierarchy`、`--freeze-tau`、`--per-image-metrics`、`--interior-positive-weight`、`--guide-weight`、`--retrieval-weight`、`--encoder-lr-mult`、`--context-heads`、`--resume`。
+`--module`、`--tar-variant`、`--decoder-variant` 之外，还有 `--selection-split {test,val}`、`--detail-head`、`--detail-target`、`--support`、`--kv-hierarchy`、`--freeze-tau`、`--edge-weight`、`--edge-dilate`、`--edge-detach`、`--per-image-metrics`、`--interior-positive-weight`、`--guide-weight`、`--retrieval-weight`、`--encoder-lr-mult`、`--context-heads`、`--resume`。
 
 - 每 epoch 在 `select_loader`（test 或 val，由 `--selection-split` 决定）上按阈值 0.5 的 F1 选权重，tie 时更新；manifest 记 `selection_split` / `independent_test`，val 选模才可称独立。
 - 训练结束后在 val 上做 121 点阈值校准（`operating_point.py`），再在 test 上复测主阈值 0.5 与校准阈值。
