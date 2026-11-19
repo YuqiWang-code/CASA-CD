@@ -39,7 +39,7 @@ class HyperbolicContext(nn.Module):
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
-                 edge_supervision=False):
+                 edge_supervision=False, edge_detach="none"):
         super().__init__()
         if support_mode not in ("mass", "cell", "pixel", "none"):
             raise ValueError(f"unknown support_mode {support_mode!r}")
@@ -79,6 +79,9 @@ class HyperbolicContext(nn.Module):
         self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
         # created last so that switching the head on does not shift any other init
         self.edge_head = EdgeHead(channels) if edge_supervision else None
+        if edge_detach not in ("none", "retrieval"):
+            raise ValueError(f"unknown edge_detach mode: {edge_detach}")
+        self.edge_detach = edge_detach
         self.collect_diag = False
         self.last_diag = {}
 
@@ -184,9 +187,15 @@ class HyperbolicContext(nn.Module):
         return normalized
 
     def edge_logits(self, update, index):
-        """Optional edge prediction read from the write-back update."""
+        """Optional edge prediction read from the write-back update.
+
+        ``edge_detach="retrieval"`` keeps the head and its loss but stops the
+        gradient at the write-back, so the edge term only reaches the bridge.
+        """
         if getattr(self, "edge_head", None) is None:
             return None
+        if getattr(self, "edge_detach", "none") == "retrieval":
+            update = update.detach()
         return self.edge_head(update)
 
     def forward(self, tar, difference=None, return_aux=False):

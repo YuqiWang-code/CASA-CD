@@ -392,6 +392,8 @@ def main():
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")
     parser.add_argument("--edge-weight", type=float, default=0.0,
                         help="weight of the Sobel edge loss read from the bridge or the retrieval")
+    parser.add_argument("--edge-detach", choices=("none", "retrieval"), default="none",
+                        help="cut the edge gradient at the retrieval write-back")
     parser.add_argument("--edge-dilate", type=int, default=1,
                         help="pixels by which the GT edge ring is widened before supervision")
     args = parser.parse_args()
@@ -440,7 +442,8 @@ def main():
                     detail_target=args.detail_target, tar_variant=args.tar_variant,
                     decoder_variant=args.decoder_variant, support=args.support,
                     kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau,
-                    edge_supervision=args.edge_weight > 0).to(device)
+                    edge_supervision=args.edge_weight > 0,
+                    edge_detach=args.edge_detach).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -478,6 +481,7 @@ def main():
                     heads=model.context.heads if args.module != "none" else 0,
                     auxiliary_weights=weights,
                     edge_supervision=dict(weight=args.edge_weight, dilate=args.edge_dilate,
+                                          detach=args.edge_detach,
                                           objective="sobel_edge_map_bce_plus_dice",
                                           source=("tar_cg_change_evidence" if args.tar_variant == "cg"
                                                   else "retrieval_writback")),
@@ -536,7 +540,7 @@ def main():
                      "interior_positive_weight", "context_heads", "detail_head", "detail_target",
                      "tar_variant", "decoder_variant",
                      "selection_split", "dataset", "batch_size", "validation_threshold_grid",
-                     "support", "kv_hierarchy", "freeze_tau"):
+                     "support", "kv_hierarchy", "freeze_tau", "edge_supervision"):
             if checkpoint["manifest"][name] != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(

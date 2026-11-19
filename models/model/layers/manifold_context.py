@@ -27,9 +27,10 @@ class ManifoldContext(HyperbolicContext):
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
-                 edge_supervision=False):
+                 edge_supervision=False, edge_detach="none"):
         super().__init__(channels, heads, head_dim, grid_sizes,
-                         support_mode, kv_hierarchy, freeze_tau, edge_supervision)
+                         support_mode, kv_hierarchy, freeze_tau, edge_supervision,
+                         edge_detach=edge_detach)
         width = heads * head_dim
         self.scale_log_temperature = nn.Parameter(torch.zeros(len(self.grid_sizes)))
         self.support_head = nn.Conv2d(channels, 2, 1)

@@ -134,6 +134,54 @@ def test_gradients_reach_both_heads():
     assert float(net.context.edge_head.proj.weight.grad.abs().sum()) > 0
 
 
+def test_retrieval_detach_keeps_the_head_but_cuts_the_trunk():
+    """edge_detach="retrieval" keeps the head and the bridge, cuts the write-back."""
+    torch.manual_seed(0)
+    a, b = torch.randn(2, 3, SIDE, SIDE), torch.randn(2, 3, SIDE, SIDE)
+    mask = torch.zeros(2, 1, SIDE, SIDE)
+    mask[:, :, SIDE // 4:3 * SIDE // 4, SIDE // 5:4 * SIDE // 5] = 1.0
+    target = sobel_edge_map(mask, dilate=1)
+
+    def norms(detach):
+        net = CASANet(module="manifold", tar_variant="cg", edge_supervision=True,
+                      edge_detach=detach).train()
+        _, auxiliary = net(a, b, return_aux=True)
+        sum(edge_loss(m, F.interpolate(target, size=m.shape[-2:], mode="area"))
+            for m in auxiliary["edge_logits"]).backward()
+        get = lambda name: (float(net.get_parameter(name).grad.norm())
+                            if net.get_parameter(name).grad is not None else 0.0)
+        return (get("tar.edge_head.proj.weight"), get("context.edge_head.proj.weight"),
+                get("context.qk.weight"))
+
+    tar_full, head_full, trunk_full = norms("none")
+    tar_cut, head_cut, trunk_cut = norms("retrieval")
+    assert tar_full > 0 and tar_cut > 0, (tar_full, tar_cut)
+    assert head_full > 0 and head_cut > 0, (head_full, head_cut)
+    assert trunk_full > 0, trunk_full
+    assert trunk_cut == 0.0, trunk_cut
+    print(f"[EDGE-DETACH] full tar={tar_full:.2e} trunk={trunk_full:.2e}; "
+          f"cut tar={tar_cut:.2e} head={head_cut:.2e} trunk={trunk_cut:.2e}")
+
+
+def test_detach_does_not_touch_the_segmentation_gradient():
+    torch.manual_seed(0)
+    a, b = torch.randn(2, 3, SIDE, SIDE), torch.randn(2, 3, SIDE, SIDE)
+    mask = torch.zeros(2, 1, SIDE, SIDE)
+    mask[:, :, SIDE // 4:3 * SIDE // 4, SIDE // 5:4 * SIDE // 5] = 1.0
+    for detach in ("none", "retrieval"):
+        net = CASANet(module="manifold", tar_variant="cg", edge_supervision=True,
+                      edge_detach=detach).train()
+        with torch.no_grad():
+            net.context.gamma_context.fill_(0.5)
+        outputs = net(a, b)
+        sum(F.binary_cross_entropy_with_logits(
+            torch.logit(v.clamp(1e-6, 1 - 1e-6)),
+            F.interpolate(mask, size=v.shape[-2:])) for v in outputs).backward()
+        grad = net.get_parameter("context.qk.weight").grad
+        assert grad is not None and float(grad.norm()) > 0, detach
+    print("[EDGE-DETACH] segmentation still reaches the retrieval in both modes")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
