@@ -39,7 +39,7 @@ class HyperbolicContext(nn.Module):
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
-                 edge_supervision=False, edge_detach="none"):
+                 edge_supervision=False, edge_detach="retrieval"):
         super().__init__()
         if support_mode not in ("mass", "cell", "pixel", "none"):
             raise ValueError(f"unknown support_mode {support_mode!r}")

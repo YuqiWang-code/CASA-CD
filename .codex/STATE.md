@@ -1,3 +1,9 @@
+# 2026-11-20 · CASA-MinorGoal / Run6 完成
+
+- 协议 `casa_minor_run6_edge_tap_v1`，GPU1 两槽，SYSU 两项：`EDGE_FULL`（edge 0.1，detach none）82.01 vs `EDGE_TAP_CUT`（同权重，detach retrieval）**83.09**，Δ **+1.085 pp**（门限 0.36、噪声 0.32）。
+- 结论：边缘梯度回传到检索回写 `U_s` 有害；`models/` 默认改为 `edge_detach="retrieval"`，TAR 侧边缘监督照旧。
+- 产物：`outputs/CASA-MinorGoal/Run6/`（29 artifacts）、`docs/experiment_metrics.xlsx` 374 行、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run6.txt`。
+
 # 当前状态
 
 更新：2026-11-19。

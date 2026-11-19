@@ -163,6 +163,22 @@ def test_retrieval_detach_keeps_the_head_but_cuts_the_trunk():
           f"cut tar={tar_cut:.2e} head={head_cut:.2e} trunk={trunk_cut:.2e}")
 
 
+def test_retrieval_detach_is_the_default():
+    """Run6: leaving the tap attached cost 1.09 pp on SYSU, so it is cut by default."""
+    net = CASANet(module="manifold", tar_variant="cg", edge_supervision=True)
+    assert net.context.edge_detach == "retrieval"
+    a, b = torch.randn(1, 3, SIDE, SIDE), torch.randn(1, 3, SIDE, SIDE)
+    net.train()
+    net.zero_grad()
+    _, auxiliary = net(a, b, return_aux=True)
+    maps = auxiliary["edge_logits"]
+    loss = torch.stack([edge_loss(m, torch.zeros_like(m)) for m in maps]).mean()
+    loss.backward()
+    qk_grad = net.context.qk.weight.grad
+    assert qk_grad is None or float(qk_grad.abs().sum()) == 0
+    assert net.context.edge_head.proj.weight.grad.abs().sum() > 0
+
+
 def test_detach_does_not_touch_the_segmentation_gradient():
     torch.manual_seed(0)
     a, b = torch.randn(2, 3, SIDE, SIDE), torch.randn(2, 3, SIDE, SIDE)

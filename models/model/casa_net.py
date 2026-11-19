@@ -18,7 +18,7 @@ class CASANet(nn.Module):
                  context_heads=1, detail_head=False, detail_target="area",
                  tar_variant="reparam", decoder_variant="reparam", support="cell",
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
-                 edge_detach="none"):
+                 edge_detach="retrieval"):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,

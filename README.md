@@ -131,6 +131,17 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
+## 梯度落点：CASA-MinorGoal / Run6：把边缘监督从回写里摘出去
+
+Run5 的 +0.47 pp 过门，但另一会话的干预显示 SYSU 的 EDGE 权重高度依赖粗尺度回写，且 87.3% 的净新增正确检出在边界带以外。Run6 只改一件事：保留两个边缘头与全部损失权重，把检索回写 `U_s` 在喂给边缘头之前 `detach()`，边缘梯度只能经由 TAR 的 `D_s` 回传。
+
+| arm | module / tar | edge | detach | SYSU F1 | R / P | Δ pp |
+|---|---|---|---|---|---|---|
+| EDGE_FULL | manifold / cg | 0.1 | none | 82.01 | 78.97 / 85.28 | — |
+| EDGE_TAP_CUT | manifold / cg | 0.1 | retrieval | **83.09** | 79.66 / 86.83 | **+1.085** |
+
+val 选模、test τ=0.5、seed 2334；SYSU 的 seed 噪声 0.32 pp，门限 0.36 pp。**切断反而涨 1.09 pp**，且 Precision 同时 +1.55，说明让回写去追轮廓会挤掉分割本身。`models/` 的默认值因此改成 `edge_detach="retrieval"`（`HyperbolicContext`、`ManifoldContext`、`DifferenceContext`、`CASANet`、`--edge-detach`），TAR 侧的边缘监督保持不变。
+
 ## 版本消融：CASA-Pyramid / Run15：三个历史版本的同口径复现
 
 把 Run1（Poincaré 球 + `qkv` 臂）、Run4（直接 Lorentz + `qkv` 臂）、Run10（后验压缩 + `matched` 欧氏双胞胎）三个版本的源码落到 `models_Run1/`、`models_Run4/`、`models_Run10/`（`SOURCE.md` 记来源与 sha256），统一在 WHU/SYSU 上按**验证集选模**各跑一遍控制臂与几何臂，共 20 项，2026-11-15 13:59 完成，无失败（中途一次显存 OOM 已提预留后重跑）。

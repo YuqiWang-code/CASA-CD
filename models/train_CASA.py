@@ -392,7 +392,7 @@ def main():
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")
     parser.add_argument("--edge-weight", type=float, default=0.0,
                         help="weight of the Sobel edge loss read from the bridge or the retrieval")
-    parser.add_argument("--edge-detach", choices=("none", "retrieval"), default="none",
+    parser.add_argument("--edge-detach", choices=("none", "retrieval"), default="retrieval",
                         help="cut the edge gradient at the retrieval write-back")
     parser.add_argument("--edge-dilate", type=int, default=1,
                         help="pixels by which the GT edge ring is widened before supervision")
