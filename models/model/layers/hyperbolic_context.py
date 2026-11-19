@@ -78,6 +78,10 @@ class HyperbolicContext(nn.Module):
         self.collect_diag = False
         self.last_diag = {}
 
+    def scale_temperature(self, query_scale):
+        """Temperature used at ``query_scale``; subclasses may make it per-scale."""
+        return F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
+
     @staticmethod
     def geometric_point(projected):
         """Lift unnormalized projections; their norm determines intrinsic radius."""
@@ -133,7 +137,7 @@ class HyperbolicContext(nn.Module):
         return aggregated
 
     def attention_logits(self, query, key, support, query_scale):
-        temperature = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
+        temperature = self.scale_temperature(query_scale)
         logits = -self.squared_distance(query, key) / (2 * temperature.square())
         logits = logits + support.log()[:, None, None] + source_bias(
             self.scale_bias, query_scale, self.tokens_per_scale)
@@ -150,9 +154,18 @@ class HyperbolicContext(nn.Module):
         evidence = positive.logsumexp(-1) - background.logsumexp(-1)
         return evidence.mean(1).reshape(logits.shape[0], 1, height, width)
 
-    def readout(self, feature, probability, values, occupancy, prototype_occupancy):
+    def aggregate(self, probability, values):
+        """Combine values with attention weights (Euclidean weighted mean by default)."""
+        return probability @ values
+
+    def support_term(self, sources, support):
+        """Prior strength per prototype; subclasses may replace the pooled mass."""
+        return support
+
+    def readout(self, feature, probability, values, occupancy, prototype_occupancy,
+                scale_index=None):
         height, width = feature.shape[-2:]
-        retrieved = merge_heads(probability @ values, height, width)
+        retrieved = merge_heads(self.aggregate(probability, values), height, width)
         own_value = self.v(feature)
         discrepancy = retrieved - retrieved.mean((-2, -1), keepdim=True)
         retrieved_occupancy = (probability @ prototype_occupancy[:, None]).mean(1)
@@ -180,7 +193,7 @@ class HyperbolicContext(nn.Module):
         prototype = torch.cat(prototypes, dim=1)
         key, prototype_occupancy = self.project_keys(prototype)
         values = project_tokens(self.v, prototype, self.heads)
-        support = torch.cat([item[1] for item in compressed], dim=1)
+        support = self.support_term(sources, torch.cat([item[1] for item in compressed], dim=1))
         enhanced, diagnostics, geometric_logits = [], {}, []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
             query = queries[index]
@@ -189,7 +202,7 @@ class HyperbolicContext(nn.Module):
             if return_aux:
                 geometric_logits.append(self.geometric_change_logit(logits, *x.shape[-2:]))
             update, gate, retrieved, own_value, discrepancy, gated = self.readout(
-                x, probability, values, p, prototype_occupancy)
+                x, probability, values, p, prototype_occupancy, index)
             context_residual = self.gamma_context[index][None, :, None, None] * update
             local_residual = torch.zeros_like(original)
             local = None

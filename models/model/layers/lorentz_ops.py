@@ -14,6 +14,20 @@ def normalize_sum(point):
     return lift(point[..., 1:] / norm2.clamp_min(1).sqrt())
 
 
+def minkowski_barycenter(values, weights):
+    """Weighted Minkowski centroid of lifted values, returned in tangent space.
+
+    ``values`` is (..., tokens, dim) in Euclidean coordinates and ``weights`` is
+    (..., tokens, 1) with convex weights. The centroid is formed on the lifted
+    hyperboloid and mapped back to the tangent chart, so the aggregation itself
+    happens in the manifold rather than in the Euclidean chart.
+    """
+    centroid = (weights * lift(values)).sum(dim=-2)
+    norm2 = centroid[..., :1].square() - centroid[..., 1:].square().sum(-1, keepdim=True)
+    # convex weights keep norm2 >= 1; re-normalising preserves the manifold
+    return centroid[..., 1:] / norm2.clamp_min(1).sqrt()
+
+
 def acosh1p_squared(z):
     """Squared geodesic distance with its finite analytic derivative at z=0."""
     regular_z = z.clamp_min(1e-3)

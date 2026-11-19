@@ -9,6 +9,7 @@ from model.str_dcr import build_decoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
 from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
+from model.layers.manifold_context import ManifoldContext
 from model.layers.difference_context import DifferenceContext
 
 
@@ -19,9 +20,10 @@ class CASANet(nn.Module):
                  kv_hierarchy="flat", freeze_tau=False):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
+                        "manifold": ManifoldContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext,
                         "difference": DifferenceContext}[module]
-        if module == "difference" and tar_variant not in ("spp", "spp1", "diff"):
+        if module in ("difference", "manifold") and tar_variant not in ("spp", "spp1", "diff", "cg"):
             raise ValueError("the difference context needs a temporal difference stream "
                              "(--tar-variant spp, spp1 or diff)")
         self.module = module
@@ -31,7 +33,7 @@ class CASANet(nn.Module):
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
                                  variant=tar_variant,
-                                 return_difference=module == "difference")
+                                 return_difference=module in ("difference", "manifold"))
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
@@ -55,7 +57,7 @@ class CASANet(nn.Module):
 
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a), self.encoder(b)
-        if self.module == "difference":
+        if self.module in ("difference", "manifold"):
             tar, difference = self.tar(features_a[1:], features_b[1:])
             enhanced, auxiliary = self.context(tar, difference,
                                                return_aux=return_aux and self.training)

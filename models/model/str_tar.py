@@ -6,6 +6,7 @@ three-branch re-parameterization.
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from model.str_reparam import fold_conv_bn, switch_module_to_deploy
 from model.str_dcr import PlainLocalBlock, RepLocalBlock
@@ -332,6 +333,52 @@ class SPPTARStage(nn.Module):
         return self
 
 
+class LocalContrast(nn.Module):
+    """Divide every channel by its local mean magnitude (exposure invariant)."""
+
+    def __init__(self, kernel=7):
+        super().__init__()
+        self.kernel = kernel
+
+    def forward(self, x):
+        scale = F.avg_pool2d(x.abs(), self.kernel, 1, self.kernel // 2).clamp_min(1e-3)
+        return x / scale
+
+
+class ChangeGateTARStage(nn.Module):
+    """Content path plus a signed, exposure-normalised change path.
+
+    ``content = SiLU(1x1[P, Q])`` keeps appearance; ``delta = 1x1[d+, d-]`` keeps
+    the signed change after dividing both dates by their local mean magnitude, so
+    a global exposure shift cancels while a real change survives. The change gate
+    modulates the content multiplicatively and adds a zero-initialised copy of
+    ``delta``; the local block is the same foldable DW+PW as elsewhere.
+    """
+
+    def __init__(self, in_channels, dim, use_temporal_aux=True, use_dcr_aux=True,
+                 use_residual=True, deploy=False):
+        super().__init__()
+        self.contrast = LocalContrast(7)
+        self.content = nn.Conv2d(2 * in_channels, dim, 1, bias=False)
+        self.bn_content = nn.BatchNorm2d(dim)
+        self.difference = nn.Conv2d(2 * in_channels, dim, 1, bias=False)
+        self.bn_difference = nn.BatchNorm2d(dim)
+        self.gate = nn.Conv2d(dim + in_channels, dim, 1)
+        self.beta = nn.Parameter(torch.zeros(1))
+        self.block = RepLocalBlock(dim, use_aux=use_temporal_aux,
+                                   use_residual=use_residual, deploy=deploy)
+
+    def forward(self, P, Q):
+        content = F.silu(self.bn_content(self.content(torch.cat((P, Q), dim=1))))
+        p, q = self.contrast(P), self.contrast(Q)
+        positive = (p - q).relu()
+        negative = (q - p).relu()
+        delta = self.bn_difference(self.difference(torch.cat((positive, negative), dim=1)))
+        gate = self.gate(torch.cat((delta, positive + negative), dim=1)).sigmoid()
+        fused = self.block(content * (1 + gate) + self.beta * delta)
+        return fused, delta
+
+
 class MultiScaleTAR(nn.Module):
     """Four-scale temporal fusion from paired encoder features to decoder inputs.
 
@@ -343,7 +390,7 @@ class MultiScaleTAR(nn.Module):
                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False,
                  variant="reparam", return_difference=False):
         super().__init__()
-        if variant not in ("reparam", "plain", "diff", "spp", "spp1"):
+        if variant not in ("reparam", "plain", "diff", "spp", "spp1", "cg"):
             raise ValueError(f"unknown TAR variant: {variant}")
         self.variant = variant
         self.return_difference = return_difference
@@ -366,6 +413,15 @@ class MultiScaleTAR(nn.Module):
             self.stage2 = DifferenceTARStage(encoder_dims[1], dim, deploy)
             self.stage3 = DifferenceTARStage(encoder_dims[2], dim, deploy)
             self.stage4 = DifferenceTARStage(encoder_dims[3], dim, deploy)
+        elif variant == "cg":
+            self.stage1 = ChangeGateTARStage(encoder_dims[0], dim, use_temporal_aux,
+                                             use_dcr_aux, use_residual, deploy)
+            self.stage2 = ChangeGateTARStage(encoder_dims[1], dim, use_temporal_aux,
+                                             use_dcr_aux, use_residual, deploy)
+            self.stage3 = ChangeGateTARStage(encoder_dims[2], dim, use_temporal_aux,
+                                             use_dcr_aux, use_residual, deploy)
+            self.stage4 = ChangeGateTARStage(encoder_dims[3], dim, use_temporal_aux,
+                                             use_dcr_aux, use_residual, deploy)
         else:
             # "spp" is the multi-scale pooling; "spp1" keeps the same branch
             # structure but with the 1x1 kernel only, so the gain of widening the
@@ -381,6 +437,20 @@ class MultiScaleTAR(nn.Module):
                                       use_residual, deploy, kernels=kernels)
 
     def forward(self, pre_feats, post_feats):
+        if self.variant == "cg":
+            t1, d1 = self.stage1(pre_feats[0], post_feats[0])
+            t2, d2 = self.stage2(pre_feats[1], post_feats[1])
+            t3, d3 = self.stage3(pre_feats[2], post_feats[2])
+            t4, d4 = self.stage4(pre_feats[3], post_feats[3])
+            # coarse-to-fine evidence propagation: a change seen at 8x8 seeds the
+            # finer scales, so a small object inherits its parent's evidence.
+            d3 = d3 + F.interpolate(d4, size=d3.shape[-2:], mode="bilinear", align_corners=False)
+            d2 = d2 + F.interpolate(d3, size=d2.shape[-2:], mode="bilinear", align_corners=False)
+            d1 = d1 + F.interpolate(d2, size=d1.shape[-2:], mode="bilinear", align_corners=False)
+            fused = [t1, t2, t3, t4]
+            if self.return_difference:
+                return fused, [d1, d2, d3, d4]
+            return fused
         if self.variant in ("spp", "spp1"):
             t1, d1 = self.stage1(pre_feats[0], post_feats[0])
             t2, d2 = self.stage2(pre_feats[1], post_feats[1])

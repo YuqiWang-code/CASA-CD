@@ -197,7 +197,7 @@ def evaluate_auxiliary(model, loader, device):
     samples = 0
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
-        if model.module == "difference":
+        if model.module in ("difference", "manifold"):
             tar, difference = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
             _, auxiliary = model.context(tar, difference, return_aux=True)
         else:
@@ -343,7 +343,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
-    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched", "difference"],
+    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched", "difference", "manifold"],
                         required=True)
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -367,7 +367,7 @@ def main():
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1"),
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1", "cg"),
                         default="reparam")
     parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")
@@ -377,11 +377,11 @@ def main():
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
     if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
         parser.error("guide weight must be positive and retrieval weight nonnegative")
-    if args.module not in ("hyperbolic", "matched", "difference") and weights["geometric_retrieval"]:
+    if args.module not in ("hyperbolic", "matched", "difference", "manifold") and weights["geometric_retrieval"]:
         parser.error("retrieval supervision requires the matched H/E or difference context")
-    if args.context_heads != 1 and args.module not in ("hyperbolic", "matched", "difference"):
+    if args.context_heads != 1 and args.module not in ("hyperbolic", "matched", "difference", "manifold"):
         parser.error("multihead ablation requires the matched H/E or difference context")
-    if args.module == "difference" and args.tar_variant not in ("spp", "spp1", "diff"):
+    if args.module in ("difference", "manifold") and args.tar_variant not in ("spp", "spp1", "diff", "cg"):
         parser.error("the difference context needs --tar-variant spp")
     torch.set_num_threads(4)
     random.seed(args.seed)
@@ -449,7 +449,7 @@ def main():
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
                     heads=model.context.heads if args.module != "none" else 0,
                     auxiliary_weights=weights,
-                    guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched", "difference") else "raw_area_bce",
+                    guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched", "difference", "manifold") else "raw_area_bce",
                     guide_effective_coefficients=guide_effective_coefficients(args.module, weights["guide"]),
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
                     value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
@@ -465,18 +465,20 @@ def main():
                     kv_hierarchy=args.kv_hierarchy,
                     freeze_tau=args.freeze_tau,
                     kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
-                               if args.module in ("hyperbolic", "matched", "difference") else 0),
+                               if args.module in ("hyperbolic", "matched", "difference", "manifold") else 0),
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
                                        "hyperbolic": "weighted class occupancy; no entropy penalty",
                                        "matched": "weighted class occupancy; no entropy penalty",
-                                       "difference": "temporal-difference class occupancy; no entropy penalty"}[args.module],
+                                       "difference": "temporal-difference class occupancy; no entropy penalty",
+                                       "manifold": "temporal-difference class occupancy; no entropy penalty"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
                                      "hyperbolic": "learned gate on spatially centered retrieved context",
                                      "matched": "learned gate on spatially centered retrieved context",
-                                     "difference": "learned gate on spatially centered retrieved context"}[args.module],
-                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched", "difference") else None,
-                    hyperbolic_key="lift_of_pooled_temporal_difference_content" if args.module == "difference"
+                                     "difference": "learned gate on spatially centered retrieved context",
+                                     "manifold": "lorentz barycenter with level path and position-aware gate"}[args.module],
+                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched", "difference", "manifold") else None,
+                    hyperbolic_key="lift_of_pooled_temporal_difference_content" if args.module in ("difference", "manifold")
                     else ("lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None),
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
@@ -488,7 +490,8 @@ def main():
                                     "qkv": "euclidean_relative_context",
                                     "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values",
                                     "matched": "direct_projection_class_keys_and_gated_euclidean_values",
-                                    "difference": "class_keys_from_temporal_difference_and_gated_euclidean_values"}[args.module],
+                                    "difference": "class_keys_from_temporal_difference_and_gated_euclidean_values",
+                                    "manifold": "class_keys_from_change_evidence_averaged_on_the_lorentz_barycenter"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
