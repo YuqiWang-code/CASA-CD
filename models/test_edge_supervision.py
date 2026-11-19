@@ -38,6 +38,37 @@ def test_dilation_widens_the_ring():
     assert float(wide[0, 0, 5, 16]) == 0
 
 
+def test_edge_target_ignores_the_crop_border():
+    """A region that reaches the crop border must not be given a frame edge."""
+    from train_CASA import mask_boundary
+
+    full = torch.ones(1, 1, 256, 256)
+    for dilate in (0, 1):
+        edge = sobel_edge_map(full, dilate=dilate)
+        assert int(edge.gt(0).sum()) == 0, f"full foreground, dilate={dilate}, is not all flat"
+
+    # a band that touches the top, bottom and right borders has one real boundary
+    mask = torch.zeros(1, 1, 256, 256)
+    mask[:, :, :, 60:256] = 1.0
+    edge = sobel_edge_map(mask, dilate=1)
+    assert int(edge[..., :, -1].gt(0).sum()) == 0, "the right border must stay flat"
+    # the real boundary at column 60 does reach the top and bottom borders, so
+    # only the rest of those border lines has to stay flat
+    keep = slice(54, 67)
+    top = edge[..., 0, :].clone(); top[..., keep] = 0
+    bottom = edge[..., -1, :].clone(); bottom[..., keep] = 0
+    assert int(top.gt(0).sum()) == 0, "the top border must stay flat away from the boundary"
+    assert int(bottom.gt(0).sum()) == 0, "the bottom border must stay flat away from the boundary"
+    assert int(edge[..., :, 60].gt(0).sum()) > 0, "the real boundary must stay"
+
+    # and the boundary metric used for evaluation agrees with it
+    band = mask_boundary(mask, radius=1)
+    assert int(band[..., :, -1].gt(0).sum()) == 0, "the metric band also ignores the right border"
+    band_top = band[..., 0, :].clone(); band_top[..., keep] = 0
+    assert int(band_top.gt(0).sum()) == 0, "the metric band also ignores the top border"
+    assert int(band[..., :, 60].gt(0).sum()) > 0
+
+
 def test_edge_loss_prefers_a_correct_prediction():
     mask = torch.zeros(1, 1, 32, 32)
     mask[:, :, 8:24, 8:24] = 1.0

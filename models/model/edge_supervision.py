@@ -22,11 +22,17 @@ def sobel_edge_map(mask, dilate=1):
         raise ValueError("the edge target expects (B, 1, H, W)")
     kx = _SOBEL_X.to(dtype=mask.dtype, device=mask.device).view(1, 1, 3, 3)
     ky = kx.transpose(-1, -2)
-    gx = F.conv2d(mask, kx, padding=1)
-    gy = F.conv2d(mask, ky, padding=1)
+    # The image border is not a change boundary: replicate first, then run the
+    # 3x3 kernels without padding.  Zero padding would treat the outside as
+    # background and invent an edge wherever a changed region reaches the crop
+    # border, which the boundary metric (also replicate padded) does not count.
+    padded = F.pad(mask, (1, 1, 1, 1), mode="replicate")
+    gx = F.conv2d(padded, kx)
+    gy = F.conv2d(padded, ky)
     magnitude = (gx.square() + gy.square()).sqrt().clamp(0.0, 1.0)
     if dilate > 0:
-        magnitude = F.max_pool2d(magnitude, 2 * dilate + 1, 1, dilate)
+        magnitude = F.max_pool2d(F.pad(magnitude, (dilate,) * 4, mode="replicate"),
+                                 2 * dilate + 1, 1, 0)
     return magnitude.clamp(0.0, 1.0)
 
 
