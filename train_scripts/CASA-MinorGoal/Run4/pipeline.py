@@ -19,9 +19,10 @@ FORECAST_HOURS = {"TAR_CG/WHU-CD-256": 2.4, "TAR_CG/SYSU-CD-256": 2.8,
                   "CG_HRA/WHU-CD-256": 2.6, "CG_HRA/SYSU-CD-256": 3.0}
 # Attribution first: the two ARM_C legs answer the headline question and take the
 # two slots at 01:00; the second-lever and boundary arms follow.
-PRIORITY = ("HRA_SPP/WHU-CD-256", "HRA_SPP/SYSU-CD-256",
-            "TAR_CG/WHU-CD-256", "TAR_CG/SYSU-CD-256",
-            "CG_HRA/WHU-CD-256", "CG_HRA/SYSU-CD-256")
+# SYSU first, then WHU: the smaller library finishes sooner, so its three arms
+# give a complete row of results before the WHU legs start.
+DATASET_ORDER = ("SYSU-CD-256", "WHU-CD-256")
+ARM_ORDER = ("TAR_CG", "HRA_SPP", "CG_HRA")
 
 
 def free_memory(gpu):
@@ -35,10 +36,12 @@ def job_key(job):
 
 def forecast(jobs):
     """Two slots, priority-first packing; returns per-job start/finish offsets."""
-    order = {name: index for index, name in enumerate(PRIORITY)}
     slots = [0.0] * SLOTS
     plan = []
-    for job in sorted(jobs, key=lambda item: order.get(job_key(item), len(order))):
+    for job in sorted(jobs, key=lambda item: (DATASET_ORDER.index(item[1])
+                                              if item[1] in DATASET_ORDER else 9,
+                                              ARM_ORDER.index(item[0])
+                                              if item[0] in ARM_ORDER else 9)):
         index = min(range(SLOTS), key=lambda slot: slots[slot])
         start = slots[index]
         finish = start + FORECAST_HOURS.get(job_key(job), 3.0)
@@ -91,7 +94,13 @@ def pending_runs(previous):
     pending = [job for job in experiments() if job not in completed]
     priority = {tuple(name.split('/')) for name in previous.get('stopped', [])}
     priority |= {tuple(job['run'].split('/')) for job in previous.get('failed', [])}
-    pending.sort(key=lambda job: job not in priority)
+    def rank(job):
+        # dataset first so SYSU finishes as one block, then the arm order
+        dataset = DATASET_ORDER.index(job[1]) if job[1] in DATASET_ORDER else 9
+        arm = ARM_ORDER.index(job[0]) if job[0] in ARM_ORDER else 9
+        return (job not in priority, dataset, arm)
+
+    pending.sort(key=rank)
     return pending, ['/'.join(job) for job in completed]
 
 
