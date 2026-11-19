@@ -12,6 +12,7 @@ from model.str_tar import ChangeGateTARStage, MultiScaleTAR
 from model.layers.hyperbolic_context import FLAT_GRIDS, HyperbolicContext
 from model.layers.lorentz_ops import lift, minkowski_barycenter
 from model.layers.manifold_context import ManifoldContext
+from model.layers.pyramid_context import channel_norm
 
 
 def test_contrast_normalisation_ignores_exposure():
@@ -113,6 +114,27 @@ def test_manifold_module_end_to_end():
         else:
             raise AssertionError(f"{module} must reject tar_variant={tar}")
 
+
+def test_manifold_context_reads_the_difference_stream():
+    torch.manual_seed(0)
+    ctx = ManifoldContext()
+    ctx.eval()
+    t = [torch.randn(1, 64, s, s) for s in (64, 32, 16, 8)]
+    d = [torch.randn(1, 64, s, s) for s in (64, 32, 16, 8)]
+    with torch.no_grad():
+        proto_a = ctx.prototype_features(t, d)
+        other = [x + 1.5 for x in d]
+        proto_b = ctx.prototype_features(t, other)
+    assert all(torch.allclose(a, b) is False for a, b in zip(proto_a, proto_b)), \
+        "the prototypes ignore the difference stream"
+    assert all(torch.allclose(p, channel_norm(ctx.norm_diff, q))
+               for p, q in zip(proto_a, d)), "prototypes are not the normalised difference"
+    try:
+        ctx.prototype_features(t, None)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a missing difference stream must raise")
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):

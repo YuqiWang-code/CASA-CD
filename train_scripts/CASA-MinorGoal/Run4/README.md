@@ -98,3 +98,12 @@ python collect_results.py               # 下载 → 抽表 → txt 快照 → c
 语义上与当前树等价（flat 层级、不冻 τ、`cell == mass`），因此**不重新 staging**；本跑的
 provenance 以服务器上那份 `runtime_manifest.json` 为准。本地树的 `--support` 现已同时接受
 `mass`/`cell`/`pixel`/`none`，重跑 staging 也不会再因 `invalid choice: 'mass'` 崩。
+
+### 修复记录（2026-11-19）
+
+`ManifoldContext` 初版没有覆写 `prototype_features`，KV 仍由融合特征 `T_s` 池化得到，
+TAR-CG 的跨尺度差分只经 `support` 与门控间接进入检索——与设计意图不符。现已加入
+`norm_diff` 与 `prototype_features` 覆写（与 `DifferenceContext` 同构），KV 改为
+`LN(D_s)` 的类条件原型，并补 `test_manifold_context_reads_the_difference_stream`。
+参数因此 +128：`HRA_SPP 2,136,115 / 2,013,536`、`CG_HRA 2,111,287 / 2,061,668`；
+两条 manifold 臂的旧权重作废，重新开跑。

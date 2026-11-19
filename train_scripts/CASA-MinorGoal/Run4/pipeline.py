@@ -14,12 +14,14 @@ from config import (GPUS, HEADROOM, PROTOCOL, ROOT, SLOTS, experiments, reservat
 
 HERE = Path(__file__).resolve().parent
 # Measured Run2 wall-clock per job, used only for the dry-run forecast.
-FORECAST_HOURS = {"ARM_C/WHU-CD-256": 2.3, "ARM_C/SYSU-CD-256": 3.0,
-                  "SUPP_PIX/SYSU-CD-256": 3.0, "DETAIL/LEVIR-CD-256": 3.5}
+FORECAST_HOURS = {"TAR_CG/WHU-CD-256": 2.4, "TAR_CG/SYSU-CD-256": 2.8,
+                  "HRA_SPP/WHU-CD-256": 2.5, "HRA_SPP/SYSU-CD-256": 2.9,
+                  "CG_HRA/WHU-CD-256": 2.6, "CG_HRA/SYSU-CD-256": 3.0}
 # Attribution first: the two ARM_C legs answer the headline question and take the
 # two slots at 01:00; the second-lever and boundary arms follow.
-PRIORITY = ("ARM_C/WHU-CD-256", "ARM_C/SYSU-CD-256",
-            "SUPP_PIX/SYSU-CD-256", "DETAIL/LEVIR-CD-256")
+PRIORITY = ("HRA_SPP/WHU-CD-256", "HRA_SPP/SYSU-CD-256",
+            "TAR_CG/WHU-CD-256", "TAR_CG/SYSU-CD-256",
+            "CG_HRA/WHU-CD-256", "CG_HRA/SYSU-CD-256")
 
 
 def free_memory(gpu):

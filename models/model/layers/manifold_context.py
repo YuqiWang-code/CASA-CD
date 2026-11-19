@@ -13,7 +13,7 @@ from torch.nn import functional as F
 
 from model.layers.hyperbolic_context import FLAT_GRIDS, HyperbolicContext
 from model.layers.lorentz_ops import lift
-from model.layers.pyramid_context import merge_heads
+from model.layers.pyramid_context import channel_norm, merge_heads
 
 
 class ManifoldContext(HyperbolicContext):
@@ -39,6 +39,17 @@ class ManifoldContext(HyperbolicContext):
         self.gate = nn.Conv2d(2 * width + 5, heads, 1)
         nn.init.zeros_(self.gate.weight)
         nn.init.zeros_(self.gate.bias)
+        # the change-evidence stream is normalised on its own so the prototypes are
+        # built from D_s, exactly like the difference-conditioned context.
+        self.norm_diff = nn.LayerNorm(channels)
+
+    def prototype_features(self, normalized, difference=None):
+        """Keys and values are pooled from the change evidence, not the content."""
+        if difference is None:
+            raise ValueError("ManifoldContext requires the temporal difference stream")
+        if len(difference) != len(normalized):
+            raise ValueError("the difference stream must match the number of scales")
+        return [channel_norm(self.norm_diff, d) for d in difference]
 
     def scale_temperature(self, query_scale):
         base = F.softplus(self.raw_temperature).view(1, self.heads, 1, 1)
