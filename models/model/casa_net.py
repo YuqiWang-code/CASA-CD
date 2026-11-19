@@ -17,7 +17,7 @@ class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none", context_seed=2333,
                  context_heads=1, detail_head=False, detail_target="area",
                  tar_variant="reparam", decoder_variant="reparam", support="cell",
-                 kv_hierarchy="flat", freeze_tau=False):
+                 kv_hierarchy="flat", freeze_tau=False, edge_supervision=False):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
@@ -33,13 +33,16 @@ class CASANet(nn.Module):
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
                                  variant=tar_variant,
-                                 return_difference=module in ("difference", "manifold"))
+                                 return_difference=module in ("difference", "manifold"),
+                                 edge_supervision=edge_supervision and tar_variant == "cg")
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)
             options = dict(heads=context_heads, head_dim=16) if context_heads != 1 else {}
+            if edge_supervision and issubclass(context_type, HyperbolicContext):
+                options["edge_supervision"] = True
             if module in ("hyperbolic", "matched", "difference"):
                 options["support_mode"] = support
                 options["kv_hierarchy"] = kv_hierarchy
@@ -57,16 +60,26 @@ class CASANet(nn.Module):
 
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a), self.encoder(b)
+        # the TAR may hand back (fused, difference, edges) when an edge head is on
+        result = self.tar(features_a[1:], features_b[1:])
+        difference, tar_edges = None, None
+        if len(result) == 3:
+            tar, difference, tar_edges = result
+        elif len(result) == 2:
+            tar, difference = result
+        else:
+            tar = result
         if self.module in ("difference", "manifold"):
-            tar, difference = self.tar(features_a[1:], features_b[1:])
             enhanced, auxiliary = self.context(tar, difference,
                                                return_aux=return_aux and self.training)
+        elif self.module in ("hyperbolic", "matched"):
+            enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
         else:
-            tar = self.tar(features_a[1:], features_b[1:])
-            if self.module in ("hyperbolic", "matched"):
-                enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
-            else:
-                enhanced, auxiliary = self.context(tar)
+            enhanced, auxiliary = self.context(tar)
+        if tar_edges is not None:
+            auxiliary = dict(auxiliary or {})
+            merged = list(auxiliary.get("edge_logits") or ())
+            auxiliary["edge_logits"] = tuple(list(tar_edges) + merged)
         detail = self.detail(torch.cat((features_a[0], features_b[0]), 1)) if self.detail is not None else None
         return self.decoder.forward_pyramid(enhanced), auxiliary, detail
 
@@ -98,6 +111,11 @@ class CASANet(nn.Module):
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()
         self.decoder.switch_to_deploy()
+        # the edge heads are training-only supervision taps; they never take part
+        # in the forward pass of the deployed model, so drop them from the budget
+        self.tar.edge_head = None
+        if hasattr(self.context, "edge_head"):
+            self.context.edge_head = None
         return self
 
     def diagnostics(self):

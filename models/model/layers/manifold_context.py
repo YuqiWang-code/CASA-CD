@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from model.edge_supervision import EdgeHead
 from model.layers.hyperbolic_context import FLAT_GRIDS, HyperbolicContext
 from model.layers.lorentz_ops import lift
 from model.layers.pyramid_context import channel_norm, merge_heads
@@ -25,9 +26,10 @@ class ManifoldContext(HyperbolicContext):
     readout_mode = "lorentz_barycenter_with_level_and_position"
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
-                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False):
+                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
+                 edge_supervision=False):
         super().__init__(channels, heads, head_dim, grid_sizes,
-                         support_mode, kv_hierarchy, freeze_tau)
+                         support_mode, kv_hierarchy, freeze_tau, edge_supervision)
         width = heads * head_dim
         self.scale_log_temperature = nn.Parameter(torch.zeros(len(self.grid_sizes)))
         self.support_head = nn.Conv2d(channels, 2, 1)

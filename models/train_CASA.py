@@ -16,6 +16,7 @@ from torch.nn import functional as F
 from dataset.dataset import Dataset
 from dataset import casa_transforms as transforms
 from model.casa_net import CASANet
+from model.edge_supervision import edge_loss, sobel_edge_map
 from model.metric_tool import ConfuseMatrixMeter
 from operating_point import THRESHOLDS, ThresholdCounts
 
@@ -82,7 +83,21 @@ def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
                 geometric_retrieval=0. if retrieval_weight is None else retrieval_weight)
 
 
-def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None, interior_positive_weight=1.0):
+def edge_terms(auxiliary, target, dilate=1):
+    """Sobel edge loss for every edge map the bridge or the retrieval exposes."""
+    maps = auxiliary.get("edge_logits") or ()
+    if not maps:
+        return None
+    edge = sobel_edge_map(target, dilate)
+    losses = []
+    for logits in maps:
+        size = logits.shape[-2:]
+        losses.append(edge_loss(logits, F.interpolate(edge, size=size, mode="area")))
+    return torch.stack(losses).mean()
+
+
+def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None,
+                    interior_positive_weight=1.0, edge_weight=0.0, edge_dilate=1):
     main = loss_function(outputs, target, interior_positive_weight)
     if "detail_logits" in aux:
         detail = aux["detail_logits"]
@@ -96,7 +111,11 @@ def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=No
                  if relational and weights["geometric_retrieval"] > 0 else guide.new_zeros(()))
     scale = weights["guide"] + weights["geometric_retrieval"]
     auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
-    return main + scale * auxiliary, main, auxiliary
+    edges = edge_terms(aux, target, edge_dilate) if edge_weight > 0 else None
+    total = main + scale * auxiliary
+    if edges is not None:
+        total = total + edge_weight * edges
+    return total, main, auxiliary + (0.0 if edges is None else edge_weight * float(edges.detach()))
 
 
 class SpatialMetrics:
@@ -371,9 +390,17 @@ def main():
                         default="reparam")
     parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")
+    parser.add_argument("--edge-weight", type=float, default=0.0,
+                        help="weight of the Sobel edge loss read from the bridge or the retrieval")
+    parser.add_argument("--edge-dilate", type=int, default=1,
+                        help="pixels by which the GT edge ring is widened before supervision")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
+    if args.edge_weight < 0:
+        parser.error("edge weight must be non-negative")
+    if args.edge_weight > 0 and args.tar_variant not in ("cg",) and args.module not in ("manifold", "difference"):
+        parser.error("edge supervision needs an edge head: use --tar-variant cg or --module manifold")
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
     if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
         parser.error("guide weight must be positive and retrieval weight nonnegative")
@@ -412,7 +439,8 @@ def main():
                     context_heads=args.context_heads, detail_head=args.detail_head,
                     detail_target=args.detail_target, tar_variant=args.tar_variant,
                     decoder_variant=args.decoder_variant, support=args.support,
-                    kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau).to(device)
+                    kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau,
+                    edge_supervision=args.edge_weight > 0).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -449,6 +477,10 @@ def main():
                     qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
                     heads=model.context.heads if args.module != "none" else 0,
                     auxiliary_weights=weights,
+                    edge_supervision=dict(weight=args.edge_weight, dilate=args.edge_dilate,
+                                          objective="sobel_edge_map_bce_plus_dice",
+                                          source=("tar_cg_change_evidence" if args.tar_variant == "cg"
+                                                  else "retrieval_writback")),
                     guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched", "difference", "manifold") else "raw_area_bce",
                     guide_effective_coefficients=guide_effective_coefficients(args.module, weights["guide"]),
                     query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
@@ -564,7 +596,9 @@ def main():
             outputs, auxiliary = model(image[:, :3], image[:, 3:], return_aux=True)
             if not all(torch.isfinite(x).all() for x in outputs):
                 raise FloatingPointError(f"non-finite prediction at step {step}")
-            loss, main_loss, auxiliary_loss = training_losses(outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"], args.interior_positive_weight)
+            loss, main_loss, auxiliary_loss = training_losses(
+                outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"],
+                args.interior_positive_weight, args.edge_weight, args.edge_dilate)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             if step % len(train_loader) == 0:
@@ -619,7 +653,9 @@ def main():
     best_auxiliary = evaluate_auxiliary(model, val_loader, device)
     (args.output_dir / "auxiliary_validation.json").write_text(json.dumps(dict(
         best_epoch=best_epoch, last_epoch=epochs-1, best=best_auxiliary, last=last_auxiliary,
-        auxiliary_weights=weights, guide_objective=manifest["guide_objective"],
+        auxiliary_weights=weights,
+        edge_supervision=manifest["edge_supervision"],
+        guide_objective=manifest["guide_objective"],
         guide_effective_coefficients=manifest["guide_effective_coefficients"]), indent=2), encoding="utf-8")
     image, _ = next(iter(val_loader))
     image = image[:1].to(device).float()

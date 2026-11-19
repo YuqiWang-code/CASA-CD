@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from model.str_reparam import fold_conv_bn, switch_module_to_deploy
 from model.str_dcr import PlainLocalBlock, RepLocalBlock
+from model.edge_supervision import EdgeHead
 
 
 def embed_depthwise_kernel(weight, target):
@@ -388,7 +389,7 @@ class MultiScaleTAR(nn.Module):
 
     def __init__(self, encoder_dims=(64, 64, 64, 64), dim=64,
                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False,
-                 variant="reparam", return_difference=False):
+                 variant="reparam", return_difference=False, edge_supervision=False):
         super().__init__()
         if variant not in ("reparam", "plain", "diff", "spp", "spp1", "cg"):
             raise ValueError(f"unknown TAR variant: {variant}")
@@ -435,6 +436,9 @@ class MultiScaleTAR(nn.Module):
                                       use_residual, deploy, kernels=kernels)
             self.stage4 = SPPTARStage(encoder_dims[3], dim, use_temporal_aux, use_dcr_aux,
                                       use_residual, deploy, kernels=kernels)
+        # one shared 1x1 head reads the propagated change evidence at every scale;
+        # created last so that turning it on does not shift any other initialisation
+        self.edge_head = EdgeHead(dim) if edge_supervision else None
 
     def forward(self, pre_feats, post_feats):
         if self.variant == "cg":
@@ -448,6 +452,9 @@ class MultiScaleTAR(nn.Module):
             d2 = d2 + F.interpolate(d3, size=d2.shape[-2:], mode="bilinear", align_corners=False)
             d1 = d1 + F.interpolate(d2, size=d1.shape[-2:], mode="bilinear", align_corners=False)
             fused = [t1, t2, t3, t4]
+            if self.edge_head is not None and self.training:
+                edges = [self.edge_head(x) for x in (d1, d2, d3, d4)]
+                return fused, [d1, d2, d3, d4], edges
             if self.return_difference:
                 return fused, [d1, d2, d3, d4]
             return fused

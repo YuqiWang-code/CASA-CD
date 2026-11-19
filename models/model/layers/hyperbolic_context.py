@@ -7,6 +7,7 @@ from torch.nn import functional as F
 
 from model.layers.lorentz_ops import lift, pairwise_squared_distance
 from model.layers.class_pooling import class_assignments
+from model.edge_supervision import EdgeHead
 from model.layers.pyramid_context import feature_regions
 from model.layers.pyramid_context import (
     attention_diagnostics, channel_norm, highpass, merge_heads,
@@ -37,7 +38,8 @@ class HyperbolicContext(nn.Module):
     squared_distance = staticmethod(pairwise_squared_distance)
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
-                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False):
+                 support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
+                 edge_supervision=False):
         super().__init__()
         if support_mode not in ("mass", "cell", "pixel", "none"):
             raise ValueError(f"unknown support_mode {support_mode!r}")
@@ -75,6 +77,8 @@ class HyperbolicContext(nn.Module):
             self.raw_temperature.requires_grad_(False)
         self.gamma_context = nn.Parameter(torch.zeros(4, channels))
         self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
+        # created last so that switching the head on does not shift any other init
+        self.edge_head = EdgeHead(channels) if edge_supervision else None
         self.collect_diag = False
         self.last_diag = {}
 
@@ -179,6 +183,12 @@ class HyperbolicContext(nn.Module):
         """Content the retrieval keys and values are built from (fused feature by default)."""
         return normalized
 
+    def edge_logits(self, update, index):
+        """Optional edge prediction read from the write-back update."""
+        if getattr(self, "edge_head", None) is None:
+            return None
+        return self.edge_head(update)
+
     def forward(self, tar, difference=None, return_aux=False):
         normalized = [channel_norm(self.norm, x) for x in tar]
         sources = self.prototype_features(normalized, difference)
@@ -194,7 +204,7 @@ class HyperbolicContext(nn.Module):
         key, prototype_occupancy = self.project_keys(prototype)
         values = project_tokens(self.v, prototype, self.heads)
         support = self.support_term(sources, torch.cat([item[1] for item in compressed], dim=1))
-        enhanced, diagnostics, geometric_logits = [], {}, []
+        enhanced, diagnostics, geometric_logits, edge_maps = [], {}, [], []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
             query = queries[index]
             logits = self.attention_logits(query.flatten(2, 3), key, support, index)
@@ -210,6 +220,10 @@ class HyperbolicContext(nn.Module):
                 local = self.local_out(self.local_dw(highpass(x)))
                 local_residual = self.gamma_detail[index][None, :, None, None] * local
             result = original + context_residual + local_residual
+            if self.training or return_aux:
+                edge = self.edge_logits(update, index)
+                if edge is not None:
+                    edge_maps.append(edge)
             enhanced.append(result)
             if self.collect_diag:
                 with torch.no_grad():
@@ -266,7 +280,8 @@ class HyperbolicContext(nn.Module):
                     diagnostics[f"stage{index+1}"] = diag
         if self.collect_diag:
             self.last_diag = diagnostics
-        auxiliary = dict(guide_logits=tuple(guide))
+        auxiliary = dict(guide_logits=tuple(guide),
+                         edge_logits=tuple(edge_maps) if edge_maps else None)
         if return_aux:
             auxiliary["geometric_logits"] = tuple(geometric_logits)
         return enhanced, auxiliary
