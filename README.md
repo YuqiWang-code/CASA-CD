@@ -77,9 +77,9 @@ Run1 是单 seed 的两条改动，Run2 把它做成可以下结论的形状：�
 
 口径提醒：三条主臂共用同一实现、同一骨干、同一预算；`DIFF_NOSPP` / `SPP1` / `DIFF_SPP1` 只有 seed 2333，不能当作三 seed 结论，只用于回答"哪一部分在起作用"。
 
-[实验矩阵与结果](train_scripts/CASA-MinorGoal/Run2/README.md) · 逐项见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-MinorGoal_Run2.txt)。
+[实验矩阵与结果](train_scripts/CASA-MinorGoal/Run2/README.md) · 逐项见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-MinorGoal_Run2/)。
 
-## 归因实验：CASA-MinorGoal / Run3（已排队）
+## 归因实验：CASA-MinorGoal / Run3：模块、先验、边界各值多少
 
 Run2 之后剩下的问题是"收益到底来自模块存在、KV 内容，还是训练期多出来的容量"。Run3 用四条定向臂回答，不再铺笛卡尔积（协议 `casa_minor_run3_attribution_v1`，只用 GPU1 两槽）：
 
@@ -91,7 +91,24 @@ Run2 之后剩下的问题是"收益到底来自模块存在、KV 内容，还�
 
 `DETAIL` 同时改了边界分支与一项额外深监督，属已登记的混杂；要单独归因需再跑"只开 `--detail-head` 不加 detail 深监督"的分离臂。每项测试时都落 `per_image_cm.npz`（`index/tp/fp/fn` + list 哈希等采信字段），供图像级 bootstrap；判据与门限写死在 `train_scripts/CASA-MinorGoal/Run3/config.py` 的 `GATES`/`LEVIR_DETAIL_GATES`，`compare.py` 直接出裁决。
 
-状态：预检 2026-11-17 18:21 通过（三臂折叠 max_diff 5.96e-8、二值差 0、detail/main 损失比 0.254），因两卡被外部进程占满而排队；`wait_and_start.sh` 等 GPU1 空闲 ≥25 GB 后自动起跑。
+结果（2026-11-18 完成，4/4 无失败；val 选模、τ=0.5、single seed）：
+
+| 臂 | 库 | F1（%） | Δ vs 同 seed 基线（pp） | 裁决 |
+|---|---|---|---|---|
+| `ARM_C` | WHU | 93.5646 | −0.289（vs Run2 SPP 93.8540） | 未达门限，方向为负 |
+| `ARM_C` | SYSU | **83.3700** | **+1.101**（vs Run2 SPP 82.2689） | effect confirmed |
+| `SUPP_PIX` | SYSU | 82.4219 | −0.948（vs `ARM_C`） | effect reversed |
+| `DETAIL` | LEVIR | 91.2611 | +0.408（vs Run1 DIFF 90.8535） | 总门通过，边界门未通过 |
+
+`DETAIL` 四道门：总 F1 91.2611 ≥ 91.2135 通过；内部 F1 96.7172 ≥ 96.1690 通过；**≤0 px 边界 F1 60.6399 < 62.4860 未通过**（边界占正类 31.41%）。
+
+三条判读：
+
+1. context 模块本身只在 SYSU 上有量级：对同 seed SPP +1.10 pp、对同 seed CTRL +1.28 pp；WHU 上比 SPP 低 0.29、比 CTRL 低 0.08——符号随库翻转，与 Run10/Run12/Run14 的模式一致。`ARM_C` 只有 seed 2334，要作结论需补 2333/2335。
+2. `--support pixel` 比 mass 差 0.95 pp，且 Recall 79.96 与 Precision 85.04 相对 `ARM_C` 的 81.16 / 85.71 双降——不是阈值偏移，是召回真的少了。support 的第二杠杆不在换度量，而在保留 p 参与的池化质量。
+3. 细节头仍然没解决边界：总 F1 与内部区域过门，专门负责的 ≤0 px 边界差 1.85 pp。结合 Run12（边界 −0.46）与 Run1（总 F1 仅 +0.005），可以判定 128² 双时相拼接这条支路在当前实现下对边界无效，不是噪声。
+
+口径与产物：四项全部 val 选模（`independent_test=true`），部署折叠 `maxdiff ≤ 1.9e-6`、二值零差异；GPU1 两槽共 6 h。快照与结构图见 [Run3 快照目录](docs/temporary/models_and_metrics_CASA-MinorGoal_Run3/)，逐项见 [指标表](docs/experiment_metrics.xlsx)。
 
 ## 模块消融：CASA-Pyramid / Run16：TAR 与 DCR 在三个历史版本上的去留
 

@@ -1,16 +1,27 @@
 # 当前状态
 
-更新：2026-11-18。
+更新：2026-11-19。
 
-## CASA-MinorGoal / Run3 归因跑 已排队（等 GPU1）
+## CASA-MinorGoal / Run3 归因跑 已完成并收集
 
-Run3 的四条定向臂已全部修完并排队，运行根 `/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run3`，协议 `casa_minor_run3_attribution_v1`，只用物理 GPU1、两槽。预检 `readiness.json` 于 2026-11-17 18:21 通过（三臂折叠 `max_diff 5.96e-8`、二值差 0、`detail_loss.ratio 0.254`、`additive=true`）。
+2026-11-18 22:5x 完成 4/4（`status=complete`、`failed=[]`），运行根 `/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run3`，协议 `casa_minor_run3_attribution_v1`，仅物理 GPU1 两槽，四项全部验证集选模（`selection_split=val`、`independent_test=true`）、阈值 0.5。
 
-排队方式：`wait_and_start.sh`（无 deadline，最长 7 天）每分钟查 GPU1 空闲显存，≥25000 MiB 时 `exec python pipeline.py`；脚本目录 `Run3/runtime/train_scripts/CASA-MinorGoal/Run3`，runtime/models 仍是 Run1/Run2 那一代冻结树（`support="mass"` 时代、flat、不冻 τ），语义等价，不重新 staging。
+结果与裁决（同 seed 同配置基线；门限 `config.GATES`）：
 
-本轮修的审查问题：`config.REFERENCE` 的 2334 基准改回 `SPP_S2334`（WHU 93.8540 / SYSU 82.2689，原来误用 2333 的 93.6925 / 82.7915，会让 SYSU 的 Δ 虚高 0.52 pp 跨过 +0.47 门限）；`GATES` 与 `LEVIR_DETAIL_GATES` 进代码；`--support` 重新接受 `mass|cell|pixel|none`；补 `bootstrap/benchmark/collect_results/compare/environment*`；`per_image_cm.npz` 加 list 哈希等采信字段；smoke 的 BCE 改到 logits 上；nested 聚合补测试；删两处死代码；`pipeline.py` 完成判定的正则原来被双转义（永远是 failed），已修。
+| 臂 | 库 | F1（%） | Δ vs 基线（pp） | 裁决 |
+|---|---|---|---|---|
+| `ARM_C` | WHU | 93.5646 | −0.289（vs Run2 SPP 93.8540） | 未达 +0.36，方向为负 |
+| `ARM_C` | SYSU | 83.3700 | +1.101（vs Run2 SPP 82.2689） | ≥ +0.47，effect confirmed |
+| `SUPP_PIX` | SYSU | 82.4219 | −0.948（vs `ARM_C`） | effect reversed |
+| `DETAIL` | LEVIR | 91.2611 | +0.408（vs Run1 DIFF 90.8535） | 总门通过，边界门未通过 |
 
-当前阻塞：GPU0/GPU1 都被他人进程占满（各约 30 GB、100%），GPU1 空闲显存 1472 MiB，队列在等。
+`DETAIL` 四道门：总 F1 91.2611 ≥ 91.2135 通过；内部 F1 96.7172 ≥ 96.1690 通过；≤0 px 边界 F1 60.6399 < 62.4860 未通过（边界占正类 31.41%）。
+
+三条判读：①context 模块只在 SYSU 有量级（对 SPP +1.10、对 CTRL +1.28），WHU 上 −0.29/−0.08，符号随库翻转；`ARM_C` 只有 seed 2334，作结论需补 2333/2335。②`--support pixel` 比 mass 差 0.95 pp 且 Recall/Precision 双降（79.96/85.04 vs 81.16/85.71），support 的第二杠杆不是换度量。③细节头仍未解决边界（差 1.85 pp），与 Run12/Run1 同向，可判该 128² 支路在当前实现下对边界无效。
+
+启动期修的两个真 bug：`train_CASA.py` 的 `main()` 里重复 `import numpy as np` 造成 `UnboundLocalError`；冻结 runtime 与新 `train_CASA.py` 不同代（`kv_hierarchy` 参数不存在）→ 整体重冻（54 文件 SHA-256）并把 `bootstrap.py` 的 `.sh` 改 LF、`prepare.py` 的 `build_runtime()` 改成「已 staging 只做指纹」。提交 `990f7a3`。
+
+产物：`docs/temporary/models_and_metrics_CASA-MinorGoal_Run3/`（txt 快照 374,816 B + 6 页结构图 `CASA-MinorGoal_Run3_总体模型结构.pptx`）、`docs/experiment_metrics.xlsx` 368 行（MinorGoal 31 行）、`outputs/CASA-MinorGoal/Run3/attribution.{md,json}` 与各臂 `per_image_cm.npz`。
 
 ## CASA-MinorGoal / Run2 复现 seed 与解耦臂 正在训练
 
