@@ -7,8 +7,8 @@ import config as C
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("arm", choices=C.ARM_ORDER)
-    parser.add_argument("dataset", choices=C.DATASETS)
+    parser.add_argument("arm", choices=tuple(C.ARMS))
+    parser.add_argument("dataset", choices=("SYSU-CD-256", "LEVIR-CD-256"))
     parser.add_argument("--gpu", type=int, default=C.GPUS[0])
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()

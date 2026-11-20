@@ -45,6 +45,9 @@ SELECTION = "val"
 DATASETS = ("SYSU-CD-256",)
 
 ARMS = {
+    "EDGE_LEVIR": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
+                       support="mass", detail=False, edge_weight=0.1,
+                       edge_detach="retrieval", edge_scales="all", aggregate="lorentz"),
     # reference: edge on all four levels, aggregation on the Lorentz barycenter
     "EDGE_ALL": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
                      support="mass", detail=False, edge_weight=0.1,
@@ -61,8 +64,12 @@ ARMS = {
 ARM_ORDER = ("EDGE_ALL", "EDGE_FINE", "EUCLID_ALL")
 
 JOBS = tuple((arm, dataset) for dataset in DATASETS for arm in ARM_ORDER)
+# Second wave: the winning configuration trained on LEVIR as a whole-model check.
+LEVIR_ARM = "EDGE_LEVIR"
+if os.environ.get("MINOR_LEVIR_WAVE") == "1":
+    JOBS = JOBS + ((LEVIR_ARM, "LEVIR-CD-256"),)
 
-TRAINABLE_PARAMS = {arm: 2111417 for arm in ARM_ORDER}
+TRAINABLE_PARAMS = {arm: 2111417 for arm in list(ARM_ORDER) + ([LEVIR_ARM] if "LEVIR_ARM" in globals() else [])}
 DEPLOY_PARAMS = {arm: 2061668 for arm in ARM_ORDER}
 DEFAULT_RESERVATIONS = {arm: 12800 for arm in ARM_ORDER}
 BENCH = {arm: arm for arm in ARM_ORDER}
