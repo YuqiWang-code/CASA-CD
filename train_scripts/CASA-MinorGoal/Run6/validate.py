@@ -25,12 +25,13 @@ def build(arm):
                    decoder_variant=spec["decoder"], support=spec["support"],
                    detail_head=spec["detail"],
                    edge_supervision=spec["edge_weight"] > 0,
-                   edge_detach=spec.get("edge_detach", "none")).eval()
+                   edge_detach=spec.get("edge_detach", "retrieval"),
+                   aggregate_mode=spec.get("aggregate", "lorentz")).eval()
 
 
 def check_matrix():
     jobs = C.experiments()
-    assert len(jobs) == 2, jobs
+    assert len(jobs) == 3, jobs
     assert {job for job in jobs} == {(arm, dataset) for dataset in C.DATASETS
                                      for arm in C.ARM_ORDER}, jobs
     assert C.DATASETS == ("SYSU-CD-256",), C.DATASETS
@@ -39,12 +40,15 @@ def check_matrix():
     for arm in C.ARM_ORDER:
         spec = C.ARMS[arm]
         assert spec["module"] == "manifold" and spec["tar"] == "cg", arm
-    assert C.ARMS["EDGE_FULL"]["edge_weight"] > 0.0
-    assert C.ARMS["EDGE_TAP_CUT"]["edge_weight"] == C.ARMS["EDGE_FULL"]["edge_weight"]
-    assert C.ARMS["EDGE_FULL"]["edge_detach"] == "none"
-    assert C.ARMS["EDGE_TAP_CUT"]["edge_detach"] == "retrieval"
-    assert C.TRAINABLE_PARAMS["EDGE_TAP_CUT"] == C.TRAINABLE_PARAMS["EDGE_FULL"]
-    assert C.DEPLOY_PARAMS["EDGE_TAP_CUT"] == C.DEPLOY_PARAMS["EDGE_FULL"]
+    for arm in C.ARM_ORDER:
+        assert C.ARMS[arm]["edge_weight"] == 0.1, arm
+        assert C.ARMS[arm]["edge_detach"] == "retrieval", arm
+    assert C.ARMS["EDGE_ALL"]["edge_scales"] == "all"
+    assert C.ARMS["EDGE_FINE"]["edge_scales"] == "fine"
+    assert C.ARMS["EDGE_ALL"]["aggregate"] == "lorentz"
+    assert C.ARMS["EUCLID_ALL"]["aggregate"] == "euclidean"
+    assert len({C.TRAINABLE_PARAMS[a] for a in C.ARM_ORDER}) == 1
+    assert len({C.DEPLOY_PARAMS[a] for a in C.ARM_ORDER}) == 1
     print("[VALIDATE] matrix")
 
 
@@ -58,7 +62,8 @@ def check_cli():
                  "--tar-variant {reparam,plain,diff,spp,spp1,cg}",
                  "--decoder-variant {reparam,plain,none}",
                  "--selection-split {test,val}", "--support",
-                 "--edge-weight", "--edge-dilate", "--per-image-metrics"):
+                 "--edge-weight", "--edge-dilate", "--edge-scales {all,fine}",
+                 "--aggregate {lorentz,euclidean}", "--per-image-metrics"):
         assert flag in help_text, flag
     print("[VALIDATE] CLI")
 
@@ -93,15 +98,18 @@ def check_models():
 
 def check_edge_heads():
     """Only the edge arm carries the two 65-parameter taps, and they disappear on deploy."""
-    full, cut = build("EDGE_FULL"), build("EDGE_TAP_CUT")
+    full, cut = build("EDGE_ALL"), build("EDGE_FINE")
     for model in (full, cut):
         assert model.tar.edge_head is not None and model.context.edge_head is not None
         taps = sum(p.numel() for p in model.tar.edge_head.parameters())
         taps += sum(p.numel() for p in model.context.edge_head.parameters())
         assert taps == 130, taps
-        assert count(model) == C.TRAINABLE_PARAMS["EDGE_FULL"], count(model)
-    assert full.context.edge_detach == "none"
+        assert count(model) == C.TRAINABLE_PARAMS["EDGE_ALL"], count(model)
+    euclid = build("EUCLID_ALL")
+    assert full.context.edge_detach == "retrieval"
     assert cut.context.edge_detach == "retrieval"
+    assert full.context.aggregate_mode == "lorentz"
+    assert euclid.context.aggregate_mode == "euclidean"
     armed = full
 
     # the edge target must not fire on the crop border
@@ -119,12 +127,12 @@ def check_edge_heads():
         armed.eval()
         armed.switch_to_deploy()
         assert armed.tar.edge_head is None and armed.context.edge_head is None
-        assert count(armed) == C.DEPLOY_PARAMS["EDGE_FULL"]
+        assert count(armed) == C.DEPLOY_PARAMS["EDGE_ALL"]
     print(f"[VALIDATE] edge heads: 130 trainable parameters, 8 maps, dropped on deploy")
 
 
 def check_manifold_aggregation():
-    model = build("EDGE_FULL")
+    model = build("EDGE_ALL")
     context = model.context
     with torch.no_grad():
         values = torch.randn(2, 1, 7, 8)

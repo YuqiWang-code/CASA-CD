@@ -13,13 +13,11 @@ from pathlib import Path
 from config import (GPUS, HEADROOM, PROTOCOL, ROOT, SLOTS, experiments, reservation_mib)
 
 HERE = Path(__file__).resolve().parent
-# Measured Run2 wall-clock per job, used only for the dry-run forecast.
-FORECAST_HOURS = {"EDGE_FULL/SYSU-CD-256": 3.0, "EDGE_TAP_CUT/SYSU-CD-256": 3.0}
-# Attribution first: the two ARM_C legs answer the headline question and take the
-# two slots at 01:00; the second-lever and boundary arms follow.
 # SYSU only: the library where the edge term moved the needle.
 DATASET_ORDER = ("SYSU-CD-256",)
-ARM_ORDER = ("EDGE_FULL", "EDGE_TAP_CUT")
+ARM_ORDER = ("EDGE_ALL", "EDGE_FINE", "EUCLID_ALL")
+# Measured wall-clock per job, used only for the dry-run forecast.
+FORECAST_HOURS = {f"{arm}/SYSU-CD-256": 3.0 for arm in ARM_ORDER}
 
 
 def free_memory(gpu):

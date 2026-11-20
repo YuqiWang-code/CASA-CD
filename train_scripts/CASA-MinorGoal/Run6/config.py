@@ -45,32 +45,42 @@ SELECTION = "val"
 DATASETS = ("SYSU-CD-256",)
 
 ARMS = {
-    "EDGE_FULL": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
-                      support="mass", detail=False, edge_weight=0.1, edge_detach="none"),
-    "EDGE_TAP_CUT": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
-                         support="mass", detail=False, edge_weight=0.1,
-                         edge_detach="retrieval"),
+    # reference: edge on all four levels, aggregation on the Lorentz barycenter
+    "EDGE_ALL": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
+                     support="mass", detail=False, edge_weight=0.1,
+                     edge_detach="retrieval", edge_scales="all", aggregate="lorentz"),
+    # A: the Sobel target only on the two finest levels
+    "EDGE_FINE": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
+                      support="mass", detail=False, edge_weight=0.1,
+                      edge_detach="retrieval", edge_scales="fine", aggregate="lorentz"),
+    # B: identical model, plain weighted mean instead of the Klein barycenter
+    "EUCLID_ALL": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
+                       support="mass", detail=False, edge_weight=0.1,
+                       edge_detach="retrieval", edge_scales="all", aggregate="euclidean"),
 }
-ARM_ORDER = ("EDGE_FULL", "EDGE_TAP_CUT")
+ARM_ORDER = ("EDGE_ALL", "EDGE_FINE", "EUCLID_ALL")
 
 JOBS = tuple((arm, dataset) for dataset in DATASETS for arm in ARM_ORDER)
 
-TRAINABLE_PARAMS = {"EDGE_FULL": 2111417, "EDGE_TAP_CUT": 2111417}
-DEPLOY_PARAMS = {"EDGE_FULL": 2061668, "EDGE_TAP_CUT": 2061668}
-DEFAULT_RESERVATIONS = {"EDGE_FULL": 12800, "EDGE_TAP_CUT": 12800}
-BENCH = {"EDGE_FULL": "EDGE_FULL", "EDGE_TAP_CUT": "EDGE_TAP_CUT"}
+TRAINABLE_PARAMS = {arm: 2111417 for arm in ARM_ORDER}
+DEPLOY_PARAMS = {arm: 2061668 for arm in ARM_ORDER}
+DEFAULT_RESERVATIONS = {arm: 12800 for arm in ARM_ORDER}
+BENCH = {arm: arm for arm in ARM_ORDER}
 
 # Same-seed, same-schedule reference from Run6 (val-selected, threshold 0.5).
 REFERENCE = {
-    ("EDGE_FULL", "SYSU-CD-256", 2334): 82.8559,
-    ("CG_HRA_EDGE", "SYSU-CD-256", 2334): 82.8559,
+    # Run6, same seed and schedule: the detached tap on all four levels
+    ("EDGE_ALL", "SYSU-CD-256", 2334): 83.0901,
+    ("EDGE_TAP_CUT", "SYSU-CD-256", 2334): 83.0901,
 }
 
 # Pre-registered gate (pp).  noise is the SYSU same-configuration seed spread
 # measured on Run2 (0.32 pp).
 GATES = {
-    "EDGE_TAP_CUT": dict(versus="EDGE_FULL", minimum=0.36, noise=0.32,
-                         note="cutting the retrieval edge tap against the full tap"),
+    "EDGE_FINE": dict(versus="EDGE_ALL", minimum=0.36, noise=0.32,
+                      note="Sobel target on the two finest levels against all four"),
+    "EUCLID_ALL": dict(versus="EDGE_ALL", minimum=0.36, noise=0.32,
+                       note="plain weighted mean against the Klein barycenter"),
 }
 
 EDGE_WEIGHT = 0.1
@@ -93,6 +103,10 @@ def model_options(arm):
                     "--edge-dilate", str(EDGE_DILATE)]
     if spec.get("edge_detach", "none") != "none":
         options += ["--edge-detach", spec["edge_detach"]]
+    if spec.get("edge_scales", "all") != "all":
+        options += ["--edge-scales", spec["edge_scales"]]
+    if spec.get("aggregate", "lorentz") != "lorentz":
+        options += ["--aggregate", spec["aggregate"]]
     return options
 
 

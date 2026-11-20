@@ -8,6 +8,7 @@ sys.path.insert(0, ".")
 
 from model.casa_net import CASANet
 from model.edge_supervision import EdgeHead, edge_loss, sobel_edge_map
+from train_CASA import edge_terms
 
 
 def test_sobel_ring_and_flat():
@@ -177,6 +178,42 @@ def test_retrieval_detach_is_the_default():
     qk_grad = net.context.qk.weight.grad
     assert qk_grad is None or float(qk_grad.abs().sum()) == 0
     assert net.context.edge_head.proj.weight.grad.abs().sum() > 0
+
+
+def test_fine_scale_edge_targets_only_two_maps():
+    """`--edge-scales fine` keeps the two finest maps and leaves the coarse ones alone."""
+    net = CASANet(module="manifold", tar_variant="cg", edge_supervision=True).train()
+    a, b = torch.randn(1, 3, SIDE, SIDE), torch.randn(1, 3, SIDE, SIDE)
+    _, auxiliary = net(a, b, return_aux=True)
+    maps = auxiliary["edge_logits"]
+    assert len(maps) == 8, len(maps)
+    target = torch.zeros(1, 1, SIDE, SIDE)
+    target[..., 40:80, 40:80] = 1.0
+    full = edge_terms(auxiliary, target, 1, "all")
+    fine = edge_terms(auxiliary, target, 1, "fine")
+    assert float(full) != float(fine)
+    # the fine-only loss is the mean over the first two maps, the bridge pair
+    edge = sobel_edge_map(target, 1)
+    manual = torch.stack([
+        edge_loss(maps[i], F.interpolate(edge, size=maps[i].shape[-2:], mode="area"))
+        for i in (0, 1)]).mean()
+    assert abs(float(fine) - float(manual)) < 1e-6
+
+
+def test_euclidean_aggregation_is_a_plain_weighted_mean():
+    """`--aggregate euclidean` keeps every other piece and drops the barycenter."""
+    from train_CASA import edge_terms as _unused  # noqa: F401
+    bary = CASANet(module="manifold", tar_variant="cg").eval().context
+    eucl = CASANet(module="manifold", tar_variant="cg",
+                   aggregate_mode="euclidean").eval().context
+    values = torch.randn(2, 1, 7, 8)
+    weights = torch.softmax(torch.randn(2, 1, 5, 7), dim=-1)
+    with torch.no_grad():
+        a = bary.aggregate(weights, values)
+        b = eucl.aggregate(weights, values)
+        plain = weights @ values
+    assert float((b - plain).abs().max()) < 1e-6
+    assert float((a - b).abs().max()) > 1e-3
 
 
 def test_detach_does_not_touch_the_segmentation_gradient():

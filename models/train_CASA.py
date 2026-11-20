@@ -83,11 +83,17 @@ def auxiliary_weights(module, guide_weight=None, retrieval_weight=None):
                 geometric_retrieval=0. if retrieval_weight is None else retrieval_weight)
 
 
-def edge_terms(auxiliary, target, dilate=1):
-    """Sobel edge loss for every edge map the bridge or the retrieval exposes."""
+def edge_terms(auxiliary, target, dilate=1, scales="all"):
+    """Sobel edge loss over the edge maps the bridge or the retrieval exposes.
+
+    ``scales="fine"`` keeps only the two finest levels (64^2 and 32^2), so the
+    coarse maps still carry segmentation gradients but no edge target.
+    """
     maps = auxiliary.get("edge_logits") or ()
     if not maps:
         return None
+    if scales == "fine":
+        maps = maps[:2] if len(maps) > 4 else maps[:2]
     edge = sobel_edge_map(target, dilate)
     losses = []
     for logits in maps:
@@ -97,7 +103,8 @@ def edge_terms(auxiliary, target, dilate=1):
 
 
 def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None,
-                    interior_positive_weight=1.0, edge_weight=0.0, edge_dilate=1):
+                    interior_positive_weight=1.0, edge_weight=0.0, edge_dilate=1,
+                    edge_scales="all"):
     main = loss_function(outputs, target, interior_positive_weight)
     if "detail_logits" in aux:
         detail = aux["detail_logits"]
@@ -111,7 +118,7 @@ def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=No
                  if relational and weights["geometric_retrieval"] > 0 else guide.new_zeros(()))
     scale = weights["guide"] + weights["geometric_retrieval"]
     auxiliary = (weights["guide"] / scale) * guide + (weights["geometric_retrieval"] / scale) * retrieval
-    edges = edge_terms(aux, target, edge_dilate) if edge_weight > 0 else None
+    edges = edge_terms(aux, target, edge_dilate, edge_scales) if edge_weight > 0 else None
     total = main + scale * auxiliary
     if edges is not None:
         total = total + edge_weight * edges
@@ -394,6 +401,10 @@ def main():
                         help="weight of the Sobel edge loss read from the bridge or the retrieval")
     parser.add_argument("--edge-detach", choices=("none", "retrieval"), default="retrieval",
                         help="cut the edge gradient at the retrieval write-back")
+    parser.add_argument("--edge-scales", choices=("all", "fine"), default="all",
+                        help="which edge maps take the Sobel target: all four or the two finest")
+    parser.add_argument("--aggregate", choices=("lorentz", "euclidean"), default="lorentz",
+                        help="retrieval aggregation: Klein barycenter or a plain weighted mean")
     parser.add_argument("--edge-dilate", type=int, default=1,
                         help="pixels by which the GT edge ring is widened before supervision")
     args = parser.parse_args()
@@ -443,7 +454,7 @@ def main():
                     decoder_variant=args.decoder_variant, support=args.support,
                     kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau,
                     edge_supervision=args.edge_weight > 0,
-                    edge_detach=args.edge_detach).to(device)
+                    edge_detach=args.edge_detach, aggregate_mode=args.aggregate).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -602,7 +613,8 @@ def main():
                 raise FloatingPointError(f"non-finite prediction at step {step}")
             loss, main_loss, auxiliary_loss = training_losses(
                 outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"],
-                args.interior_positive_weight, args.edge_weight, args.edge_dilate)
+                args.interior_positive_weight, args.edge_weight, args.edge_dilate,
+                args.edge_scales)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             if step % len(train_loader) == 0:
