@@ -131,16 +131,27 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
-## 梯度落点：CASA-MinorGoal / Run6：把边缘监督从回写里摘出去
+## 梯度落点与杠杆排查：CASA-MinorGoal / Run6
 
-Run5 的 +0.47 pp 过门，但另一会话的干预显示 SYSU 的 EDGE 权重高度依赖粗尺度回写，且 87.3% 的净新增正确检出在边界带以外。Run6 只改一件事：保留两个边缘头与全部损失权重，把检索回写 `U_s` 在喂给边缘头之前 `detach()`，边缘梯度只能经由 TAR 的 `D_s` 回传。
+Run5 的 +0.47 pp 过门，但另一会话的干预显示 SYSU 的 EDGE 权重高度依赖粗尺度回写，且 87.3% 的净新增正确检出在边界带以外。Run6 先只改一件事：保留两个边缘头与全部损失权重，把检索回写 `U_s` 在喂给边缘头之前 `detach()`，边缘梯度只能经由 TAR 的 `D_s` 回传。确认方向后再加两个开关做杠杆排查——`--edge-scales {all,fine}`（只监督 `D₁,D₂`）与 `--aggregate {lorentz,euclidean}`（把 Lorentz 重心换成普通加权均值）。
 
-| arm | module / tar | edge | detach | SYSU F1 | R / P | Δ pp |
-|---|---|---|---|---|---|---|
-| EDGE_FULL | manifold / cg | 0.1 | none | 82.01 | 78.97 / 85.28 | — |
-| EDGE_TAP_CUT | manifold / cg | 0.1 | retrieval | **83.09** | 79.66 / 86.83 | **+1.085** |
+| arm | 设定 | SYSU F1 | R / P | best ep | Δ vs `EDGE_ALL` |
+|---|---|---:|---|---:|---:|
+| `EDGE_ALL` | 四级监督 + Lorentz 重心（参照） | 82.258 | 77.99 / 87.02 | 33 | — |
+| `EDGE_FINE` | 只监督 `D₁,D₂` + Lorentz | 82.351 | 78.48 / 86.62 | 25 | +0.093 |
+| `EUCLID_ALL` | 四级 + 普通加权均值 | 82.504 | 80.55 / 84.56 | 7 | +0.246 |
+| `EDGE_TAP_CUT` | 与 `EDGE_ALL` 逐位同配置（第一批） | **83.090** | 79.66 / 86.83 | 33 | +0.832 |
+| `EDGE_FULL` | 边缘梯度回写 `U_s` | 82.006 | 78.97 / 85.28 | 19 | −0.252 |
 
-val 选模、test τ=0.5、seed 2334；SYSU 的 seed 噪声 0.32 pp，门限 0.36 pp。**切断反而涨 1.09 pp**，且 Precision 同时 +1.55，说明让回写去追轮廓会挤掉分割本身。`models/` 的默认值因此改成 `edge_detach="retrieval"`（`HyperbolicContext`、`ManifoldContext`、`DifferenceContext`、`CASANet`、`--edge-detach`），TAR 侧的边缘监督保持不变。
+val 选模、test τ=0.5、seed 2334，两臂参数逐位相同（2,111,417 / 2,061,668），折叠 `5.96e-8`、二值差 0。三条结论：
+
+1. **方向可信、幅度不可信**。`EDGE_ALL` 与 `EDGE_TAP_CUT` 是逐位相同的配置，复跑差 **0.832 pp**，比"切断回写"的效应（+1.085）只小 0.25 pp。能站住的是 `EDGE_FULL` 82.006 为五条最低，即"别让边缘梯度改回写"；站不住的是"+1.1 pp"。`models/` 的默认值仍改为 `edge_detach="retrieval"`（`HyperbolicContext`、`ManifoldContext`、`DifferenceContext`、`CASANet`、`--edge-detach`）。
+2. **尺度不是杠杆**：只监督细两级 +0.093 pp，val 上高 0.64 而 test 上消失，只把选模落点从 ep33 推到 ep25。
+3. **几何不是杠杆**：欧氏均值 +0.246 pp（噪声内），唯一稳定痕迹是操作点换位——重心 P 87.02 / R 77.99，均值 P 84.56 / R 80.55，即重心把判定推向更保守，而不是提高可分性。
+
+LEVIR 侧补一条同配置（四级监督 + 切断回写 + Lorentz 重心）：**91.009**（R 89.83 / P 92.23 / IoU 83.63，best ep 162，val 91.59），与 Run5 `CG_HRA` 90.990、`CG_HRA_EDGE` 91.008 三条同 seed 相差 0.02 pp。**这套改动的作用域就是 SYSU 的边界带，LEVIR 上归零。**
+
+[实验矩阵](train_scripts/CASA-MinorGoal/Run6/) · [快照与结果表](docs/temporary/models_and_metrics_CASA-MinorGoal_Run6/) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx)。
 
 ## 版本消融：CASA-Pyramid / Run15：三个历史版本的同口径复现
 
