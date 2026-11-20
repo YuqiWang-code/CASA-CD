@@ -18,7 +18,8 @@ class CASANet(nn.Module):
                  context_heads=1, detail_head=False, detail_target="area",
                  tar_variant="reparam", decoder_variant="reparam", support="cell",
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
-                 edge_detach="retrieval", aggregate_mode="lorentz"):
+                 edge_detach="retrieval", aggregate_mode="lorentz",
+                 prototype_pooling="euclidean"):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
@@ -45,6 +46,7 @@ class CASANet(nn.Module):
             if issubclass(context_type, HyperbolicContext):
                 options["edge_supervision"] = bool(edge_supervision)
                 options["edge_detach"] = edge_detach
+                options["prototype_pooling"] = prototype_pooling
                 if context_type is ManifoldContext:
                     options["aggregate_mode"] = aggregate_mode
             if module in ("hyperbolic", "matched", "difference"):

@@ -39,12 +39,17 @@ class HyperbolicContext(nn.Module):
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
-                 edge_supervision=False, edge_detach="retrieval"):
+                 edge_supervision=False, edge_detach="retrieval",
+                 prototype_pooling="euclidean"):
         super().__init__()
         if support_mode not in ("mass", "cell", "pixel", "none"):
             raise ValueError(f"unknown support_mode {support_mode!r}")
         if kv_hierarchy not in ("flat", "nested"):
             raise ValueError(f"unknown kv_hierarchy {kv_hierarchy!r}")
+        if prototype_pooling not in ("euclidean", "lorentz"):
+            raise ValueError(f"unknown prototype_pooling {prototype_pooling!r}")
+        if prototype_pooling == "lorentz" and kv_hierarchy != "flat":
+            raise ValueError("lorentz pooling needs the flat hierarchy")
         support_mode = "mass" if support_mode == "cell" else support_mode
         if kv_hierarchy == "nested":
             grid_sizes = NESTED_GRIDS
@@ -53,6 +58,7 @@ class HyperbolicContext(nn.Module):
                     raise ValueError(f"nested grids must halve per scale, got {grid_sizes}")
         self.support_prior = support_mode
         self.kv_hierarchy = kv_hierarchy
+        self.prototype_pooling = prototype_pooling
         self.freeze_tau = bool(freeze_tau)
         self.heads = heads
         self.head_dim = head_dim
@@ -102,6 +108,39 @@ class HyperbolicContext(nn.Module):
         projected = project_tokens(self.qk, prototype, self.heads)
         occupancy = F.linear(prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
         return self.geometric_point(projected), occupancy
+
+    @staticmethod
+    def head_regions(per_pixel, grid):
+        """Split a ``(B, heads, H, W, D)`` map into ``(B, heads, R, P, D)`` cells."""
+        batch, heads, height, width, dim = per_pixel.shape
+        flat = per_pixel.permute(0, 1, 4, 2, 3).reshape(batch * heads, dim, height, width)
+        regions = feature_regions(flat, grid)
+        return regions.reshape(batch, heads, *regions.shape[1:])
+
+    @staticmethod
+    def manifold_pool(points, weights):
+        """Weighted Lorentz barycentre of per-pixel points, kept on the hyperboloid.
+
+        ``points`` is ``(B, heads, R, P, D)`` and ``weights`` is ``(B, R, 2, P)``;
+        the class axis is broadcast exactly as in :func:`pool_features`, so the
+        result is ``(B, heads, 2R, D+1)`` -- one point per class and cell, but
+        averaged on the manifold instead of in the ambient Euclidean space.
+        """
+        lifted = lift(points)
+        summed = torch.einsum("brtp,bhrpd->bhrtd", weights, lifted)
+        time, space = summed[..., 0:1], summed[..., 1:]
+        norm2 = (time * time - (space * space).sum(-1, keepdim=True)).clamp_min(1e-6)
+        return lift(space / norm2.sqrt()).flatten(2, 3)
+
+    def manifold_keys_and_values(self, sources, compressed):
+        """Pool the projections on the manifold: K stays on it, V returns tangent."""
+        keys, values = [], []
+        for source, (weights, _), grid in zip(sources, compressed, self.grid_sizes):
+            key_points = self.head_regions(split_heads(self.qk(source), self.heads), grid)
+            keys.append(self.manifold_pool(key_points / math.sqrt(self.head_dim), weights))
+            value_points = self.head_regions(split_heads(self.v(source), self.heads), grid)
+            values.append(self.manifold_pool(value_points, weights)[..., 1:])
+        return torch.cat(keys, dim=2), torch.cat(values, dim=2)
 
     def class_support(self, probability, grid):
         """Per-cell class prior used as ``log(support)`` in the attention logits.
@@ -210,8 +249,13 @@ class HyperbolicContext(nn.Module):
             prototypes = self.aggregate_nested(prototypes)
         queries = [self.project_queries(x) for x in normalized]
         prototype = torch.cat(prototypes, dim=1)
-        key, prototype_occupancy = self.project_keys(prototype)
-        values = project_tokens(self.v, prototype, self.heads)
+        prototype_occupancy = F.linear(
+            prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
+        if self.prototype_pooling == "lorentz":
+            key, values = self.manifold_keys_and_values(sources, compressed)
+        else:
+            key, prototype_occupancy = self.project_keys(prototype)
+            values = project_tokens(self.v, prototype, self.heads)
         support = self.support_term(sources, torch.cat([item[1] for item in compressed], dim=1))
         enhanced, diagnostics, geometric_logits, edge_maps = [], {}, [], []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):

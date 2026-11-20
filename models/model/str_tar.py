@@ -352,8 +352,8 @@ class ChangeGateTARStage(nn.Module):
     ``content = SiLU(1x1[P, Q])`` keeps appearance; ``delta = 1x1[d+, d-]`` keeps
     the signed change after dividing both dates by their local mean magnitude, so
     a global exposure shift cancels while a real change survives. The change gate
-    modulates the content multiplicatively and adds a zero-initialised copy of
-    ``delta``; the local block is the same foldable DW+PW as elsewhere.
+    modulates the content multiplicatively and adds ``delta`` with unit weight
+    (no learnable scale between the change stream and the fused content); the local block is the same foldable DW+PW as elsewhere.
     """
 
     def __init__(self, in_channels, dim, use_temporal_aux=True, use_dcr_aux=True,
@@ -365,7 +365,6 @@ class ChangeGateTARStage(nn.Module):
         self.difference = nn.Conv2d(2 * in_channels, dim, 1, bias=False)
         self.bn_difference = nn.BatchNorm2d(dim)
         self.gate = nn.Conv2d(dim + in_channels, dim, 1)
-        self.beta = nn.Parameter(torch.zeros(1))
         self.block = RepLocalBlock(dim, use_aux=use_temporal_aux,
                                    use_residual=use_residual, deploy=deploy)
 
@@ -376,7 +375,7 @@ class ChangeGateTARStage(nn.Module):
         negative = (q - p).relu()
         delta = self.bn_difference(self.difference(torch.cat((positive, negative), dim=1)))
         gate = self.gate(torch.cat((delta, positive + negative), dim=1)).sigmoid()
-        fused = self.block(content * (1 + gate) + self.beta * delta)
+        fused = self.block(content * (1 + gate) + delta)
         return fused, delta
 
 

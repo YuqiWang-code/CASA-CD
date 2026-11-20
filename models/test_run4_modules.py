@@ -44,7 +44,6 @@ def test_cross_scale_evidence_propagates_downward():
         tar.stage1.difference.weight.zero_()
         tar.stage1.bn_difference.weight.zero_()
         tar.stage1.bn_difference.bias.zero_()
-        tar.stage1.beta.zero_()
     P = [torch.rand(1, c, s, s) for c, s in ((24, 64), (32, 32), (96, 16), (320, 8))]
     Q = [torch.rand(1, c, s, s) for c, s in ((24, 64), (32, 32), (96, 16), (320, 8))]
     with torch.no_grad():

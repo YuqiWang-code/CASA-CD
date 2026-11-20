@@ -27,12 +27,13 @@ class ManifoldContext(HyperbolicContext):
 
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
-                 edge_supervision=False, edge_detach="retrieval", aggregate_mode="lorentz"):
+                 edge_supervision=False, edge_detach="retrieval", aggregate_mode="lorentz",
+                 prototype_pooling="euclidean"):
         if aggregate_mode not in ("lorentz", "euclidean"):
             raise ValueError(f"unknown aggregate_mode {aggregate_mode!r}")
         super().__init__(channels, heads, head_dim, grid_sizes,
                          support_mode, kv_hierarchy, freeze_tau, edge_supervision,
-                         edge_detach=edge_detach)
+                         edge_detach=edge_detach, prototype_pooling=prototype_pooling)
         self.aggregate_mode = aggregate_mode
         width = heads * head_dim
         self.scale_log_temperature = nn.Parameter(torch.zeros(len(self.grid_sizes)))
