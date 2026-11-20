@@ -407,6 +407,8 @@ def main():
                         help="retrieval aggregation: Klein barycenter or a plain weighted mean")
     parser.add_argument("--edge-dilate", type=int, default=1,
                         help="pixels by which the GT edge ring is widened before supervision")
+    parser.add_argument("--prototype-pooling", choices=("euclidean", "lorentz"), default="euclidean",
+                        help="where the class prototypes are averaged: tangent space or on the manifold")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -512,6 +514,8 @@ def main():
                     support=args.support,
                     kv_hierarchy=args.kv_hierarchy,
                     freeze_tau=args.freeze_tau,
+                    prototype_pooling=args.prototype_pooling,
+                    aggregate=(args.aggregate if args.module == "manifold" else "not_used"),
                     kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
                                if args.module in ("hyperbolic", "matched", "difference", "manifold") else 0),
                     self_reference=model.context.self_reference,
@@ -553,7 +557,8 @@ def main():
                      "tar_variant", "decoder_variant",
                      "selection_split", "dataset", "batch_size", "validation_threshold_grid",
                      "support", "kv_hierarchy", "freeze_tau", "edge_supervision", "prototype_pooling"):
-            if checkpoint["manifest"][name] != manifest[name]:
+            stored = checkpoint["manifest"].get(name, manifest[name])
+            if stored != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
         start_epoch, step, restored_rng = restore_training_state(
             checkpoint, model, optimizer, actual_steps, len(train_loader))
@@ -730,7 +735,5 @@ def main():
     print(f"[TIME-SCOPE] {result['elapsed_scope']}", flush=True)
     print(f"[TIME] {time.time()-started:.1f}s [PEAK-MEMORY] {torch.cuda.max_memory_allocated()/1024**2:.0f} MiB", flush=True)
     print("=== END TEST RESULTS ===", flush=True)
-
-
 if __name__ == "__main__":
     main()
