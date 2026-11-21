@@ -1,4 +1,6 @@
-# Run8 — the pooling axis on its own
+# Run8 — the pooling axis on its own (results folded into Run7)
+
+> 归档说明：这两条臂的产物已并入 `CASA-MinorGoal / Run7`（服务器日志/权重在 `Run7/POOL_*`，指标表 `Run=Run7`，快照在 `docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`）。本目录只保留脚本与协议 `casa_minor_run8_pooling_axis_v1` 的定义，便于复跑。
 
 Run7 packed the two modules into a 2×2 and every retrieval arm also carried the manifold
 pooling, so it could not answer whether the barycentre itself buys anything. Run8 fixes the

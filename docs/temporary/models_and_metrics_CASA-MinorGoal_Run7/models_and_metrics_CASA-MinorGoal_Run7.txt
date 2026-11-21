@@ -7687,7 +7687,7 @@ class AuxiliaryContext(nn.Module):
         return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
 
 ================================================================================
-## METRICS (386 results)
+## METRICS (388 results)
 ================================================================================
 Run | Recall | Precision | OA | F1 | IoU | Kappa | Params(M) | Trainable(M) | FLOPs(G) | Mode
 CASA-MinorGoal/Run1/CTRL/LEVIR-CD-256 | 0.8976 | 0.9196 | 0.9908 | 0.9085 | 0.8323 | 0.9036 | 1.936 | 2.047 | - | casa_pyramid_none
@@ -7735,6 +7735,8 @@ CASA-MinorGoal/Run7/CTRL/LEVIR-CD-256 | 0.8986 | 0.9193 | 0.9908 | 0.9089 | 0.83
 CASA-MinorGoal/Run7/CTRL/SYSU-CD-256 | 0.7788 | 0.8524 | 0.9160 | 0.8139 | 0.6862 | 0.7598 | 1.936 | 2.047 | - | casa_pyramid_none
 CASA-MinorGoal/Run7/HRA_ONLY/LEVIR-CD-256 | 0.9000 | 0.9171 | 0.9908 | 0.9085 | 0.8324 | 0.9036 | 1.923 | 1.962 | - | casa_pyramid_manifold
 CASA-MinorGoal/Run7/HRA_ONLY/SYSU-CD-256 | 0.7918 | 0.8619 | 0.9210 | 0.8253 | 0.7026 | 0.7744 | 1.923 | 1.962 | - | casa_pyramid_manifold
+CASA-MinorGoal/Run7/POOL_EUCLID/SYSU-CD-256 | 0.8050 | 0.8611 | 0.9234 | 0.8321 | 0.7125 | 0.7826 | 2.062 | 2.111 | - | casa_pyramid_manifold
+CASA-MinorGoal/Run7/POOL_LORENTZ/SYSU-CD-256 | 0.7946 | 0.8648 | 0.9223 | 0.8282 | 0.7068 | 0.7781 | 2.062 | 2.111 | - | casa_pyramid_manifold
 CASA-MinorGoal/Run7/TAR_HRA/LEVIR-CD-256 | 0.8936 | 0.9210 | 0.9907 | 0.9071 | 0.8300 | 0.9022 | 2.062 | 2.111 | - | casa_pyramid_manifold
 CASA-MinorGoal/Run7/TAR_HRA/SYSU-CD-256 | 0.7885 | 0.8765 | 0.9239 | 0.8302 | 0.7096 | 0.7813 | 2.062 | 2.111 | - | casa_pyramid_manifold
 CASA-MinorGoal/Run7/TAR_ONLY/LEVIR-CD-256 | 0.9070 | 0.9149 | 0.9910 | 0.9109 | 0.8365 | 0.9062 | 2.044 | 2.093 | - | casa_pyramid_none

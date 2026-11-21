@@ -34,6 +34,22 @@
 
 ## 文件
 
-- `models_and_metrics_CASA-MinorGoal_Run7.txt` —— 42 个代码文件 + 386 行指标的快照（`tools/models_to_txt.py`）。
+- `models_and_metrics_CASA-MinorGoal_Run7.txt` —— 42 个代码文件 + 388 行指标的快照（含 wave 2 两条）。
 - `CASA-MinorGoal_Run7_总体模型结构.pptx` —— 结构化框图。
 - 原始日志与权重在服务器：`/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run7/<arm>/<dataset>/`，`/share_datasets/yqwang/checkpoints/CASA-CD/CASA-MinorGoal/Run7/`。
+
+## 补跑（wave 2）：池化轴单因子
+
+Run7 的 2×2 里两条带检索的臂同时也带着"流形上池化"，所以 2×2 回答不了"重心本身值不值"。补跑固定架构（`manifold + cg + lorentz aggregate`、边缘项关闭、seed 2334、val 选模、test τ=0.5），只切 `--prototype-pooling` 一根轴，SYSU 单库，协议 `casa_minor_run8_pooling_axis_v1`，2.77 h：
+
+| arm | prototype pooling | F1 | Δ | R / P | IoU | best ep | val | 训练/部署 (M) |
+|---|---|---:|---:|---|---:|---:|---:|---|
+| `POOL_EUCLID` | 切空间均值 → lift | **83.212** | — | 80.50 / 86.11 | 71.25 | 17 | 81.59 | 2.1113 / 2.0617 |
+| `POOL_LORENTZ` | 先 lift → Klein 重心 | 82.824 | **−0.387** | 79.46 / 86.48 | 70.68 | 25 | 81.72 | 2.1113 / 2.0617 |
+
+- 两臂参数逐位相同（池化是纯几何操作），差异只能来自几何；裁决 **worse（≤ −0.36，噪声 0.32）**。
+- 与 `EUCLID_ALL` 82.504 vs `EDGE_ALL` 82.258（聚合换欧氏 +0.246）方向一致：这套网络里欧氏均值不比 Klein 重心差。
+- 复现噪声：`POOL_LORENTZ` 与 `TAR_HRA`（等价配置）差 0.19 pp、`POOL_EUCLID` 高 0.20 pp，故结论应写"无正效应、可能略负"。
+- 机制同向：重心偏保守（P 86.48 > 86.11、R 79.46 < 80.50），召回掉 1.04 pp。
+
+合起来这一轮的三句话：**模块有用（TAR +0.60 / HRA +1.14 / 联合 +1.63），但把压缩搬进双曲面没用（−0.39）；双曲几何的作用仍在打分，不在内容压缩。**

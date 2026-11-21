@@ -131,26 +131,7 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
-## 单因子：压缩该不该放进双曲面：CASA-MinorGoal / Run8
-
-Run7 把两个模块做了 2×2，但两条带检索的臂同时也带着"流形上池化"，所以它回答不了"重心本身值不值"。Run8 固定架构（`manifold + cg + lorentz aggregate`、边缘项关闭、seed 2334、val 选模），只切 `--prototype-pooling` 一根轴，SYSU 单库：
-
-| arm | 池化 | F1 | Δ | R / P | best ep | 训练/部署 (M) |
-|---|---|---:|---:|---|---:|---|
-| `POOL_EUCLID` | 切空间均值 → lift | **83.212** | — | 80.50 / 86.11 | 17 | 2.1113 / 2.0617 |
-| `POOL_LORENTZ` | 先 lift → Klein 重心 | 82.824 | **−0.387** | 79.46 / 86.48 | 25 | 2.1113 / 2.0617 |
-
-两臂参数逐位相同（池化是纯几何操作），所以差异只能来自几何。裁决 **worse（≤ −0.36）**：
-
-- **压缩位置不是杠杆**：−0.387 pp，门限 0.36、噪声 0.32，刚好越过"更差"一侧。与 Run7 的 `EUCLID_ALL` 82.504 vs `EDGE_ALL` 82.258（聚合换欧氏 +0.246）方向一致——这套网络里欧氏均值至少不比重心差。
-- **复现噪声约 0.2 pp**：`POOL_LORENTZ` 与 Run7 的 `TAR_HRA` 配置等价，82.824 vs 83.016（−0.19）；`POOL_EUCLID` 83.212 则比它高 0.20。所以 −0.387 里约一半落在这条漂移带内，严谨说法是"无正效应、可能略负"。
-- **机制同向**：重心偏保守（P 86.48 > 86.11，R 79.46 < 80.50），与 Run6 的换位一致；代价是召回掉 1.04 pp。
-
-三句话写完这段：**模块有用（Run7 2×2：TAR +0.60 / HRA +1.14 / 联合 +1.63），但把压缩搬进双曲面并没用（−0.39）；双曲几何的作用仍只在打分，不在内容压缩。**
-
-产物：`train_scripts/CASA-MinorGoal/Run8/`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run8/`、`docs/experiment_metrics.xlsx`（388 行）。
-
-## 双曲压缩与 2×2 模块消融：CASA-MinorGoal / Run7
+## 双曲压缩与 2×2 模块消融（含池化轴补跑）：CASA-MinorGoal / Run7
 
 Run6 之后两个模块都还在，但原型压缩仍是在切空间做加权平均、再映射回双曲面。Run7 把这一步搬到流形上（`--prototype-pooling lorentz`：`K = L(Σw·x)` 的加权 Klein 重心，严格落在双曲面上），并删掉 TAR 里"差异特征 → 共有特征"之间的可学习标量 `β`（差分以单位权重进入融合）。两处都是零参数增量：流形池化是纯几何操作，删 `β` 让每个 `cg` 臂各少 4 个参数。
 
@@ -170,7 +151,18 @@ Run6 之后两个模块都还在，但原型压缩仍是在切空间做加权平
 - **LEVIR 三条全在噪声内**（+0.209 / −0.035 / −0.172），与 Run6 的 LEVIR 结论一致：这套改动的有效域只有 SYSU。
 - **口径提醒**：这一轮 `CTRL` 是 81.392，比 Run2 同 seed 的 `CTRL_S2334`（82.092）低 0.70 pp、比 Run1 的 `CTRL`（81.729）低 0.34 pp。四个 Δ 是同 run 配对差，可信；`83.016` 这个绝对水平不能和历史上 83.37（Run3 `ARM_C`）直接比。
 
-产物：`train_scripts/CASA-MinorGoal/Run7/`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`（代码+指标快照、结构图）、`docs/experiment_metrics.xlsx`（386 行，`CASA-MinorGoal` 49 行）。
+补跑（同属 Run7）：2×2 里两条带检索的臂同时带着流形池化，回答不了"重心本身值不值"。固定 `manifold + cg + lorentz`、只切 `--prototype-pooling`，SYSU 单库、seed 2334、2.77 h：
+
+| arm | 池化 | F1 | Δ | R / P | 训练/部署 (M) |
+|---|---|---:|---:|---|---|
+| `POOL_EUCLID` | 切空间均值 → lift | **83.212** | — | 80.50 / 86.11 | 2.1113 / 2.0617 |
+| `POOL_LORENTZ` | 先 lift → Klein 重心 | 82.824 | **−0.387** | 79.46 / 86.48 | 2.1113 / 2.0617 |
+
+两臂参数逐位相同，裁决 **worse（≤ −0.36，噪声 0.32）**：压缩位置不是杠杆。与 `EUCLID_ALL` 82.504 vs `EDGE_ALL` 82.258（聚合换欧氏 +0.246）方向一致；`POOL_LORENTZ` 与 `TAR_HRA` 等价配置差 0.19 pp，故严谨写法是"无正效应、可能略负"。机制同向：重心偏保守（P +0.37、R −1.04）。
+
+于是这一轮可以写成三句：**模块有用（TAR +0.60 / HRA +1.14 / 联合 +1.63，均过门，但不可加），把压缩搬进双曲面没用（−0.39），双曲几何的作用仍在打分、不在内容压缩。**
+
+产物：`train_scripts/CASA-MinorGoal/Run7/`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`（代码+指标快照、结构图）、`docs/experiment_metrics.xlsx`（388 行，`CASA-MinorGoal` 51 行，其中 Run7 10 行）。
 
 ## 梯度落点与杠杆排查：CASA-MinorGoal / Run6
 
