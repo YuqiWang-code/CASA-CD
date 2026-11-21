@@ -1,3 +1,12 @@
+# 2026-11-21 · CASA-MinorGoal / Run7 完成（流形压缩 + 2×2 模块消融）
+
+- 协议 `casa_minor_run7_manifold_pooling_v1`，GPU1 两槽，8 项（SYSU→LEVIR × 四臂），seed 2334、val 选模、test τ=0.5，约 10.8 h。
+- 代码：`--prototype-pooling {euclidean,lorentz}`（加权 Klein 重心直接在流形上池化 K/V，零参数增量）；删掉 TAR 的 `β`（差分以单位权重进融合）。
+- SYSU：`CTRL` 81.392 / `TAR_ONLY` 81.995（+0.603）/ `HRA_ONLY` 82.533（+1.141）/ `TAR_HRA` **83.016**（+1.625）；门限 0.36/0.36/0.47，三条全过，但 0.603+1.141 > 1.625 说明两者不可加（TAR 纯精度、HRA 纯召回）。
+- LEVIR：90.885 / 91.095 / 90.851 / 90.713，三条 Δ 全在 0.32 噪声内 —— 有效域仍只有 SYSU。
+- 口径提醒：本轮 `CTRL` 比 Run2 同 seed 低 0.70 pp，`83.016` 不可与历史 83.37 直接比。
+- 产物：`outputs/CASA-MinorGoal/Run7/`（84 artifacts）、`docs/experiment_metrics.xlsx` 386 行、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`（快照 txt + 结构图）。
+
 # 2026-11-20 · CASA-MinorGoal / Run6 完成
 
 - 协议 `casa_minor_run6_edge_tap_v1`，GPU1 两槽，SYSU 两项：`EDGE_FULL`（edge 0.1，detach none）82.01 vs `EDGE_TAP_CUT`（同权重，detach retrieval）**83.09**，Δ **+1.085 pp**（门限 0.36、噪声 0.32）。

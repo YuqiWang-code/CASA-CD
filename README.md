@@ -131,6 +131,28 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
+## 双曲压缩与 2×2 模块消融：CASA-MinorGoal / Run7
+
+Run6 之后两个模块都还在，但原型压缩仍是在切空间做加权平均、再映射回双曲面。Run7 把这一步搬到流形上（`--prototype-pooling lorentz`：`K = L(Σw·x)` 的加权 Klein 重心，严格落在双曲面上），并删掉 TAR 里"差异特征 → 共有特征"之间的可学习标量 `β`（差分以单位权重进入融合）。两处都是零参数增量：流形池化是纯几何操作，删 `β` 让每个 `cg` 臂各少 4 个参数。
+
+四臂 2×2（`CTRL` / `TAR_ONLY` / `HRA_ONLY` / `TAR_HRA`），seed 2334、val 选模、test τ=0.5、两库各四条：
+
+| arm | 模块 | TAR | 池化 | SYSU F1 | Δ | LEVIR F1 | Δ | train / deploy (M) |
+|---|---|---|---|---:|---:|---:|---:|---|
+| `CTRL` | none | reparam | euclid | 81.392 | — | 90.885 | — | 2.0471 / 1.9358 |
+| `TAR_ONLY` | none | cg | euclid | 81.995 | +0.603 | 91.095 | +0.209 | 2.0935 / 2.0438 |
+| `HRA_ONLY` | manifold | diff | lorentz | 82.533 | +1.141 | 90.851 | −0.035 | 1.9618 / 1.9234 |
+| `TAR_HRA` | manifold | cg | lorentz | **83.016** | **+1.625** | 90.713 | −0.172 | 2.1113 / 2.0617 |
+
+`compare.py` 的配对裁决（门限 TAR 0.36 / HRA 0.36 / 联合 0.47，噪声 0.32 pp）：
+
+- **SYSU 三条全过门**：TAR +0.603、HRA +1.141、联合 +1.625；HRA 是三者里最干净的（3.6 倍噪声），TAR 只比噪声高 0.28 pp。
+- **两个模块不可加**：0.603 + 1.141 = 1.744，实测 1.625，少 0.12 pp。机制上也能看出来——`TAR_ONLY` 是纯精度（P 85.24→87.05，R −0.38），`HRA_ONLY` 是纯召回（R +1.30），两者都在修同一段边界/召回，叠加只多 0.12。
+- **LEVIR 三条全在噪声内**（+0.209 / −0.035 / −0.172），与 Run6 的 LEVIR 结论一致：这套改动的有效域只有 SYSU。
+- **口径提醒**：这一轮 `CTRL` 是 81.392，比 Run2 同 seed 的 `CTRL_S2334`（82.092）低 0.70 pp、比 Run1 的 `CTRL`（81.729）低 0.34 pp。四个 Δ 是同 run 配对差，可信；`83.016` 这个绝对水平不能和历史上 83.37（Run3 `ARM_C`）直接比。
+
+产物：`train_scripts/CASA-MinorGoal/Run7/`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`（代码+指标快照、结构图）、`docs/experiment_metrics.xlsx`（386 行，`CASA-MinorGoal` 49 行）。
+
 ## 梯度落点与杠杆排查：CASA-MinorGoal / Run6
 
 Run5 的 +0.47 pp 过门，但另一会话的干预显示 SYSU 的 EDGE 权重高度依赖粗尺度回写，且 87.3% 的净新增正确检出在边界带以外。Run6 先只改一件事：保留两个边缘头与全部损失权重，把检索回写 `U_s` 在喂给边缘头之前 `detach()`，边缘梯度只能经由 TAR 的 `D_s` 回传。确认方向后再加两个开关做杠杆排查——`--edge-scales {all,fine}`（只监督 `D₁,D₂`）与 `--aggregate {lorentz,euclidean}`（把 Lorentz 重心换成普通加权均值）。
