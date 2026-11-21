@@ -25,7 +25,7 @@ class CASANet(nn.Module):
                         "manifold": ManifoldContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext,
                         "difference": DifferenceContext}[module]
-        if module in ("difference", "manifold") and tar_variant not in ("spp", "spp1", "diff", "cg"):
+        if module in ("difference", "manifold") and tar_variant not in ("spp", "spp1", "diff", "cg", "cd2"):
             raise ValueError("the difference context needs a temporal difference stream "
                              "(--tar-variant spp, spp1 or diff)")
         self.module = module
@@ -36,7 +36,8 @@ class CASANet(nn.Module):
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
                                  variant=tar_variant,
                                  return_difference=module in ("difference", "manifold"),
-                                 edge_supervision=edge_supervision and tar_variant == "cg")
+                                 edge_supervision=edge_supervision and tar_variant == "cg",
+                                 stem_dim=16 if tar_variant == "cd2" else 0)
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
@@ -67,7 +68,11 @@ class CASANet(nn.Module):
     def _decode(self, a, b, return_aux=False):
         features_a, features_b = self.encoder(a), self.encoder(b)
         # the TAR may hand back (fused, difference, edges) when an edge head is on
-        result = self.tar(features_a[1:], features_b[1:])
+        if self.tar_variant == "cd2":
+            stem = 0.5 * (features_a[0] + features_b[0])
+            result = self.tar(features_a[1:], features_b[1:], stem=stem)
+        else:
+            result = self.tar(features_a[1:], features_b[1:])
         difference, tar_edges = None, None
         if len(result) == 3:
             tar, difference, tar_edges = result

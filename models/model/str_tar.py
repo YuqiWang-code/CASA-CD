@@ -379,6 +379,101 @@ class ChangeGateTARStage(nn.Module):
         return fused, delta
 
 
+
+class ChangeDecoupleTARStage(nn.Module):
+    """Two-step decoupling for small change objects (CD2).
+
+    Step 1 separates *what changed* from *what is here*: an illumination
+    normalised signed difference feeds ``delta`` while a plain concat 1x1 feeds
+    the scene content ``content``. Step 2 splits ``delta`` into a lossless
+    three-band pyramid ``S = d - P3``, ``M = P3 - P9``, ``L = P9`` so that
+    ``S + M + L == d``; each band gets its own 1x1 and a pixel-wise router picks
+    between them. Only the small band receives the 128^2 stem detail and a
+    dilated depthwise context.
+    """
+
+    def __init__(self, in_channels, dim, use_temporal_aux=True, use_dcr_aux=True,
+                 use_residual=True, deploy=False, stem_dim=0):
+        super().__init__()
+        self.deploy = deploy
+        self.stem_dim = stem_dim
+        self.act = nn.SiLU()
+        self.content = nn.Conv2d(2 * in_channels, dim, 1, bias=deploy)
+        self.content_bn = None if deploy else nn.BatchNorm2d(dim)
+        self.delta = nn.Conv2d(2 * in_channels, dim, 1, bias=deploy)
+        self.delta_bn = None if deploy else nn.BatchNorm2d(dim)
+        self.bands = nn.ModuleList()
+        self.band_bn = nn.ModuleList()
+        for _ in range(3):
+            self.bands.append(nn.Conv2d(dim, dim, 1, bias=deploy))
+            self.band_bn.append(None if deploy else nn.BatchNorm2d(dim))
+        self.router = nn.Conv2d(3 * dim, 3, 1, bias=True)
+        nn.init.zeros_(self.router.weight)
+        nn.init.zeros_(self.router.bias)
+        self.stem_proj = None
+        self.stem_bn = None
+        self.context_dw = None
+        self.context_bn = None
+        if stem_dim:
+            self.stem_proj = nn.Conv2d(dim + stem_dim, dim, 1, bias=False)
+            self.stem_bn = None if deploy else nn.BatchNorm2d(dim)
+            self.context_dw = nn.Conv2d(dim, dim, 3, padding=2, dilation=2,
+                                        groups=dim, bias=deploy)
+            self.context_bn = None if deploy else nn.BatchNorm2d(dim)
+        self.gate = nn.Conv2d(dim, dim, 1, bias=True)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.zeros_(self.gate.bias)
+        self.block = RepLocalBlock(dim, use_aux=use_temporal_aux,
+                                   use_residual=use_residual, deploy=deploy)
+
+    @staticmethod
+    def _normalise(x):
+        scale = F.avg_pool2d(x.abs(), 7, 1, 3).clamp_min(1e-3)
+        return x / scale
+
+    def forward(self, P, Q, stem=None):
+        a = self._normalise(P)
+        b = self._normalise(Q)
+        positive = F.relu(a - b)
+        negative = F.relu(b - a)
+        delta = self.delta(torch.cat((positive, negative), 1))
+        if self.delta_bn is not None:
+            delta = self.delta_bn(delta)
+        content = self.content(torch.cat((P, Q), 1))
+        if self.content_bn is not None:
+            content = self.content_bn(content)
+        content = self.act(content)
+
+        pooled3 = F.avg_pool2d(delta, 3, 1, 1)
+        pooled9 = F.avg_pool2d(delta, 9, 1, 4)
+        small = delta - pooled3
+        medium = pooled3 - pooled9
+        large = pooled9
+        bands = []
+        for index, band in enumerate((small, medium, large)):
+            value = self.bands[index](band)
+            if self.band_bn[index] is not None:
+                value = self.band_bn[index](value)
+            bands.append(value)
+        if self.stem_proj is not None and stem is not None:
+            stem = F.avg_pool2d(stem, 2)
+            fused = self.stem_proj(torch.cat((bands[0], stem), 1))
+            if self.stem_bn is not None:
+                fused = self.stem_bn(fused)
+            fused = self.context_dw(fused)
+            if self.context_bn is not None:
+                fused = self.context_bn(fused)
+            bands[0] = bands[0] + fused
+
+        weights = torch.softmax(self.router(torch.cat(bands, 1)), 1) * 3.0
+        mixture = sum(weights[:, index:index + 1] * bands[index] for index in range(3))
+        gate = torch.sigmoid(self.gate(delta))
+        fused = self.block(content * (1.0 + gate) + mixture)
+        return fused, delta
+
+    def switch_to_deploy(self):
+        switch_module_to_deploy(self)
+
 class MultiScaleTAR(nn.Module):
     """Four-scale temporal fusion from paired encoder features to decoder inputs.
 
@@ -388,9 +483,10 @@ class MultiScaleTAR(nn.Module):
 
     def __init__(self, encoder_dims=(64, 64, 64, 64), dim=64,
                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True, deploy=False,
-                 variant="reparam", return_difference=False, edge_supervision=False):
+                 variant="reparam", return_difference=False, edge_supervision=False,
+                 stem_dim=0):
         super().__init__()
-        if variant not in ("reparam", "plain", "diff", "spp", "spp1", "cg"):
+        if variant not in ("reparam", "plain", "diff", "spp", "spp1", "cg", "cd2"):
             raise ValueError(f"unknown TAR variant: {variant}")
         self.variant = variant
         self.return_difference = return_difference
@@ -413,6 +509,16 @@ class MultiScaleTAR(nn.Module):
             self.stage2 = DifferenceTARStage(encoder_dims[1], dim, deploy)
             self.stage3 = DifferenceTARStage(encoder_dims[2], dim, deploy)
             self.stage4 = DifferenceTARStage(encoder_dims[3], dim, deploy)
+        elif variant == "cd2":
+            self.stage1 = ChangeDecoupleTARStage(encoder_dims[0], dim, use_temporal_aux,
+                                                 use_dcr_aux, use_residual, deploy,
+                                                 stem_dim=stem_dim)
+            self.stage2 = ChangeDecoupleTARStage(encoder_dims[1], dim, use_temporal_aux,
+                                                 use_dcr_aux, use_residual, deploy)
+            self.stage3 = ChangeDecoupleTARStage(encoder_dims[2], dim, use_temporal_aux,
+                                                 use_dcr_aux, use_residual, deploy)
+            self.stage4 = ChangeDecoupleTARStage(encoder_dims[3], dim, use_temporal_aux,
+                                                 use_dcr_aux, use_residual, deploy)
         elif variant == "cg":
             self.stage1 = ChangeGateTARStage(encoder_dims[0], dim, use_temporal_aux,
                                              use_dcr_aux, use_residual, deploy)
@@ -439,7 +545,7 @@ class MultiScaleTAR(nn.Module):
         # created last so that turning it on does not shift any other initialisation
         self.edge_head = EdgeHead(dim) if edge_supervision else None
 
-    def forward(self, pre_feats, post_feats):
+    def forward(self, pre_feats, post_feats, stem=None):
         if self.variant == "cg":
             t1, d1 = self.stage1(pre_feats[0], post_feats[0])
             t2, d2 = self.stage2(pre_feats[1], post_feats[1])
@@ -462,6 +568,20 @@ class MultiScaleTAR(nn.Module):
             t2, d2 = self.stage2(pre_feats[1], post_feats[1])
             t3, d3 = self.stage3(pre_feats[2], post_feats[2])
             t4, d4 = self.stage4(pre_feats[3], post_feats[3])
+            fused = [t1, t2, t3, t4]
+            if self.return_difference:
+                return fused, [d1, d2, d3, d4]
+            return fused
+        if self.variant == "cd2":
+            t1, d1 = self.stage1(pre_feats[0], post_feats[0], stem=stem)
+            t2, d2 = self.stage2(pre_feats[1], post_feats[1])
+            t3, d3 = self.stage3(pre_feats[2], post_feats[2])
+            t4, d4 = self.stage4(pre_feats[3], post_feats[3])
+            # fine-to-coarse: the coarse bands inherit the finer evidence so a
+            # small object is not averaged away by the coarse pooling.
+            d2 = d2 + F.interpolate(d1, size=d2.shape[-2:], mode="area")
+            d3 = d3 + F.interpolate(d2, size=d3.shape[-2:], mode="area")
+            d4 = d4 + F.interpolate(d3, size=d4.shape[-2:], mode="area")
             fused = [t1, t2, t3, t4]
             if self.return_difference:
                 return fused, [d1, d2, d3, d4]

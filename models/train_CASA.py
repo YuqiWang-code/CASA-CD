@@ -393,7 +393,7 @@ def main():
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1", "cg"),
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1", "cg", "cd2"),
                         default="reparam")
     parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")

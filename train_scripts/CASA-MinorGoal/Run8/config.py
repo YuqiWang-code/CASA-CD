@@ -1,16 +1,22 @@
-"""Run8: does the compression have to happen on the manifold?
+"""Run8: decouple the change feature, then decouple the object size (CD2-TAR).
 
-Run8 packed the two modules into a 2x2 and both arms that carried retrieval also
-carried the manifold pooling, so the run cannot say whether the barycentre itself
-buys anything.  Run8 fixes the architecture (manifold retrieval on the change
-stream, ratio-free bridge, edge term off) and switches one axis only:
+The bridge now answers two questions in order. First *what changed*: an
+illumination normalised signed difference produces ``Delta`` and a separate
+concat 1x1 produces the scene content ``M``; the two only meet at the fusion
+point. Second *how large is the change*: ``Delta`` is split into a lossless
+three-band pyramid ``S = Delta - P3``, ``M = P3 - P9``, ``L = P9`` with
+``S + M + L == Delta``, each band gets its own 1x1, and a pixel-wise router
+weighs them. Only the small band receives the 128^2 stem detail and a dilated
+depthwise context, so small objects stop being averaged into large regions.
 
-POOL_EUCLID    prototypes averaged in the tangent space, then lifted
-POOL_LORENTZ   prototypes averaged on the manifold (weighted Klein barycentre)
+The matrix is the requested 2x2 over the two modules, SYSU first and LEVIR
+after, with the edge term switched off so the two factors are the only
+difference:
 
-Same seed, same schedule, SYSU only: this is the single factor that Run8 left
-unmeasured.  The two arms have identical parameter counts by construction, so any
-difference is geometry, not capacity.
+CTRL       reparam + none                 neither module
+TAR_ONLY    cd2     + none                 the decoupling bridge alone
+HRA_ONLY    diff    + manifold (lorentz)   the retrieval alone
+TAR_HRA     cd2     + manifold (lorentz)   both
 """
 import os
 from pathlib import Path as _PlatformPath
@@ -27,34 +33,44 @@ PRETRAINED = Path(os.environ.get(
     "MINOR_PRETRAINED", "/home/yqwang/projects/CASA-CD/pretrained_weight/mobilenet_v2-b0353104.pth"))
 SCRIPTS = _PlatformPath(__file__).resolve().parent
 
-PROTOCOL = "casa_minor_run8_pooling_axis_v1"
+PROTOCOL = "casa_minor_run8_cd2_v1"
 GPUS = tuple(int(item) for item in os.environ.get("MINOR_GPUS", "1").split(","))
 SLOTS = int(os.environ.get("MINOR_SLOTS", "2"))
 HEADROOM = 1024
 SEED = 2334
 SELECTION = "val"
 
-# Single library: the only place the retrieval arms ever moved.
-DATASETS = ("SYSU-CD-256",)
+# SYSU first, then LEVIR, as requested.
+DATASETS = ("SYSU-CD-256", "LEVIR-CD-256")
 
 ARMS = {
-    "POOL_EUCLID": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
-                        support="mass", detail=False, edge_weight=0.0,
-                        edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
-                        prototype_pooling="euclidean"),
-    "POOL_LORENTZ": dict(module="manifold", tar="cg", decoder="reparam", seed=2334,
-                         support="mass", detail=False, edge_weight=0.0,
-                         edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
-                         prototype_pooling="lorentz"),
+    "CTRL": dict(module="none", tar="reparam", decoder="reparam", seed=2334,
+                 support="mass", detail=False, edge_weight=0.0,
+                 edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
+                 prototype_pooling="euclidean"),
+    "TAR_ONLY": dict(module="none", tar="cd2", decoder="reparam", seed=2334,
+                     support="mass", detail=False, edge_weight=0.0,
+                     edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
+                     prototype_pooling="euclidean"),
+    "HRA_ONLY": dict(module="manifold", tar="diff", decoder="reparam", seed=2334,
+                     support="mass", detail=False, edge_weight=0.0,
+                     edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
+                     prototype_pooling="lorentz"),
+    "TAR_HRA": dict(module="manifold", tar="cd2", decoder="reparam", seed=2334,
+                    support="mass", detail=False, edge_weight=0.0,
+                    edge_detach="retrieval", edge_scales="all", aggregate="lorentz",
+                    prototype_pooling="lorentz"),
 }
-ARM_ORDER = ("POOL_EUCLID", "POOL_LORENTZ")
+ARM_ORDER = ("CTRL", "TAR_ONLY", "HRA_ONLY", "TAR_HRA")
 
 JOBS = tuple((arm, dataset) for dataset in DATASETS for arm in ARM_ORDER)
 
-# Pooling is a pure geometric operation: both arms carry the same weights.
-TRAINABLE_PARAMS = {"POOL_EUCLID": 2111283, "POOL_LORENTZ": 2111283}
-DEPLOY_PARAMS = {"POOL_EUCLID": 2061664, "POOL_LORENTZ": 2061664}
-DEFAULT_RESERVATIONS = {"POOL_EUCLID": 12800, "POOL_LORENTZ": 12800}
+TRAINABLE_PARAMS = {"CTRL": 2047125, "TAR_ONLY": 2122209,
+                    "HRA_ONLY": 1961771, "TAR_HRA": 2140031}
+DEPLOY_PARAMS = {"CTRL": 1935810, "TAR_ONLY": 2072590,
+                 "HRA_ONLY": 1923424, "TAR_HRA": 2090412}
+DEFAULT_RESERVATIONS = {"CTRL": 9800, "TAR_ONLY": 10600,
+                        "HRA_ONLY": 12400, "TAR_HRA": 13000}
 BENCH = {arm: arm for arm in ARM_ORDER}
 EDGE_WEIGHT = 0.0
 EDGE_DILATE = 1
@@ -63,10 +79,13 @@ EDGE_DILATE = 1
 # only fair differences are the within-run contrasts below.
 REFERENCE = {}
 
-# Differences are reported against the same-run control, one factor at a time.
 GATES = {
-    "POOL_LORENTZ": dict(versus="POOL_EUCLID", minimum=0.36, noise=0.32,
-                         note="averaging on the manifold against averaging in the tangent space"),
+    "TAR_ONLY": dict(versus="CTRL", minimum=0.36, noise=0.32,
+                     note="decoupling bridge alone, against the plain 1x1 bridge"),
+    "HRA_ONLY": dict(versus="CTRL", minimum=0.36, noise=0.32,
+                     note="manifold-pooled retrieval alone, against no retrieval"),
+    "TAR_HRA": dict(versus="CTRL", minimum=0.47, noise=0.32,
+                    note="both modules against the control"),
 }
 
 

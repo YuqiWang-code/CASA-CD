@@ -117,7 +117,7 @@ def main():
             print(f'  {name:28s} start=+{start:4.1f}h finish=+{finish:4.1f}h '
                   f'reserved={reservation_mib(arm)} MiB')
         print(f'[DRY-RUN] makespan={makespan:.1f}h; run_one command for DETAIL:')
-        print('  ' + ' '.join([sys.executable, str(HERE / 'run_one.py'), 'POOL_LORENTZ', 'SYSU-CD-256',
+        print('  ' + ' '.join([sys.executable, str(HERE / 'run_one.py'), 'TAR_HRA', 'SYSU-CD-256',
                                '--gpu', str(GPUS[0])]))
         return
 

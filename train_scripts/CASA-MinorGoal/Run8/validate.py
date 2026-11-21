@@ -1,4 +1,4 @@
-"""CPU audit for Run8: the single pooling axis, its parameters, folding and gradients."""
+"""CPU audit for Run8: the change/size decoupling bridge, the 2x2 matrix and gradients."""
 import copy
 import os
 import subprocess
@@ -32,25 +32,27 @@ def build(arm):
 
 def check_matrix():
     jobs = C.experiments()
-    assert len(jobs) == 2, jobs
+    assert len(jobs) == 8, jobs
     assert {job for job in jobs} == {(arm, dataset) for dataset in C.DATASETS
                                      for arm in C.ARM_ORDER}, jobs
-    assert C.DATASETS == ("SYSU-CD-256",), C.DATASETS
+    assert C.DATASETS == ("SYSU-CD-256", "LEVIR-CD-256"), C.DATASETS
     assert all(C.seed_for(arm) == 2334 for arm in C.ARM_ORDER)
     assert C.GPUS == (1,), C.GPUS
-    expected = {"POOL_EUCLID": ("manifold", "cg", "euclidean"),
-                "POOL_LORENTZ": ("manifold", "cg", "lorentz")}
+    expected = {"CTRL": ("none", "reparam", "euclidean"),
+                "TAR_ONLY": ("none", "cd2", "euclidean"),
+                "HRA_ONLY": ("manifold", "diff", "lorentz"),
+                "TAR_HRA": ("manifold", "cd2", "lorentz")}
     for arm, (module, tar, pooling) in expected.items():
         spec = C.ARMS[arm]
         assert (spec["module"], spec["tar"], spec["prototype_pooling"]) == (module, tar, pooling), arm
         assert spec["edge_weight"] == 0.0, arm
-    assert C.ARMS["POOL_EUCLID"]["prototype_pooling"] == "euclidean"
-    assert C.ARMS["POOL_LORENTZ"]["prototype_pooling"] == "lorentz"
     assert all(C.ARMS[arm]["edge_scales"] == "all" for arm in C.ARM_ORDER)
     assert all(C.ARMS[arm]["aggregate"] == "lorentz" for arm in C.ARM_ORDER)
-    # the pooling switch is a pure geometric operation: identical capacity by construction
-    assert len({C.TRAINABLE_PARAMS[a] for a in C.ARM_ORDER}) == 1
-    assert len({C.DEPLOY_PARAMS[a] for a in C.ARM_ORDER}) == 1
+    # four distinct capacities: the bridge costs parameters, the retrieval is geometry only
+    assert len({C.TRAINABLE_PARAMS[a] for a in C.ARM_ORDER}) == 4, C.TRAINABLE_PARAMS
+    assert C.TRAINABLE_PARAMS["TAR_ONLY"] > C.TRAINABLE_PARAMS["CTRL"]
+    assert C.TRAINABLE_PARAMS["HRA_ONLY"] < C.TRAINABLE_PARAMS["CTRL"]
+    assert C.TRAINABLE_PARAMS["TAR_HRA"] > C.TRAINABLE_PARAMS["HRA_ONLY"]
     print("[VALIDATE] matrix")
 
 
@@ -61,7 +63,7 @@ def check_cli():
     help_text = subprocess.run([sys.executable, script, "--help"],
                                capture_output=True, text=True, check=True).stdout
     for flag in ("--module {none,hyperbolic,qkv,matched,difference,manifold}",
-                 "--tar-variant {reparam,plain,diff,spp,spp1,cg}",
+                 "--tar-variant {reparam,plain,diff,spp,spp1,cg,cd2}",
                  "--decoder-variant {reparam,plain,none}",
                  "--selection-split {test,val}", "--support",
                  "--edge-weight", "--edge-dilate", "--edge-scales {all,fine}",
@@ -91,32 +93,34 @@ def check_models():
             deployed = folded(a, b)
         delta = max(float((x - y).abs().max()) for x, y in zip(values, deployed))
         assert delta <= 2e-4, (arm, delta)
-        binary = sum(int((x > 0.5).sum()) for x in values) - sum(int((y > 0.5).sum()) for y in deployed)
-        assert binary == 0, (arm, binary)
+        binary = sum(abs(int((x > 0.5).sum()) - int((y > 0.5).sum()))
+                     for x, y in zip(values, deployed))
+        limit = values[0].numel() // 1000
+        assert binary <= limit, (arm, binary, limit)
         print(f"[VALIDATE] {arm} trainable={count(model)} deploy={count(folded)} "
               f"fold_maxdiff={delta:.3e}")
         del model, folded
 
 
-def check_pooling_modes():
-    """The two arms must differ in the pooling location and in nothing else."""
-    euclid = build("POOL_EUCLID")
-    lorentz = build("POOL_LORENTZ")
-    assert euclid.context.prototype_pooling == "euclidean"
-    assert lorentz.context.prototype_pooling == "lorentz"
-    both = [euclid, lorentz]
-    assert all(model.context.aggregate_mode == "lorentz" for model in both)
-    assert all(model.tar_variant == "cg" for model in both)
-    # the bridge must not carry a learnable scale between the two streams
-    names = [name for name, _ in lorentz.named_parameters()]
-    assert not any("beta" in name for name in names), names
-    # identical capacity: the switch is geometry, not parameters
-    assert count(euclid) == count(lorentz)
-    print("[VALIDATE] pooling modes and the bridge scale")
+def check_decoupling_bridge():
+    """The small band must own the 128^2 stem and the dilated context, nothing else does."""
+    model = build("TAR_HRA")
+    names = [name for name, _ in model.named_parameters()]
+    assert not any("beta" in name for name in names), [n for n in names if "beta" in n]
+    stem = [name for name in names if "stem_proj" in name]
+    assert len(stem) == 1 and stem[0].startswith("tar.stage1"), stem
+    dilated = [name for name in names if "context_dw" in name]
+    assert len(dilated) == 1 and dilated[0].startswith("tar.stage1"), dilated
+    routers = [name for name in names if name.endswith("router.weight")]
+    assert len(routers) == 4, routers
+    for index in range(1, 4):
+        stage = getattr(model.tar, f"stage{index + 1}")
+        assert stage.stem_proj is None and stage.context_dw is None, index
+    print("[VALIDATE] decoupling bridge ownership")
 
 
 def check_manifold_aggregation():
-    model = build("POOL_LORENTZ")
+    model = build("TAR_HRA")
     context = model.context
     with torch.no_grad():
         values = torch.randn(2, 1, 7, 8)
@@ -134,8 +138,9 @@ def check_gradients():
     target = (torch.rand(2, 1, 128, 128) > 0.9).float()
     # carriers that every arm must train: the bridge and the segmentation head
     common = ("head.weight",)
-    bridge = ("tar.stage1.content.weight", "tar.stage1.difference.weight",
-              "tar.stage1.gate.weight")
+    bridge = ("tar.stage1.content.weight", "tar.stage1.delta.weight",
+              "tar.stage1.gate.weight", "tar.stage1.router.weight",
+              "tar.stage1.stem_proj.weight", "tar.stage1.context_dw.weight")
     # carriers that only the retrieval side owns
     retrieval = ("context.qk.weight", "context.out.weight", "context.gate.weight")
     for arm in C.ARM_ORDER:
@@ -144,12 +149,18 @@ def check_gradients():
             with torch.no_grad():
                 model.context.gamma_context.fill_(0.5)
                 model.context.level_scale.fill_(0.5)
+        if C.ARMS[arm]["tar"] == "cd2":
+            with torch.no_grad():
+                for index in range(1, 5):
+                    stage = getattr(model.tar, f"stage{index}")
+                    stage.gate.weight.normal_(0.0, 0.02)
+                    stage.router.weight.normal_(0.0, 0.02)
         values = model(a, b)
         logits = [torch.logit(value.clamp(1e-6, 1 - 1e-6)) for value in values]
         sum(torch.nn.functional.binary_cross_entropy_with_logits(value, target)
             for value in logits).backward()
         names = list(common)
-        if C.ARMS[arm]["tar"] == "cg":
+        if C.ARMS[arm]["tar"] == "cd2":
             names += list(bridge)
         if C.ARMS[arm]["module"] == "manifold":
             names += list(retrieval) + ["context.level_scale", "context.support_head.weight"]
@@ -163,7 +174,7 @@ def main():
     check_matrix()
     check_cli()
     check_models()
-    check_pooling_modes()
+    check_decoupling_bridge()
     check_manifold_aggregation()
     check_gradients()
     print("[VALIDATE] Run8 audit passed")

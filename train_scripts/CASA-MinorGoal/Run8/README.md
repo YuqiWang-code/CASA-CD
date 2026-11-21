@@ -1,41 +1,45 @@
-# Run8 — the pooling axis on its own (results folded into Run7)
+# Run8 — CD²-TAR：先解耦变化，再解耦尺寸
 
-> 归档说明：这两条臂的产物已并入 `CASA-MinorGoal / Run7`（服务器日志/权重在 `Run7/POOL_*`，指标表 `Run=Run7`，快照在 `docs/temporary/models_and_metrics_CASA-MinorGoal_Run7/`）。本目录只保留脚本与协议 `casa_minor_run8_pooling_axis_v1` 的定义，便于复跑。
+协议 `casa_minor_run8_cd2_v1`。SYSU 先跑、LEVIR 后跑；seed 2334；val 选模、test 只在最后用一次、阈值 0.5；
+边缘监督关闭（`edge_weight=0`），让两个因子成为唯一差异。
 
-Run7 packed the two modules into a 2×2 and every retrieval arm also carried the manifold
-pooling, so it could not answer whether the barycentre itself buys anything. Run8 fixes the
-architecture and moves one axis only.
+## 四臂（请求的 2×2）
 
-## Two arms
+| arm | module | tar | 读的是什么 | 训练 / 部署参数 |
+|---|---|---|---|---|
+| `CTRL` | none | reparam | 无桥改动、无检索 | 2.0471 / 1.9358 M |
+| `TAR_ONLY` | none | **cd2** | 只换桥：变化解耦 + 尺寸解耦 | 2.1222 / 2.0726 M |
+| `HRA_ONLY` | manifold | diff | 只换检索：流形上压缩原型 | 1.9618 / 1.9234 M |
+| `TAR_HRA` | manifold | **cd2** | 两者都有 | 2.1400 / 2.0904 M |
 
-| arm | module | tar | aggregate | prototype pooling | train / deploy (M) |
-|---|---|---|---|---|---|
-| `POOL_EUCLID` | manifold | cg | lorentz | **euclidean**（切空间加权平均后再 lift） | 2.1113 / 2.0617 |
-| `POOL_LORENTZ` | manifold | cg | lorentz | **lorentz**（先将每个成员点 lift，再求加权 Klein 重心） | 2.1113 / 2.0617 |
+## 桥里做了什么（`--tar-variant cd2`）
 
-两臂参数逐位相同（池化是纯几何操作，不含参数），逐位相同的还有 seed、调度、边缘项（关闭）。
+1. **变化解耦**：`a = P/μ₇|P|`、`b = Q/μ₇|Q|` → `d⁺=ReLU(a−b)`、`d⁻=ReLU(b−a)` → `Δ = BN(1×1[d⁺,d⁻])`；
+   场景内容走旁路 `M = SiLU(BN(1×1[P,Q]))`，两者只在融合点相遇。
+2. **尺寸解耦**（无损三分，`S+Mid+L ≡ Δ`）：`S = Δ−P₃`、`Mid = P₃−P₉`、`L = P₉`；各接 `1×1+BN`；
+   逐像素路由 `r = softmax(1×1[S,Mid,L])`（初值均匀，故 ×3 后 `Δ* = Δ`）。
+3. **小目标容量只给 S**：`Fˢᵗᵉᵐ`（128², 16ch）与 `DW 3×3, d=2` 只接在 S 通道上；其余尺度没有这两项。
+4. 融合沿用门控：`G = σ(1×1(Δ))`，`T = RepLocal(SiLU(M)·(1+G) + Δ*)`；跨尺度把细尺度证据 `area` 下采样后加给粗尺度。
 
-## 口径
+## 裁决口径
 
-- 协议 `casa_minor_run8_pooling_axis_v1`，GPU1 单卡两槽，只跑 **SYSU**（检索臂唯一动过的库），seed 2334，val 选模，test τ=0.5。
-- 门限：`POOL_LORENTZ` 相对 `POOL_EUCLID` 需 ≥ +0.36 pp，噪声 0.32 pp。
-- 参考值（Run7 同架构、同 seed、lorentz 池化）：SYSU 83.016；Run7 的 `TAR_HRA` 与本轮 `POOL_LORENTZ` 配置等价，因此这一轮同时也是那次结果的复现检查。
-
-## 判读
-
-- 若 `POOL_LORENTZ − POOL_EUCLID` ≥ +0.36：流形上的压缩本身有收益，可写"重心优于切空间均值"。
-- 若落在 ±0.32 内：压缩位置不影响精度，Run7 的 +1.14/+1.63 只能归给模块存在，不能归给几何。
-- 若 ≤ −0.36：重心在压缩阶段有害（与 R/P 换位那条线索一致——重心偏保守）。
+- `TAR_ONLY − CTRL` ≥ +0.36 pp（噪声 0.32）→ 桥的收益成立；
+- `HRA_ONLY − CTRL` ≥ +0.36 pp → 检索的收益成立；
+- `TAR_HRA − CTRL` ≥ +0.47 pp → 两者叠加；
+- 若 `TAR_ONLY + HRA_ONLY − 2×CTRL` 明显大于 `TAR_HRA − CTRL`，说明两模块不可加（Run7 已见 1.744 vs 1.625）。
 
 ## 运行
 
 ```bash
-python bootstrap.py                     # 打包当前 models/ + 本目录到服务器
-# 服务器：
-cd $ROOT/runtime/train_scripts/CASA-MinorGoal/Run8
-source environment.sh && export CUDA_VISIBLE_DEVICES=1
-python prepare.py                       # 审计 + 冒烟 + readiness
-python pipeline.py                      # 两项，约 5.5 h
-python collect_results.py               # 下载 + 指标表 + 快照
-python compare.py --root ../../../../../local/path/to/Run8
+python bootstrap.py                      # 打包 models/ 与 Run8 脚本到服务器并写 fingerprint
+ssh … 'cd …/Run8/runtime/train_scripts/CASA-MinorGoal/Run8 && source environment.sh &&         export CUDA_VISIBLE_DEVICES=1 && python prepare.py'
+ssh … 'cd …/Run8/runtime/train_scripts/CASA-MinorGoal/Run8 && source environment.sh &&         export CUDA_VISIBLE_DEVICES=1 && MINOR_GPUS=1 MINOR_SLOTS=2 python pipeline.py'
 ```
+
+跑完：`collect_results.py` → `compare.py` → `tools/extract_metrics_to_excel.py` → `tools/models_to_txt.py --tag CASA-MinorGoal --run Run8`。
+
+## 要额外量三件事（与总 F1 一起看）
+
+1. 路由 `r` 的三通道均值质量分布；
+2. 按 GT 面积分层召回（`<32² / 32²–96² / >96²`）；
+3. `‖S+Mid+L−Δ‖ ≤ 1e-6` 的恒等式校验（`models/test_run8_modules.py` 已覆盖）。
