@@ -1,3 +1,11 @@
+# 2026-11-21 · CASA-MinorGoal / Run8 完成（池化轴单因子）
+
+- 协议 `casa_minor_run8_pooling_axis_v1`，SYSU 单库两臂，seed 2334、val 选模、test τ=0.5，GPU1 两槽 2.77 h。
+- 结果：`POOL_EUCLID` **83.212**（80.50/86.11，ep17）vs `POOL_LORENTZ` **82.824**（79.46/86.48，ep25），Δ **−0.387 pp**，裁决 **worse（≤ −0.36，噪声 0.32）**。
+- 两臂参数逐位相同（2.1113/2.0617），差异只能来自几何。与 Run7 `EUCLID_ALL` − `EDGE_ALL` = +0.246 方向一致：欧氏均值不比 Klein 重心差。
+- 复现噪声：`POOL_LORENTZ` vs Run7 `TAR_HRA`（等价配置）−0.19 pp；结论应写"无正效应、可能略负"。
+- 产物：`outputs/CASA-MinorGoal/Run8/`（29 artifacts）、`docs/experiment_metrics.xlsx` 388 行、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run8/`（快照 txt + RESULTS.md）。
+
 # 2026-11-21 · CASA-MinorGoal / Run7 完成（流形压缩 + 2×2 模块消融）
 
 - 协议 `casa_minor_run7_manifold_pooling_v1`，GPU1 两槽，8 项（SYSU→LEVIR × 四臂），seed 2334、val 选模、test τ=0.5，约 10.8 h。
