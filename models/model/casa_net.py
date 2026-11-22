@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from model.mobilenet_v2 import mobilenet_v2
+from model.backbone import BACKBONES, build_backbone
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import build_decoder
 from model.layers.pyramid_context import AuxiliaryContext
@@ -19,7 +19,8 @@ class CASANet(nn.Module):
                  tar_variant="reparam", decoder_variant="reparam", support="cell",
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
                  edge_detach="retrieval", aggregate_mode="lorentz",
-                 prototype_pooling="euclidean"):
+                 prototype_pooling="euclidean", backbone="mobilenet_v2",
+                 freeze_backbone=False):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
@@ -31,13 +32,18 @@ class CASANet(nn.Module):
         self.module = module
         self.tar_variant = tar_variant
         self.decoder_variant = decoder_variant
-        self.encoder = mobilenet_v2(pretrained_path)
-        self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
+        if backbone not in BACKBONES:
+            raise ValueError(f"unknown backbone {backbone!r}; choose from {BACKBONES}")
+        self.backbone = backbone
+        self.freeze_backbone = bool(freeze_backbone)
+        self.encoder = build_backbone(backbone, pretrained_path, self.freeze_backbone)
+        self.tar = MultiScaleTAR(self.encoder.out_channels, dim=64,
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
                                  variant=tar_variant,
                                  return_difference=module in ("difference", "manifold"),
                                  edge_supervision=edge_supervision and tar_variant == "cg",
-                                 stem_dim=16 if tar_variant == "cd2" else 0)
+                                 stem_dim=self.encoder.stem_channels
+                                 if tar_variant == "cd2" else 0)
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
@@ -58,7 +64,8 @@ class CASANet(nn.Module):
             self.detail = None
             self.detail_target = detail_target
             if detail_head:
-                self.detail = nn.Sequential(nn.Conv2d(32, 64, 1, bias=False),
+                self.detail = nn.Sequential(
+                    nn.Conv2d(self.encoder.stem_channels, 64, 1, bias=False),
                                             nn.Conv2d(64, 64, 3, padding=1, padding_mode="replicate",
                                                       groups=64, bias=False),
                                             nn.SiLU(), nn.Conv2d(64, 1, 1))
@@ -66,13 +73,13 @@ class CASANet(nn.Module):
                 nn.init.zeros_(self.detail[-1].bias)
 
     def _decode(self, a, b, return_aux=False):
-        features_a, features_b = self.encoder(a), self.encoder(b)
+        stem_a, features_a = self.encoder(a)
+        stem_b, features_b = self.encoder(b)
         # the TAR may hand back (fused, difference, edges) when an edge head is on
         if self.tar_variant == "cd2":
-            stem = 0.5 * (features_a[0] + features_b[0])
-            result = self.tar(features_a[1:], features_b[1:], stem=stem)
+            result = self.tar(features_a, features_b, stem=0.5 * (stem_a + stem_b))
         else:
-            result = self.tar(features_a[1:], features_b[1:])
+            result = self.tar(features_a, features_b)
         difference, tar_edges = None, None
         if len(result) == 3:
             tar, difference, tar_edges = result
@@ -91,7 +98,8 @@ class CASANet(nn.Module):
             auxiliary = dict(auxiliary or {})
             merged = list(auxiliary.get("edge_logits") or ())
             auxiliary["edge_logits"] = tuple(list(tar_edges) + merged)
-        detail = self.detail(torch.cat((features_a[0], features_b[0]), 1)) if self.detail is not None else None
+        detail = (self.detail(torch.cat((stem_a, stem_b), 1))
+                  if self.detail is not None else None)
         return self.decoder.forward_pyramid(enhanced), auxiliary, detail
 
     @staticmethod

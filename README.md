@@ -131,6 +131,33 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
+## 换骨干：CASA-MinorGoal / Run9：VMamba-Tiny 与 ViT-B/16 四层
+
+前八轮都在 MobileNetV2 上做模块增减，无法回答"这些模块是不是只在浅层 CNN 特征上成立"。Run9 只换骨干，其它开关不动：**VMamba-Tiny**（`dims=(96,192,384,768)`、`depths=(2,2,5,2)`，29.94 M，ImageNet 预训练）与 **ViT-B/16 只取前 4 块**（`vit_base_patch16_224.augreg_in21k_ft_in1k`，前向 ≈30.9 M，位置编码 197→257 bicubic 重采样）。每个骨干做冻结/解冻 × 四臂（`CTRL` / `TAR_ONLY`=cd2 / `HRA_ONLY`=manifold 检索 / `TAR_HRA`）× SYSU/LEVIR，共 32 项；协议 `casa_minor_run9_backbone_v1`，bs16、20k step、seed 2334、val 选模、阈 0.5，两张 5090 各两槽。冻结臂只训桥、解码器与头（**0.212–0.581 M**），总参数 30.15–30.88 M。
+
+**块内配对 Δ（对同 (backbone, freeze) 的 `CTRL`，门限 0.36/0.36/0.47，噪声 0.32 pp）**
+
+| 块 | 库 | `CTRL` | `TAR_ONLY` | `HRA_ONLY` | `TAR_HRA` |
+|---|---|---:|---:|---:|---:|
+| VMamba 冻结 | SYSU | 79.03 | 78.65 (−0.38) | **74.78 (−4.24)** | 78.92 (−0.11) |
+| VMamba 解冻 | SYSU | 81.00 | 81.21 (+0.21) | **82.31 (+1.31)** | 80.57 (−0.43) |
+| ViT-B 冻结 | SYSU | **82.52** | 81.91 (−0.62) | 79.40 (−3.12) | 82.49 (−0.04) |
+| ViT-B 解冻 | SYSU | 78.37 | 78.89 (+0.52) | 77.71 (−0.66) | 78.72 (+0.35) |
+| VMamba 冻结 | LEVIR | 81.43 | 81.63 (+0.20) | **63.18 (−18.25)** | 81.66 (+0.23) |
+| VMamba 解冻 | LEVIR | **90.70** | 89.99 (−0.71) | 90.43 (−0.27) | 90.67 (−0.03) |
+| ViT-B 冻结 | LEVIR | 85.44 | 85.97 (+0.53) | **75.06 (−10.38)** | 86.21 (+0.77) |
+| ViT-B 解冻 | LEVIR | 86.04 | 86.64 (+0.60) | 86.21 (+0.17) | **86.83 (+0.79)** |
+
+三条结论：
+
+1. **检索模块依赖骨干更新，不能冻结着用。** `HRA_ONLY` 在四个冻结块上全部塌方：SYSU −3.12/−4.24、LEVIR −10.38/−18.25 pp。原因是它的 KV 是"变化证据原型"：骨干不随任务更新时，原型与查询来自同一套未适配特征，写回等于往主干加噪声；同一模块在 VMamba 解冻块是 SYSU **+1.31**（唯一过门），LEVIR 也只 −0.27。Run3 的 `ARM_C` 在 MobileNet 上 +1.10，前提同样是骨干在训。
+2. **冻结本身的代价比模块之间的差大一个量级。** 同为 `CTRL`，VMamba 冻结→解冻在 SYSU 是 79.03→81.00（+1.97）、在 LEVIR 是 81.43→**90.70**（+9.27）。所以"冻结骨干省算力"在这套四尺度检索结构上不成立：冻结臂的绝对精度离可用线太远，横向比较只能在块内做。
+3. **ViT-B 全参微调在 SYSU 上掉 4.15 pp**（82.52→78.37）：SYSU-CD 训练集只有 8 对，5e-4 全参更新把 ImageNet 特征带跑偏；LEVIR 上反而 +0.60（85.44→86.04）。于是两个库的最优骨干不同——SYSU 是 ViT-B 冻结（82.52，全矩阵最高），LEVIR 是 VMamba 解冻（90.70）。cd2 桥（`TAR_ONLY`）在 16 个块×库单元里最大只到 +0.60 pp（ViT-B 解冻/LEVIR），叠加臂最大 +0.79，与 MobileNet 上的 +0.6 同量级，**没有**因为换骨干而变成主要因素；`TAR_HRA` 在 VMamba 上还比 `HRA_ONLY` 低 1.74（SYSU），两模块互相拆台。
+
+**工程口径**：折叠容差按骨干分档（MobileNet 2e-4 / ViT 2e-3 / VMamba 2e-2，预训练 logits 5–10 会把 FP32 折 BN 的舍入放大到 1e-2 量级），16 臂实测 maxdiff 最大 1.094e-02、二值差 ≤58 px（未训练头在 0.5 附近抖动）。收尾阶段修掉一个真 bug：`evaluate_auxiliary` 里 `encoder(...)[1:]` 把 `(stem, features)` 切成 list，导致 16 臂跑完 20k step 后全部崩在收尾；并口实测峰值 cd2+manifold ≈15 GiB、cd2 ≈12 GiB、轻臂 ≈6 GiB，一卡只能两条。
+
+产物：`outputs/CASA-MinorGoal/Run9/{comparison.md, comparison.json, arm_params.txt}`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run9.txt`（46 个代码文件 + 428 行指标）、`docs/experiment_metrics.xlsx`（428 行）。
+
 ## 大小目标解耦：CASA-MinorGoal / Run8：CD²-TAR
 
 Run7 之后的两处判断：桥的增益来自"判别边界"而非"小目标证据"，检索的增益只在召回。Run8 把 TAR 改成两步解耦的桥（CD²-TAR，Change-Decouple → Dimension-Decouple），检索侧用流形上压缩原型（Run7 已引入）。四臂同 seed、同调度、val 选模、阈定 0.5：

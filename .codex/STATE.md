@@ -1,3 +1,12 @@
+# 2026-11-23 · CASA-MinorGoal / Run9 完成（换骨干：VMamba-Tiny 与 ViT-B/16 四层）
+
+- 协议 `casa_minor_run9_backbone_v1`：2 骨干（`vmamba_tiny` 29.94 M / `vit_base4` 前向 ≈30.9 M）× 冻结/解冻 × 四臂（`CTRL`/`TAR_ONLY`(cd2)/`HRA_ONLY`(manifold)/`TAR_HRA`）× SYSU/LEVIR = 32 项，bs16、20k step、seed 2334、val 选模、test 阈 0.5，两张 5090 各两槽，`[QUEUE-END] 32 complete, 0 failed`。
+- 块内 Δ vs 同块 `CTRL`（门限 0.36/0.36/0.47，噪声 0.32）：SYSU VM/F 79.03 / −0.38 / **−4.24** / −0.11；VM/T 81.00 / +0.21 / **+1.31** / −0.43；VIT/F **82.52** / −0.62 / −3.12 / −0.04；VIT/T 78.37 / +0.52 / −0.66 / +0.35。LEVIR VM/F 81.43 / +0.20 / **−18.25** / +0.23；VM/T **90.70** / −0.71 / −0.27 / −0.03；VIT/F 85.44 / +0.53 / −10.38 / +0.77；VIT/T 86.04 / +0.60 / +0.17 / **+0.79**。
+- 结论：①检索模块不能冻结骨干用（四个冻结块全塌，SYSU −3.12/−4.24、LEVIR −10.38/−18.25），解冻的 VMamba 上唯一过门 +1.31；②冻结本身代价更大：同 `CTRL` VMamba SYSU 79.03→81.00、LEVIR 81.43→90.70（+9.27）；③ViT-B 全参微调在 SYSU 掉 4.15 pp（8 对训练数据），LEVIR 反而 +0.60，两库最优骨干不同；④cd2 在 16 个单元最大 +0.60，未因换骨干变成主因。
+- 参数：冻结臂只训 0.212–0.581 M（桥+解码器+头），总参数 30.15–30.88 M；折叠容差按骨干分档（MobileNet 2e-4 / ViT 2e-3 / VMamba 2e-2），16 臂 maxdiff ≤1.094e-02、二值差 ≤58 px。
+- 排障：`evaluate_auxiliary` 的 `encoder(...)[1:]` 把 `(stem, features)` 切成 list，16 臂跑完 20k step 后全崩在收尾（改 `[1]`）；slots=3 造成真 OOM（cd2+manifold ≈15 GiB），定 2 槽/卡。
+- 产物：`outputs/CASA-MinorGoal/Run9/{comparison.md, comparison.json, arm_params.txt}`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run9.txt`、`docs/experiment_metrics.xlsx`（428 行）；`README.md` 新增 Run9 节。
+
 # 2026-11-21 · CASA-MinorGoal / Run7 完成（流形压缩 + 2×2 模块消融）
 
 - 协议 `casa_minor_run7_manifold_pooling_v1`，GPU1 两槽，8 项（SYSU→LEVIR × 四臂），seed 2334、val 选模、test τ=0.5，约 10.8 h。

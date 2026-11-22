@@ -16,7 +16,8 @@ def main():
         model=CASANet(module=variant).eval()
         count=sum(p.numel() for p in model.parameters())
         with torch.no_grad():
-            encoded=model.encoder(a)[1:]
+            stem, encoded = model.encoder(a)
+            assert tuple(stem.shape[1:]) == (model.encoder.stem_channels, 128, 128)
             assert [tuple(x.shape[1:]) for x in encoded]==[(24,64,64),(32,32,32),(96,16,16),(320,8,8)]
             logits,aux=model(a,b,return_aux=True)
             outputs=model(a,b)
