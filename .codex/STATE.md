@@ -18,6 +18,14 @@
 
 更新：2026-11-19。
 
+## 2026-11-22 · CASA-MinorGoal / Run8（CD²-TAR）已完成并收集
+
+- 协议 `casa_minor_run8_cd2_v1`，四臂（`CTRL` / `TAR_ONLY`(cd2) / `HRA_ONLY`(manifold+diff+lorentz) / `TAR_HRA`(manifold+cd2)），SYSU → LEVIR，seed 2334，val 选模、test 阈 0.5，GPU1 两槽，8/8 完成。
+- 结果：SYSU 81.41 / 82.06 (+0.64) / 81.85 (+0.44) / 82.15 (+0.74)；LEVIR 90.84 / 91.02 / 90.73 / 91.04（三条 LEVIR 差都在 0.32 噪声内）。
+- 小目标分层（GT 变化面积 <1k px）：SYSU F1 0.332 → 0.389（精度 0.29→0.39、召回不动）；LEVIR 召回 0.574 → 0.610。两库机制不同。
+- 排障：`models/train_CASA.py:426` 的 manifold 守卫漏了 `cd2`，导致两条 `TAR_HRA` 首启 exit=1；已修并 PUT 到 runtime 后 `--resume` 完成。
+- 产物：`docs/experiment_metrics.xlsx` 396 行（MinorGoal 59，Run8 8 行）、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run8/`（pptx + txt 快照）、`outputs/CASA-MinorGoal/Run8/{comparison.md,area_strata.json}`；`README.md` 新增 Run8 小节。
+
 ## CASA-MinorGoal / Run3 归因跑 已完成并收集
 
 2026-11-18 22:5x 完成 4/4（`status=complete`、`failed=[]`），运行根 `/home/yqwang/outputs/CASA-CD/CASA-MinorGoal/Run3`，协议 `casa_minor_run3_attribution_v1`，仅物理 GPU1 两槽，四项全部验证集选模（`selection_split=val`、`independent_test=true`）、阈值 0.5。

@@ -131,6 +131,32 @@ Run15 判定了几何，这一轮判定另外两个结构：TAR 的学习式时�
 
 [实验矩阵与结果](train_scripts/CASA-Pyramid/Run16/README.md) · 逐项结果见 [指标表](docs/experiment_metrics.xlsx) 与 [TXT 快照](docs/temporary/models_and_metrics_CASA-Pyramid_Run16.txt)。
 
+## 大小目标解耦：CASA-MinorGoal / Run8：CD²-TAR
+
+Run7 之后的两处判断：桥的增益来自"判别边界"而非"小目标证据"，检索的增益只在召回。Run8 把 TAR 改成两步解耦的桥（CD²-TAR，Change-Decouple → Dimension-Decouple），检索侧用流形上压缩原型（Run7 已引入）。四臂同 seed、同调度、val 选模、阈定 0.5：
+
+| 臂 | TAR 桥 | 流形检索 | SYSU F1 | Δ vs CTRL | LEVIR F1 | Δ vs CTRL |
+|---|---|---|---:|---:|---:|---:|
+| `CTRL` | reparam | — | 81.41 | — | 90.84 | — |
+| `TAR_ONLY` | **CD²（cd2）** | — | **82.06** | **+0.64** | **91.02** | +0.19 |
+| `HRA_ONLY` | reparam | manifold | 81.85 | +0.44 | 90.73 | −0.10 |
+| `TAR_HRA` | **CD²** | manifold | **82.15** | **+0.74** | **91.04** | +0.20 |
+
+判定（噪声 0.32 pp）：SYSU 上 CD² 桥 +0.64、检索 +0.44、叠加 +0.74，三条全过门；LEVIR 上三项都在噪声内。叠加并不等于两项相加（0.64+0.44=1.08 > 0.74），说明两个模块在 SYSU 上争用同一批边界像素。
+
+**按 GT 变化面积分层（test，Run8，`<1k px` = 小目标尺度）**
+
+| 库 | 臂 | <1k px 的 P / R / F1 | 1k–9k px F1 | >9k px F1 |
+|---|---|---|---:|---:|
+| SYSU | `CTRL` | 0.29 / 0.388 / 0.332 | 0.638 | 0.843 |
+| SYSU | `TAR_HRA` | 0.39 / 0.387 / **0.389** | 0.645 | 0.849 |
+| LEVIR | `CTRL` | — / 0.574 / 0.597 | 0.889 | 0.921 |
+| LEVIR | `TAR_HRA` | — / **0.610** / **0.641** | 0.889 | 0.923 |
+
+小目标那一档的召回基本不动（SYSU 0.388→0.387），但 F1 从 0.332 抬到 0.389，全部来自精度（0.29→0.39）；LEVIR 小目标档是召回抬（0.574→0.610）。所以 CD² 在 SYSU 上把"小变化误报"压下去，在 LEVIR 上把"小变化漏检"补回来——两库机制不同，不是同一个旋钮。
+
+产物：`outputs/CASA-MinorGoal/Run8/{comparison.md, area_strata.json}`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run8/`（代码 + 指标快照）、`docs/experiment_metrics.xlsx`（396 行）。
+
 ## 双曲压缩与 2×2 模块消融（含池化轴补跑）：CASA-MinorGoal / Run7
 
 Run6 之后两个模块都还在，但原型压缩仍是在切空间做加权平均、再映射回双曲面。Run7 把这一步搬到流形上（`--prototype-pooling lorentz`：`K = L(Σw·x)` 的加权 Klein 重心，严格落在双曲面上），并删掉 TAR 里"差异特征 → 共有特征"之间的可学习标量 `β`（差分以单位权重进入融合）。两处都是零参数增量：流形池化是纯几何操作，删 `β` 让每个 `cg` 臂各少 4 个参数。
