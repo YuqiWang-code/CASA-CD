@@ -146,9 +146,15 @@ def steps_for(arm):
     return MAX_STEPS
 
 
+# The 16 below was chosen for VMamba's 26.8 GiB at batch 32, not for accuracy.
+# MINOR_BATCH lets the matrix be retrained at 32 without editing the suite, which
+# is what a re-run of this protocol means; reservations must be re-measured at
+# whatever batch is used (see the note above DEFAULT_RESERVATIONS).
+BATCH_SIZE = int(os.environ.get("MINOR_BATCH", "16"))
+
+
 def batch_for(arm):
-    """ViT-B carries 4 blocks of 16x16 tokens at embed 768; keep the batch smaller."""
-    return 16
+    return BATCH_SIZE
 
 
 def model_options(arm):
