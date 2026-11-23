@@ -94,11 +94,83 @@ def report(root):
     return runs
 
 
+def shuffle_parents(model, seed=20261123):
+    """Replace every query's ancestor-and-neighbour set with an unrelated one.
+
+    The pruning budget is preserved row by row -- each query keeps exactly as many
+    candidates as the tree gave it -- but the rows are permuted, so the candidate
+    sets are structurally valid yet semantically wrong.  If F1 does not move, the
+    tree is decoration.
+    """
+    import torch
+
+    hierarchy = model.context.hierarchy
+    keep = hierarchy.keep_mask
+    generator = torch.Generator().manual_seed(seed)
+    order = torch.randperm(keep.shape[0], generator=generator).to(keep.device)
+    hierarchy.keep_mask = keep[order]
+    return order
+
+
+def evaluate_split(model, dataset_root, split, batch_size, device):
+    from train_CASA import evaluate, make_loader
+
+    loader = make_loader(dataset_root, split, batch_size, 2)
+    model.eval()
+    with __import__("torch").no_grad():
+        _, score = evaluate(model, loader, device)
+    return float(score["F1"])
+
+
+def run_shuffle(args):
+    import sys
+
+    import torch
+
+    sys.path.insert(0, str(Path(args.models_dir).resolve()))
+    from model.casa_net import CASANet
+
+    checkpoint = torch.load(Path(args.checkpoint).parent / "checkpoint.pth", map_location="cpu")
+    manifest = checkpoint.get("manifest", {})
+    model = CASANet(None, module=manifest.get("module", args.module),
+                    context_seed=manifest.get("context_seed", 0),
+                    tar_variant=manifest.get("tar_variant", "reparam"),
+                    decoder_variant=manifest.get("decoder_variant", "reparam"),
+                    backbone=manifest.get("backbone", "mobilenet_v2"),
+                    prototype_tree=args.tree, entailment_weight=args.entailment,
+                    prototype_pooling=args.prototype_pooling).to(args.device)
+    state = torch.load(args.checkpoint, map_location="cpu")
+    model.load_state_dict(state)
+    before = evaluate_split(model, args.dataset_root, args.split, args.batch_size, args.device)
+    shuffle_parents(model)
+    after = evaluate_split(model, args.dataset_root, args.split, args.batch_size, args.device)
+    print(f"[SHUFFLE] {Path(args.checkpoint).parent.parent.name}: "
+          f"tree F1={before:.4f}  shuffled F1={after:.4f}  drop={before - after:+.4f} pp")
+    return before - after
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="outputs/CASA-MinorGoal/Run10")
     parser.add_argument("--markdown", default="outputs/CASA-MinorGoal/Run10/probes.md")
+    parser.add_argument("--shuffle", action="store_true",
+                        help="also measure the F1 drop with the tree's candidate sets permuted")
+    parser.add_argument("--checkpoint", default=None)
+    parser.add_argument("--models-dir", default="models")
+    parser.add_argument("--dataset-root", default=None)
+    parser.add_argument("--module", default="hyperbolic")
+    parser.add_argument("--tree", action="store_true")
+    parser.add_argument("--entailment", type=float, default=0.05)
+    parser.add_argument("--prototype-pooling", default="euclidean")
+    parser.add_argument("--split", default="val")
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
+    if args.shuffle:
+        if not (args.checkpoint and args.dataset_root):
+            parser.error("--shuffle needs --checkpoint and --dataset-root")
+        run_shuffle(args)
+        return
     rows = report(args.root)
     if not rows:
         raise SystemExit(f"no [MODULE-DIAG] lines under {args.root}")
