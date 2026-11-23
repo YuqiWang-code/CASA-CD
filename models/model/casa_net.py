@@ -20,7 +20,7 @@ class CASANet(nn.Module):
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
                  edge_detach="retrieval", aggregate_mode="lorentz",
                  prototype_pooling="euclidean", backbone="mobilenet_v2",
-                 freeze_backbone=False):
+                 freeze_backbone=False, prototype_tree="none", entailment_weight=0.0):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
@@ -54,6 +54,8 @@ class CASANet(nn.Module):
                 options["edge_supervision"] = bool(edge_supervision)
                 options["edge_detach"] = edge_detach
                 options["prototype_pooling"] = prototype_pooling
+                options["prototype_tree"] = prototype_tree
+                options["entailment_weight"] = entailment_weight
                 if context_type is ManifoldContext:
                     options["aggregate_mode"] = aggregate_mode
             if module in ("hyperbolic", "matched", "difference"):

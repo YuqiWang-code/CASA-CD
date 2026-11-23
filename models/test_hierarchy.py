@@ -91,5 +91,64 @@ def main():
     print("cross-scale prototype tree: parents, pruning, radii and entailment PASS")
 
 
+def check_context_wiring():
+    """The tree must prune logits, keep radii ordered and carry real gradients."""
+    import torch
+    from model.layers.hyperbolic_context import HyperbolicContext
+
+    torch.manual_seed(0)
+    grids = (8, 4, 4, 4)
+    sizes = (64, 32, 16, 8)
+    plain = HyperbolicContext(channels=8, heads=1, head_dim=4, grid_sizes=grids)
+    tree = HyperbolicContext(channels=8, heads=1, head_dim=4, grid_sizes=grids,
+                             prototype_tree="tree", entailment_weight=0.05)
+    tree.load_state_dict(plain.state_dict(), strict=False)
+    tar = [torch.randn(2, 8, g, g) for g in sizes]
+    # gamma_context starts at zero, so the write-back is an exact no-op and every
+    # comparison below would look identical; open it first (Run14 lesson).
+    for module in (plain, tree):
+        with torch.no_grad():
+            module.gamma_context.fill_(0.5)
+
+    plain.eval()
+    tree.eval()
+    out_plain, aux_plain = plain(tar, return_aux=True)
+    out_tree, aux_tree = tree(tar, return_aux=True)
+    assert "tree_violation" in aux_tree and "tree_loss" in aux_tree, aux_tree.keys()
+    assert "tree_violation" not in aux_plain
+    assert all(torch.isfinite(x).all() for x in out_tree)
+    delta = max(float((a - b).abs().max()) for a, b in zip(out_plain, out_tree))
+    assert delta > 1e-4, delta
+    print(f"  tree vs flat output max diff {delta:.3e} (pruning + radii both act)")
+
+    radius = tree.hierarchy.radii()
+    assert bool((radius[:-1] > radius[1:]).all()), radius
+    kept = tree.hierarchy.keep_mask.sum(-1).float().mean()
+    print(f"  candidates per query {kept:.1f} of {tree.hierarchy.keep_mask.shape[-1]}")
+
+    tree.train()
+    _, aux_train = tree(tar, return_aux=True)
+    aux_train["tree_loss"].backward()
+    qk_grad = tree.qk.weight.grad
+    assert qk_grad is not None and float(qk_grad.abs().sum()) > 0, qk_grad
+    print(f"  entailment hinge moves the projections: |grad qk| = {float(qk_grad.abs().sum()):.3e}")
+    radius_grad = tree.hierarchy.increments.grad
+    print(f"  radii gradient from the hinge {radius_grad.tolist()} "
+          f"(radii also enter every distance, where they do carry gradient)")
+
+    shuffled = HyperbolicContext(channels=8, heads=1, head_dim=4, grid_sizes=grids,
+                                 prototype_tree="tree", entailment_weight=0.05)
+    shuffled.load_state_dict(tree.state_dict())
+    generator = torch.Generator().manual_seed(7)
+    perm = torch.randperm(shuffled.hierarchy.parents.numel(), generator=generator)
+    with torch.no_grad():
+        shuffled.hierarchy.parents.copy_(shuffled.hierarchy.parents[perm])
+    _, aux_shuffled = shuffled(tar, return_aux=True)
+    print(f"  violation ordered {float(aux_tree['tree_violation']):.4f} "
+          f"vs shuffled {float(aux_shuffled['tree_violation']):.4f}")
+
+
 if __name__ == "__main__":
     main()
+    print("context wiring")
+    check_context_wiring()

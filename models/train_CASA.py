@@ -122,6 +122,8 @@ def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=No
     total = main + scale * auxiliary
     if edges is not None:
         total = total + edge_weight * edges
+    if "tree_loss" in aux:
+        total = total + aux["tree_loss"]
     return total, main, auxiliary + (0.0 if edges is None else edge_weight * float(edges.detach()))
 
 
@@ -435,6 +437,12 @@ def main():
                         help="pixels by which the GT edge ring is widened before supervision")
     parser.add_argument("--prototype-pooling", choices=("euclidean", "lorentz"), default="euclidean",
                         help="where the class prototypes are averaged: tangent space or on the manifold")
+    parser.add_argument("--prototype-tree", choices=("none", "tree"), default="none",
+                        help="give each scale its own radius and prune retrieval to neighbours "
+                             "plus ancestors (hierarchy probe)")
+    parser.add_argument("--entailment-weight", type=float, default=0.0,
+                        help="weight of the child-inside-parent cone hinge; 0 keeps the tree "
+                             "structure but only reports its violation")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -486,7 +494,9 @@ def main():
                     edge_supervision=args.edge_weight > 0,
                     edge_detach=args.edge_detach,
                     prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate,
-                    backbone=args.backbone, freeze_backbone=args.freeze_backbone).to(device)
+                    backbone=args.backbone, freeze_backbone=args.freeze_backbone,
+                    prototype_tree=args.prototype_tree,
+                    entailment_weight=args.entailment_weight).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -545,6 +555,8 @@ def main():
                     kv_hierarchy=args.kv_hierarchy,
                     freeze_tau=args.freeze_tau,
                     prototype_pooling=args.prototype_pooling,
+                    prototype_tree=args.prototype_tree,
+                    entailment_weight=args.entailment_weight,
                     aggregate=(args.aggregate if args.module == "manifold" else "not_used"),
                     kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
                                if args.module in ("hyperbolic", "matched", "difference", "manifold") else 0),
@@ -586,7 +598,8 @@ def main():
                      "interior_positive_weight", "context_heads", "detail_head", "detail_target",
                      "tar_variant", "decoder_variant",
                      "selection_split", "dataset", "batch_size", "validation_threshold_grid",
-                     "support", "kv_hierarchy", "freeze_tau", "edge_supervision", "prototype_pooling"):
+                     "support", "kv_hierarchy", "freeze_tau", "edge_supervision", "prototype_pooling",
+                     "prototype_tree", "entailment_weight"):
             stored = checkpoint["manifest"].get(name, manifest[name])
             if stored != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")

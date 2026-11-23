@@ -156,8 +156,10 @@ class ScaleHierarchy(nn.Module):
         prototype slot to its scale.  Only child/parent pairs are scored, and at
         most ``sample`` of them per call keeps the term cheap.
         """
-        if points.dim() == 3:
-            points = points.mean(0)
+        if points.dim() > 2:
+            # Batch and head axes are averaged: the hinge is a property of the
+            # prototype layout, not of one sample.
+            points = points.reshape(-1, points.shape[-2], points.shape[-1]).mean(0)
         direction = self.spatial(points)
         parents = self.parents
         child = torch.arange(points.shape[0], device=points.device)

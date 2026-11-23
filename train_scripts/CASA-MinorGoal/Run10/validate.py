@@ -28,18 +28,34 @@ from model.casa_net import CASANet  # noqa: E402
 
 
 def check_matrix():
-    assert len(C.ARMS) * len(C.DATASETS) == len(C.JOBS), (len(C.ARMS), len(C.JOBS))
-    seen = {dataset for _, dataset in C.JOBS}
-    assert seen == set(C.DATASETS), seen
-    for name in C.ARM_ORDER:
+    # Stage A and stage B are separate matrices: A is (recipe, seed) x 3 datasets,
+    # B is (tree arm, seed) x SYSU/LEVIR. Together they must still cover every arm.
+    assert len(C.ARM_ORDER) * len(C.DATASETS) == len(C.JOBS), (len(C.ARM_ORDER), len(C.JOBS))
+    assert (len(C.STAGE_B_ARM_ORDER) * len(C.STAGE_B_DATASETS)
+            == len(C.STAGE_B_JOBS)), (C.STAGE_B_ARM_ORDER, C.STAGE_B_JOBS)
+    assert len(C.ARMS) == len(C.ARM_ORDER) + len(C.STAGE_B_ARM_ORDER)
+    seen = {dataset for _, dataset in C.JOBS} | {dataset for _, dataset in C.STAGE_B_JOBS}
+    assert seen == set(C.DATASETS) | set(C.STAGE_B_DATASETS), seen
+    for name in C.ARM_ORDER + C.STAGE_B_ARM_ORDER:
         spec = C.ARMS[name]
         assert C.BACKBONES[spec["backbone_key"]]["backbone"] == spec["backbone"]
         assert C.FREEZE[spec["freeze_key"]] == spec["freeze"]
-        assert spec["ablation"] in C.RECIPES, spec["ablation"]
-        assert spec["steps"] == C.RECIPES[spec["ablation"]]["steps"], name
-        assert spec["photometric"] == C.RECIPES[spec["ablation"]]["photometric"], name
+        assert spec["steps"] == C.RECIPES[spec["recipe"]]["steps"], name
+        assert spec["photometric"] == C.RECIPES[spec["recipe"]]["photometric"], name
+        if spec["stage"] == "A":
+            assert spec["ablation"] in C.RECIPES, spec["ablation"]
+            assert spec["module"] == "none" and spec.get("tree", "none") == "none", name
+        else:
+            # stage B fixes the carrier and varies the tree only
+            assert spec["ablation"] in C.STAGE_B, spec["ablation"]
+            assert spec["module"] == C.STAGE_B[spec["ablation"]]["module"], name
+            assert spec["tree"] == C.STAGE_B[spec["ablation"]]["tree"], name
+            assert spec["entailment"] == C.STAGE_B[spec["ablation"]]["entailment"], name
+            assert spec["seed"] in C.STAGE_B_SEEDS, name
+            assert spec["recipe"] == "A_CTRL", name
         assert spec["edge_weight"] == 0.0
-        assert spec["seed"] in C.SEEDS, name
+        if spec["stage"] == "A":
+            assert spec["seed"] in C.SEEDS, name
         # a gate may only compare two arms that both exist in this matrix
         gate = C.GATES.get(name)
         if gate:
@@ -52,6 +68,9 @@ def check_matrix():
 
 def check_cli():
     import subprocess
+    if not C.train_script().exists():
+        print(f"[VALIDATE] skip CLI probe: runtime not staged at {C.train_script()}")
+        return
     out = subprocess.run([sys.executable, C.train_script(), "--help"],
                          capture_output=True, text=True, check=True).stdout
     for flag in ("--backbone", "--freeze-backbone", "--tar-variant", "--module",
@@ -184,7 +203,9 @@ def main():
         check_models()
         check_forward_and_fold()
         check_gradients()
-    print("[VALIDATE] Run10 stage-A audit passed")
+    print(f"[VALIDATE] Run10 audit passed: stage A {len(C.JOBS)} jobs "
+          f"({len(C.ARM_ORDER)} arms), stage B {len(C.STAGE_B_JOBS)} jobs "
+          f"({len(C.STAGE_B_ARM_ORDER)} arms)")
 
 
 if __name__ == "__main__":

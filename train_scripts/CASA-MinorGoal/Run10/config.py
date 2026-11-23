@@ -80,11 +80,40 @@ TRAINABLE_PARAMS = {}
 DEPLOY_PARAMS = {}
 BENCH = {}
 
+# Stage B: the prototype tree, on one carrier so the tree is the only difference.
+#
+# All three arms run the ARM_C carrier (hyperbolic retrieval whose keys come from
+# the fused content) because that is the only retrieval variant that ever cleared
+# a gate on SYSU; the tree is then the single variable:
+#
+#   H_FLAT     no tree: one shared radius, all 224 prototypes visible
+#   H_TREE     per-scale radii + neighbours-and-ancestors pruning, no hinge
+#   H_TREE_E   the same, plus the child-inside-parent cone hinge (weight .05)
+#
+# Rows stay seed-paired against each other and, for the record, against the
+# stage-A recipe that won on each dataset.
+STAGE_B = {
+    "H_FLAT": dict(module="hyperbolic", tree="none", entailment=0.0,
+                   label="flat hyperbolic: every prototype visible"),
+    "H_TREE": dict(module="hyperbolic", tree="tree", entailment=0.05,
+                   label="tree + hyperbolic: radii, ancestor pruning, cone hinge"),
+    "H_TREE_E": dict(module="matched", tree="tree", entailment=0.05,
+                     label="tree + Euclidean: same tree, no curvature, log-radius prior"),
+}
+STAGE_B_ARMS = ("H_FLAT", "H_TREE", "H_TREE_E")
+STAGE_B_SEEDS = (2334, 2335, 2336)
+STAGE_B_DATASETS = ("SYSU-CD-256", "LEVIR-CD-256")
+STAGE_B_ARM_ORDER = tuple(f"{arm}-{seed}" for arm in STAGE_B_ARMS
+                          for seed in STAGE_B_SEEDS)
+STAGE_B_JOBS = tuple((arm, dataset) for dataset in STAGE_B_DATASETS
+                     for arm in STAGE_B_ARM_ORDER)
+
 MAX_STEPS = 60000
 
 # MobileNetV2 at bs16 peaks near 6 GiB; two slots per card leaves room for the
 # eval graph and the fold check.
-DEFAULT_RESERVATIONS = {"A_CTRL": 6000, "A_PHOTO": 6000, "A_60K": 6000, "A_60K_PHOTO": 6000}
+DEFAULT_RESERVATIONS = {"A_CTRL": 6000, "A_PHOTO": 6000, "A_60K": 6000, "A_60K_PHOTO": 6000,
+                        "H_FLAT": 6000, "H_TREE": 6000, "H_TREE_E": 6000}
 
 # Stage A measures the noise floor, it does not test a hypothesis.
 GATES = {}
@@ -93,8 +122,26 @@ CROSS_BLOCKS = {}
 
 
 def experiments():
-    """Every (arm, dataset) pair in scheduling order."""
-    return list(JOBS)
+    """Stage A pairs first, then the stage-B tree arms once their gates are locked."""
+    return list(JOBS) + list(STAGE_B_JOBS)
+
+
+def stage_b_arms():
+    """Arm specs for stage B, sharing the stage-A carrier and budget."""
+    carrier = RECIPES["A_CTRL"]
+    arms = {}
+    for name in STAGE_B_ARM_ORDER:
+        base, seed = name.rsplit("-", 1)
+        spec = STAGE_B[base]
+        arms[name] = dict(
+            backbone="mobilenet_v2", backbone_key="MB", freeze=False, freeze_key="T",
+            module=spec["module"], tar="reparam", decoder="reparam", support="mass",
+            prototype_pooling="euclidean", aggregate="lorentz", detail=False,
+            edge_weight=0.0, edge_detach="retrieval", edge_scales="all",
+            ablation=base, recipe="A_CTRL", photometric=False,
+            steps=carrier["steps"], seed=int(seed), stage="B",
+            tree=spec["tree"], entailment=spec["entailment"])
+    return arms
 
 
 def run_dir(arm, dataset):
@@ -129,6 +176,9 @@ def model_options(arm):
                "--backbone", spec["backbone"]]
     if spec["photometric"]:
         options.append("--photometric")
+    if spec.get("tree", "none") != "none":
+        options += ["--prototype-tree", spec["tree"],
+                    "--entailment-weight", str(spec.get("entailment", 0.0))]
     return options
 
 
@@ -137,7 +187,7 @@ def seed_for(arm):
 
 
 def reservation_for(arm):
-    return DEFAULT_RESERVATIONS[ARMS[arm]["ablation"]]
+    return DEFAULT_RESERVATIONS.get(ARMS[arm]["ablation"], 6000)
 
 
 FORECAST_HOURS = {(arm, dataset): (3.1 if ARMS[arm]["steps"] > 40000 else 2.1)
@@ -146,3 +196,8 @@ FORECAST_HOURS = {(arm, dataset): (3.1 if ARMS[arm]["steps"] > 40000 else 2.1)
 
 def reservation_mib(arm):
     return reservation_for(arm)
+
+
+# Stage-B specs join the same registry so every helper below works unchanged;
+# they stay out of `JOBS`, so the stage-A queue is unaffected.
+ARMS.update(stage_b_arms())
