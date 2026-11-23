@@ -17,7 +17,7 @@
 | `A_60K` | 60k poly | 训练日程是否被 Run9 的 20k 压缩拖累 |
 | `A_60K_PHOTO` | 60k poly + `--photometric` | 两者叠加 |
 
-- 数据集 SYSU / LEVIR / WHU，seed 2334 与 2335，共 24 项；val 选模、阈 0.5、bs16。
+- 数据集 SYSU / LEVIR / WHU，seed 2334 与 2335，共 24 项；val 选模、阈 0.5、bs32（与 Run1–Run8 同口径；bs16 只是 Run9 为 VMamba 显存而设，不适用于 2 M 的 MobileNetV2）。
 - `--photometric` 的实现：`models/dataset/casa_transforms.py::RandomPhotometric`，
   p=0.8 触发、brightness ±0.2、contrast ×[0.75,1.25]、gamma e^{±0.2}；以 0.25 概率
   两期共用同一组增益（"整体曝光漂移"必须学成不变），否则两期独立采样。
@@ -47,7 +47,7 @@
 
 - 数据集 SYSU / LEVIR，3 seed（2334–2336），18 项；若 `H_TREE` 过门再补 WHU。
 - 三臂共用载体 `--module hyperbolic/matched --tar-variant reparam`（Run3 的 `ARM_C`，
-  历史上唯一在 SYSU 过门的检索变体），因此「树」是唯一变量；40k step、bs16、val 选模、
+  历史上唯一在 SYSU 过门的检索变体），因此「树」是唯一变量；40k step、bs32、val 选模、
   阈 0.5，与段 A 的 `A_CTRL` 同预算。
 - 剪枝语义：每个查询只看「同尺度 3×3 邻域 + 祖先链 + 本格后代」，224 个候选降到
   平均 11.3（叶 7）；半径由正的增量生成，`r[0] > r[1] > …` 对任意参数都成立。

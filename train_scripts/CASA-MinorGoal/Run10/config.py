@@ -112,8 +112,11 @@ MAX_STEPS = 60000
 
 # MobileNetV2 at bs16 peaks near 6 GiB; two slots per card leaves room for the
 # eval graph and the fold check.
-DEFAULT_RESERVATIONS = {"A_CTRL": 6000, "A_PHOTO": 6000, "A_60K": 6000, "A_60K_PHOTO": 6000,
-                        "H_FLAT": 6000, "H_TREE": 6000, "H_TREE_E": 6000}
+# Measured, not estimated: nvidia-smi reports 9,236 MiB for a batch-32 MobileNetV2
+# arm, so 9,800 is that number plus a 6% margin.  The 6,000 it replaces was a Run9
+# figure for a different backbone, and the 11,000 an earlier guess at this one.
+DEFAULT_RESERVATIONS = {"A_CTRL": 9800, "A_PHOTO": 9800, "A_60K": 9800, "A_60K_PHOTO": 9800,
+                        "H_FLAT": 9800, "H_TREE": 9800, "H_TREE_E": 9800}
 
 # Stage A measures the noise floor, it does not test a hypothesis.
 GATES = {}
@@ -164,8 +167,13 @@ def steps_for(arm):
     return ARMS[arm]["steps"]
 
 
+# Single source of truth: the 2 M MobileNetV2 arms train at the 32 of Run1-Run8;
+# 16 was a Run9 concession to VMamba memory and does not belong here.
+BATCH_SIZE = 32
+
+
 def batch_for(arm):
-    return 16
+    return BATCH_SIZE
 
 
 def model_options(arm):
@@ -187,7 +195,7 @@ def seed_for(arm):
 
 
 def reservation_for(arm):
-    return DEFAULT_RESERVATIONS.get(ARMS[arm]["ablation"], 6000)
+    return DEFAULT_RESERVATIONS.get(ARMS[arm]["ablation"], 9800)
 
 
 FORECAST_HOURS = {(arm, dataset): (3.1 if ARMS[arm]["steps"] > 40000 else 2.1)

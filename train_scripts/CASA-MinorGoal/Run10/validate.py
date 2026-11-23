@@ -83,7 +83,8 @@ def check_cli():
         assert ("--freeze-backbone" in options) == C.ARMS[name]["freeze"]
         assert ("--photometric" in options) == C.ARMS[name]["photometric"], name
         assert C.steps_for(name) == C.ARMS[name]["steps"], name
-        assert C.batch_for(name) == 16, name
+        assert C.batch_for(name) == C.BATCH_SIZE, name
+    assert C.BATCH_SIZE == 32, "stage A/B share the Run1-Run8 batch of 32"
     first = C.ARM_ORDER[0]
     assert C.pretrained_for(first).name == C.pretrained_for(C.ARM_ORDER[-1]).name
     print("[VALIDATE] CLI: backbone, freeze, photometric and step budget reach train_CASA.py")
