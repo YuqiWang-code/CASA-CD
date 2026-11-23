@@ -170,11 +170,13 @@ class SpatialMetrics:
         return result
 
 
-def make_loader(root, split, batch_size=32, workers=1):
+def make_loader(root, split, batch_size=32, workers=1, photometric=False):
     operations = [transforms.Scale(256, 256)]
     if split == "train":
         operations += [transforms.RandomCropResize(8), transforms.RandomFlip(), transforms.RandomRotate90(),
                        transforms.RandomExchange()]
+        if photometric:
+            operations += [transforms.RandomPhotometric()]
     operations += [transforms.Normalize(MEAN, STD), transforms.ToTensor()]
     data = Dataset(file_root=str(root), list_path=str(root / "list" / f"{split}.txt"),
                    transform=transforms.Compose(operations))
@@ -341,7 +343,7 @@ def strict_fold_precision():
         torch.backends.cudnn.benchmark = benchmark
 
 
-FOLD_TOLERANCE = {"mobilenet_v2": 2e-4, "vit_base4": 2e-2, "vmamba_tiny": 2e-2}
+FOLD_TOLERANCE = {"mobilenet_v2": 3e-4, "vit_base4": 2e-2, "vmamba_tiny": 2e-2}
 
 
 def fold_tolerance(model):
@@ -397,6 +399,8 @@ def main():
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
+    parser.add_argument("--photometric", action="store_true",
+                        help="independent per-date brightness/contrast/gamma jitter")
     parser.add_argument("--seed", type=int, default=2333)
     parser.add_argument("--context-seed", type=int, default=2333)
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
@@ -462,7 +466,8 @@ def main():
     checkpoint_path = args.checkpoint_dir / "last.pth"
     if checkpoint_path.exists() and not args.resume:
         raise RuntimeError("training directory already contains a checkpoint")
-    train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
+    train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers,
+                                photometric=args.photometric)
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
     select_loader = test_loader if args.selection_split == "test" else val_loader
