@@ -83,8 +83,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="outputs/CASA-MinorGoal/Run10")
     parser.add_argument("--json", default="outputs/CASA-MinorGoal/Run10/gates.json")
+    parser.add_argument("--datasets", nargs="*", default=None,
+                        help="restrict to these dataset directories, e.g. SYSU-CD-256 "
+                             "so the first wave can be reported before the rest lands")
     args = parser.parse_args()
     scores = collect(Path(args.root))
+    if args.datasets:
+        keep = set(args.datasets)
+        scores = {key: value for key, value in scores.items() if key[1] in keep}
     if not scores:
         raise SystemExit(f"no TEST RESULTS under {args.root}")
     report = analyse(scores)
