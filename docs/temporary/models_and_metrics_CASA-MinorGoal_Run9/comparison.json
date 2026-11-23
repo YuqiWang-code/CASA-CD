@@ -1,0 +1,563 @@
+{
+  "protocol": "casa_minor_run9_backbone_v1",
+  "selection": "val",
+  "seed": 2334,
+  "batch_size": 16,
+  "max_steps": 20000,
+  "rows": [
+    {
+      "arm": "VM_F_CTRL",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 79.028,
+      "best_epoch": 14,
+      "recall": 82.93,
+      "precision": 75.47,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VM_F_TAR_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 78.653,
+      "best_epoch": 22,
+      "recall": 79.43,
+      "precision": 77.89,
+      "versus": "VM_F_CTRL",
+      "reference": 79.028,
+      "delta_pp": -0.375,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_F_HRA_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 74.784,
+      "best_epoch": 24,
+      "recall": 75.14,
+      "precision": 74.43,
+      "versus": "VM_F_CTRL",
+      "reference": 79.028,
+      "delta_pp": -4.244,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_F_TAR_HRA",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 78.917,
+      "best_epoch": 22,
+      "recall": 78.66,
+      "precision": 79.18,
+      "versus": "VM_F_CTRL",
+      "reference": 79.028,
+      "delta_pp": -0.11,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_CTRL",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 80.995,
+      "best_epoch": 9,
+      "recall": 84.51,
+      "precision": 77.76,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VM_T_TAR_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 81.206,
+      "best_epoch": 13,
+      "recall": 78.07,
+      "precision": 84.61,
+      "versus": "VM_T_CTRL",
+      "reference": 80.995,
+      "delta_pp": 0.211,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_HRA_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 82.309,
+      "best_epoch": 9,
+      "recall": 80.86,
+      "precision": 83.82,
+      "versus": "VM_T_CTRL",
+      "reference": 80.995,
+      "delta_pp": 1.314,
+      "verdict": "pass (>= 0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_TAR_HRA",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 80.568,
+      "best_epoch": 9,
+      "recall": 78.31,
+      "precision": 82.96,
+      "versus": "VM_T_CTRL",
+      "reference": 80.995,
+      "delta_pp": -0.427,
+      "verdict": "directional",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_CTRL",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 82.524,
+      "best_epoch": 17,
+      "recall": 80.95,
+      "precision": 84.16,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VIT_F_TAR_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 81.905,
+      "best_epoch": 7,
+      "recall": 80.02,
+      "precision": 83.88,
+      "versus": "VIT_F_CTRL",
+      "reference": 82.524,
+      "delta_pp": -0.619,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_HRA_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 79.404,
+      "best_epoch": 17,
+      "recall": 77.07,
+      "precision": 81.88,
+      "versus": "VIT_F_CTRL",
+      "reference": 82.524,
+      "delta_pp": -3.12,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_TAR_HRA",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 82.487,
+      "best_epoch": 17,
+      "recall": 79.53,
+      "precision": 85.68,
+      "versus": "VIT_F_CTRL",
+      "reference": 82.524,
+      "delta_pp": -0.037,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_CTRL",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 78.372,
+      "best_epoch": 15,
+      "recall": 77.77,
+      "precision": 78.99,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VIT_T_TAR_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 78.894,
+      "best_epoch": 13,
+      "recall": 78.61,
+      "precision": 79.18,
+      "versus": "VIT_T_CTRL",
+      "reference": 78.372,
+      "delta_pp": 0.522,
+      "verdict": "pass (>= 0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_HRA_ONLY",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 77.711,
+      "best_epoch": 8,
+      "recall": 77.55,
+      "precision": 77.87,
+      "versus": "VIT_T_CTRL",
+      "reference": 78.372,
+      "delta_pp": -0.661,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_TAR_HRA",
+      "dataset": "SYSU-CD-256",
+      "dataset_key": "SYSU",
+      "f1": 78.722,
+      "best_epoch": 14,
+      "recall": 77.06,
+      "precision": 80.45,
+      "versus": "VIT_T_CTRL",
+      "reference": 78.372,
+      "delta_pp": 0.35,
+      "verdict": "directional",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_F_CTRL",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 81.43,
+      "best_epoch": 44,
+      "recall": 78.97,
+      "precision": 84.04,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VM_F_TAR_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 81.627,
+      "best_epoch": 42,
+      "recall": 80.13,
+      "precision": 83.19,
+      "versus": "VM_F_CTRL",
+      "reference": 81.43,
+      "delta_pp": 0.197,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_F_HRA_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 63.177,
+      "best_epoch": 39,
+      "recall": 64.72,
+      "precision": 61.7,
+      "versus": "VM_F_CTRL",
+      "reference": 81.43,
+      "delta_pp": -18.253,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_F_TAR_HRA",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 81.661,
+      "best_epoch": 42,
+      "recall": 79.34,
+      "precision": 84.12,
+      "versus": "VM_F_CTRL",
+      "reference": 81.43,
+      "delta_pp": 0.231,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_CTRL",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 90.698,
+      "best_epoch": 43,
+      "recall": 89.34,
+      "precision": 92.09,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VM_T_TAR_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 89.987,
+      "best_epoch": 37,
+      "recall": 88.71,
+      "precision": 91.3,
+      "versus": "VM_T_CTRL",
+      "reference": 90.698,
+      "delta_pp": -0.711,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_HRA_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 90.431,
+      "best_epoch": 38,
+      "recall": 89.6,
+      "precision": 91.28,
+      "versus": "VM_T_CTRL",
+      "reference": 90.698,
+      "delta_pp": -0.267,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VM_T_TAR_HRA",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 90.668,
+      "best_epoch": 42,
+      "recall": 90.05,
+      "precision": 91.29,
+      "versus": "VM_T_CTRL",
+      "reference": 90.698,
+      "delta_pp": -0.03,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_CTRL",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 85.438,
+      "best_epoch": 41,
+      "recall": 84.71,
+      "precision": 86.18,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VIT_F_TAR_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 85.969,
+      "best_epoch": 42,
+      "recall": 85.37,
+      "precision": 86.58,
+      "versus": "VIT_F_CTRL",
+      "reference": 85.438,
+      "delta_pp": 0.531,
+      "verdict": "pass (>= 0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_HRA_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 75.058,
+      "best_epoch": 41,
+      "recall": 75.49,
+      "precision": 74.64,
+      "versus": "VIT_F_CTRL",
+      "reference": 85.438,
+      "delta_pp": -10.381,
+      "verdict": "worse (<= -0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_F_TAR_HRA",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 86.206,
+      "best_epoch": 42,
+      "recall": 85.67,
+      "precision": 86.74,
+      "versus": "VIT_F_CTRL",
+      "reference": 85.438,
+      "delta_pp": 0.768,
+      "verdict": "pass (>= 0.47)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_CTRL",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 86.038,
+      "best_epoch": 44,
+      "recall": 85.12,
+      "precision": 86.98,
+      "versus": null,
+      "reference": null,
+      "delta_pp": null,
+      "verdict": "baseline",
+      "gate": null
+    },
+    {
+      "arm": "VIT_T_TAR_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 86.638,
+      "best_epoch": 44,
+      "recall": 85.38,
+      "precision": 87.93,
+      "versus": "VIT_T_CTRL",
+      "reference": 86.038,
+      "delta_pp": 0.6,
+      "verdict": "pass (>= 0.36)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "CD2 bridge inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_HRA_ONLY",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 86.211,
+      "best_epoch": 44,
+      "recall": 85.26,
+      "precision": 87.18,
+      "versus": "VIT_T_CTRL",
+      "reference": 86.038,
+      "delta_pp": 0.173,
+      "verdict": "inside noise (0.32)",
+      "gate": {
+        "minimum": 0.36,
+        "noise": 0.32,
+        "note": "manifold retrieval inside this backbone block"
+      }
+    },
+    {
+      "arm": "VIT_T_TAR_HRA",
+      "dataset": "LEVIR-CD-256",
+      "dataset_key": "LEVIR",
+      "f1": 86.827,
+      "best_epoch": 44,
+      "recall": 86.03,
+      "precision": 87.63,
+      "versus": "VIT_T_CTRL",
+      "reference": 86.038,
+      "delta_pp": 0.788,
+      "verdict": "pass (>= 0.47)",
+      "gate": {
+        "minimum": 0.47,
+        "noise": 0.32,
+        "note": "both modules inside this backbone block"
+      }
+    }
+  ],
+  "summary": {
+    "SYSU": {
+      "n": 12,
+      "mean_pp": -0.6
+    },
+    "LEVIR": {
+      "n": 12,
+      "mean_pp": -2.196
+    }
+  }
+}
