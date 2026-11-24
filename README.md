@@ -2,6 +2,8 @@
 
 普通RGB双时相影像的全监督遥感二值变化检测。**当前主线是 CASA-MinorGoal / Run2**：TAR 加多尺度差分池化（`--tar-variant spp`）、检索的 KV 换成 `|P−Q|` 类条件原型（`--module difference`）。几何与压缩的对照线归档在 **CASA-Pyramid / Run12–Run16**，正向基线 **Run4 完整保留**。
 
+**当前代码口径是 Run7**（`models/` 已回退到 `casa_minor_run7_manifold_pooling_v1`）：Run8 的 CD²-TAR、Run9 的 VMamba/ViT 换骨干、Run10 的层次原型都已移出 `models/`，只留在 git 历史、`train_scripts/` 与下文对应章节里备查，本树下不可直接复跑。
+
 三 seed 配对结果（WHU/SYSU，验证集选模）：差分 KV 相对 CTRL **+0.679 / +0.750 pp**（t-LCB +0.460 / +0.474），是唯一在双库显著的效果；多尺度窗口本身不承载收益（`spp1` 单 1×1 与 `diff` 无 SPP 都在噪声内）。双曲几何无稳定精度收益：Run14 十二对配对均值 −0.167 pp。检索结构始终是完整 Q（5,440 个位置）+ 压缩 KV（224 个类条件原型），[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 
 ## 项目定位与固定研究原则
