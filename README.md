@@ -243,7 +243,7 @@ LEVIR 侧补一条同配置（四级监督 + 切断回写 + Lorentz 重心）：
 
 ## 版本消融：CASA-Pyramid / Run15：三个历史版本的同口径复现
 
-把 Run1（Poincaré 球 + `qkv` 臂）、Run4（直接 Lorentz + `qkv` 臂）、Run10（后验压缩 + `matched` 欧氏双胞胎）三个版本的源码落到 `models_Run1/`、`models_Run4/`、`models_Run10/`（`SOURCE.md` 记来源与 sha256），统一在 WHU/SYSU 上按**验证集选模**各跑一遍控制臂与几何臂，共 20 项，2026-11-15 13:59 完成，无失败（中途一次显存 OOM 已提预留后重跑）。
+把 Run1（Poincaré 球 + `qkv` 臂）、Run4（直接 Lorentz + `qkv` 臂）、Run10（后验压缩 + `matched` 欧氏双胞胎）三个版本的源码落到 `models_Run1/`、`models_Run4/`、`models_Run10/`（`SOURCE.md` 记来源与 sha256；这三棵树已于 2026-11-24 删除，代码可从 git 历史 `a3e839d` 取回），统一在 WHU/SYSU 上按**验证集选模**各跑一遍控制臂与几何臂，共 20 项，2026-11-15 13:59 完成，无失败（中途一次显存 OOM 已提预留后重跑）。
 
 | 版本 | 臂 | WHU F1（%） | Δ（pp） | SYSU F1（%） | Δ（pp） |
 |---|---|---:|---:|---:|---:|

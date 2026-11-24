@@ -3,7 +3,7 @@
 项目定位与研究原则见 `README.md`。当前任务和服务器状态见 `.codex/STATE.md`，服务器操作见 `.codex/SERVER.md`。
 
 - 面向普通 RGB、全监督遥感二值变化检测，在 LEVIR、SYSU、WHU、CDD 上比较准确率与推理、可学习参数开销。模块设计须对应可验证的问题，保持完整 Q、压缩 KV，优先简洁且收益可归因的结构。
-- 当前主线是 CASA-MinorGoal（`--tar-variant spp` + `--module difference`）。`models/` 只放当前工作树；历史版本树在 `models_Run1/`、`models_Run4/`、`models_Run10/`，MoE 探索线在 `models_v1/`。改模型前先确认属于哪一条线、哪一轮，运行中的源码不直接覆盖。
+- 当前主线是 CASA-MinorGoal（`--tar-variant spp` + `--module difference`）。`models/` 只放当前工作树（2026-11-24 起口径是 Run7）；`models_Run1/`、`models_Run4/`、`models_Run10/` 三棵历史版本树已删除，需要时从 git 历史（删除前最后提交 `a3e839d`）取回；MoE 探索线在 `models_v1/`。改模型前先确认属于哪一条线、哪一轮，运行中的源码不直接覆盖。
 - 每个新臂必须同时给出：训练/部署参数、部署折叠一致性（≤2e-4）、no-op 守卫（改动后的输出必须与对照不同）、被替换层梯度非零，以及 test 侧的 per-image TP/FP/FN。缺任一项不算跑过。
 - 选模口径由 `--selection-split {test,val}` 决定，manifest 记 `selection_split` / `independent_test`。test 选模的结果必须写明"test 参与选模"，不得称独立盲测；跨轮比较只用同一口径，不同口径只作参考。
 - 使用本项目 `tools/` 处理日志下载、指标汇表和源码快照。正式指标只取完整 `TEST RESULTS` 区块；保留全部历史记录，直接比较已有单元格。中断留下的 `.dup-*` 目录没有 TEST 块，汇表时会跳过，不要手工补行。
