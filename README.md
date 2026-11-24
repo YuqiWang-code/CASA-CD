@@ -1,8 +1,8 @@
 # CASA-CD
 
-普通RGB双时相影像的全监督遥感二值变化检测。**当前主线是 CASA-MinorGoal / Run7**（协议 `casa_minor_run7_manifold_pooling_v1`）：TAR 用 `--tar-variant cg` 的门控融合（单路内容 + 曝光归一后的符号差分 + σ 门，去掉学习式 β），检索用 `--module manifold`（差分原型 KV、独立支撑头与 level 通路）。几何与压缩的对照线归档在 **CASA-Pyramid / Run12–Run16**；Run4 的读数保留在指标表（`Run=Run4`），源码树已随 2026-11-24 的清理删除，可从 git 历史取回。
+普通RGB双时相影像的全监督遥感二值变化检测。**当前主线是 CASA-MinorGoal / Run10 的精简主干**（协议 `casa_minor_run10_lean_v1`）：TAR 用 `--tar-variant cg` 的竞争门（`g=σ(1×1(pos−neg))`、`g·content+(1−g)·delta`、两路逐像素归一、门零初始化、对比核随尺度 3/5/7/7），检索用 `--module manifold`（差分原型 KV、独立支撑头、`mean_gate` 可学习中心化、可选 `--retrieval-scales`/`--compact-prototypes`/`--support confidence`），DCR 的主输出提到 128²（`FineRefine` 与编码器 stem 融合）并把深监督权重改成 `1/.5/.25/.125`。几何与压缩的对照线归档在 **CASA-Pyramid / Run12–Run16**；Run4 的读数保留在指标表（`Run=Run4`），源码树已随 2026-11-24 的清理删除，可从 git 历史取回。
 
-**代码口径与 Run7 一致**：Run8 的 CD²-TAR、Run9 的 VMamba/ViT 换骨干、Run10 的层次原型都已移出 `models/`，只留在 git 历史、`train_scripts/` 与下文对应章节里备查，本树下不可直接复跑。
+**代码口径与 Run10 一致**：Run8 的 CD²-TAR、Run9 的 VMamba/ViT 换骨干、Run10 之前的双曲层次原型都已移出 `models/`，只留在 git 历史、`train_scripts/` 与下文对应章节里备查。Run7 的读数（SYSU `TAR_HRA` 83.02）是旧主干，与 Run10 同轮对照不同口径。
 
 三 seed 配对结果（WHU/SYSU，验证集选模）：差分 KV 相对 CTRL **+0.679 / +0.750 pp**（t-LCB +0.460 / +0.474），是唯一在双库显著的效果；多尺度窗口本身不承载收益（`spp1` 单 1×1 与 `diff` 无 SPP 都在噪声内）。双曲几何无稳定精度收益：Run14 十二对配对均值 −0.167 pp。检索结构始终是完整 Q（5,440 个位置）+ 压缩 KV（224 个类条件原型），[设计与公式](models/HYPERBOLIC_DESIGN.md)。
 

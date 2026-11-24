@@ -1,3 +1,12 @@
+# 2026-11-24 · CASA-MinorGoal / Run10 起跑（精简主干：128² 主输出 + 竞争门 + 三档检索减法）
+
+- 用户 m10638 逐条批准 TAR/HRA/DCR 三组改动后重建 Run10（旧 Run10 全部删除），协议 `casa_minor_run10_lean_v1`，`train_scripts/CASA-MinorGoal/Run10/`。
+- 主干改动：主输出 64²→**128²**（`casa_net.FineRefine` 用编码器 stem 32ch 融合，末层零初始化 ⇒ 开局恒等，部署折两个 BN，实测 maxdiff 2.1e-7/二值差 0），删 `DCRDecoder.refine`；深监督 `1/.5/.25/.125`。TAR `cg` 改竞争门（门零初始化、两路逐像素归一、核 `(3,5,7,7)`）。HRA 加 `mean_gate`/`--retrieval-scales`/`--compact-prototypes`/`--support confidence`。
+- 参数：`D_CTRL` 2,042,324/1,933,891；`D_CG` 2,072,276/2,025,539；检索臂 2,090,099/2,043,362（四个检索臂同参数，开关只改 buffer 与打分形状）。
+- 矩阵：`D_CTRL`/`D_CG`/`R_FULL`/`R_RES`/`R_COMPACT`/`R_LEAN` × seed 2334-2335 × SYSU/LEVIR = 24 项，bs32、40k step、val 选模、仅 GPU1 三槽（reservation 9,800 MiB），门限 `max(0.36,1.5σ)=0.59` 与 `−0.36`（noise 0.39）。
+- 预检：`[READY] Run10 audit and smoke tests passed: 12 arms, 24 jobs on GPUs (1,)`，12 臂折叠 ≤2.09e-7、二值差 0；`models/` 九个测试 PASS。队列 `~/run10_queue.log`，先 SYSU 后 LEVIR，单条约 2.4 h / 3.3 h。
+- 提交 `ad9e766`（models 11 文件 + Run10 套件）已推送；`models/README.md`、`models/SOURCES.md`、`README.md` 同步到 Run10 口径。
+
 # 2026-11-23 · CASA-MinorGoal / Run9 完成（换骨干：VMamba-Tiny 与 ViT-B/16 四层）
 
 - 协议 `casa_minor_run9_backbone_v1`：2 骨干（`vmamba_tiny` 29.94 M / `vit_base4` 前向 ≈30.9 M）× 冻结/解冻 × 四臂（`CTRL`/`TAR_ONLY`(cd2)/`HRA_ONLY`(manifold)/`TAR_HRA`）× SYSU/LEVIR = 32 项，bs16、20k step、seed 2334、val 选模、test 阈 0.5，两张 5090 各两槽，`[QUEUE-END] 32 complete, 0 failed`。
