@@ -7,8 +7,10 @@
 """
 import os
 import re
+import sys
 import glob
 import argparse
+import importlib.util
 
 from extract_metrics_to_excel import extract_test_block, parse_block, METRIC_KEYS
 
@@ -64,18 +66,36 @@ def collect_incomplete_logs(tag, run):
     return rows
 
 
+def expected_jobs(config_path):
+    """(arm, dataset) pairs a staged round plans to run, read from its config.py."""
+    if not config_path:
+        return []
+    spec = importlib.util.spec_from_file_location("_run_config", config_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_run_config"] = module
+    spec.loader.exec_module(module)
+    return [tuple(job) for job in module.JOBS]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", type=str, default="baseline")
     ap.add_argument("--run", type=str, default="Run1")
     ap.add_argument("--models-dir", type=str, default="models",
                     help="代码目录（相对仓库根）：models | models_v1")
+    ap.add_argument("--out", type=str, default="",
+                    help="显式输出路径；默认 docs/temporary/models_and_metrics_<tag>_<run>.txt")
+    ap.add_argument("--metrics", choices=("auto", "placeholder"), default="auto",
+                    help="auto=抓 outputs/ 的正式 TEST 区块；placeholder=指标留空（开跑时用）")
+    ap.add_argument("--expect-config", type=str, default="",
+                    help="placeholder 模式下据此列出待跑项（轮次 config.py 的 JOBS）")
     args = ap.parse_args()
 
     models_dir = os.path.join(ROOT, args.models_dir)
     assert os.path.isdir(models_dir), f"缺目录 {models_dir}"
     os.makedirs(DOCS_TMP, exist_ok=True)
-    out_path = os.path.join(DOCS_TMP, f"models_and_metrics_{args.tag}_{args.run}.txt")
+    out_path = args.out or os.path.join(DOCS_TMP, f"models_and_metrics_{args.tag}_{args.run}.txt")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     with open(out_path, "w", encoding="utf-8", newline="\n") as out:
         out.write(f"# CASA-CD models snapshot + metrics\n")
@@ -90,18 +110,31 @@ def main():
             with open(os.path.join(models_dir, rel), encoding="utf-8", errors="replace") as f:
                 out.write(f.read())
 
-        metrics = collect_metrics()
-        out.write(f"\n{'=' * 80}\n## METRICS ({len(metrics)} results)\n{'=' * 80}\n")
-        out.write("Run | " + " | ".join(METRIC_KEYS) + " | Params(M) | Trainable(M) | FLOPs(G) | Mode\n")
-        for rel, info in metrics:
-            line = [rel] + [f"{info.get(k):.4f}" if info.get(k) is not None else "-" for k in METRIC_KEYS]
-            line += [
-                f"{info['Params(M)']:.3f}" if info.get("Params(M)") is not None else "-",
-                f"{info['Trainable(M)']:.3f}" if info.get("Trainable(M)") is not None else "-",
-                f"{info['FLOPs(G)']:.4f}" if info.get("FLOPs(G)") is not None else "-",
-                info.get("Mode") or "-",
-            ]
-            out.write(" | ".join(line) + "\n")
+        if args.metrics == "placeholder":
+            expected = expected_jobs(args.expect_config)
+            out.write(f"\n{'=' * 80}\n## METRICS (pending: {len(expected)} jobs)\n{'=' * 80}\n")
+            out.write("# 指标留空：本轮还在跑，收齐后重跑 python tools/models_to_txt.py "
+                      f"--tag {args.tag} --run {args.run} --out <同一个路径> 覆盖本节。\n")
+            out.write("Run | " + " | ".join(METRIC_KEYS) + " | Params(M) | Trainable(M) | FLOPs(G) | Mode\n")
+            for arm, dataset in expected:
+                row = [f"{args.tag}/{args.run}/{arm}/{dataset}"] + ["-"] * len(METRIC_KEYS)
+                row += ["-", "-", "-", "-"]
+                out.write(" | ".join(row) + "\n")
+            metrics = []
+        else:
+            metrics = collect_metrics()
+            out.write(f"\n{'=' * 80}\n## METRICS ({len(metrics)} results)\n{'=' * 80}\n")
+            out.write("Run | " + " | ".join(METRIC_KEYS) + " | Params(M) | Trainable(M) | FLOPs(G) | Mode\n")
+            for rel, info in metrics:
+                line = [rel] + [f"{info.get(k):.4f}" if info.get(k) is not None else "-"
+                                for k in METRIC_KEYS]
+                line += [
+                    f"{info['Params(M)']:.3f}" if info.get("Params(M)") is not None else "-",
+                    f"{info['Trainable(M)']:.3f}" if info.get("Trainable(M)") is not None else "-",
+                    f"{info['FLOPs(G)']:.4f}" if info.get("FLOPs(G)") is not None else "-",
+                    info.get("Mode") or "-",
+                ]
+                out.write(" | ".join(line) + "\n")
 
         incomplete = collect_incomplete_logs(args.tag, args.run)
         out.write(f"\n{'=' * 80}\n## SELECTED RUN LOGS WITHOUT FINAL TEST ({len(incomplete)})\n{'=' * 80}\n")
