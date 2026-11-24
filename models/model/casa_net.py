@@ -4,13 +4,69 @@ from torch import nn
 from torch.nn import functional as F
 
 from model.mobilenet_v2 import mobilenet_v2
+from model.str_reparam import fold_conv_bn
 from model.str_tar import MultiScaleTAR
 from model.str_dcr import build_decoder
 from model.layers.pyramid_context import AuxiliaryContext
 from model.layers.euclidean_context import EuclideanContext
-from model.layers.hyperbolic_context import HyperbolicContext, MatchedEuclideanContext
+from model.layers.hyperbolic_context import (COMPACT_GRIDS, HyperbolicContext,
+                                             MatchedEuclideanContext)
 from model.layers.manifold_context import ManifoldContext
 from model.layers.difference_context import DifferenceContext
+
+
+class FineRefine(nn.Module):
+    """One 128x128 refinement of the change logits, fused with the raw stem.
+
+    The decoder's finest map is 64x64, so a one-pixel boundary at 256x256 is a
+    quarter of a cell there; upsampling that logit directly is what caps the
+    boundary F1 (interior 96.5 vs boundary 0.59 on LEVIR). The encoder already
+    has 16 channels at 128x128, so the head can spend one small block there
+    instead of widening the decoder: ``1x1(1 + stem) -> BN -> SiLU -> DW3x3 ->
+    BN -> SiLU -> 1x1 -> 0``, added to the upsampled logit. The last 1x1 is
+    zero-initialised, so the block starts as an exact identity.
+    """
+
+    def __init__(self, stem_channels=16, dim=64):
+        super().__init__()
+        self.stem_channels = stem_channels
+        self.dim = dim
+        self.deploy = False
+        self.fuse = nn.Conv2d(1 + stem_channels, dim, 1, bias=False)
+        self.norm = nn.BatchNorm2d(dim)
+        self.dw = nn.Conv2d(dim, dim, 3, padding=1, padding_mode="replicate",
+                            groups=dim, bias=False)
+        self.dw_norm = nn.BatchNorm2d(dim)
+        self.out = nn.Conv2d(dim, 1, 1)
+        nn.init.zeros_(self.out.weight)
+        nn.init.zeros_(self.out.bias)
+
+    def forward(self, logits, stem):
+        x = self.fuse(torch.cat((logits, stem), dim=1))
+        if not self.deploy:
+            x = self.norm(x)
+        x = F.silu(x)
+        x = self.dw(x)
+        if not self.deploy:
+            x = self.dw_norm(x)
+        return logits + self.out(F.silu(x))
+
+    def switch_to_deploy(self):
+        if getattr(self, "deploy", False):
+            return self
+        weight, bias = fold_conv_bn(self.fuse.weight, None, self.norm)
+        self.fuse = nn.Conv2d(1 + self.stem_channels, self.dim, 1, bias=True)
+        self.fuse.weight.data = weight.float()
+        self.fuse.bias.data = bias.float()
+        weight, bias = fold_conv_bn(self.dw.weight, None, self.dw_norm)
+        self.dw = nn.Conv2d(self.dim, self.dim, 3, 1, 1, groups=self.dim, bias=True)
+        self.dw.weight.data = weight.float()
+        self.dw.bias.data = bias.float()
+        self.deploy = True
+        for name in ("norm", "dw_norm"):
+            if hasattr(self, name):
+                delattr(self, name)
+        return self
 
 
 class CASANet(nn.Module):
@@ -19,7 +75,8 @@ class CASANet(nn.Module):
                  tar_variant="reparam", decoder_variant="reparam", support="cell",
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
                  edge_detach="retrieval", aggregate_mode="lorentz",
-                 prototype_pooling="euclidean"):
+                 prototype_pooling="euclidean", retrieval_scales=(0, 1, 2, 3),
+                 compact_prototypes=False):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
@@ -40,6 +97,8 @@ class CASANet(nn.Module):
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
         self.head = nn.Conv2d(64, 1, 1)
+        # 128x128 refinement of the head logits, fused with the raw encoder stem
+        self.fine = FineRefine(stem_channels=32, dim=64)
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)
             options = dict(heads=context_heads, head_dim=16) if context_heads != 1 else {}
@@ -49,8 +108,11 @@ class CASANet(nn.Module):
                 options["prototype_pooling"] = prototype_pooling
                 if context_type is ManifoldContext:
                     options["aggregate_mode"] = aggregate_mode
-            if module in ("hyperbolic", "matched", "difference"):
+            if module in ("hyperbolic", "matched", "difference", "manifold"):
                 options["support_mode"] = support
+                options["retrieval_scales"] = retrieval_scales
+                if compact_prototypes:
+                    options["grid_sizes"] = COMPACT_GRIDS
                 options["kv_hierarchy"] = kv_hierarchy
                 options["freeze_tau"] = freeze_tau
             self.context = context_type(**options)
@@ -86,37 +148,40 @@ class CASANet(nn.Module):
             auxiliary = dict(auxiliary or {})
             merged = list(auxiliary.get("edge_logits") or ())
             auxiliary["edge_logits"] = tuple(list(tar_edges) + merged)
-        detail = self.detail(torch.cat((features_a[0], features_b[0]), 1)) if self.detail is not None else None
-        return self.decoder.forward_pyramid(enhanced), auxiliary, detail
+        stem = torch.cat((features_a[0], features_b[0]), 1)
+        detail = self.detail(stem) if self.detail is not None else None
+        return self.decoder.forward_pyramid(enhanced), auxiliary, detail, stem
 
     @staticmethod
     def _resize(logits, size):
         return F.interpolate(logits, size=size, mode="bilinear", align_corners=False)
 
-    def _primary(self, coarse, detail, size):
-        primary = self._resize(coarse, size)
-        return primary if detail is None else primary + self._resize(detail, size)
+    def _primary(self, coarse, stem, detail):
+        """64x64 logit -> 128x128 fine refinement -> 256x256, plus detail residual."""
+        refined = self.fine(self._resize(coarse, stem.shape[-2:]), stem)
+        return refined if detail is None else refined + detail
 
     def forward(self, a, b, return_aux=False):
         """Return four probabilities, or raw logits and change-guide supervision."""
-        pyramid, auxiliary, detail = self._decode(a, b, return_aux=return_aux)
-        coarse = self.head(pyramid[0])
-        primary = self._primary(coarse, detail, a.shape[-2:])
+        pyramid, auxiliary, detail, stem = self._decode(a, b, return_aux=return_aux)
+        refined = self._primary(self.head(pyramid[0]), stem, detail)
+        primary = self._resize(refined, a.shape[-2:])
         if detail is not None and return_aux:
-            auxiliary["detail_logits"] = self._resize(coarse, detail.shape[-2:]) + detail
+            auxiliary["detail_logits"] = refined
             auxiliary["detail_target"] = self.detail_target
         logits = (primary, *(self._resize(self.head(feature), a.shape[-2:]) for feature in pyramid[1:]))
         return (logits, auxiliary) if return_aux else tuple(x.sigmoid() for x in logits)
 
     def predict(self, a, b):
         """Return the final change probability without auxiliary prediction heads."""
-        pyramid, _, detail = self._decode(a, b)
-        logits = self._primary(self.head(pyramid[0]), detail, a.shape[-2:])
+        pyramid, _, detail, stem = self._decode(a, b)
+        logits = self._resize(self._primary(self.head(pyramid[0]), stem, detail), a.shape[-2:])
         return logits.sigmoid()
 
     def switch_to_deploy(self):
         self.tar.switch_to_deploy()
         self.decoder.switch_to_deploy()
+        self.fine.switch_to_deploy()
         # the edge heads are training-only supervision taps; they never take part
         # in the forward pass of the deployed model, so drop them from the budget
         self.tar.edge_head = None

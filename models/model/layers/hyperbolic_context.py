@@ -17,6 +17,10 @@ from model.layers.pyramid_context import (
 
 
 FLAT_GRIDS = (8, 4, 4, 4)
+# Compact set: one 2x2 cell per scale and class => 8 prototypes per scale, 32 in
+# total. The prior study (Run8) showed the retrieval signal does not need 224
+# region means; the coarse scales already carry the cross-scale evidence.
+COMPACT_GRIDS = (2, 2, 2, 2)
 # Nested hierarchy: every child cell covers exactly a 2x2 block of its parent.
 NESTED_GRIDS = (8, 4, 2, 1)
 # Median of the D0 measured `softplus(raw_temperature)` over the nine trained
@@ -40,9 +44,9 @@ class HyperbolicContext(nn.Module):
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
                  edge_supervision=False, edge_detach="retrieval",
-                 prototype_pooling="euclidean"):
+                 prototype_pooling="euclidean", retrieval_scales=(0, 1, 2, 3)):
         super().__init__()
-        if support_mode not in ("mass", "cell", "pixel", "none"):
+        if support_mode not in ("mass", "cell", "pixel", "none", "confidence"):
             raise ValueError(f"unknown support_mode {support_mode!r}")
         if kv_hierarchy not in ("flat", "nested"):
             raise ValueError(f"unknown kv_hierarchy {kv_hierarchy!r}")
@@ -56,6 +60,11 @@ class HyperbolicContext(nn.Module):
             for parent, child in zip(grid_sizes[:-1], grid_sizes[1:]):
                 if parent != 2 * child:
                     raise ValueError(f"nested grids must halve per scale, got {grid_sizes}")
+        if not retrieval_scales:
+            raise ValueError("at least one scale must run the retrieval")
+        if any(index not in (0, 1, 2, 3) for index in retrieval_scales):
+            raise ValueError(f"retrieval scales must be a subset of 0..3, got {retrieval_scales}")
+        self.retrieval_scales = tuple(sorted(set(int(i) for i in retrieval_scales)))
         self.support_prior = support_mode
         self.kv_hierarchy = kv_hierarchy
         self.prototype_pooling = prototype_pooling
@@ -81,6 +90,9 @@ class HyperbolicContext(nn.Module):
             with torch.no_grad():
                 self.raw_temperature.fill_(math.log(math.expm1(FROZEN_TAU)))
             self.raw_temperature.requires_grad_(False)
+        # zero-init: the readout starts uncentred, and training decides how much
+        # of the spatial mean to subtract (the previous tree always removed it)
+        self.mean_gate = nn.Parameter(torch.zeros(1))
         self.gamma_context = nn.Parameter(torch.zeros(4, channels))
         self.gamma_detail = nn.Parameter(torch.zeros(2, channels))
         # created last so that switching the head on does not shift any other init
@@ -152,7 +164,7 @@ class HyperbolicContext(nn.Module):
                the pixel-level class fraction instead of the pooled mass.
         none   : a flat prior (``support == 1``, so ``log(support) == 0``).
         """
-        weights, support = class_assignments(probability, grid)
+        weights, support = class_assignments(probability, grid, self.support_prior)
         if self.support_prior == "mass":
             return weights, support
         if self.support_prior == "none":
@@ -213,7 +225,7 @@ class HyperbolicContext(nn.Module):
         height, width = feature.shape[-2:]
         retrieved = merge_heads(self.aggregate(probability, values), height, width)
         own_value = self.v(feature)
-        discrepancy = retrieved - retrieved.mean((-2, -1), keepdim=True)
+        discrepancy = retrieved - self.mean_gate.tanh() * retrieved.mean((-2, -1), keepdim=True)
         retrieved_occupancy = (probability @ prototype_occupancy[:, None]).mean(1)
         retrieved_occupancy = retrieved_occupancy.transpose(1, 2).reshape(-1, 1, height, width)
         gate = self.gate(torch.cat((own_value, discrepancy, occupancy, retrieved_occupancy), 1)).sigmoid()
@@ -247,7 +259,11 @@ class HyperbolicContext(nn.Module):
                       for x, (weights, _), grid in zip(sources, compressed, self.grid_sizes)]
         if self.kv_hierarchy == "nested":
             prototypes = self.aggregate_nested(prototypes)
-        queries = [self.project_queries(x) for x in normalized]
+        # only the coarse scales ask questions: the finest maps are spatially
+        # aligned with their own prototypes, so retrieving there is an expensive
+        # identity that also dominates the deployment latency (150+ kernels).
+        queries = {index: self.project_queries(normalized[index])
+                   for index in self.retrieval_scales}
         prototype = torch.cat(prototypes, dim=1)
         prototype_occupancy = F.linear(
             prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
@@ -259,6 +275,14 @@ class HyperbolicContext(nn.Module):
         support = self.support_term(sources, torch.cat([item[1] for item in compressed], dim=1))
         enhanced, diagnostics, geometric_logits, edge_maps = [], {}, [], []
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
+            local_residual = torch.zeros_like(original)
+            local = None
+            if index < 2:
+                local = self.local_out(self.local_dw(highpass(x)))
+                local_residual = self.gamma_detail[index][None, :, None, None] * local
+            if index not in self.retrieval_scales:
+                enhanced.append(original + local_residual)
+                continue
             query = queries[index]
             logits = self.attention_logits(query.flatten(2, 3), key, support, index)
             probability = logits.softmax(-1)
@@ -267,11 +291,6 @@ class HyperbolicContext(nn.Module):
             update, gate, retrieved, own_value, discrepancy, gated = self.readout(
                 x, probability, values, p, prototype_occupancy, index)
             context_residual = self.gamma_context[index][None, :, None, None] * update
-            local_residual = torch.zeros_like(original)
-            local = None
-            if index < 2:
-                local = self.local_out(self.local_dw(highpass(x)))
-                local_residual = self.gamma_detail[index][None, :, None, None] * local
             result = original + context_residual + local_residual
             if self.training or return_aux:
                 edge = self.edge_logits(update, index)

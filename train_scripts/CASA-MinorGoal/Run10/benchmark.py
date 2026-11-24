@@ -27,7 +27,7 @@ def main():
     for arm in C.ARM_ORDER:
         spec = C.ARMS[arm]
         model = CASANet(None, module=spec["module"], tar_variant=spec["tar"],
-                        decoder_variant=spec["decoder"], support=spec["support"],
+                        decoder_variant="reparam", support=spec["support"],
                         detail_head=spec["detail"],
                         edge_supervision=spec["edge_weight"] > 0,
                     prototype_pooling=spec.get("prototype_pooling", "euclidean"),

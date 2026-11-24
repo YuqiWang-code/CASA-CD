@@ -144,9 +144,9 @@ class DifferenceContextTest(unittest.TestCase):
 
 class NetworkTest(unittest.TestCase):
     ARMS = {
-        ("none", "reparam"): (2047125, 1935810),
-        ("none", "spp"): (2118293, 1995714),
-        ("difference", "spp"): (2129705, 2007126),
+        ("none", "reparam"): (2042324, 1933891),
+        ("none", "spp"): (2113492, 1993795),
+        ("difference", "spp"): (2124905, 2005208),
     }
 
     def test_parameter_counts_and_deploy_fidelity(self):

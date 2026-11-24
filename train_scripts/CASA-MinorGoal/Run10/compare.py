@@ -1,10 +1,8 @@
-"""Turn the Run9 TEST blocks into the pre-registered verdict.
+"""Turn the Run10 TEST blocks into the pre-registered verdict.
 
-Every arm lives in this run, so the reference for an ablation is the ``CTRL``
-arm of its own (backbone, frozen) block rather than an earlier run: backbone and
-freeze state move the level by several points, and only a same-block delta is
-readable.  The gates live in ``config.GATES`` and were fixed before the first
-job started.
+Both arms live in this run, so the reference for the edge arm is its own
+same-seed, same-schedule control rather than an earlier run.  The gate
+lives in ``config.GATES`` and was fixed before the first job started.
 """
 import argparse
 import json
@@ -52,108 +50,70 @@ def verdict(delta, gate):
     return "directional"
 
 
-def block_matrix(rows):
-    """Collapse the per-arm rows into the 4x4 matrix the paper table needs."""
-    order = ["CTRL", "TAR_ONLY", "HRA_ONLY", "TAR_HRA"]
-    blocks = []
-    for name in C.ARM_ORDER:
-        spec = C.ARMS[name]
-        key = f"{spec['backbone_key']}/{spec['freeze_key']}"
-        if key not in blocks:
-            blocks.append(key)
-    lines = []
-    for dataset_key in ("SYSU", "LEVIR"):
-        lines += ["", f"### {dataset_key}: F1 (%) and delta against the block CTRL", "",
-                  "| block | CTRL | TAR_ONLY | HRA_ONLY | TAR_HRA |",
-                  "|---|---|---|---|---|"]
-        for key in blocks:
-            cells = []
-            for ablation in order:
-                name = next((n for n in C.ARM_ORDER
-                             if f"{C.ARMS[n]['backbone_key']}/{C.ARMS[n]['freeze_key']}" == key
-                             and C.ARMS[n]["ablation"] == ablation), None)
-                row = next((r for r in rows if r["arm"] == name and r["dataset_key"] == dataset_key), None)
-                if row is None or row["f1"] is None:
-                    cells.append("—")
-                elif ablation == "CTRL":
-                    cells.append(f"{row['f1']:.2f}")
-                else:
-                    delta = "—" if row["delta_pp"] is None else f"{row['delta_pp']:+.2f}"
-                    cells.append(f"{row['f1']:.2f} ({delta})")
-            lines.append(f"| {key} | " + " | ".join(cells) + " |")
-    return lines
+def summary(root):
+    """Mean F1 of the two seeds for every (base, dataset)."""
+    table = {}
+    for arm, dataset in C.JOBS:
+        block = read_block(Path(root) / arm / dataset)
+        if block is None:
+            continue
+        key = (C.base_of(arm), dataset)
+        table.setdefault(key, []).append((arm, block))
+    out = {}
+    for key, rows in table.items():
+        mean = sum(item[1]["f1"] for item in rows) / len(rows)
+        out[key] = dict(f1=round(mean, 4), seeds=len(rows),
+                        detail=[dict(arm=arm, **block) for arm, block in rows])
+    return out
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=str(C.ROOT))
+    parser.add_argument("--json", default=str(C.ROOT / "comparison.json"))
+    parser.add_argument("--markdown", default=str(C.ROOT / "comparison.md"))
     args = parser.parse_args()
     root = Path(args.root)
+    table = summary(root)
 
-    rows = []
-    for arm, dataset in C.JOBS:
-        block = read_block(root / arm / dataset)
-        gate = C.GATES.get(arm)
-        delta, reference, reference_arm = None, None, None
-        if gate is not None:
-            reference_arm = gate["versus"]
-            partner = read_block(root / reference_arm / dataset)
-            reference = None if partner is None else partner["f1"]
-            if block is not None and reference is not None:
-                delta = round(block["f1"] - reference, 3)
-        rows.append(dict(arm=arm,
-                         dataset=dataset,
-                         dataset_key=dataset.split("-")[0],
-                         f1=None if block is None else round(block["f1"], 3),
-                         best_epoch=None if block is None else block["best_epoch"],
-                         recall=None if block is None else block["recall"],
-                         precision=None if block is None else block["precision"],
-                         versus=reference_arm,
-                         reference=None if reference is None else round(reference, 3),
-                         delta_pp=delta,
-                         verdict="baseline" if gate is None else verdict(delta, gate),
-                         gate=None if gate is None else dict(minimum=gate["minimum"],
-                                                             noise=gate["noise"],
-                                                             note=gate["note"])))
-
-    # per-dataset pairing summary: one delta per library
-    summary = {}
-    for row in rows:
-        if row["delta_pp"] is None:
-            continue
-        summary.setdefault(row["dataset_key"], []).append(row["delta_pp"])
-    summary = {key: dict(n=len(values), mean_pp=round(sum(values) / len(values), 3))
-               for key, values in summary.items()}
-
-    payload = dict(protocol=C.PROTOCOL, selection=C.SELECTION, seed=C.SEED,
-                   batch_size=16, max_steps=C.MAX_STEPS, rows=rows, summary=summary)
-    (root / "comparison.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-    lines = ["# Run9 backbone matrix: within-block verdict against CTRL", "",
-             f"protocol `{C.PROTOCOL}`, val-selected, threshold 0.5, seed {C.SEED}, "
-             "",
-             "| arm | dataset | F1 (%) | R / P | best ep | control | delta (pp) | verdict |",
-             "|---|---|---|---|---|---|---|---|"]
-    for row in rows:
-        lines.append("| {arm} | {dataset_key} | {f1} | {rp} | {ep} | {ref} | {delta} | {verdict} |".format(
-            arm=row["arm"], dataset_key=row["dataset_key"],
-            f1="—" if row["f1"] is None else f"{row['f1']:.2f}",
-            rp="—" if row["recall"] is None else f"{row['recall']:.2f} / {row['precision']:.2f}",
-            ep="—" if row["best_epoch"] is None else row["best_epoch"],
-            ref="—" if row["reference"] is None else f"{row['reference']:.2f}",
-            delta="—" if row["delta_pp"] is None else f"{row['delta_pp']:+.3f}",
-            verdict=row["verdict"]))
-    lines += ["", "## Pairing summary", ""]
-    for key in sorted(summary):
-        if key in summary:
-            lines.append(f"- {key}: mean {summary[key]['mean_pp']:+.3f} pp over "
-                         f"{summary[key]['n']} pair(s)")
-    lines += block_matrix(rows)
-    lines += ["", "A delta below the seed noise (0.32 pp on both libraries) is not an effect.",
-              "Frozen blocks train only the bridge, the decoder and the head (0.21-0.58 M),",
-              "so a frozen arm differs from its trainable twin by the encoder update alone."]
-    (root / "comparison.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print("\n".join(lines))
+    lines = ["# Run10 lean trunk: pre-registered verdict", "",
+             "Two seeds per arm; each delta is vs the same-run control named in",
+             "`config.GATES`. Gate = max(0.36, 1.5 sigma) = 0.59 pp for adding a",
+             "module, -0.36 pp for a simplification that must not cost.", ""]
+    payload = dict(protocol=C.PROTOCOL, reference={}, rows=[])
+    for dataset in C.DATASETS:
+        lines += [f"## {dataset}", "",
+                  "| arm | F1 (%) | vs | delta (pp) | verdict |", "|---|---|---|---|---|"]
+        for base in C.BASE_ORDER:
+            entry = table.get((base, dataset))
+            if entry is None:
+                lines.append(f"| {base} | pending | - | - | - |")
+                continue
+            gate = C.GATES.get(base)
+            if gate is None:
+                lines.append(f"| {base} | {entry['f1']:.4f} | - | - | reference |")
+                payload["rows"].append(dict(dataset=dataset, arm=base, f1=entry["f1"],
+                                            versus=None, delta=None, verdict="reference"))
+                continue
+            ref = table.get((gate["versus"], dataset))
+            if ref is None:
+                lines.append(f"| {base} | {entry['f1']:.4f} | {gate['versus']} | pending | - |")
+                continue
+            delta = round(entry["f1"] - ref["f1"], 4)
+            note = verdict(delta, gate)
+            lines.append(f"| {base} | {entry['f1']:.4f} | {gate['versus']} | "
+                         f"{delta:+.4f} | {note} |")
+            payload["rows"].append(dict(dataset=dataset, arm=base, f1=entry["f1"],
+                                        versus=gate["versus"], delta=delta, verdict=note))
+        lines.append("")
+    deltas = [row["delta"] for row in payload["rows"] if row["delta"] is not None]
+    if deltas:
+        lines += [f"mean |delta| over {len(deltas)} cells: "
+                  f"{sum(deltas) / len(deltas):+.4f} pp", ""]
+    text = "\n".join(lines)
+    Path(args.markdown).write_text(text, encoding="utf-8")
+    Path(args.json).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(text)
 
 
 if __name__ == "__main__":

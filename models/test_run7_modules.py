@@ -95,8 +95,9 @@ def test_bridge_has_no_learnable_scale_between_streams():
     cp, cq = stage.contrast(p), stage.contrast(q)
     positive, negative = (cp - cq).relu(), (cq - cp).relu()
     expected_delta = stage.bn_difference(stage.difference(torch.cat((positive, negative), 1)))
-    gate = stage.gate(torch.cat((expected_delta, positive + negative), 1)).sigmoid()
-    expected = stage.block(content * (1 + gate) + expected_delta)
+    gate = stage.gate(positive - negative).sigmoid()
+    norm = ChangeGateTARStage._channel_norm
+    expected = stage.block(gate * norm(content) + (1 - gate) * norm(expected_delta))
     assert torch.allclose(delta, expected_delta, atol=1e-6)
     assert torch.allclose(fused, expected, atol=1e-6)
 

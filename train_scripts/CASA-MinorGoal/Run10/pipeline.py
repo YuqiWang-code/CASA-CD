@@ -1,4 +1,4 @@
-"""Schedule the Run10 jobs on the single authorized GPU."""
+"""Schedule the eight Run10 jobs on the single authorized GPU."""
 import argparse
 import fcntl
 import json
@@ -55,10 +55,6 @@ def fit(pending, active, budget, gpu):
     """
     if not pending or len(active) >= SLOTS:
         return None
-    # strict dataset order: never start a later dataset while an earlier one is
-    # still waiting, so SYSU finishes before LEVIR begins.
-    first_dataset = pending[0][1]
-    pending = [job for job in pending if job[1] == first_dataset]
     available = min(budget - sum(item['reserved'] for item in active.values()), free_memory(gpu) - HEADROOM)
     for job in pending:
         if reservation_mib(job[0]) <= available:
@@ -120,10 +116,9 @@ def main():
             free = free_memory(GPUS[0]) if not args.dry_run else -1
             print(f'  {name:28s} start=+{start:4.1f}h finish=+{finish:4.1f}h '
                   f'reserved={reservation_mib(arm)} MiB')
-        print(f'[DRY-RUN] makespan={makespan:.1f}h; first job:')
-        first_arm, first_dataset = plan[0][0].split('/')
-        print('  ' + ' '.join([sys.executable, str(HERE / 'run_one.py'), first_arm,
-                               first_dataset, '--gpu', str(GPUS[0])]))
+        print(f'[DRY-RUN] makespan={makespan:.1f}h; run_one command for DETAIL:')
+        print('  ' + ' '.join([sys.executable, str(HERE / 'run_one.py'), 'TAR_HRA', 'SYSU-CD-256',
+                               '--gpu', str(GPUS[0])]))
         return
 
     status_file = ROOT / 'pipeline_status.json'

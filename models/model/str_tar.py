@@ -347,26 +347,38 @@ class LocalContrast(nn.Module):
 
 
 class ChangeGateTARStage(nn.Module):
-    """Content path plus a signed, exposure-normalised change path.
+    """Content path and change path, competing for the same channel budget.
 
     ``content = SiLU(1x1[P, Q])`` keeps appearance; ``delta = 1x1[d+, d-]`` keeps
     the signed change after dividing both dates by their local mean magnitude, so
-    a global exposure shift cancels while a real change survives. The change gate
-    modulates the content multiplicatively and adds ``delta`` with unit weight
-    (no learnable scale between the change stream and the fused content); the local block is the same foldable DW+PW as elsewhere.
+    a global exposure shift cancels while a real change survives. The gate reads
+    the raw signed evidence ``positive - negative`` (never ``delta`` itself, which
+    is the same quantity after a 1x1 and would let the gate read its own output)
+    and mixes the two paths: ``fused = g * content + (1 - g) * delta``. Both paths
+    are channel-normalised first so the mix compares like with like, and the gate
+    is zero-initialised, so the stage starts from an even mix rather than from
+    "content plus an always-positive boost".
     """
 
     def __init__(self, in_channels, dim, use_temporal_aux=True, use_dcr_aux=True,
-                 use_residual=True, deploy=False):
+                 use_residual=True, deploy=False, contrast_kernel=7):
         super().__init__()
-        self.contrast = LocalContrast(7)
+        self.contrast = LocalContrast(contrast_kernel)
         self.content = nn.Conv2d(2 * in_channels, dim, 1, bias=False)
         self.bn_content = nn.BatchNorm2d(dim)
         self.difference = nn.Conv2d(2 * in_channels, dim, 1, bias=False)
         self.bn_difference = nn.BatchNorm2d(dim)
-        self.gate = nn.Conv2d(dim + in_channels, dim, 1)
+        self.gate = nn.Conv2d(in_channels, dim, 1)
         self.block = RepLocalBlock(dim, use_aux=use_temporal_aux,
                                    use_residual=use_residual, deploy=deploy)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.zeros_(self.gate.bias)
+
+    @staticmethod
+    def _channel_norm(x, eps=1e-5):
+        mean = x.mean(1, keepdim=True)
+        var = x.var(1, keepdim=True, unbiased=False)
+        return (x - mean) / (var + eps).sqrt()
 
     def forward(self, P, Q):
         content = F.silu(self.bn_content(self.content(torch.cat((P, Q), dim=1))))
@@ -374,9 +386,9 @@ class ChangeGateTARStage(nn.Module):
         positive = (p - q).relu()
         negative = (q - p).relu()
         delta = self.bn_difference(self.difference(torch.cat((positive, negative), dim=1)))
-        gate = self.gate(torch.cat((delta, positive + negative), dim=1)).sigmoid()
-        fused = self.block(content * (1 + gate) + delta)
-        return fused, delta
+        gate = self.gate(positive - negative).sigmoid()
+        mixed = gate * self._channel_norm(content) + (1 - gate) * self._channel_norm(delta)
+        return self.block(mixed), delta
 
 
 class MultiScaleTAR(nn.Module):
@@ -414,14 +426,22 @@ class MultiScaleTAR(nn.Module):
             self.stage3 = DifferenceTARStage(encoder_dims[2], dim, deploy)
             self.stage4 = DifferenceTARStage(encoder_dims[3], dim, deploy)
         elif variant == "cg":
+            # kernels follow the scale: 7x7 on 64x64 mostly sees noise, while on
+            # 8x8 it is the whole image; 3x3 / 5x5 keep the window at a similar
+            # fraction of the field of view at every level.
+            kernels = (3, 5, 7, 7)
             self.stage1 = ChangeGateTARStage(encoder_dims[0], dim, use_temporal_aux,
-                                             use_dcr_aux, use_residual, deploy)
+                                             use_dcr_aux, use_residual, deploy,
+                                             contrast_kernel=kernels[0])
             self.stage2 = ChangeGateTARStage(encoder_dims[1], dim, use_temporal_aux,
-                                             use_dcr_aux, use_residual, deploy)
+                                             use_dcr_aux, use_residual, deploy,
+                                             contrast_kernel=kernels[1])
             self.stage3 = ChangeGateTARStage(encoder_dims[2], dim, use_temporal_aux,
-                                             use_dcr_aux, use_residual, deploy)
+                                             use_dcr_aux, use_residual, deploy,
+                                             contrast_kernel=kernels[2])
             self.stage4 = ChangeGateTARStage(encoder_dims[3], dim, use_temporal_aux,
-                                             use_dcr_aux, use_residual, deploy)
+                                             use_dcr_aux, use_residual, deploy,
+                                             contrast_kernel=kernels[3])
         else:
             # "spp" is the multi-scale pooling; "spp1" keeps the same branch
             # structure but with the 1x1 kernel only, so the gain of widening the

@@ -1,19 +1,7 @@
-"""Audit Run10 before anything is queued.
-
-Two halves:
-
-* the matrix/flag half always runs (job count, arm composition, CLI surface);
-* the model half needs the real checkpoints, so it runs wherever they live
-  (the server).  Locally we only assert that the matrix and the CLI agree with
-  ``config.py``.
-
-The model half checks, per arm: the backbone it was asked for, parameter counts
-matching the profile table when one is filled, a deploy fold whose four scales
-match within 2e-4, a binary disagreement under one pixel per thousand, and
-gradients that reach the decoupling bridge / retrieval carriers.
-"""
-import argparse
+"""CPU audit for Run10: job matrix, CLI, parameters, folding, retrieval options."""
+import copy
 import os
+import subprocess
 import sys
 
 import torch
@@ -27,186 +15,158 @@ sys.path.insert(0, RUNTIME_MODELS if os.path.isdir(RUNTIME_MODELS) else LOCAL_MO
 from model.casa_net import CASANet  # noqa: E402
 
 
+def count(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def build(arm):
+    return CASANet(None, **C.context_kwargs(arm)).eval()
+
+
 def check_matrix():
-    # Stage A and stage B are separate matrices: A is (recipe, seed) x 3 datasets,
-    # B is (tree arm, seed) x SYSU/LEVIR. Together they must still cover every arm.
-    assert len(C.ARM_ORDER) * len(C.DATASETS) == len(C.JOBS), (len(C.ARM_ORDER), len(C.JOBS))
-    assert (len(C.STAGE_B_ARM_ORDER) * len(C.STAGE_B_DATASETS)
-            == len(C.STAGE_B_JOBS)), (C.STAGE_B_ARM_ORDER, C.STAGE_B_JOBS)
-    assert len(C.ARMS) == len(C.ARM_ORDER) + len(C.STAGE_B_ARM_ORDER)
-    seen = {dataset for _, dataset in C.JOBS} | {dataset for _, dataset in C.STAGE_B_JOBS}
-    assert seen == set(C.DATASETS) | set(C.STAGE_B_DATASETS), seen
-    for name in C.ARM_ORDER + C.STAGE_B_ARM_ORDER:
-        spec = C.ARMS[name]
-        assert C.BACKBONES[spec["backbone_key"]]["backbone"] == spec["backbone"]
-        assert C.FREEZE[spec["freeze_key"]] == spec["freeze"]
-        assert spec["steps"] == C.RECIPES[spec["recipe"]]["steps"], name
-        assert spec["photometric"] == C.RECIPES[spec["recipe"]]["photometric"], name
-        if spec["stage"] == "A":
-            assert spec["ablation"] in C.RECIPES, spec["ablation"]
-            assert spec["module"] == "none" and spec.get("tree", "none") == "none", name
-        else:
-            # stage B fixes the carrier and varies the tree only
-            assert spec["ablation"] in C.STAGE_B, spec["ablation"]
-            assert spec["module"] == C.STAGE_B[spec["ablation"]]["module"], name
-            assert spec["tree"] == C.STAGE_B[spec["ablation"]]["tree"], name
-            assert spec["entailment"] == C.STAGE_B[spec["ablation"]]["entailment"], name
-            assert spec["seed"] in C.STAGE_B_SEEDS, name
-            assert spec["recipe"] == "A_CTRL", name
-        assert spec["edge_weight"] == 0.0
-        if spec["stage"] == "A":
-            assert spec["seed"] in C.SEEDS, name
-        # a gate may only compare two arms that both exist in this matrix
-        gate = C.GATES.get(name)
-        if gate:
-            assert gate["versus"] in C.ARMS, gate
-    seeds = sorted({C.ARMS[name]["seed"] for name in C.ARM_ORDER})
-    assert seeds == sorted(C.SEEDS), seeds
-    print(f"[VALIDATE] matrix: {len(C.ARMS)} arms, {len(C.JOBS)} jobs, "
-          f"seeds {seeds}, datasets {C.DATASETS}")
+    jobs = C.experiments()
+    assert len(jobs) == len(C.ARM_ORDER) * len(C.DATASETS), jobs
+    assert {job for job in jobs} == {(arm, dataset) for dataset in C.DATASETS
+                                     for arm in C.ARM_ORDER}, jobs
+    assert C.DATASETS == ("SYSU-CD-256", "LEVIR-CD-256"), C.DATASETS
+    assert C.SEEDS == (2334, 2335), C.SEEDS
+    for base in C.BASE_ORDER:
+        seeds = sorted(C.seed_of(arm) for arm in C.ARM_ORDER if C.base_of(arm) == base)
+        assert seeds == list(C.SEEDS), (base, seeds)
+    # one factor per arm, relative to R_FULL
+    full = C.BASE_ARMS["R_FULL"]
+    assert C.BASE_ARMS["R_RES"]["retrieval_scales"] == (2, 3)
+    assert C.BASE_ARMS["R_RES"]["compact"] is False
+    assert C.BASE_ARMS["R_COMPACT"]["compact"] is True
+    assert C.BASE_ARMS["R_COMPACT"]["support"] == "confidence"
+    assert C.BASE_ARMS["R_LEAN"] == dict(full, retrieval_scales=(2, 3), compact=True,
+                                         support="confidence")
+    assert C.BASE_ARMS["D_CTRL"]["module"] == "none"
+    assert C.BASE_ARMS["D_CG"]["module"] == "none" and C.BASE_ARMS["D_CG"]["tar"] == "cg"
+    assert C.BASE_ARMS["R_FULL"]["module"] == "manifold"
+    assert set(C.GATES) == set(C.BASE_ORDER) - {"D_CTRL"}, C.GATES
+    for name, gate in C.GATES.items():
+        assert gate["versus"] in C.BASE_ORDER, (name, gate)
+    print("[VALIDATE] matrix")
 
 
 def check_cli():
-    import subprocess
-    if not C.train_script().exists():
-        print(f"[VALIDATE] skip CLI probe: runtime not staged at {C.train_script()}")
-        return
-    out = subprocess.run([sys.executable, C.train_script(), "--help"],
-                         capture_output=True, text=True, check=True).stdout
-    for flag in ("--backbone", "--freeze-backbone", "--tar-variant", "--module",
-                 "--aggregate", "--prototype-pooling", "--selection-split"):
-        assert flag in out, flag
-    assert "--photometric" in out, "--photometric"
-    for name in C.ARM_ORDER:
-        options = C.model_options(name)
-        assert options[options.index("--backbone") + 1] == C.ARMS[name]["backbone"]
-        assert ("--freeze-backbone" in options) == C.ARMS[name]["freeze"]
-        assert ("--photometric" in options) == C.ARMS[name]["photometric"], name
-        assert C.steps_for(name) == C.ARMS[name]["steps"], name
-        assert C.batch_for(name) == C.BATCH_SIZE, name
-    assert C.BATCH_SIZE == 32, "stage A/B share the Run1-Run8 batch of 32"
-    first = C.ARM_ORDER[0]
-    assert C.pretrained_for(first).name == C.pretrained_for(C.ARM_ORDER[-1]).name
-    print("[VALIDATE] CLI: backbone, freeze, photometric and step budget reach train_CASA.py")
-
-
-def build(arm, deploy=False):
-    spec = C.ARMS[arm]
-    weights = str(C.pretrained_for(arm))
-    model = CASANet(weights, module=spec["module"], tar_variant=spec["tar"],
-                    decoder_variant=spec["decoder"], support=spec["support"],
-                    detail_head=False, edge_supervision=False,
-                    prototype_pooling=spec["prototype_pooling"],
-                    aggregate_mode=spec["aggregate"],
-                    backbone=spec["backbone"], freeze_backbone=spec["freeze"])
-    return model.to("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def count(model):
-    train = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    deploy = sum(p.numel() for p in model.parameters())
-    return train, deploy
+    script = str(C.train_script())
+    if not os.path.isfile(script):
+        script = os.path.join(LOCAL_MODELS, "train_CASA.py")
+    help_text = subprocess.run([sys.executable, script, "--help"],
+                               capture_output=True, text=True, check=True).stdout
+    for flag in ("--module {none,hyperbolic,qkv,matched,difference,manifold}",
+                 "--tar-variant {reparam,plain,diff,spp,spp1,cg}",
+                 "--decoder-variant {reparam,plain,none}",
+                 "--selection-split {test,val}", "--support",
+                 "--aggregate {lorentz,euclidean}", "--prototype-pooling",
+                 "--retrieval-scales", "--compact-prototypes",
+                 "--ds-weights", "--per-image-metrics"):
+        assert flag in help_text, flag
+    print("[VALIDATE] CLI")
 
 
 def check_models():
-    if not torch.cuda.is_available():
-        print("[VALIDATE] model audit skipped (no GPU): run this on the server")
-        return {}
-    measured = {}
-    for name in C.ARM_ORDER:
-        model = build(name).eval()
-        assert model.backbone == C.ARMS[name]["backbone"], name
-        assert model.freeze_backbone == C.ARMS[name]["freeze"], name
-        train, deploy = count(model)
-        if C.TRAINABLE_PARAMS:
-            assert train == C.TRAINABLE_PARAMS[name], (name, train)
-            assert deploy == C.DEPLOY_PARAMS[name], (name, deploy)
-        measured[name] = dict(trainable=train, deploy=deploy)
-        print(f"[VALIDATE] {name:14s} backbone={model.backbone:12s} "
-              f"frozen={model.freeze_backbone!s:5s} params={train/1e6:.6f}/"
-              f"{deploy/1e6:.6f} M")
-    return measured
+    torch.manual_seed(0)
+    a, b = torch.randn(1, 3, 128, 128), torch.randn(1, 3, 128, 128)
+    torch.manual_seed(11)
+    control = CASANet(None, module="none", tar_variant="reparam").eval()
+    with torch.no_grad():
+        control_output = control(a, b)[0]
+    for arm in C.ARM_ORDER:
+        model = build(arm)
+        expected = C.TRAINABLE_PARAMS.get(arm, 0)
+        if expected:
+            assert count(model) == expected, (arm, count(model))
+        with torch.no_grad():
+            values = model(a, b)
+        assert len(values) == 4 and all(tuple(v.shape) == (1, 1, 128, 128) for v in values), arm
+        assert all(torch.isfinite(v).all() for v in values), arm
+        assert not torch.allclose(values[0], control_output, atol=1e-4), f"{arm} is a no-op"
+        folded = copy.deepcopy(model).switch_to_deploy()
+        if expected:
+            assert count(folded) == C.DEPLOY_PARAMS[arm], (arm, count(folded))
+        with torch.no_grad():
+            deployed = folded(a, b)
+        delta = max(float((x - y).abs().max()) for x, y in zip(values, deployed))
+        assert delta <= 2e-4, (arm, delta)
+        binary = sum(int((x > 0.5).sum()) for x in values) - sum(int((y > 0.5).sum()) for y in deployed)
+        assert binary == 0, (arm, binary)
+        print(f"[VALIDATE] {arm} trainable={count(model)} deploy={count(folded)} "
+              f"fold_maxdiff={delta:.3e}")
+        del model, folded
 
 
-def check_forward_and_fold():
-    if not torch.cuda.is_available():
-        return
-    device = "cuda"
-    for name in C.ARM_ORDER:
-        model = build(name).eval()
-        images = torch.rand(2, 6, 256, 256, device=device) * 2 - 1
-        with torch.no_grad():
-            outputs = model(images[:, :3], images[:, 3:])
-        assert len(outputs) == 4 and outputs[0].shape == (2, 1, 256, 256), name
-        for level in outputs:
-            assert torch.isfinite(level).all(), name
-        folded = build(name).eval()
-        folded.load_state_dict(model.state_dict())
-        folded.switch_to_deploy()
-        with torch.no_grad():
-            deploy_outputs = folded(images[:, :3], images[:, 3:])
-        maxdiff = max(float((a - b).abs().max()) for a, b in zip(outputs, deploy_outputs))
-        binary = int((outputs[0] > 0.5).ne(deploy_outputs[0] > 0.5).sum())
-        tol = {"mobilenet_v2": 3e-4, "vit_base4": 2e-2, "vmamba_tiny": 2e-2}[C.ARMS[name]["backbone"]]
-        assert maxdiff <= tol, (name, maxdiff)
-        # untrained heads output ~0.5 across the map, so single-pixel flips near the
-        # threshold are noise; a real folding bug flips a large share of the map.
-        assert binary <= outputs[0].numel() // 200, (name, binary)
-        print(f"[VALIDATE] {name:14s} fold maxdiff={maxdiff:.3e} binary={binary}")
+def check_retrieval_options():
+    """The lean arms must really shrink the retrieval, and the full arm must not."""
+    for arm in C.ARM_ORDER:
+        spec = C.ARMS[arm]
+        model = build(arm)
+        if spec["module"] != "manifold":
+            assert model.module == "none", arm
+            continue
+        context = model.context
+        assert context.retrieval_scales == tuple(spec["retrieval_scales"]), (arm, context.retrieval_scales)
+        expected_tokens = 32 if spec["compact"] else 224
+        assert sum(context.tokens_per_scale) == expected_tokens, (arm, sum(context.tokens_per_scale))
+        assert context.support_prior == spec["support"], (arm, context.support_prior)
+        # the centring gate starts closed: keeping the mean is the default
+        assert float(context.mean_gate.detach()) == 0.0, arm
+    print("[VALIDATE] retrieval scales, prototype budget and priors")
+
+
+def check_bridge_is_a_competition():
+    """The change gate must mix, not boost: weights sum to one at init."""
+    from model.str_tar import ChangeGateTARStage
+    stage = ChangeGateTARStage(64, 64)
+    p = torch.randn(2, 64, 8, 8)
+    q = torch.randn(2, 64, 8, 8)
+    fused, delta = stage(p, q)
+    assert fused.shape == delta.shape == (2, 64, 8, 8)
+    with torch.no_grad():
+        gate = stage.gate(torch.zeros(2, 64, 8, 8) + 1e-3).sigmoid()
+    assert torch.allclose(gate, torch.full_like(gate, 0.5), atol=1e-4), gate.mean()
+    # delta is still a signed stream, so the retrieval sees both directions
+    assert float(delta.mean()) < 0.5 and float(delta.min()) < 0.0
+    print("[VALIDATE] bridge gate is a 50/50 mix at init and delta stays signed")
 
 
 def check_gradients():
-    if not torch.cuda.is_available():
-        return
-    device = "cuda"
-    for name in C.ARM_ORDER:
-        spec = C.ARMS[name]
-        model = build(name).train()
-        if model.freeze_backbone:
-            model.encoder.eval()
-        with torch.no_grad():
-            for parameter in model.context.parameters():
-                parameter.add_(0.02)
-        images = torch.rand(2, 6, 128, 128, device=device) * 2 - 1
-        logits = model(images[:, :3], images[:, 3:])[0]
-        target = (torch.rand_like(logits) > 0.5).float()
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
-        model.zero_grad(set_to_none=True)
-        loss.backward()
-        carriers = [model.head.weight, model.decoder.refine.dw.dw3.weight]
-        if spec["tar"] == "cd2":
-            stage = model.tar.stage1
-            carriers += [stage.content.weight, stage.delta.weight,
-                         stage.router.weight, stage.gate.weight]
-        if spec["module"] == "manifold":
-            carriers += [model.context.qk.weight, model.context.out.weight,
-                         model.context.level_scale]
-        for parameter in carriers:
-            assert parameter.grad is not None, name
-            assert float(parameter.grad.abs().sum()) > 0, (name, tuple(parameter.shape))
-        encoder_grad = sum(float(p.grad.abs().sum()) for p in model.encoder.parameters()
-                           if p.grad is not None)
-        if model.freeze_backbone:
-            assert encoder_grad == 0.0, (name, encoder_grad)
-        else:
-            assert encoder_grad > 0.0, name
-        print(f"[VALIDATE] {name:14s} gradients reach the carriers "
-              f"(encoder {'frozen' if model.freeze_backbone else 'trainable'})")
+    torch.manual_seed(0)
+    a, b = torch.randn(2, 3, 128, 128), torch.randn(2, 3, 128, 128)
+    target = (torch.rand(2, 1, 128, 128) > 0.9).float()
+    for arm in C.ARM_ORDER:
+        model = build(arm).train()
+        if C.ARMS[arm]["module"] == "manifold":
+            with torch.no_grad():
+                model.context.gamma_context.fill_(0.5)
+                model.context.level_scale.fill_(0.5)
+        values = model(a, b)
+        logits = [torch.logit(value.clamp(1e-6, 1 - 1e-6)) for value in values]
+        sum(torch.nn.functional.binary_cross_entropy_with_logits(value, target)
+            for value in logits).backward()
+        names = ["head.weight", "fine.out.weight"]
+        if C.ARMS[arm]["tar"] == "cg":
+            names += ["tar.stage1.content.weight", "tar.stage1.difference.weight",
+                      "tar.stage1.gate.weight"]
+        if C.ARMS[arm]["module"] == "manifold":
+            names += ["context.qk.weight", "context.out.weight", "context.gate.weight",
+                      "context.mean_gate"]
+        for name in names:
+            grad = model.get_parameter(name).grad
+            assert grad is not None and float(grad.norm()) > 0, (arm, name)
+        print(f"[VALIDATE] {arm} carrier gradients non-zero")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--skip-models", action="store_true")
-    args = parser.parse_args()
     check_matrix()
     check_cli()
-    if not args.skip_models:
-        check_models()
-        check_forward_and_fold()
-        check_gradients()
-    print(f"[VALIDATE] Run10 audit passed: stage A {len(C.JOBS)} jobs "
-          f"({len(C.ARM_ORDER)} arms), stage B {len(C.STAGE_B_JOBS)} jobs "
-          f"({len(C.STAGE_B_ARM_ORDER)} arms)")
+    check_models()
+    check_retrieval_options()
+    check_bridge_is_a_competition()
+    check_gradients()
+    print("[VALIDATE] Run10 audit passed")
 
 
 if __name__ == "__main__":

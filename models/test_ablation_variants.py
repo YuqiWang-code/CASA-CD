@@ -5,15 +5,18 @@ import torch
 from torch import nn
 
 from model.casa_net import CASANet
-from model.str_dcr import DCRDecoder, PlainFuse1x1, PlainLocalBlock, SingleLevelDecoder, build_decoder
+from model.str_dcr import (DCRDecoder, PlainFuse1x1, PlainLocalBlock, RepLocalBlock,
+                           SingleLevelDecoder, build_decoder)
 from model.str_tar import (DifferenceTARStage, DifferenceTemporal1x1, MultiScaleTAR,
                            PlainTARStage, PlainTemporal1x1)
 
-PARAMS = {("reparam", "reparam"): (2047125, 1935810), ("reparam", "plain"): (2010250, 1935810),
-          ("reparam", "none"): (1974730, 1900802), ("plain", "reparam"): (1974157, 1935810),
-          ("plain", "plain"): (1937282, 1935810), ("plain", "none"): (1901762, 1900802),
-          ("diff", "reparam"): (1943949, 1905602), ("diff", "plain"): (1907074, 1905602),
-          ("diff", "none"): (1871554, 1870594)}
+# Run10 lean head: the decoder's trailing refine block moved to the 128x128
+# FineRefine, so every arm pays that block once in deploy instead of twice.
+PARAMS = {("reparam", "reparam"): (2042324, 1933891), ("reparam", "plain"): (2008331, 1933891),
+          ("reparam", "none"): (1977739, 1903683), ("plain", "reparam"): (1969356, 1933891),
+          ("plain", "plain"): (1935363, 1933891), ("plain", "none"): (1904771, 1903683),
+          ("diff", "reparam"): (1939148, 1903683), ("diff", "plain"): (1905155, 1903683),
+          ("diff", "none"): (1874563, 1873475)}
 
 
 def build(tar, decoder, seed=2333):
@@ -50,7 +53,7 @@ def main():
     assert not hasattr(diff_model.decoder, "fuse1") and not hasattr(diff_model.decoder, "refine")
 
     gradients = {("plain", "plain"): ["tar.stage1.temporal.proj.weight", "tar.stage4.temporal.proj.weight",
-                                      "decoder.fuse1.fuse.weight", "decoder.refine.dw.weight"],
+                                      "decoder.fuse1.fuse.weight", "fine.out.weight"],
                  ("diff", "reparam"): ["tar.stage1.temporal.proj.weight", "tar.stage4.temporal.proj.weight",
                                        "decoder.fuse1.fuse_c.weight", "decoder.block1.dw.dw3.weight"],
                  ("reparam", "none"): ["tar.stage1.temporal.proj_c.weight", "decoder.proj.weight",
@@ -66,6 +69,14 @@ def main():
             assert torch.isfinite(parameters[name].grad).all(), name
             assert parameters[name].grad.norm() > 0, name
 
+    # the fine block is an exact identity at init (its last 1x1 is zero), so the
+    # upstream convolutions only see gradient once training moves that 1x1
+    model = build("reparam", "reparam")
+    model.fine.out.weight.data.fill_(0.01)
+    logits, _ = model(image[:, :3], image[:, 3:], return_aux=True)
+    losses(logits[0], (torch.rand(2, 1, 256, 256) > .5).float()).backward()
+    assert dict(model.named_parameters())["fine.fuse.weight"].grad.norm() > 0
+
     for factory in (lambda: MultiScaleTAR(variant="bogus"), lambda: DCRDecoder(variant="bogus"),
                     lambda: build_decoder(variant="bogus")):
         try:
@@ -80,8 +91,9 @@ def main():
     assert stage.block.dw.groups == 64 and isinstance(stage.temporal, PlainTemporal1x1)
     assert stage(feature, feature).shape == (1, 64, 32, 32)
     assert isinstance(DCRDecoder(variant="plain").fuse1, PlainFuse1x1)
-    assert isinstance(DCRDecoder(variant="plain").refine, PlainLocalBlock)
-    assert isinstance(DCRDecoder().refine, nn.Module) and DCRDecoder().variant == "reparam"
+    assert isinstance(DCRDecoder().block1, RepLocalBlock) and DCRDecoder().variant == "reparam"
+    # the trailing refine block is gone: its work moved to the 128x128 head
+    assert not hasattr(DCRDecoder(), "refine")
 
     difference_stage = DifferenceTARStage(24, 64)
     assert isinstance(difference_stage.temporal, DifferenceTemporal1x1)

@@ -35,14 +35,39 @@ DATA_PROTOCOL = dict(
     independent_photometric_augmentation=False, evaluation_augmentation=False)
 
 
-def loss_function(outputs, target, interior_positive_weight=1.0):
+# Deep supervision weights, finest first. The 8x8 head is a quarter-resolution
+# guess about the same mask; weighting all four levels equally (the historical
+# setting) spends a quarter of the loss on the noisiest one.
+DEFAULT_DS_WEIGHTS = (1.0, 0.5, 0.25, 0.125)
+
+
+def parse_scales(text):
+    scales = tuple(int(item) for item in str(text).replace(" ", "").split(",") if item)
+    if not scales or any(item not in (0, 1, 2, 3) for item in scales):
+        raise ValueError(f"retrieval scales must be a subset of 0..3, got {text!r}")
+    return scales
+
+
+def parse_level_weights(text):
+    if not text:
+        return DEFAULT_DS_WEIGHTS
+    weights = tuple(float(item) for item in str(text).replace(" ", "").split(",") if item)
+    if len(weights) != 4:
+        raise ValueError(f"expected four deep-supervision weights, got {text!r}")
+    if min(weights) < 0:
+        raise ValueError("deep-supervision weights must be non-negative")
+    return weights
+
+
+def loss_function(outputs, target, interior_positive_weight=1.0, level_weights=None):
+    weights = DEFAULT_DS_WEIGHTS if level_weights is None else level_weights
     loss = target.new_zeros(())
     for index, logits in enumerate(outputs):
         output = logits.sigmoid()
         intersection = (output * target).sum()
         dice = (2 * intersection + 1e-5) / (output.sum() + target.sum() + 1e-5)
         bce = foreground_interior_bce(logits, target, interior_positive_weight if index == 0 else 1.)
-        loss = loss + bce + 1 - dice
+        loss = loss + weights[index] * (bce + 1 - dice)
     return loss
 
 
@@ -104,8 +129,8 @@ def edge_terms(auxiliary, target, dilate=1, scales="all"):
 
 def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=None,
                     interior_positive_weight=1.0, edge_weight=0.0, edge_dilate=1,
-                    edge_scales="all"):
-    main = loss_function(outputs, target, interior_positive_weight)
+                    edge_scales="all", level_weights=None):
+    main = loss_function(outputs, target, interior_positive_weight, level_weights)
     if "detail_logits" in aux:
         detail = aux["detail_logits"]
         detail_target = (F.adaptive_avg_pool2d(target, detail.shape[-2:]) if aux["detail_target"] == "area"
@@ -380,9 +405,16 @@ def main():
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--detail-head", action="store_true")
     parser.add_argument("--detail-target", choices=("area", "nearest-exact"), default="area")
-    parser.add_argument("--support", choices=("mass", "cell", "pixel", "none"), default="cell",
+    parser.add_argument("--support", choices=("mass", "cell", "pixel", "none", "confidence"),
+                        default="cell",
                         help="class prior added as log(support) to the context logits; "
-                             "cell is the historical alias of mass")
+                             "cell is the historical alias of mass, confidence is |2p-1|")
+    parser.add_argument("--retrieval-scales", default="0,1,2,3",
+                        help="scales that run the cross-scale retrieval, e.g. '2,3' keeps it "
+                             "on 16^2 and 8^2 and leaves the fine scales to the local branch")
+    parser.add_argument("--compact-prototypes", action="store_true",
+                        help="2x2 cells per scale and class (8 prototypes per scale, 32 total) "
+                             "instead of 8/4/4/4 (224)")
     parser.add_argument("--kv-hierarchy", choices=("flat", "nested"), default="flat",
                         help="flat: 8/4/4/4 grids (224 KV); nested: 8/4/2/1 with parent-to-child pooling (170 KV)")
     parser.add_argument("--freeze-tau", action="store_true",
@@ -390,6 +422,8 @@ def main():
     parser.add_argument("--per-image-metrics", action="store_true",
                         help="store test-time per-image TP/FP/FN in per_image_cm.npz")
     parser.add_argument("--interior-positive-weight", type=float, default=1.0)
+    parser.add_argument("--ds-weights", default="1,0.5,0.25,0.125",
+                        help="deep-supervision weights, finest level first")
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
@@ -417,6 +451,7 @@ def main():
     if args.edge_weight > 0 and args.tar_variant not in ("cg",) and args.module not in ("manifold", "difference"):
         parser.error("edge supervision needs an edge head: use --tar-variant cg or --module manifold")
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
+    args.level_weights = parse_level_weights(args.ds_weights)
     if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
         parser.error("guide weight must be positive and retrieval weight nonnegative")
     if args.module not in ("hyperbolic", "matched", "difference", "manifold") and weights["geometric_retrieval"]:
@@ -457,7 +492,9 @@ def main():
                     kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau,
                     edge_supervision=args.edge_weight > 0,
                     edge_detach=args.edge_detach,
-        prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate).to(device)
+        prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate,
+        retrieval_scales=parse_scales(args.retrieval_scales),
+        compact_prototypes=args.compact_prototypes).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
@@ -620,7 +657,7 @@ def main():
             loss, main_loss, auxiliary_loss = training_losses(
                 outputs, auxiliary, target, weights["guide"], weights["geometric_retrieval"],
                 args.interior_positive_weight, args.edge_weight, args.edge_dilate,
-                args.edge_scales)
+                args.edge_scales, args.level_weights)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             if step % len(train_loader) == 0:

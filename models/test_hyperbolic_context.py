@@ -48,6 +48,13 @@ def module():
         op.gamma_detail.fill_(.1)
     constant = torch.randn(1, 64, 1, 1)
     fields = [constant.expand(1, 64, n, n).clone() for n in sizes]
+    # Run10: centring is a learnable gate now, zero-initialised, so a constant
+    # field is *not* cancelled at init (keeping the mean is the default and the
+    # readout decides). Opening the gate restores the old mean-free behaviour.
+    opened, _ = op(fields)
+    assert any((a - b).abs().max() > 1e-4 for a, b in zip(fields, opened))
+    with torch.no_grad():
+        op.mean_gate.fill_(6.0)
     output, _ = op(fields)
     assert all(torch.allclose(a, b, atol=3e-6) for a, b in zip(fields, output))
     zero = [torch.zeros_like(x) for x in tar]

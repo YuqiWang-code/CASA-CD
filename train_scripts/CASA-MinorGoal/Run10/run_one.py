@@ -8,7 +8,7 @@ import config as C
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("arm", choices=tuple(C.ARMS))
-    parser.add_argument("dataset", choices=tuple(C.DATASETS))
+    parser.add_argument("dataset", choices=("SYSU-CD-256", "LEVIR-CD-256"))
     parser.add_argument("--gpu", type=int, default=C.GPUS[0])
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
@@ -25,7 +25,7 @@ def main():
         "--dataset-root", str(C.DATA / args.dataset),
         "--output-dir", str(out),
         "--checkpoint-dir", str(ckpt),
-        "--pretrained", str(C.pretrained_for(args.arm)),
+        "--pretrained", str(C.PRETRAINED),
         *C.model_options(args.arm),
         "--seed", str(C.seed_for(args.arm)),
         "--context-seed", str(C.seed_for(args.arm)),

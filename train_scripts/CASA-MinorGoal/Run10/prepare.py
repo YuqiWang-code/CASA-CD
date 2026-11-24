@@ -25,14 +25,6 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2), encoding="utf-8")
 
 
-def _weights(arm):
-    """VMamba has no random-init path; ViT builds fine without the 1.2 GB file."""
-    spec = C.ARMS[arm]
-    if spec["backbone"] == "vmamba_tiny":
-        return str(C.pretrained_for(arm))
-    return None
-
-
 def count(model):
     return sum(p.numel() for p in model.parameters())
 
@@ -64,22 +56,11 @@ def build_runtime():
 
 def smoke(arm):
     spec = C.ARMS[arm]
-    # the selective-scan kernel of the VSSM trunk only runs on CUDA, so the smoke
-    # has to leave the CPU even though a 256^2 forward would fit there
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(C.seed_for(arm))
-    model = CASANet(_weights(arm), module=spec["module"], tar_variant=spec["tar"],
-                    decoder_variant=spec["decoder"], support=spec["support"],
-                    detail_head=spec["detail"],
-                    backbone=spec["backbone"],
-                    freeze_backbone=spec["freeze"],
-                    edge_supervision=spec["edge_weight"] > 0,
-                    prototype_pooling=spec.get("prototype_pooling", "euclidean"),
-                    aggregate_mode=spec.get("aggregate", "lorentz")).to(device).train()
+    model = CASANet(None, **C.context_kwargs(arm)).train()
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=5e-4)
-    a = torch.randn(2, 3, 256, 256, device=device)
-    b = torch.randn(2, 3, 256, 256, device=device)
-    target = (torch.rand(2, 1, 256, 256, device=device) > 0.9).float()
+    a, b = torch.randn(2, 3, 256, 256), torch.randn(2, 3, 256, 256)
+    target = (torch.rand(2, 1, 256, 256) > 0.9).float()
     outputs = model(a, b)
     # ``forward`` returns sigmoid probabilities, so the supervised loss has to be
     # taken on their logits (what train_CASA.py does on the head outputs).
@@ -97,21 +78,15 @@ def smoke(arm):
     loss.backward()
     optimizer.step()
     assert torch.isfinite(loss), arm
-    deploy = CASANet(_weights(arm), module=spec["module"], tar_variant=spec["tar"],
-                     decoder_variant=spec["decoder"], support=spec["support"],
-                     detail_head=spec["detail"],
-                     backbone=spec["backbone"],
-                     freeze_backbone=spec["freeze"],
-                     edge_supervision=spec["edge_weight"] > 0,
-                    prototype_pooling=spec.get("prototype_pooling", "euclidean"),
-                    aggregate_mode=spec.get("aggregate", "lorentz")).to(device).eval().switch_to_deploy()
+    deploy = CASANet(None, **C.context_kwargs(arm)).eval().switch_to_deploy()
     payload = dict(arm=arm, module=spec["module"], tar_variant=spec["tar"],
-                   decoder_variant=spec["decoder"], support=spec["support"],
+                   decoder_variant="reparam", support=spec["support"],
                    detail_head=spec["detail"], seed=C.seed_for(arm),
-                   optimizer_steps=1, loss=float(loss.detach()),
+                   optimizer_steps=1, loss=loss.detach().item(),
                    trainable_params=count(model), deploy_params=count(deploy))
-    if arm in C.TRAINABLE_PARAMS:
-        assert payload["trainable_params"] == C.TRAINABLE_PARAMS[arm], payload
+    expected = C.TRAINABLE_PARAMS.get(arm, 0)
+    if expected:
+        assert payload["trainable_params"] == expected, payload
         assert payload["deploy_params"] == C.DEPLOY_PARAMS[arm], payload
     print(f"[PREPARE] smoke {arm}: loss={loss.item():.4f} params={count(model)}/{count(deploy)}")
     del model, deploy
@@ -127,14 +102,7 @@ def fold_on_device(device_name):
     for arm in C.ARM_ORDER:
         spec = C.ARMS[arm]
         torch.manual_seed(C.seed_for(arm))
-        model = CASANet(_weights(arm), module=spec["module"], tar_variant=spec["tar"],
-                        decoder_variant=spec["decoder"], support=spec["support"],
-                        detail_head=spec["detail"],
-                        backbone=spec["backbone"],
-                        freeze_backbone=spec["freeze"],
-                        edge_supervision=spec["edge_weight"] > 0,
-                    prototype_pooling=spec.get("prototype_pooling", "euclidean"),
-                    aggregate_mode=spec.get("aggregate", "lorentz")).to(device).eval()
+        model = CASANet(None, **C.context_kwargs(arm)).to(device).eval()
         image = torch.randn(2, 6, 256, 256, device=device)
         with torch.no_grad():
             reference = model(image[:, :3], image[:, 3:])
@@ -142,8 +110,7 @@ def fold_on_device(device_name):
         with torch.no_grad():
             result = folded(image[:, :3], image[:, 3:])
         difference = float((reference[0] - result[0]).abs().max())
-        limit = {"mobilenet_v2": 2e-4, "vit_base4": 2e-2, "vmamba_tiny": 2e-2}[C.ARMS[arm]["backbone"]]
-        assert difference < limit, (arm, difference)
+        assert difference < 2e-4, (arm, difference)
         report[arm] = dict(max_diff=difference, deploy_params=count(folded),
                            binary_diff=int(((reference[0] > 0.5) != (result[0] > 0.5)).sum()))
         print(f"[PREPARE] fold {arm} on {device_name}: maxdiff={difference:.3e} "
@@ -156,8 +123,7 @@ def fold_on_device(device_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fold-device", default=os.environ.get(
-        "MINOR_FOLD_DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
+    parser.add_argument("--fold-device", default=os.environ.get("MINOR_FOLD_DEVICE", "cpu"))
     parser.add_argument("--skip-runtime", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(4)
@@ -166,25 +132,28 @@ def main():
         build_runtime()
     subprocess.run([sys.executable, str(C.SCRIPTS / "validate.py")], check=True)
     results = [smoke(arm) for arm in C.ARM_ORDER]
-    params = dict(trainable={r["arm"]: r["trainable_params"] for r in results},
-                  deploy={r["arm"]: r["deploy_params"] for r in results})
     folds = fold_on_device(args.fold_device)
     schedule = dict(
         protocol=C.PROTOCOL, slots_per_gpu=C.SLOTS, free_headroom_mib=C.HEADROOM,
         gpu_budget_mib={str(gpu): 32607 - C.HEADROOM for gpu in C.GPUS},
         variant_reserved_mib={arm: C.reservation_mib(arm) for arm in C.ARM_ORDER})
     write(C.ROOT / "scheduling.json", schedule)
+    params = dict(trainable={r["arm"]: r["trainable_params"] for r in results},
+                  deploy={r["arm"]: r["deploy_params"] for r in results})
+    write(C.ROOT / "params.json", params)
     readiness = dict(
         protocol=C.PROTOCOL, passed=True, calibration_split="val", selection_split=C.SELECTION,
         independent_test=True, arms=list(C.ARM_ORDER), gpus=list(C.GPUS), slots=C.SLOTS,
         jobs=[f"{arm}/{dataset}" for arm, dataset in C.experiments()],
         smoke=results, accelerated_folding=folds, fold_device=args.fold_device,
         per_image_metrics=True,
-        trainable_params=params["trainable"],
-        deploy_params=params["deploy"])
+        trainable_params={arm: C.TRAINABLE_PARAMS[arm] for arm in C.ARM_ORDER},
+        deploy_params={arm: C.DEPLOY_PARAMS[arm] for arm in C.ARM_ORDER})
     write(C.ROOT / "readiness.json", readiness)
     print(f"[READY] Run10 audit and smoke tests passed: {len(results)} arms, "
           f"{len(C.experiments())} jobs on GPUs {C.GPUS}")
+    for arm in C.ARM_ORDER:
+        print(f"[PARAMS] {arm} train={params['trainable'][arm]} deploy={params['deploy'][arm]}")
 
 
 if __name__ == "__main__":

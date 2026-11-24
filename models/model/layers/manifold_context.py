@@ -28,12 +28,13 @@ class ManifoldContext(HyperbolicContext):
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
                  edge_supervision=False, edge_detach="retrieval", aggregate_mode="lorentz",
-                 prototype_pooling="euclidean"):
+                 prototype_pooling="euclidean", retrieval_scales=(0, 1, 2, 3)):
         if aggregate_mode not in ("lorentz", "euclidean"):
             raise ValueError(f"unknown aggregate_mode {aggregate_mode!r}")
         super().__init__(channels, heads, head_dim, grid_sizes,
                          support_mode, kv_hierarchy, freeze_tau, edge_supervision,
-                         edge_detach=edge_detach, prototype_pooling=prototype_pooling)
+                         edge_detach=edge_detach, prototype_pooling=prototype_pooling,
+                         retrieval_scales=retrieval_scales)
         self.aggregate_mode = aggregate_mode
         width = heads * head_dim
         self.scale_log_temperature = nn.Parameter(torch.zeros(len(self.grid_sizes)))
@@ -43,7 +44,7 @@ class ManifoldContext(HyperbolicContext):
         self.level = nn.Sequential(nn.Linear(width, channels), nn.SiLU(),
                                    nn.Linear(channels, channels))
         self.level_scale = nn.Parameter(torch.zeros(1))
-        self.gate = nn.Conv2d(2 * width + 5, heads, 1)
+        self.gate = nn.Conv2d(2 * width + 2 + 3, heads, 1)
         nn.init.zeros_(self.gate.weight)
         nn.init.zeros_(self.gate.bias)
         # the change-evidence stream is normalised on its own so the prototypes are
@@ -63,10 +64,18 @@ class ManifoldContext(HyperbolicContext):
         return base * self.scale_log_temperature[query_scale].exp()
 
     def support_term(self, sources, support):
+        """Confidence prior: ``|2p - 1|`` per cell, not how much mass it holds.
+
+        The mass version (``1 / sum(w^2)``) grows with the number of pixels a
+        prototype covers, so coarse prototypes win the log-prior automatically.
+        Confidence is bounded by one and is large only where the change head is
+        decisive, which is the quantity that should multiply a retrieval score.
+        """
         pooled = []
         for x, grid in zip(sources, self.grid_sizes):
             cell = F.adaptive_avg_pool2d(self.support_head(x).sigmoid(), grid)
-            pooled.append(cell.flatten(2).transpose(1, 2).reshape(cell.shape[0], -1))
+            share = cell.flatten(2).transpose(1, 2).reshape(cell.shape[0], -1)
+            pooled.append((2 * share - 1).abs() if self.support_prior == "confidence" else share)
         return torch.cat(pooled, dim=1).clamp_min(1e-6)
 
     def aggregate(self, probability, values):
@@ -91,7 +100,7 @@ class ManifoldContext(HyperbolicContext):
         height, width = feature.shape[-2:]
         retrieved = merge_heads(self.aggregate(probability, values), height, width)
         own_value = self.v(feature)
-        discrepancy = retrieved - retrieved.mean((-2, -1), keepdim=True)
+        discrepancy = retrieved - self.mean_gate.tanh() * retrieved.mean((-2, -1), keepdim=True)
         retrieved_occupancy = (probability @ prototype_occupancy[:, None]).mean(1)
         retrieved_occupancy = retrieved_occupancy.transpose(1, 2).reshape(-1, 1, height, width)
         index = 0 if scale_index is None else scale_index

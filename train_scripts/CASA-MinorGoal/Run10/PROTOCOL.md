@@ -1,74 +1,48 @@
-# Run10 协议（预注册）
+# CASA-MinorGoal / Run10：把 TAR、HRA、DCR 各自做扎实（`casa_minor_run10_lean_v1`）
 
-协议名 `casa_minor_run10_hierarchy_v1`。骨干固定回 MobileNetV2（Run9 已证 VMamba / ViT-B
-冻结块全塌、ViT-B 解冻在 SYSU 掉 4.15 pp，不再换骨干），参数量保持 ~2 M。
+## 这一轮要回答什么
 
-本轮的假设只有一句：**过去九轮的收益瓶颈不在模块数量，而在两件事——噪声底没测过，
-以及 |P−Q| 把曝光变化当成变化**。因此 Run10 分两段，先测底、再攻双曲。
+Run7 的三件工作同时上，收益无法归因，且各自都带着可以直接指出的毛病（见
+`outputs/CASA-MinorGoal/Run7/analysis/`）。Run10 不改主干拓扑，只做三组"把话说清楚"的
+修改，然后一次只放开一个因素：
 
-## 段 A：配方（不改结构）
+1. **DCR**：主输出从 64² 提到 128²（`FineRefine` 用编码器 stem 的 32 通道在 128² 上做
+   `1×1 → BN → SiLU → DW3×3 → BN → SiLU → 1×1`，末层零初始化即恒等），深监督四级
+   权重改 `1 / .5 / .25 / .125`。这是主干，所有臂都带。
+2. **TAR**：`ChangeGateTARStage` 从"增强器"改成"竞争器"
+   `g = σ(1×1(positive − negative))`、`fused = block(g · n(content) + (1 − g) · n(delta))`，
+   两路各做一次逐像素跨通道归一（`_channel_norm`），门零初始化 ⇒ 第 0 步 g = 0.5；
+   局部对比核随尺度走 `(3, 5, 7, 7)`（64²→3×3、8²→7×7）。
+3. **HRA**：`−mean` 变成可学习门 `mean_gate`（零初始化 ⇒ 开局仍去均值），检索可只在
+   16²/8² 跑（`retrieval_scales=(2,3)`），原型可从 224 压到 32（每尺度 2×2 格 ×2 类），
+   support 先验可从"参与质量"换成"置信"`|2p − 1|`。
 
-四个臂只动数据与日程，结构全部等于 Run8 的 `CTRL`（reparam 桥 + 无检索）：
+## 臂与门限
 
-| 臂 | 开关 | 目的 |
-|---|---|---|
-| `A_CTRL` | 40k poly，无光度增强 | 与历史读数对齐的锚点 |
-| `A_PHOTO` | 40k poly + `--photometric` | 独立逐日期亮度/对比度/gamma 抖动，直接冲 |P−Q| 的曝光耦合 |
-| `A_60K` | 60k poly | 训练日程是否被 Run9 的 20k 压缩拖累 |
-| `A_60K_PHOTO` | 60k poly + `--photometric` | 两者叠加 |
+| 臂 | TAR | 检索 | 说明 |
+|---|---|---|---|
+| `D_CTRL` | reparam | 无 | 新主干本身 |
+| `D_CG` | cg（竞争门） | 无 | 只放开 TAR |
+| `R_FULL` | cg | 0–3 尺度，224 原型，mass | 只放开 HRA（对照 Run7 口径） |
+| `R_RES` | cg | 2–3 尺度，224 原型，mass | 检索只在粗两级 |
+| `R_COMPACT` | cg | 0–3 尺度，32 原型，confidence | 压缩 + 置信先验 |
+| `R_LEAN` | cg | 2–3 尺度，32 原型，confidence | 三项简化叠加 |
 
-- 数据集 SYSU / LEVIR / WHU，seed 2334 与 2335，共 24 项；val 选模、阈 0.5、bs32（与 Run1–Run8 同口径；bs16 只是 Run9 为 VMamba 显存而设，不适用于 2 M 的 MobileNetV2）。
-- `--photometric` 的实现：`models/dataset/casa_transforms.py::RandomPhotometric`，
-  p=0.8 触发、brightness ±0.2、contrast ×[0.75,1.25]、gamma e^{±0.2}；以 0.25 概率
-  两期共用同一组增益（"整体曝光漂移"必须学成不变），否则两期独立采样。
-- 产出的 σ（同配置两 seed 的配对差）作为段 B 的门限基准，不再沿用 0.32。
+* 种子 2334 / 2335，`--selection-split val`，主阈值 0.5，bs 32，40k step。
+* 数据：SYSU 先、LEVIR 后（按用户要求）。
+* 门限（预登记，跑前写死）：`max(0.36, 1.5σ) = 0.59 pp` 表示"该模块带来收益"；
+  `−0.36 pp`（一个噪声单位）表示"该简化不掉点"。
+  `D_CG` vs `D_CTRL`、`R_FULL` vs `D_CG` 用 0.59；`R_RES`/`R_COMPACT`/`R_LEAN` vs
+  `R_FULL` 用 −0.36。
 
-## 段 B：双曲层次原型（本轮创新点）
+## 与 Run7 的可比性
 
-前九轮的双曲之所以是空转，机制上已经查清：几何只进 logits（V 仍是欧氏）、半径自由漂、
-"双曲"等价于按方向重加权的 softmax。Run10 让双曲承担一件欧氏做不到的事——**编码跨尺度
-的层次结构**：
-
-1. 每个尺度的原型不再是并列的 224 个点，而是一棵四层树：8² 为根层、64² 为叶层，
-   父节点半径严格小于子节点（`r_s = r_0 · exp(Σ softplus(δ))`，单调参数化）。
-2. 原型在 Lorentz 空间受**蕴含锥**约束：子原型必须落在父原型的锥内
-   （`−⟨p,q⟩_L ≥ K·‖q − proj‖`），用 hinge 损失在训练中推开违例。
-3. 检索按树剪枝：查询只保留同尺度 3×3 邻域（同类）+ 自身祖先链 + 本格后代，
-   候选数从 224 降到均值 11.3（`models/test_hierarchy.py` 实测，叶子 7），
-   精度与候选数一起报告；把父子连边打乱即为"层次是否被用上"的反事实。
-4. 四个臂隔离"层次"与"几何"：
-
-| 臂 | 树 | 距离 | 蕴含损失 | 隔离的东西 |
-|---|---|---|---|---|
-| `H_TREE` | 有 | 双曲 | 有（0.05） | 完整假设：半径 + 祖先剪枝 + 锥内含蕴 |
-| `H_TREE_E` | 有 | 欧氏（`--module matched`，log 半径先验 0.05） | 无曲率项 | 层次结构本身的贡献：同一棵树、同一剪枝，只去掉曲率 |
-| `H_FLAT` | 无 | 双曲 | 无 | 纯几何（复现历史零效应） |
-| `A_best` | — | — | — | 段 A 最优配方作参照 |
-
-- 数据集 SYSU / LEVIR，3 seed（2334–2336），18 项；若 `H_TREE` 过门再补 WHU。
-- 三臂共用载体 `--module hyperbolic/matched --tar-variant reparam`（Run3 的 `ARM_C`，
-  历史上唯一在 SYSU 过门的检索变体），因此「树」是唯一变量；40k step、bs32、val 选模、
-  阈 0.5，与段 A 的 `A_CTRL` 同预算。
-- 剪枝语义：每个查询只看「同尺度 3×3 邻域 + 祖先链 + 本格后代」，224 个候选降到
-  平均 11.3（叶 7）；半径由正的增量生成，`r[0] > r[1] > …` 对任意参数都成立。
-- 机制探针（不训练，直接读权重）：半径-尺度相关系数、蕴含违例率、祖先质量占比、
-  以及"打乱父子连边"后的掉点——最后一项是层次是否真被用上的直接证据。
-
-## 门限与判读
-
-- 段 A：只报告 σ 与点估计，不下"有效/无效"结论；σ 用于段 B。
-- 段 B：`gate = max(0.36, 1.5σ)`，只与同数据集同 seed 的 `A_best` 配对比较。
-  `H_TREE` 必须同时满足：F1 过门 **且** 蕴含违例率相对 `H_FLAT` 下降 **且**
-  树剪枝后指标不崩（掉点 ≤σ）。三者缺一即判"层次没被用上"，不写成有效。
-
-## 预算
-
-段 A 24 项（40k/60k 混合）约 12 h；段 B 18 项约 9 h；两卡各两槽（`MINOR_SLOTS=2`，
-mobilenet 轻臂 6 GB 预留足够）。段 A 先跑，跑完立刻用实测 σ 锁段 B 门限，再起段 B。
+Run7 的读数（SYSU：CTRL 81.392 / TAR_ONLY 81.995 / HRA_ONLY 82.533 / TAR_HRA 83.022）
+是旧主干（主输出 64²、四级等权、单向门）。Run10 的 `D_CTRL` 已经换主干，因此**跨轮
+只做方向参考**，同轮比较以 `D_CTRL`/`D_CG`/`R_FULL` 为准。
 
 ## 产物
 
-`docs/experiment_metrics.xlsx`（协议列区分 A/B）、
-`docs/temporary/models_and_metrics_CASA-MinorGoal_Run10.txt`、
-`outputs/CASA-MinorGoal/Run10/{comparison.md, comparison.json}`、
-`README.md` Run10 节（段 A 的 σ 表 + 段 B 的四臂表 + 机制探针）。
+* `outputs/CASA-CD/CASA-MinorGoal/Run10/<arm>/<dataset>/train_log.txt`（含 TEST RESULTS）
+* `params.json`（smoke 回填的 trainable/deploy）、`comparison.md/json`
+* 收尾：`docs/experiment_metrics.xlsx`、`docs/temporary/models_and_metrics_CASA-MinorGoal_Run10/`

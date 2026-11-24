@@ -174,7 +174,6 @@ class DCRDecoder(nn.Module):
             self.block2 = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
             self.fuse1 = RepPairFuse1x1(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
             self.block1 = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
-            self.refine = RepLocalBlock(dim, use_aux=use_aux, use_residual=use_residual, deploy=deploy)
         else:
             self.fuse3 = PlainFuse1x1(dim, deploy=deploy)
             self.block3 = PlainLocalBlock(dim, deploy=deploy)
@@ -182,7 +181,6 @@ class DCRDecoder(nn.Module):
             self.block2 = PlainLocalBlock(dim, deploy=deploy)
             self.fuse1 = PlainFuse1x1(dim, deploy=deploy)
             self.block1 = PlainLocalBlock(dim, deploy=deploy)
-            self.refine = PlainLocalBlock(dim, deploy=deploy)
 
     def forward(self, feats):
         return self.forward_pyramid(feats)[0]
@@ -201,8 +199,9 @@ class DCRDecoder(nn.Module):
 
         u2 = F.interpolate(d2, size=t1.shape[-2:], mode="bilinear", align_corners=False)
         d1 = self.block1(self.act(self.fuse1(t1, u2)))
-
-        d1 = self.refine(d1)
+        # the 64x64 map is the finest decoder level; the 128x128 refinement that
+        # used to live here moved to the head output (see casanet.FineRefine), so
+        # this block is no longer paid for twice.
         return [d1, d2, d3, d4]
 
     def switch_to_deploy(self):
