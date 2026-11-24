@@ -9,7 +9,6 @@ from model.layers.lorentz_ops import lift, pairwise_squared_distance
 from model.layers.class_pooling import class_assignments
 from model.edge_supervision import EdgeHead
 from model.layers.pyramid_context import feature_regions
-from model.layers.hierarchical_prototypes import ScaleHierarchy, hierarchy_loss
 from model.layers.pyramid_context import (
     attention_diagnostics, channel_norm, highpass, merge_heads,
     pool_features, project_tokens, rms, source_bias, split_heads,
@@ -41,8 +40,7 @@ class HyperbolicContext(nn.Module):
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=FLAT_GRIDS,
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
                  edge_supervision=False, edge_detach="retrieval",
-                 prototype_pooling="euclidean", prototype_tree="none",
-                 entailment_weight=0.0):
+                 prototype_pooling="euclidean"):
         super().__init__()
         if support_mode not in ("mass", "cell", "pixel", "none"):
             raise ValueError(f"unknown support_mode {support_mode!r}")
@@ -90,16 +88,6 @@ class HyperbolicContext(nn.Module):
         if edge_detach not in ("none", "retrieval"):
             raise ValueError(f"unknown edge_detach mode: {edge_detach}")
         self.edge_detach = edge_detach
-        if prototype_tree not in ("none", "tree"):
-            raise ValueError(f"unknown prototype_tree: {prototype_tree}")
-        self.prototype_tree = prototype_tree
-        self.entailment_weight = float(entailment_weight)
-        self.hierarchy = ScaleHierarchy(self.grid_sizes) if prototype_tree == "tree" else None
-        offsets, running = [], 0
-        for count in self.tokens_per_scale:
-            offsets.append(running)
-            running += count
-        self.token_offsets = tuple(offsets)
         self.collect_diag = False
         self.last_diag = {}
 
@@ -119,30 +107,7 @@ class HyperbolicContext(nn.Module):
     def project_keys(self, prototype):
         projected = project_tokens(self.qk, prototype, self.heads)
         occupancy = F.linear(prototype, self.guide.weight[:, :, 0, 0], self.guide.bias).sigmoid()
-        if self.hierarchy is not None:
-            projected = self.apply_radii(projected)
         return self.geometric_point(projected), occupancy
-
-    def apply_radii(self, projected):
-        """Force each scale's prototypes onto its own Lorentz radius.
-
-        ``lift`` reads the intrinsic radius off the vector norm, so setting the
-        norm to ``sqrt(D) * sinh(r_s)`` puts scale ``s`` exactly at ``r_s``; the
-        radii come from positive increments, so the order can never invert.
-        """
-        radius = self.hierarchy.radii().to(projected.dtype)
-        scale = self.hierarchy.scale_of(projected.shape[2]).to(projected.device)
-        target = radius[scale] * math.sqrt(projected.shape[-1])
-        unit = projected / projected.norm(dim=-1, keepdim=True).clamp_min(1e-6)
-        return unit * target[None, None, :, None]
-
-    def tree_mask(self, logits, index):
-        """Ancestor-and-neighbour mask for one scale's queries, or None."""
-        if self.hierarchy is None:
-            return None
-        start = self.token_offsets[index]
-        keep = self.hierarchy.keep_mask[start:start + logits.shape[1]].to(logits.device)
-        return keep[None]
 
     @staticmethod
     def head_regions(per_pixel, grid):
@@ -296,9 +261,6 @@ class HyperbolicContext(nn.Module):
         for index, (original, x, p) in enumerate(zip(tar, normalized, occupancy)):
             query = queries[index]
             logits = self.attention_logits(query.flatten(2, 3), key, support, index)
-            keep = self.tree_mask(logits, index)
-            if keep is not None:
-                logits = logits.masked_fill(~keep, torch.finfo(logits.dtype).min)
             probability = logits.softmax(-1)
             if return_aux:
                 geometric_logits.append(self.geometric_change_logit(logits, *x.shape[-2:]))
@@ -373,30 +335,13 @@ class HyperbolicContext(nn.Module):
             self.last_diag = diagnostics
         auxiliary = dict(guide_logits=tuple(guide),
                          edge_logits=tuple(edge_maps) if edge_maps else None)
-        if self.hierarchy is not None:
-            # Violation is reported whether or not the term is weighted, so the
-            # probe can read how tree-like the learned prototypes already are.
-            scales = self.hierarchy.scale_of(key.shape[2]).to(key.device)
-            auxiliary["tree_violation"] = self.hierarchy.entailment(key, scales)
-            term = hierarchy_loss(self.hierarchy, key, scales, self.entailment_weight)
-            prior = self.radius_prior() if hasattr(self, "radius_prior") else None
-            if prior is not None:
-                term = term + prior
-            if self.entailment_weight > 0 or prior is not None:
-                auxiliary["tree_loss"] = term
         if return_aux:
             auxiliary["geometric_logits"] = tuple(geometric_logits)
         return enhanced, auxiliary
 
 
 class MatchedEuclideanContext(HyperbolicContext):
-    """Same representations and readout, with spatial Euclidean distance only.
-
-    With ``prototype_tree="tree"`` this is the control that separates hierarchy
-    from curvature: the same tree, the same pruning and the same per-scale
-    radius ordering, but distances are Euclidean, so the radii only act as a
-    scale-dependent norm and need an explicit log-radius prior to stay honest.
-    """
+    """Same representations and readout, with spatial Euclidean distance only."""
     geometry = "euclidean_matched"
 
     @staticmethod
@@ -404,20 +349,3 @@ class MatchedEuclideanContext(HyperbolicContext):
         q, k = query[..., 1:], key[..., 1:]
         return (q.square().sum(-1, keepdim=True) + k.square().sum(-1).unsqueeze(-2)
                 - 2 * (q @ k.transpose(-1, -2))).clamp_min(0)
-
-    def radius_prior(self):
-        """Penalty that anchors each scale's radius at ``base * e**(step*(S-1-s))``.
-
-        Without curvature the radius has no metric meaning, so the prior is what
-        keeps the increments identifiable; it is reported as ``tree_loss`` so the
-        Euclidean arm stays comparable to the hyperbolic one.
-        """
-        if self.hierarchy is None:
-            return None
-        # radii already follow the increments; the prior anchors the increments
-        # themselves at the geometric spacing the tree was designed with.
-        target = 0.35 * torch.arange(
-            self.hierarchy.scales - 1, 0, -1, device=self.hierarchy.increments.device,
-            dtype=self.hierarchy.increments.dtype)
-        anchor = (self.hierarchy.increments - target).square().mean()
-        return self.entailment_weight * anchor

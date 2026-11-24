@@ -122,8 +122,6 @@ def training_losses(outputs, aux, target, guide_weight=None, retrieval_weight=No
     total = main + scale * auxiliary
     if edges is not None:
         total = total + edge_weight * edges
-    if "tree_loss" in aux:
-        total = total + aux["tree_loss"]
     return total, main, auxiliary + (0.0 if edges is None else edge_weight * float(edges.detach()))
 
 
@@ -172,13 +170,11 @@ class SpatialMetrics:
         return result
 
 
-def make_loader(root, split, batch_size=32, workers=1, photometric=False):
+def make_loader(root, split, batch_size=32, workers=1):
     operations = [transforms.Scale(256, 256)]
     if split == "train":
         operations += [transforms.RandomCropResize(8), transforms.RandomFlip(), transforms.RandomRotate90(),
                        transforms.RandomExchange()]
-        if photometric:
-            operations += [transforms.RandomPhotometric()]
     operations += [transforms.Normalize(MEAN, STD), transforms.ToTensor()]
     data = Dataset(file_root=str(root), list_path=str(root / "list" / f"{split}.txt"),
                    transform=transforms.Compose(operations))
@@ -228,10 +224,10 @@ def evaluate_auxiliary(model, loader, device):
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
         if model.module in ("difference", "manifold"):
-            tar, difference = model.tar(model.encoder(image[:, :3])[1], model.encoder(image[:, 3:])[1])
+            tar, difference = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
             _, auxiliary = model.context(tar, difference, return_aux=True)
         else:
-            tar = model.tar(model.encoder(image[:, :3])[1], model.encoder(image[:, 3:])[1])
+            tar = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
             if model.module in ("hyperbolic", "matched"):
                 _, auxiliary = model.context(tar, return_aux=True)
             else:
@@ -302,9 +298,7 @@ def save_checkpoint(value, path):
 def restore_training_state(checkpoint, model, optimizer, actual_steps, train_batches):
     manifest = checkpoint["manifest"]
     epoch, step = checkpoint["epoch"], checkpoint["step"]
-    if (manifest.get("backbone", "mobilenet_v2") != model.backbone or
-            bool(manifest.get("freeze_backbone", False)) != model.freeze_backbone or
-            manifest["protocol"] != PROTOCOL or manifest["module"] != model.module or
+    if (manifest["protocol"] != PROTOCOL or manifest["module"] != model.module or
             manifest["actual_steps"] != actual_steps or step != epoch * train_batches or
             manifest["encoder_lr_mult"] != optimizer.param_groups[0]["lr_scale"] or
             not 0 <= step <= actual_steps):
@@ -345,25 +339,9 @@ def strict_fold_precision():
         torch.backends.cudnn.benchmark = benchmark
 
 
-FOLD_TOLERANCE = {"mobilenet_v2": 3e-4, "vit_base4": 2e-2, "vmamba_tiny": 2e-2}
-
-
-def fold_tolerance(model):
-    """A deep pretrained trunk accumulates more rounding when a BN is folded.
-
-    The bound is measured, not guessed: with random weights the four-level
-    logits sit near zero and folding is exact to ~1e-7; with pretrained
-    weights the same fold lands on logits of order 5-10, so the FP32 rounding
-    shows up in the probabilities.  The deploy graph is still structurally
-    identical (binary disagreement is bounded separately).
-    """
-    return FOLD_TOLERANCE.get(getattr(model, "backbone", "mobilenet_v2"), 2e-3)
-
-
 @torch.no_grad()
 def verify_deployment(model, image):
     model.eval()
-    tolerance = fold_tolerance(model)
     deploy = copy.deepcopy(model).switch_to_deploy().eval()
     with strict_fold_precision():
         original = model(image[:, :3], image[:, 3:])
@@ -372,10 +350,10 @@ def verify_deployment(model, image):
             raise FloatingPointError("non-finite deployment verification output")
         differences = [float((a-b).abs().max()) for a, b in zip(original, folded)]
         disagreement = int(((original[0] > 0.5) != (folded[0] > 0.5)).sum())
-    report = dict(policy=DEPLOY_POLICY, tolerance=tolerance, max_diff=differences[0],
+    report = dict(policy=DEPLOY_POLICY, tolerance=2e-4, max_diff=differences[0],
                   per_scale_max_diff=differences, binary_disagreement=disagreement)
     print(f"[DEPLOY-VERIFICATION] {json.dumps(report)}", flush=True)
-    if differences[0] > tolerance:
+    if differences[0] > 2e-4:
         raise RuntimeError(f"deploy folding mismatch: {differences[0]}")
     return deploy, report
 
@@ -391,18 +369,12 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
-    parser.add_argument("--backbone", choices=("mobilenet_v2", "vmamba_tiny", "vit_base4"),
-                        default="mobilenet_v2")
-    parser.add_argument("--freeze-backbone", action="store_true",
-                        help="keep the encoder frozen (no grads, no BN updates)")
     parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched", "difference", "manifold"],
                         required=True)
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--encoder-lr-mult", type=float, default=1.0)
-    parser.add_argument("--photometric", action="store_true",
-                        help="independent per-date brightness/contrast/gamma jitter")
     parser.add_argument("--seed", type=int, default=2333)
     parser.add_argument("--context-seed", type=int, default=2333)
     parser.add_argument("--context-heads", type=int, choices=(1, 2, 4), default=1)
@@ -421,7 +393,7 @@ def main():
     parser.add_argument("--guide-weight", type=float)
     parser.add_argument("--retrieval-weight", type=float)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1", "cg", "cd2"),
+    parser.add_argument("--tar-variant", choices=("reparam", "plain", "diff", "spp", "spp1", "cg"),
                         default="reparam")
     parser.add_argument("--decoder-variant", choices=("reparam", "plain", "none"), default="reparam")
     parser.add_argument("--selection-split", choices=("test", "val"), default="test")
@@ -437,12 +409,6 @@ def main():
                         help="pixels by which the GT edge ring is widened before supervision")
     parser.add_argument("--prototype-pooling", choices=("euclidean", "lorentz"), default="euclidean",
                         help="where the class prototypes are averaged: tangent space or on the manifold")
-    parser.add_argument("--prototype-tree", choices=("none", "tree"), default="none",
-                        help="give each scale its own radius and prune retrieval to neighbours "
-                             "plus ancestors (hierarchy probe)")
-    parser.add_argument("--entailment-weight", type=float, default=0.0,
-                        help="weight of the child-inside-parent cone hinge; 0 keeps the tree "
-                             "structure but only reports its violation")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -457,9 +423,8 @@ def main():
         parser.error("retrieval supervision requires the matched H/E or difference context")
     if args.context_heads != 1 and args.module not in ("hyperbolic", "matched", "difference", "manifold"):
         parser.error("multihead ablation requires the matched H/E or difference context")
-    if args.module in ("difference", "manifold") and args.tar_variant not in ("spp", "spp1", "diff", "cg", "cd2"):
-        parser.error("the difference context needs a temporal difference stream "
-                     "(--tar-variant spp, spp1, diff, cg or cd2)")
+    if args.module in ("difference", "manifold") and args.tar_variant not in ("spp", "spp1", "diff", "cg"):
+        parser.error("the difference context needs --tar-variant spp")
     torch.set_num_threads(4)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -474,8 +439,7 @@ def main():
     checkpoint_path = args.checkpoint_dir / "last.pth"
     if checkpoint_path.exists() and not args.resume:
         raise RuntimeError("training directory already contains a checkpoint")
-    train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers,
-                                photometric=args.photometric)
+    train_loader = make_loader(args.dataset_root, "train", args.batch_size, args.num_workers)
     test_loader = make_loader(args.dataset_root, "test", args.batch_size, args.num_workers)
     val_loader = make_loader(args.dataset_root, "val", args.batch_size, args.num_workers)
     select_loader = test_loader if args.selection_split == "test" else val_loader
@@ -493,15 +457,11 @@ def main():
                     kv_hierarchy=args.kv_hierarchy, freeze_tau=args.freeze_tau,
                     edge_supervision=args.edge_weight > 0,
                     edge_detach=args.edge_detach,
-                    prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate,
-                    backbone=args.backbone, freeze_backbone=args.freeze_backbone,
-                    prototype_tree=args.prototype_tree,
-                    entailment_weight=args.entailment_weight).to(device)
+        prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
-                    backbone=args.backbone, freeze_backbone=bool(args.freeze_backbone),
                     tar_variant=args.tar_variant, decoder_variant=args.decoder_variant,
                     context_seed=args.context_seed,
                     loader_randomness="independent seeded sampler/worker generators",
@@ -555,8 +515,6 @@ def main():
                     kv_hierarchy=args.kv_hierarchy,
                     freeze_tau=args.freeze_tau,
                     prototype_pooling=args.prototype_pooling,
-                    prototype_tree=args.prototype_tree,
-                    entailment_weight=args.entailment_weight,
                     aggregate=(args.aggregate if args.module == "manifold" else "not_used"),
                     kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
                                if args.module in ("hyperbolic", "matched", "difference", "manifold") else 0),
@@ -598,8 +556,7 @@ def main():
                      "interior_positive_weight", "context_heads", "detail_head", "detail_target",
                      "tar_variant", "decoder_variant",
                      "selection_split", "dataset", "batch_size", "validation_threshold_grid",
-                     "support", "kv_hierarchy", "freeze_tau", "edge_supervision", "prototype_pooling",
-                     "prototype_tree", "entailment_weight"):
+                     "support", "kv_hierarchy", "freeze_tau", "edge_supervision", "prototype_pooling"):
             stored = checkpoint["manifest"].get(name, manifest[name])
             if stored != manifest[name]:
                 raise RuntimeError(f"checkpoint training configuration differs: {name}")
@@ -650,8 +607,6 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     for epoch in range(start_epoch, epochs):
         model.train()
-        if args.freeze_backbone:
-            model.encoder.eval()
         epoch_loss, main_sum, auxiliary_sum, tick = 0.0, 0.0, 0.0, time.time()
         guide_sums, retrieval_sum = {}, 0.0
         for image, target in train_loader:
