@@ -12,11 +12,11 @@ from model.str_tar import (DifferenceTARStage, DifferenceTemporal1x1, MultiScale
 
 # Run10 lean head: the decoder's trailing refine block moved to the 128x128
 # FineRefine, so every arm pays that block once in deploy instead of twice.
-PARAMS = {("reparam", "reparam"): (2042324, 1933891), ("reparam", "plain"): (2008331, 1933891),
-          ("reparam", "none"): (1977739, 1903683), ("plain", "reparam"): (1969356, 1933891),
-          ("plain", "plain"): (1935363, 1933891), ("plain", "none"): (1904771, 1903683),
-          ("diff", "reparam"): (1939148, 1903683), ("diff", "plain"): (1905155, 1903683),
-          ("diff", "none"): (1874563, 1873475)}
+PARAMS = {("reparam", "reparam"): (2042324, 1934019), ("reparam", "plain"): (2008331, 1934019),
+          ("reparam", "none"): (1977739, 1903811), ("plain", "reparam"): (1969356, 1934019),
+          ("plain", "plain"): (1935363, 1934019), ("plain", "none"): (1904771, 1903811),
+          ("diff", "reparam"): (1939148, 1903811), ("diff", "plain"): (1905155, 1903811),
+          ("diff", "none"): (1874563, 1873603)}
 
 
 def build(tar, decoder, seed=2333):

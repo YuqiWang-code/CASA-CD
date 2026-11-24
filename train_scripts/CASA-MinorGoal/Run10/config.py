@@ -47,7 +47,7 @@ SCRIPTS = _PlatformPath(__file__).resolve().parent
 
 PROTOCOL = "casa_minor_run10_lean_v1"
 GPUS = tuple(int(item) for item in os.environ.get("MINOR_GPUS", "1").split(","))
-SLOTS = int(os.environ.get("MINOR_SLOTS", "3"))
+SLOTS = int(os.environ.get("MINOR_SLOTS", "2"))
 HEADROOM = 1024
 SEEDS = (2334, 2335)
 SELECTION = "val"
@@ -99,7 +99,8 @@ JOBS = tuple((arm, dataset) for dataset in DATASETS for arm in ARM_ORDER)
 # Filled in by prepare.py from the smoke test; placeholders keep the audit strict.
 TRAINABLE_PARAMS = {arm: 0 for arm in ARMS}
 DEPLOY_PARAMS = {arm: 0 for arm in ARMS}
-DEFAULT_RESERVATIONS = {arm: 9800 for arm in ARMS}
+# measured peaks: D_* ~9.3 GiB, R_* (224 prototypes, four scales) ~13.0 GiB
+DEFAULT_RESERVATIONS = {arm: (9800 if arm.startswith("D_") else 13600) for arm in ARMS}
 BENCH = {arm: base_of(arm) for arm in ARMS}
 EDGE_WEIGHT = 0.0
 EDGE_DILATE = 1

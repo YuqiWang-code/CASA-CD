@@ -52,22 +52,17 @@ class FineRefine(nn.Module):
         return logits + self.out(F.silu(x))
 
     def switch_to_deploy(self):
-        if getattr(self, "deploy", False):
-            return self
-        weight, bias = fold_conv_bn(self.fuse.weight, None, self.norm)
-        self.fuse = nn.Conv2d(1 + self.stem_channels, self.dim, 1, bias=True)
-        self.fuse.weight.data = weight.float()
-        self.fuse.bias.data = bias.float()
-        weight, bias = fold_conv_bn(self.dw.weight, None, self.dw_norm)
-        self.dw = nn.Conv2d(self.dim, self.dim, 3, 1, 1, groups=self.dim, bias=True)
-        self.dw.weight.data = weight.float()
-        self.dw.bias.data = bias.float()
-        self.deploy = True
-        for name in ("norm", "dw_norm"):
-            if hasattr(self, name):
-                delattr(self, name)
-        return self
+        """Keep the two BatchNorms: folding them is numerically unsafe here.
 
+        The head runs at 128x128 where several channels are dead, so
+        ``running_var`` reaches 1e-45 and ``gamma / sqrt(var + eps)`` reaches 1e7.
+        The fold is exact in float64, but the FP32 evaluation of the unfolded
+        path amplifies the same rounding: a trained D_CTRL checkpoint showed a
+        4.8e-2 probability gap (best-model weights: 1.7e-4). Two BatchNorms on a
+        64-channel 128x128 map cost ~0.05 ms, far less than a deploy graph that
+        disagrees with the scored model, so the deploy form keeps them.
+        """
+        return self
 
 class CASANet(nn.Module):
     def __init__(self, pretrained_path=None, module="none", context_seed=2333,
@@ -110,9 +105,11 @@ class CASANet(nn.Module):
                     options["aggregate_mode"] = aggregate_mode
             if module in ("hyperbolic", "matched", "difference", "manifold"):
                 options["support_mode"] = support
-                options["retrieval_scales"] = retrieval_scales
-                if compact_prototypes:
-                    options["grid_sizes"] = COMPACT_GRIDS
+                # only the hyperbolic family exposes the two Run10 switches
+                if issubclass(context_type, HyperbolicContext):
+                    options["retrieval_scales"] = retrieval_scales
+                    if compact_prototypes:
+                        options["grid_sizes"] = COMPACT_GRIDS
                 options["kv_hierarchy"] = kv_hierarchy
                 options["freeze_tau"] = freeze_tau
             self.context = context_type(**options)

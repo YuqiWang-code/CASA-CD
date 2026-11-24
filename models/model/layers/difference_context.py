@@ -26,10 +26,11 @@ class DifferenceContext(HyperbolicContext):
     def __init__(self, channels=64, heads=1, head_dim=32, grid_sizes=(8, 4, 4, 4),
                  support_mode="mass", kv_hierarchy="flat", freeze_tau=False,
                  edge_supervision=False, edge_detach="none",
-                 prototype_pooling="euclidean"):
+                 prototype_pooling="euclidean", retrieval_scales=(0, 1, 2, 3)):
         super().__init__(channels, heads, head_dim, grid_sizes, support_mode,
                          kv_hierarchy, freeze_tau, edge_supervision,
-                         edge_detach=edge_detach, prototype_pooling=prototype_pooling)
+                         edge_detach=edge_detach, prototype_pooling=prototype_pooling,
+                         retrieval_scales=retrieval_scales)
         self.norm_diff = nn.LayerNorm(channels)
 
     def prototype_features(self, normalized, difference=None):

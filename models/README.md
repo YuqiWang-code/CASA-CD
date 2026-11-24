@@ -60,13 +60,13 @@
 
 | module | tar | decoder | train / deploy |
 |---|---|---|---:|
-| none | reparam | reparam | 2.042324 / 1.933891 |
-| none | plain | reparam | 1.969356 / 1.933891 |
-| none | diff | reparam | 1.939148 / 1.903683 |
-| none | spp | reparam | 2.113492 / 1.993795 |
-| none | cg | reparam | 2.072276 / 2.025539 |
-| hyperbolic / matched | reparam | reparam | 2.053609 / 1.945176 |
-| qkv（遗留） | reparam | reparam | 2.059736 / 1.951303 |
-| manifold | cg | reparam | 2.090099 / 2.043362 |
+| none | reparam | reparam | 2.042324 / 1.934019 |
+| none | plain | reparam | 1.969356 / 1.934019 |
+| none | diff | reparam | 1.939148 / 1.903811 |
+| none | spp | reparam | 2.113492 / 1.993923 |
+| none | cg | reparam | 2.072276 / 2.025667 |
+| hyperbolic / matched | reparam | reparam | 2.053609 / 1.945304 |
+| qkv（遗留） | reparam | reparam | 2.059736 / 1.951431 |
+| manifold | cg | reparam | 2.090099 / 2.043490 |
 
-`decoder=none`（单级解码）与 `manifold`+`diff` 的组合随 Run10 主干变化，本轮未重测，读数以 `train_scripts/CASA-MinorGoal/Run10/` 的 smoke 为准。`--prototype-pooling`、`--retrieval-scales`、`--compact-prototypes`、`--support` 只改缓冲与打分形状，不改参数量。
+部署保留 `FineRefine` 的两个 BN（折它们会把死通道的 1e7 放大带进 FP32，见 `casa_net.FineRefine.switch_to_deploy` 的注释），因此 deploy 比 Run7 同臂多 128 个参数。`decoder=none`（单级解码）与 `manifold`+`diff` 的组合随 Run10 主干变化，本轮未重测，读数以 `train_scripts/CASA-MinorGoal/Run10/` 的 smoke 为准。`--prototype-pooling`、`--retrieval-scales`、`--compact-prototypes`、`--support` 只改缓冲与打分形状，不改参数量。
