@@ -17,7 +17,9 @@
 | `results/s7c_pool.csv` | 每样本每区域每类的池化统计（K/V） | ✅ |
 | `tools/simulation/s7c_capture.py` | S7c 采集脚本（服务器运行） | ✅ |
 | `tools/simulation/s7c_aggregate.py` | 把服务器 CSV 汇总到本目录 | ✅ |
-| S9a / S8b / S9b / S13a-0b / S13a-1 / A3 / A4 | 见 `CORRECTIONS_V5.md` §0 | ❌ 未做 |
+| `S9A_REPORT.md` + `results/*s9a_*` | S9a-0/1/2 算子反事实（12 臂） | ✅ |
+| `S8B_REPORT.md` + `results/s8b_*.csv` | S8b-A 同预算分区保真 | 🟡 第一层完成 |
+| S9b / S13a-0b / S13a-1 / A3 / A4 | 见 `CORRECTIONS_V5.md` §0 | ❌ 未做 |
 
 ## 复现
 
