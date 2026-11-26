@@ -94,3 +94,17 @@
 - S8（FIX/ADA 四臂压缩保真）与 S9（完整软注意力 + 全量参考 + 下游反事实）：需要实现 prototype-level 的 partition/展开与 readout 拼接，本轮时间不足，未运行。
 - 边界/小目标分层、全 val、四库扩展、R_RES-2335/LEVIR 的其余 seed。
 - 效率测量（本轮刻意用 CPU 且未测延迟，不能用于部署论断）。
+
+---
+
+## 后续（V6 收尾轮）
+
+V5 收尾轮的 S9a/S8b 结论已被 V6 修正，**以 `docs/simulation/hyperbolic_v6/` 为准**：
+
+- `S9A_FINAL_REPORT.md`（16 臂、整数混淆矩阵、48/36 张 val、两 seed）
+- `S9B_BUDGET_REPORT.md`（224/128/56/32 KV 预算曲线：任务层平坦）
+- `S8B_FINAL_REPORT.md`（同预算自适应：表示保真层 +7–9%，下游无收益）
+- `S13_FINAL_REPORT.md`（confidence support 在真实 checkpoint 中权重恒 0）
+- `FINAL_DECISION.md`（九问回答与结构决策）
+
+本文件里 V5 的逐图 F1 平均表、以及"移除 HRA 掉 10.1 pp"等表述**不再使用**。
