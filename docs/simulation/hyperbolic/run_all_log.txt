@@ -1,0 +1,245 @@
+=====================================================================
+ CASA-CD hyperbolic simulation -- run_all
+ MATLAB 9.12.0.1884302 (R2022a) | 2026-11-17 14:27:07
+ question: what does hyperbolic geometry give that Euclidean cannot?
+=====================================================================
+
+
+#################### PART 1/5 : H5 geometry on/off ####################
+first figure = H5-Q1 (same shell vs cross shell rearrangement)
+H5-Q1 ===== same shell vs cross shell: is the geometry switched on? =
+  same-radius identity: max|d_geo - acosh(1+2d^2/a^2)| = 3.55e-15 over 4000 pairs
+  (identity holds because a_u = a_v = a when r_u = r_v)
+  radial spread kappa | Spearman | Kendall | top1 agree | top5 overlap
+        0.02          |  0.9526  | 0.8124  |   0.856    |    0.874
+        0.10          |  0.3346  | 0.2250  |   0.339    |    0.454
+        0.20          |  -0.2771  | -0.1921  |   0.161    |    0.190
+        0.35          |  -0.6581  | -0.4773  |   0.011    |    0.057
+        0.55          |  -0.7135  | -0.5142  |   0.044    |    0.079
+        0.80          |  -0.6342  | -0.4345  |   0.111    |    0.129
+        1.10          |  -0.4908  | -0.3075  |   0.194    |    0.209
+  >> same shell (LN + shared projection): Spearman 0.9526, top-1 identical 86% -> geometry OFF
+  >> 4 shells 0.7/1.6/3.2/6.4: Spearman -0.6293 | top-1 agree 0.256 | same-shell top-1 geo 0.261 vs euc 0.533
+
+H5-Q2 ===== strong / weak change prototypes: flat shell vs shell-by-strength =
+  LN arm: top-1 disagreement between geodesic and euclid = 0 / 224 (must be 0)
+  best additive radius bias lambda = +2.00
+  arm                      | top-1 all | weak KV | strong KV
+  LN + geodesic            |   0.710   |  0.089  |   0.917
+  LN + euclid              |   0.710   |  0.089  |   0.917
+  raw euclid               |   0.705   |  0.000  |   0.940
+  raw geodesic             |   0.353   |  0.143  |   0.423
+  raw geodesic + bias      |   0.719   |  0.071  |   0.935
+  reading: LN puts Q and K on one shell -> geodesic and euclid are rank-identical
+           (geometry off). Using the raw radius: euclid is dominated by the norm and
+           never retrieves a weak KV, the bounded geodesic does better, and an explicit
+           radius bias recovers the weak KVs. That is the only place radius pays.
+
+H5-Q3 ===== M2: are weak changes swallowed, does radius layering help?
+  weak/strong change amplitude 0.35 / 1.25, noise 0.30 in-subspace + 0.12 residual, 1% FPR
+  arm                                          |  AUC  | rec weak | rec strong | R weak/strong
+  euclid contrast (raw)                        | 0.783 |   0.027  |    0.590   |  1.80 / 3.47
+  geodesic contrast, flat shell KV             | 0.758 |   0.026  |    0.443   |  0.57 / 0.74
+  geodesic contrast, radius-layered KV         | 0.753 |   0.027  |    0.406   |  0.57 / 0.74
+  LayerNorm first (one shell, geodesic)        | 0.644 |   0.016  |    0.090   |  0.41 / 0.41
+  LayerNorm first (one shell, euclid)          | 0.644 |   0.016  |    0.090   |  1.00 / 1.00
+  reading: (i) the same-shell arm (LN) collapses strong-change recall from
+           0.590 (euclid raw) / 0.406 (geodesic) to 0.090: normalising throws
+           away the amplitude that carried the detection -> this IS the M2
+           blind spot, and it is caused by the normalisation, not by curvature;
+           (ii) radius layering of the KV does NOT rescue it (weak recall 0.027
+           vs 0.026, AUC 0.753 vs 0.758): geometry redistributes the radius but
+           cannot manufacture signal that the noise floor absorbed;
+           (iii) weak-change recall is 0.016-0.027 in EVERY arm at 1% FPR, so a
+           small change is below threshold under all geometries -> M2 needs a
+           content change (differential KV), not a geometric one.
+
+H5-Q4 ===== tree embedding: what does a same-shell constraint destroy? =
+  geometry      | stress (free) | stress (one shell) | radius-vs-depth rho free -> shelled
+  hyperbolic 2D |    0.4471    |      0.2843       |  0.753 -> 0.000
+  euclidean  2D |    0.4585    |      0.5937       |  0.753 -> -0.155
+  stress inflation from the shell constraint: hyperbolic 0.64x, euclid 1.30x
+  reading: shell projection is what destroys the hierarchy (rho -> 0.00), and it
+           destroys it regardless of curvature. So LN + one shared projection throws
+           away the RADIAL channel; curvature itself was never doing the work.
+H5 done.
+
+
+#################### PART 2/5 : H1 hierarchy ####################
+H1: KV per scale = [128 32 32 32]  (total 224)
+H1: tree A n=229 (distinct d=[0 1 2 3 4]) | tree B n=85 (distinct d=[0 1 2 3 4 5 6])
+H1 Q1 stress (lower=better):
+  tree A  euc dim1..4 = [0.603 0.478 0.383 0.374] | hyp d2=0.2930 d4=0.1492 d8=0.0878 | hyp2-radial=0.2597
+  tree B  euc dim1..4 = [0.667 0.485 0.339 0.306] | hyp d2=0.2934 d4=0.1296 d8=0.0639 | hyp2-radial=0.2587
+  euc tail: tree A dim8/16/32 = [0.357 0.348 0.336] | tree B = [0.208 0.08 0.0565]
+H1 Q1 Euclid dims needed to match hyp-2: tree A = NaN (radial NaN), tree B = 5 (radial 6)
+H1 Q1b tree A: every leaf sits at depth 2 (root-leaf d=2 for all 4 scales);
+       leaf-leaf distance across scales = 4, within one scale = [0 2]
+H1 Q2 radius-vs-depth Spearman: tree A 0.814 (random init) / 0.096 (radial init);
+       tree B 0.335 (random init) / 0.553 (radial init, by construction)
+H1 Q2 min pairwise AUC of radius for scale id (tree A) = 0.725 (random) / 0.501 (radial)
+  radius per scale (tree A, random): [0.263;0.387;0.398;0.407] | (radial): [0.346;0.379;0.304;0.379]
+  radius per depth (tree B, radial): [0.111;0.206;0.369]
+H1 Q3 direct lift: max|radius - asinh||z||| = 0.00e+00
+H1 Q3 min pairwise AUC for scale: radius=1.000  raw ||z||=1.000  (identical ranking: 1)
+H1 done.
+
+
+#################### PART 3/5 : H2 content vs geometry ####################
+H2 check |gdiag - geo_cdist(diag)| = 8.88e-16
+
+H2 ===== AUC (5-fold CV logistic probe, held-out half), mean of 3 seeds =====
+arm              | coherent 1%/3%/5%        | heterogeneous 1%/3%/5%  
+euc-den          |  0.683  0.636  0.621  |  0.578  0.555  0.643  
+hyp-den          |  0.707  0.643  0.636  |  0.616  0.531  0.641  
+delta-euc        |  0.794  0.761  0.754  |  0.694  0.686  0.712  
+delta-hyp        |  0.793  0.759  0.764  |  0.684  0.688  0.712  
+r-only           |  0.574  0.645  0.590  |  0.512  0.566  0.583  
+geoDist-proto    |  0.595  0.630  0.527  |  0.582  0.622  0.568  
+eucDist-proto    |  0.539  0.553  0.486  |  0.442  0.466  0.470  
+diff-euc         |  0.716  0.767  0.785  |  0.636  0.724  0.697  
+diff-geo         |  0.846  0.838  0.788  |  0.825  0.806  0.792  
+geo+sup          |  0.767  0.772  0.774  |  0.673  0.711  0.716  
+euc+sup          |  0.731  0.727  0.745  |  0.664  0.642  0.675  
+hyp-den+r        |  0.686  0.698  0.659  |  0.587  0.589  0.667  
+
+H2 ===== mean AP (imbalance-aware), 3% positives =====
+  euc-den          coh 0.111   het 0.042
+  hyp-den          coh 0.120   het 0.044
+  delta-euc        coh 0.229   het 0.072
+  delta-hyp        coh 0.238   het 0.076
+  r-only           coh 0.114   het 0.044
+  geoDist-proto    coh 0.163   het 0.064
+  eucDist-proto    coh 0.132   het 0.032
+  diff-euc         coh 0.516   het 0.373
+  diff-geo         coh 0.229   het 0.134
+  geo+sup          coh 0.331   het 0.109
+  euc+sup          coh 0.325   het 0.102
+  hyp-den+r        coh 0.155   het 0.051
+
+H2 ===== paired differences (mean +- sd over 18 scenes, pp) =====
+  hyp_vs_euc_den     +0.98 +- 3.08 pp   (coh +1.54 | het +0.42)
+  hyp_vs_euc_dist    +9.50 +- 8.04 pp   (coh +5.82 | het +13.17)
+  content_diff_geo   +22.84 +- 7.92 pp   (coh +23.99 | het +21.70)
+  content_diff_euc   +22.84 +- 8.15 pp   (coh +23.02 | het +22.66)
+  hyp_vs_scalar      +15.48 +- 6.68 pp   (coh +16.87 | het +14.08)
+  geo_vs_scalar      +0.89 +- 9.19 pp   (coh -1.91 | het +3.70)
+  sup_geo            +14.80 +- 14.06 pp   (coh +18.68 | het +10.91)
+  sup_euc            +20.48 +- 13.32 pp   (coh +20.84 | het +20.12)
+  hypden_vs_scalar   +6.91 +- 4.67 pp   (coh +7.77 | het +6.04)
+
+H2 decisive tests (paired t, n=18 scenes):
+  geodesic vs euclid, same content : +9.50 pp, p=0.00011 -> SIG
+  difference vs prototype content  : +22.84 pp, p=7.5e-10 -> SIG
+  (content effect, euclid form)    : +22.84 pp, p=1.2e-09 -> SIG
+  full hyperbolic vs full euclid   : +0.98 pp, p=0.2 -> not sig
+  full hyperbolic vs scalar r only : +15.48 pp, p=2e-08 -> SIG
+  [hyp-den+r] vs [r only]          : +6.91 pp
+  support prior on top of geodesic : +14.80 pp
+
+H2 ===== saturation diagnostic (single scene, 3%) =====
+  median radius of pi(Q)          : 0.855  (0 = centre, 1 = horizon)
+  median geodesic d(Q,proto)      : 2.824 ; 99th pct 4.466 ; asinh(||z||) at same points 2.547
+  fraction of positions at r>0.95 : 0.000  (metric resolution collapses there)
+  Spearman(euclid contrast, geo contrast) = 0.839 (1 = same ranking)
+  Spearman(geo contrast, radius only)     = 0.007
+  Fisher ratio (scale-1 column): eucDist 0.025 | geoDist 0.028
+
+H2c ==== 1-D prototype contrast AUC per scale (3% pos, held-out half) ====
+  positive-cell rate: 0.051 0.038 0.017 0.005  (mean-pooled cell labels)
+  scale (grid)     :  8x8    4x4    2x2    1x1
+  Euclidean   AUC  :  0.600  0.634    NaN    NaN
+  Geodesic    AUC  :  0.557  0.622    NaN    NaN
+  geo-euc (pp)     :  -4.28  -1.16    NaN    NaN  | mean NaN pp
+
+H2b ==== paired geo-euc gap vs prototype noise (3% pos, scale 1) ====
+  sigma_proto=0.00 : geo-euc = -14.25 pp (coh -9.86 | het -18.64)
+  sigma_proto=0.05 : geo-euc = -13.27 pp (coh -9.59 | het -16.94)
+  sigma_proto=0.10 : geo-euc = -11.33 pp (coh -8.84 | het -13.83)
+  sigma_proto=0.20 : geo-euc = -7.26 pp (coh -6.76 | het -7.75)
+  sigma_proto=0.40 : geo-euc = -2.70 pp (coh -3.84 | het -1.55)
+  sigma_proto=0.80 : geo-euc = -0.14 pp (coh -0.65 | het +0.38)
+H2 done.
+
+
+#################### PART 4/5 : H3 224-KV retrieval ####################
+H3 prototypes: 224 KV (112 change / 112 background), support range 0.000..1.000
+H3 queries: 40 held-out change-cell statistics
+  KV norm per scale: 0.07 0.09 0.22 0.48
+  Spearman(euc,geo) over all 8960 pairs = 0.9994 ; argmax disagreements = 0/40
+  mean |pi(P)| radius = 0.0690 (1 = horizon)
+
+H3 ===== 224-way retrieval of the change prototype (noise x arms) =====
+  sigma_q | geo+pr  geo   euc+pr  euc  | lam(geo,euc) | cross-scale  | background-KV
+   0.00   | 0.600  0.600  0.600  0.600 | +0.00 +0.00  | 0.300 0.300 0.300 0.300 | 0.000 0.000 0.000 0.000
+   0.05   | 0.600  0.600  0.600  0.600 | +0.00 +0.00  | 0.300 0.300 0.300 0.300 | 0.050 0.050 0.050 0.050
+   0.10   | 0.500  0.500  0.500  0.500 | +0.00 +0.00  | 0.300 0.300 0.300 0.300 | 0.150 0.150 0.150 0.150
+   0.20   | 0.600  0.600  0.600  0.600 | +0.00 +0.00  | 0.300 0.300 0.300 0.300 | 0.000 0.000 0.000 0.000
+   0.35   | 0.350  0.350  0.350  0.350 | +0.00 +0.00  | 0.300 0.300 0.300 0.300 | 0.000 0.000 0.000 0.000
+  geo+prior - euc+prior   : mean +0.00 pp (max +0.00 at sigma=0.00)
+  geo(no prior)-euc(no pr): mean +0.00 pp
+  prior effect, euc arm   : mean +0.00 pp ; geo arm +0.00 pp
+  background-KV confusion at sigma=0.20: 0.000 0.000 0.000 0.000
+H3 done.
+
+
+#################### PART 5/5 : H4 tau and curvature ####################
+H4 ===== temperature and curvature: geometry or prior calibration? =
+  problem: 20000 samples, 5% change, 32-d, geodesic prototype contrast
+  raw-score AUC = 0.7820 (this is the only number that carries information)
+
+H4-A ===== softmax(-tau*d^2) readout vs tau
+  tau      :    0.05    0.10    0.25    0.50    1.00    2.00    4.00    8.00   16.00   32.00
+  AUC      :  0.7820  0.7820  0.7820  0.7820  0.7820  0.7820  0.7820  0.7820  0.7820  0.7820
+  max|AUC(tau) - AUC(tau_min)| = 0.00e+00  -> AUC is EXACTLY flat in tau
+  max|p(tau=32) - p(tau=0.05)| = 0.497 (probabilities do move: calibration only)
+
+H4-B ===== a tau fitted by BCE: does it learn geometry or the prior?
+  prevalence | learned a (=tau) | learned b | threshold s0=-b/a | AUC on one fixed test set
+     1%     |        1.58      |    1.24   |      -0.786      |   0.7609
+     3%     |        1.56      |    1.40   |      -0.896      |   0.7609
+     5%     |        1.54      |    1.60   |      -1.040      |   0.7609
+  log-odds shift 1%->5% = 1.65 ; learned intercept shift = 0.36 ; learned a ratio = 0.97
+  reading: the intercept/threshold follows the prevalence almost exactly while the
+           slope and the AUC do not move -> learnable tau is a PRIOR parameter.
+
+H4-C ===== curvature c: new information or a reparameterisation?
+  (i) radius identity d_c(0,x) = asinh(sqrt(c)||z||)/sqrt(c): max dev 1.78e-15
+      mean geodesic radius per c:  2.430  2.146  1.840  1.537  1.257
+      c rescales the radius only: c->0 gives ||z||, small ||z|| is c-blind
+  (ii) fixed features, Spearman(d_c, d_1):
+       c          :    0.25    0.50    1.00    2.00    4.00
+       all pairs  :  0.9998  1.0000  1.0000  1.0000  1.0000
+       nearest 25%:  0.9979  0.9996  1.0000  0.9999  0.9997
+       far 25%    :  0.9988  0.9998  1.0000  0.9999  0.9999
+  (iii) one shell (R=1.0), Spearman vs c=0.25:  1.0000  1.0000  1.0000  1.0000  1.0000  -> ranking identical for every c
+
+H4-D ===== tau vs c: can a learnable tau compensate for curvature?
+  c             :    0.25    0.50    1.00    2.00    4.00
+  AUC(contrast)  :  0.8311  0.8049  0.7820  0.7644  0.7516
+  Spearman vs c=1:  0.9863  0.9974  1.0000  0.9988  0.9965
+  AUC(tau) at c=  0.7820  0.7820  0.7820   (tau inert at this curvature)
+  AUC(tau) at c=  0.7516  0.7516  0.7516   (tau inert at this curvature too)
+  reading: tau never changes a decision, at any curvature, so it cannot stand in
+           for c; curvature only reorders pairs at LARGE distance.
+H4 done.
+
+
+=====================================================================
+ FIGURES (what to look at)
+---------------------------------------------------------------------
+ [x] fig_h5_rearrangement.png   H5-Q1 first: Spearman(hyperbolic, euclid) vs radial spread; flat shell -> geometry off
+ [x] fig_h5_q2_arms.png         H5-Q2: top-1 retrieval, LN vs raw, with/without a radius bias
+ [x] fig_h5_shells.png          H5-Q3 (M2): weak/strong recall at 1% FPR, raw vs LN vs radius-layered KV
+ [x] fig_h5_tree_shell.png      H5-Q4: tree stress and radius-vs-depth under a one-shell constraint
+ [x] fig_h1_disk.png            H1: 2-D Poincare embedding of the flat KV tree vs a quad-tree KV
+ [x] fig_h1_dims.png            H1: stress vs dimension, Euclidean vs hyperbolic (dimension budget)
+ [x] fig_h2_arms.png            H2: linear-probe AUC per arm (content arms vs geometry arms)
+ [x] fig_h2_effect.png          H2: paired effect sizes with confidence intervals
+ [x] fig_h3_distmat.png         H3: 224x224 distance matrix, hyperbolic vs Euclidean (block structure)
+ [x] fig_h3_retrieval.png       H3: retrieval accuracy vs prototype noise, all four arms
+ [x] fig_h4_tau.png             H4: AUC flat in tau, threshold follows the prevalence
+ [x] fig_h4_curvature.png       H4: curvature only reorders far pairs, AUC barely moves
+---------------------------------------------------------------------
+ total runtime 61.2 s ; log written to F:\Code_Repositories_2\CursorCode\CASA-CD\docs\simulation\hyperbolic\run_all_log.txt
+=====================================================================
