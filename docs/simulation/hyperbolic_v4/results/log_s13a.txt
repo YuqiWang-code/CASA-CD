@@ -1,0 +1,27 @@
+===== S13a-0：confidence support 梯度阻断复现（冻结源码逐字对照） =====
+源码：models/model/layers/manifold_context.py::support_term
+  share   = adaptive_avg_pool2d(support_head(x).sigmoid(), grid)
+  support = |2*share - 1|  (confidence) -> cat(...).clamp_min(1e-6)
+  support_head = Conv2d(channels, 2, 1)，weight/bias 均 zeros_ 初始化
+
+--- 1) 现状：confidence 分支 + 零初始化 ---
+[confidence + zeros] zero_init=True support∈[1.000e-06,1.000e-06] mean=1.000e-06 | grad_norm=0.000e+00 nonzero=0 loss=65.5081
+
+--- 2) 对照：confidence 分支 + 非零初始化 ---
+[confidence + kaiming] zero_init=False support∈[4.825e-03,3.641e-01] mean=1.030e-01 | grad_norm=3.929e+00 nonzero=128 loss=65.6376
+
+--- 3) 对照：share（mass 式，无 abs）+ 零初始化 ---
+[share + zeros] zero_init=True support∈[5.000e-01,5.000e-01] mean=5.000e-01 | grad_norm=2.768e+00 nonzero=128 loss=65.5081
+
+--- 4) 建议修复：logsigmoid + 零初始化 ---
+[logsigmoid + zeros] zero_init=True support∈[-6.931e-01,-6.931e-01] mean=-6.931e-01 | grad_norm=5.536e+00 nonzero=128 loss=65.5081
+
+解释：
+  · 零初始化时 sigmoid=0.5，abs(2*0.5-1)=0，clamp 到 1e-6；abs 在 0 处次梯度为 0，
+    clamp 在边界上梯度也为 0 —— 两条路径同时断，support_head 永远收不到梯度。
+  · 同一权重下 share（无 abs）仍有梯度，说明断点来自 abs+clamp，不是零初始化本身。
+  · logsigmoid 在零点导数 = -0.5·… ≠ 0，可作中性初始化下的修复候选（S13b 才谈训练）。
+  · 这解释了 S7 观察到的 confidence support 恒为 1e-6；但'先验因此没有任务作用'
+    仍需 S13a-1 的冻结先验反事实来判断，不能由梯度为 0 直接推出。
+
+判定：零初始化 confidence 梯度严格为 0 = True；share/logsigmoid 有非零梯度 = True
