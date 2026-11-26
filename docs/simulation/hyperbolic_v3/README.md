@@ -90,6 +90,22 @@
 **口径提醒**：以上是合成对照，AUC 的 pp 不能当 F1 的 pp；几何效应 CI 含 0 只表示证据不足，
 不等于"等价"（要主张等价需预先规定等效区间）。
 
+
+## r1b / r2b / S8（阶段 A 的 A5、A6 与 S8 合成 sanity）
+
+| 脚本 | 修的是什么 | 结论 |
+|---|---|---|
+| `radius_semantics_v3/r1b_anatomy_v3.m` | 两种半径口径混用、V 错用 K 的缩放、用随机权重上界算"利用率"、正交方向构造错 | 模块口径中位 0.5613 vs 内在 1.9221（比值 3.42）；同权重上界 1.0932/1.2549 成立；**撤回"利用率 43.3%"**；五类半径各走正确缩放路径；atanh 解析式在严格等半径下误差 1.72e-15 |
+| `radius_semantics_v3/r2b_dataset_radius.m` | 池化顺序（先缩放后 Lift）、CV 三种口径、AUC 只含正类图、`spStr` 命名 | 四库 40 对 val：背景/变化中位差 ≤0.042、AUC 0.43–0.52（CI 跨 0.5 或低于 0.5）；cell=8/16/32/64 保留率 73→52%（外部 p）；池内 CV 0.068–0.089 |
+| `hyperbolic_v3/s8_compression.m` | S8 四臂等预算对照（FIX-E/ADA-E/FIX-H/ADA-H），四臂同一组度量 | 六工况下 ADA 全面优于 FIX；FIX 下 H−E 恒为 0（同划分同原型）；ADA 下 H 的划分规则更好（欧氏 SSE 也降 0.013–0.16）；**原型一律 Lorentz 重心**以隔离"划分规则"这单一变量 |
+
+**r2b 的关键更正**：v2 r2 报的"32px 保留率 80–88%"来自错误顺序（先 Lift 未缩放 Z 再除 sqrt(D)）。
+改成真实顺序后是 **52–74%**，与 S7 实测的真实 K/V 收缩 0.86–0.95 相比更"狠"——
+说明骨干特征在 cell 内比原始影像统计量更方向一致（或权重更集中）。
+
+**S8 的口径提醒**：合成结论只说明实现自洽与方向可能性，不能当真实特征的证据；
+真实四臂需要 S7 张量落盘（当前 `s7_capture.py` 只落统计量）。
+
 ## 复现
 
 ```matlab
@@ -97,6 +113,7 @@ cd docs/simulation/hyperbolic_v3
 addpath(fullfile(fileparts(pwd), 'hyperbolic_v2'));   % S = hyper_setup2()
 c2b_retrieval_v3      % 约 6 s，写 results/log_c2b.txt + figures/fig_c2b_01_retrieval.png
 c3b_content_v3        % 约 35 s，写 results/log_c3b.txt + figures/fig_c3b_01_fair.png
+s8_compression        % 约 25 s，写 results/log_s8.txt + figures/fig_s8_01_regimes.png
 ```
 
 ## 尚未完成（必须写清楚，不能当已做）
