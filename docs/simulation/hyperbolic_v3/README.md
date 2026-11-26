@@ -8,8 +8,9 @@
 |---|---|---|
 | `c2b_retrieval_v3.m` | C2 检索 | ✅ 已跑通（见下） |
 | `c3b_content_v3.m` | C3 内容/几何 2×2 | ✅ 已跑通（见下） |
-| `r1b_anatomy_v3.m` | R1 半径解剖 | ⬜ 未做 |
-| `r2b_dataset_v3.m` | R2 真实影像 | ⬜ 未做 |
+| `radius_semantics_v3/r1b_anatomy_v3.m` | R1 半径解剖 | ✅ 已跑通（见下） |
+| `radius_semantics_v3/r2b_dataset_radius.m` | R2 真实影像 | ✅ 已跑通（见下） |
+| `s8_compression.m` | S8 压缩保真 | ✅ 合成 sanity 已跑通（真实特征未做） |
 
 ## c2b：修正了什么
 
