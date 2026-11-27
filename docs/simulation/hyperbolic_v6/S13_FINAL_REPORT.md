@@ -1,3 +1,5 @@
+> **Addendum 2026-11-27.** 本报告的部分数值已被 `final_addendum/` 取代（见 `CLOSURE_SUMMARY.md`）：SCALE-OFF / GUIDE / UNIFORM 的 S9a 数值、S8b 的双曲距离与方向余弦、S13 的 LOGSHARE 与梯度对照均以修正版 CSV 为准。原文保留以留痕。
+
 # S13-final：support 先验的梯度路径与隔离
 
 ## 1. 真实 checkpoint 的 support_head 状态

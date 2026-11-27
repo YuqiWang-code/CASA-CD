@@ -1,0 +1,12 @@
+arm,kind,attn_l1_after_one_step,base_logit_sha256,bias_grad_nonzero,bias_grad_norm,cells_per_class,dataset,image,init,log_prior_max,log_prior_min,log_prior_std,loss,mode,param_l1_after_step,prior_l1_after_step,share_change,share_definition,share_max,share_min,slots,support_head_bias_grad_norm,support_head_grad_nonzero,support_head_grad_norm,support_max,support_min,weight_grad_nonzero,weight_grad_norm,zero_init
+OLD,synthetic,0.0,770266b57b24cfb6,0,0.0,8,,,zero,-13.815511,-13.815511,1e-06,3.065561,,0.0,0.0,0.0,|2*share-1|,0.5,0.5,16,,,,,,0,0.0,
+SHARE,synthetic,0.02212822,770266b57b24cfb6,2,0.32811221,8,,,zero,-0.693147,-0.693147,0.0,3.065561,,0.15683311,0.37864017,0.01515442,log(mean_cell sigmoid),0.5,0.5,16,,,,,,16,0.33240625,
+NONZERO,synthetic,0.02681364,770266b57b24cfb6,2,15.90415192,8,,,kaiming,-3.688027,-3.925659,0.118816,3.182458,,7.5518837,55.43045425,0.42390668,|2*share-1|,0.512511,0.490135,16,,,,,,16,15.6076479,
+LOGSHARE,synthetic,0.02212988,770266b57b24cfb6,2,0.32811221,8,,,zero,-0.693147,-0.693147,0.0,3.065561,,0.15683311,0.37866879,0.01515442,logsigmoid(mean_cell logit),0.5,0.5,16,,,,,,16,0.33240625,
+OFF,synthetic,0.0,770266b57b24cfb6,0,0.0,8,,,zero,0.0,0.0,0.0,3.065561,,0.0,0.0,0.0,none,0.5,0.5,16,,,,,,0,0.0,
+SHARE-mid,synthetic,0.01230628,770266b57b24cfb6,2,0.21727501,8,,,mid,-0.461114,-0.811567,0.175226,2.917157,,0.10551234,0.22110415,0.00995693,log(mean_cell sigmoid),0.630581,0.444162,16,,,,,,16,0.24165016,
+LOGSHARE-mid,synthetic,0.01653306,770266b57b24cfb6,2,0.24771053,8,,,mid,-0.43154,-0.810545,0.189503,2.906297,,0.12216329,0.29923773,0.01140729,logsigmoid(mean_cell logit),0.630581,0.444162,16,,,,,,16,0.28015596,
+R_FULL-2334,real,,,,,,SYSU-CD-256,12172.png,,,,,0.010931,mass,,,,,0.9173426,0.00045421,,5.522e-05,128,0.00041956,0.9173426,0.00045421,,,False
+R_FULL-2334,real,,,,,,SYSU-CD-256,12172.png,,,,,0.011032,mass,,,,,0.5,0.5,,4.404e-05,128,0.00047045,0.5,0.5,,,True
+R_COMPACT-2334,real,,,,,,SYSU-CD-256,12172.png,,,,,0.011406,confidence,,,,,0.5,0.5,,0.0,0,0.0,0.0,1e-06,,,False
+R_COMPACT-2334,real,,,,,,SYSU-CD-256,12172.png,,,,,0.011406,confidence,,,,,0.5,0.5,,0.0,0,0.0,0.0,1e-06,,,True

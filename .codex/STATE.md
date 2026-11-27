@@ -1,3 +1,13 @@
+# 2026-11-27 · V6 仿真纠错与最终附录（S9a / S8b / S13 修正版）
+
+- 用户 m00500 逐条点名 8 个仿真脚本缺陷；处理方式为**新写修正脚本**（`tools/simulation/{s9a_fix.py,s8b_fix.py,s13_fix.py,finalize_fix.py}` + `run_finalclosure.sh`），历史脚本/CSV/报告全部保留，旧报告顶部加 "Addendum 2026-11-27" 横幅。
+- 修正：① S9a 先验拆成 `log_support / learned / count` 三项，`SCALE-OFF` 只去学习偏置、保留 `-log N`；② `GUIDE` 原型改 `(region, class)` 交替；③ `UNIFORM` 在 `make_logits` 内生成全零并进注意力记录；④ S8b `⟨L(z),L(c)⟩_L = t_z t_c − z·c`、`hyp2=acosh(⟨L,L⟩)²`、方向余弦改原点切向（纯空间）；⑤ greedy/DP/objective 统一 `Σ_{R,c} J(R,c)/M_{s,c}`；⑥ S8b 采样按实际分层等配额+余数+top-up，SYSU 实得 12 张（旧 9 张）并记名单 SHA-256；⑦ S13 各臂共享 base logits（记 SHA-256）；⑧ `LOGSHARE = logsigmoid(mean logit)`，一步 SGD 同时更新 weight 与 bias。
+- 重跑（服务器 CPU，`…/Run10/analysis/simulation/FinalClosure/`，14:22–14:30 完成）：S9a 4 组（R_FULL-2334/2335 × SYSU/LEVIR）fit+16 臂+4 档预算；S8b 4 组 10 臂（DP 违规 0，greedy 违规 118–177 只报告）；S13 合成 + 真实反向。
+- 关键修正值：`SCALE-OFF`/`COUNT-OFF` 不再相同（LEVIR +0.013 / −0.037；SYSU −0.229 / +0.265）；NOCTX LEVIR −5.32 pp [−8.77,−2.57]、SYSU −9.78 [−14.02,−5.90]；AGG/DEAGG 跨库符号相反；224→32 预算仍平坦（最大差 0.14 pp）；S8b FIX `K_hyp2` 1.3306→0.4345、`K_cos` 0.4836→0.8429，DP-K-E/DP-V-H `J_rel` 0.91/0.90（ADA 1.03–1.05）。
+- **新发现（重要）**：Run10 的 `confidence` 先验在零初始化下被 `abs(2s-1)` 的 kink + `clamp_min(1e-6)` 锁死；训练 40k 步的 `R_COMPACT-2334` 仍 `share≡0.5`、`support≡1e-6`、`support_head` 梯度 0 ⇒ 实际是常数先验，`R_COMPACT`/`R_LEAN` 与 `R_FULL` 的差异不能归因于该先验（Run11 因此固定 `support=mass`）。
+- 是否重训：仿真纠错本身**不需要重训**（冻结权重反事实，同权重同数据流只换算子）；但冻结权重结论不能代替重训结果，Run11 即重训矩阵，仍在 GPU0 跑。
+- 产物：`docs/simulation/hyperbolic_v6/final_addendum/{CLOSURE_SUMMARY.md,table_*_fix.csv}`（含 `## 2.5 被撤回的旧结论` 表）。
+
 # 2026-11-27 · CASA-MinorGoal / Run11 起跑（HRA 三轴：成员池化 / 距离 / V 聚合）
 
 - 用户 m00002 要求用 Run10 的 TAR、按 §6 改造 HRA、只上 GPU0 训练；协议 `casa_minor_run11_hra_v1`，`train_scripts/CASA-MinorGoal/Run11/`，提交 `9a73ed9`。
@@ -5,7 +15,7 @@
 - 臂：`CTRL`(none+cg+guide_diff)、`LOCAL`、`H32`(全 H, `2,2,2,2`)、`E32`(全 E)、`E32_HV`(E/E/H)、`H224`(全 H, `8,4,4,4`) × seed 2334/2335 × SYSU/LEVIR = 24 项；bs32、40k step、val 选模、test 0.5、仅 GPU0 两槽（reservation CTRL/LOCAL 9,800、hra 10,200、H224 13,600 MiB）。
 - 门限：`LOCAL vs CTRL`、`H32 vs LOCAL`、`E32 vs LOCAL` 用 0.59；`E32_HV vs E32` 用 0.36；`H224 vs H32` 用 −0.36（noise 0.39）。`H32 vs E32` 只记录、不作门限。
 - 预检（服务器）：`[READY] Run11 audit and smoke tests passed: 12 arms, 24 jobs on GPUs (0,)`；折叠 maxdiff ≤2.682e-07、二值差 0；参数 CTRL 2,072,404/2,025,795、LOCAL 2,077,204/2,030,595、四个 hra 臂 2,090,099/2,043,490。
-- 队列 2026-11-27 13:15 起跑于 GPU0（GPU1 被外部 `/home/bqwang/.../train_sdf.py` 占满，不碰）；日志 `outputs/CASA-CD/CASA-MinorGoal/Run11/pipeline.log`，预计 34.2 h。
+- 队列 2026-11-27 13:15 起跑于 GPU0（GPU1 被外部 `/home/bqwang/.../train_sdf.py` 占满，不碰）；日志 `outputs/CASA-CD/CASA-MinorGoal/Run11/pipeline.log`；实测 ≈106 s/epoch（375 步 + val）⇒ 约 3.2 h/条，24 项两槽约 40–46 h。
 
 # 2026-11-24 · CASA-MinorGoal / Run10 起跑（精简主干：128² 主输出 + 竞争门 + 三档检索减法）
 
