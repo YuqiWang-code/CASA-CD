@@ -180,7 +180,13 @@ class ResidualPyramidContext(nn.Module):
 
 
 class AuxiliaryContext(nn.Module):
-    """CTRL retains the same change-guide supervision on unmodified TAR features."""
+    """CTRL retains the same change-guide supervision on unmodified TAR features.
+
+    ``guide_source="diff"`` computes that auxiliary head on the temporal
+    difference stream instead of the fused feature, so the control arm carries
+    the same guide task as the HRA arms (which read the guide from D) and the
+    only remaining difference is the retrieval path itself.
+    """
     geometry = "none"
     value_geometry = "euclidean"
     grid_sizes = (8, 4, 4, 4)
@@ -189,12 +195,27 @@ class AuxiliaryContext(nn.Module):
     support_power = 0
     self_reference = False
 
-    def __init__(self, channels=64):
+    def __init__(self, channels=64, guide_source="tar"):
         super().__init__()
+        if guide_source not in ("tar", "diff"):
+            raise ValueError(f"unknown guide source {guide_source!r}")
+        self.guide_source = guide_source
         self.norm = nn.LayerNorm(channels)
+        if guide_source == "diff":
+            self.norm_diff = nn.LayerNorm(channels)
         self.guide = nn.Conv2d(channels, 1, 1)
         self.collect_diag = False
         self.last_diag = {}
 
-    def forward(self, tar):
-        return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x)) for x in tar))
+    def forward(self, tar, difference=None):
+        if self.guide_source == "diff":
+            if difference is None:
+                raise ValueError("guide_source='diff' requires the temporal difference stream")
+            sources = [channel_norm(self.norm_diff, x) for x in difference]
+        else:
+            sources = tar
+        return list(tar), dict(guide_logits=tuple(self.guide(channel_norm(self.norm, x))
+                                                  for x in sources))
+
+    def axis_report(self):
+        return dict(guide_source=self.guide_source)

@@ -13,6 +13,7 @@ from model.layers.hyperbolic_context import (COMPACT_GRIDS, HyperbolicContext,
                                              MatchedEuclideanContext)
 from model.layers.manifold_context import ManifoldContext
 from model.layers.difference_context import DifferenceContext
+from model.layers.hra_context import HRAContext, LocalContext
 
 
 class FineRefine(nn.Module):
@@ -71,23 +72,30 @@ class CASANet(nn.Module):
                  kv_hierarchy="flat", freeze_tau=False, edge_supervision=False,
                  edge_detach="retrieval", aggregate_mode="lorentz",
                  prototype_pooling="euclidean", retrieval_scales=(0, 1, 2, 3),
-                 compact_prototypes=False):
+                 compact_prototypes=False, hra_pool="lorentz",
+                 hra_distance="lorentz", hra_value="lorentz",
+                 hra_grids=(2, 2, 2, 2), guide_source="tar"):
         super().__init__()
         context_type = {"none": AuxiliaryContext, "hyperbolic": HyperbolicContext,
                         "manifold": ManifoldContext,
                         "qkv": EuclideanContext, "matched": MatchedEuclideanContext,
-                        "difference": DifferenceContext}[module]
-        if module in ("difference", "manifold") and tar_variant not in ("spp", "spp1", "diff", "cg"):
-            raise ValueError("the difference context needs a temporal difference stream "
-                             "(--tar-variant spp, spp1 or diff)")
+                        "difference": DifferenceContext, "hra": HRAContext,
+                        "local": LocalContext}[module]
+        if module in ("difference", "manifold", "hra", "local") and tar_variant not in ("spp", "spp1", "diff", "cg"):
+            raise ValueError("the difference-hungry context needs a temporal difference stream "
+                             "(--tar-variant spp, spp1, diff or cg)")
+        if module in ("hra", "local") and edge_supervision:
+            raise ValueError("HRA does not expose an edge head; use --edge-weight 0")
         self.module = module
+        self.guide_source = guide_source
         self.tar_variant = tar_variant
         self.decoder_variant = decoder_variant
         self.encoder = mobilenet_v2(pretrained_path)
         self.tar = MultiScaleTAR((24, 32, 96, 320), dim=64,
                                  use_temporal_aux=True, use_dcr_aux=True, use_residual=True,
                                  variant=tar_variant,
-                                 return_difference=module in ("difference", "manifold"),
+                                 return_difference=(module in ("difference", "manifold", "hra", "local")
+                                                    or guide_source == "diff"),
                                  edge_supervision=edge_supervision and tar_variant == "cg")
         self.decoder = build_decoder(dim=64, use_aux=True, use_residual=True,
                                      variant=decoder_variant)
@@ -97,7 +105,17 @@ class CASANet(nn.Module):
         with torch.random.fork_rng():
             torch.manual_seed(context_seed)
             options = dict(heads=context_heads, head_dim=16) if context_heads != 1 else {}
-            if issubclass(context_type, HyperbolicContext):
+            if module in ("hra", "local"):
+                if module == "hra":
+                    options.update(dict(grid_sizes=tuple(hra_grids),
+                                        member_pool=hra_pool, distance=hra_distance,
+                                        value_aggregate=hra_value,
+                                        retrieval_scales=tuple(retrieval_scales),
+                                        kv_hierarchy=kv_hierarchy,
+                                        freeze_tau=freeze_tau))
+                else:
+                    options = {}
+            elif issubclass(context_type, HyperbolicContext):
                 options["edge_supervision"] = bool(edge_supervision)
                 options["edge_detach"] = edge_detach
                 options["prototype_pooling"] = prototype_pooling
@@ -112,6 +130,8 @@ class CASANet(nn.Module):
                         options["grid_sizes"] = COMPACT_GRIDS
                 options["kv_hierarchy"] = kv_hierarchy
                 options["freeze_tau"] = freeze_tau
+            elif module == "none":
+                options["guide_source"] = guide_source
             self.context = context_type(**options)
             self.detail = None
             self.detail_target = detail_target
@@ -134,11 +154,13 @@ class CASANet(nn.Module):
             tar, difference = result
         else:
             tar = result
-        if self.module in ("difference", "manifold"):
+        if self.module in ("difference", "manifold", "hra", "local"):
             enhanced, auxiliary = self.context(tar, difference,
                                                return_aux=return_aux and self.training)
         elif self.module in ("hyperbolic", "matched"):
             enhanced, auxiliary = self.context(tar, return_aux=return_aux and self.training)
+        elif self.module == "none" and self.guide_source == "diff":
+            enhanced, auxiliary = self.context(tar, difference)
         else:
             enhanced, auxiliary = self.context(tar)
         if tar_edges is not None:

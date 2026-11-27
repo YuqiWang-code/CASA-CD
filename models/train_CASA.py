@@ -48,6 +48,14 @@ def parse_scales(text):
     return scales
 
 
+def parse_grids(text):
+    """Four per-scale prototype grids; 8/4/4/4 is 224 tokens, 2/2/2/2 is 32."""
+    grids = tuple(int(item) for item in str(text).replace(" ", "").split(",") if item)
+    if len(grids) != 4 or any(item < 1 or item > 8 for item in grids):
+        raise ValueError(f"expected four grids in 1..8, got {text!r}")
+    return grids
+
+
 def parse_level_weights(text):
     if not text:
         return DEFAULT_DS_WEIGHTS
@@ -248,9 +256,12 @@ def evaluate_auxiliary(model, loader, device):
     samples = 0
     for image, target in loader:
         image, target = image.to(device).float(), target.to(device).float()
-        if model.module in ("difference", "manifold"):
+        if model.module in ("difference", "manifold", "hra", "local") or model.guide_source == "diff":
             tar, difference = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
-            _, auxiliary = model.context(tar, difference, return_aux=True)
+            if model.module in ("difference", "manifold", "hra", "local"):
+                _, auxiliary = model.context(tar, difference, return_aux=True)
+            else:
+                _, auxiliary = model.context(tar, difference)
         else:
             tar = model.tar(model.encoder(image[:, :3])[1:], model.encoder(image[:, 3:])[1:])
             if model.module in ("hyperbolic", "matched"):
@@ -394,7 +405,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--pretrained", required=True)
-    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched", "difference", "manifold"],
+    parser.add_argument("--module", choices=["none", "hyperbolic", "qkv", "matched", "difference", "manifold", "hra", "local"],
                         required=True)
     parser.add_argument("--max-steps", type=int, default=40000)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -443,6 +454,21 @@ def main():
                         help="pixels by which the GT edge ring is widened before supervision")
     parser.add_argument("--prototype-pooling", choices=("euclidean", "lorentz"), default="euclidean",
                         help="where the class prototypes are averaged: tangent space or on the manifold")
+    parser.add_argument("--hra-pool", choices=("euclidean", "lorentz"), default="lorentz",
+                        help="HRA axis 1: average the per-pixel member projections in the "
+                             "tangent chart or on the Lorentz hyperboloid")
+    parser.add_argument("--hra-distance", choices=("euclidean", "lorentz"), default="lorentz",
+                        help="HRA axis 2: compare query and prototype with the squared chord "
+                             "or with the squared Lorentz geodesic")
+    parser.add_argument("--hra-value", choices=("euclidean", "lorentz"), default="lorentz",
+                        help="HRA axis 3: aggregate the retrieved values as a weighted mean or "
+                             "as a normalised Minkowski barycentre")
+    parser.add_argument("--hra-grids", default="8,4,4,4",
+                        help="HRA prototype grid per scale; '2,2,2,2' is the 32-KV budget, "
+                             "'8,4,4,4' the 224-KV historical reference")
+    parser.add_argument("--guide-source", choices=("tar", "diff"), default="tar",
+                        help="for --module none: compute the guide head on T (historical) or on "
+                             "the temporal difference stream (matched control for HRA)")
     args = parser.parse_args()
     if args.interior_positive_weight < 1:
         parser.error("interior positive weight must be at least 1")
@@ -450,16 +476,26 @@ def main():
         parser.error("edge weight must be non-negative")
     if args.edge_weight > 0 and args.tar_variant not in ("cg",) and args.module not in ("manifold", "difference"):
         parser.error("edge supervision needs an edge head: use --tar-variant cg or --module manifold")
+    if args.edge_weight > 0 and args.module in ("hra", "local"):
+        parser.error("HRA and LOCAL do not expose an edge head; use --edge-weight 0")
+    if args.guide_source == "diff" and args.module != "none":
+        parser.error("--guide-source diff only applies to --module none; HRA reads D already")
     weights = auxiliary_weights(args.module, args.guide_weight, args.retrieval_weight)
     args.level_weights = parse_level_weights(args.ds_weights)
+    if args.module == "hra":
+        args.hra_grids = parse_grids(args.hra_grids)
+        if args.support not in ("mass",):
+            parser.error("HRA only supports the learned share prior (--support mass)")
     if weights["guide"] <= 0 or weights["geometric_retrieval"] < 0:
         parser.error("guide weight must be positive and retrieval weight nonnegative")
-    if args.module not in ("hyperbolic", "matched", "difference", "manifold") and weights["geometric_retrieval"]:
+    if args.module not in ("hyperbolic", "matched", "difference", "manifold", "hra") and weights["geometric_retrieval"]:
         parser.error("retrieval supervision requires the matched H/E or difference context")
-    if args.context_heads != 1 and args.module not in ("hyperbolic", "matched", "difference", "manifold"):
+    if args.context_heads != 1 and args.module not in ("hyperbolic", "matched", "difference", "manifold", "hra"):
         parser.error("multihead ablation requires the matched H/E or difference context")
-    if args.module in ("difference", "manifold") and args.tar_variant not in ("spp", "spp1", "diff", "cg"):
+    if args.module in ("difference", "manifold", "hra", "local") and args.tar_variant not in ("spp", "spp1", "diff", "cg"):
         parser.error("the difference context needs --tar-variant spp")
+    if args.module == "local" and args.context_heads != 1:
+        parser.error("LOCAL has no retrieval heads; keep --context-heads 1")
     torch.set_num_threads(4)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -494,10 +530,18 @@ def main():
                     edge_detach=args.edge_detach,
         prototype_pooling=args.prototype_pooling, aggregate_mode=args.aggregate,
         retrieval_scales=parse_scales(args.retrieval_scales),
-        compact_prototypes=args.compact_prototypes).to(device)
+        compact_prototypes=args.compact_prototypes,
+        hra_pool=args.hra_pool, hra_distance=args.hra_distance, hra_value=args.hra_value,
+        hra_grids=args.hra_grids, guide_source=args.guide_source).to(device)
     optimizer = make_optimizer(model, encoder_lr_mult=args.encoder_lr_mult)
     params = sum(p.numel() for p in model.parameters()) / 1e6
     identity = source_files()
+    context_qk = getattr(model.context, "qk", None)
+    context_v = getattr(model.context, "v", None)
+    projected_context = context_qk is not None
+    hra_module = args.module == "hra"
+    local_module = args.module == "local"
+    hra_lift = hra_module and "lorentz" in (model.context.member_pool, model.context.distance_mode)
     manifest = dict(protocol=PROTOCOL, module=args.module, seed=args.seed,
                     tar_variant=args.tar_variant, decoder_variant=args.decoder_variant,
                     context_seed=args.context_seed,
@@ -528,18 +572,18 @@ def main():
                     context_prototypes_per_scale=list(model.context.tokens_per_scale),
                     joint_contexts=sum(model.context.tokens_per_scale),
                     qk_geometry=model.context.geometry, value_geometry=model.context.value_geometry,
-                    qkv_dim=model.context.qk.out_channels if args.module != "none" else 0,
-                    heads=model.context.heads if args.module != "none" else 0,
+                    qkv_dim=context_qk.out_channels if projected_context else 0,
+                    heads=model.context.heads if projected_context else 0,
                     auxiliary_weights=weights,
                     edge_supervision=dict(weight=args.edge_weight, dilate=args.edge_dilate,
                                           detach=args.edge_detach,
                                           objective="sobel_edge_map_bce_plus_dice",
                                           source=("tar_cg_change_evidence" if args.tar_variant == "cg"
                                                   else "retrieval_writback")),
-                    guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched", "difference", "manifold") else "raw_area_bce",
+                    guide_objective=GUIDE_OBJECTIVE if args.module in ("hyperbolic", "matched", "difference", "manifold", "hra", "local") else "raw_area_bce",
                     guide_effective_coefficients=guide_effective_coefficients(args.module, weights["guide"]),
-                    query_key_head_dim=model.context.qk.out_channels // model.context.heads if args.module != "none" else 0,
-                    value_head_dim=model.context.v.out_channels // model.context.heads if args.module != "none" else 0,
+                    query_key_head_dim=context_qk.out_channels // model.context.heads if projected_context else 0,
+                    value_head_dim=context_v.out_channels // model.context.heads if (projected_context and context_v is not None) else 0,
                     shared_query_key_projection=True,
                     compression_power=model.context.compression_power,
                     initial_compression_power=model.context.compression_power,
@@ -548,27 +592,34 @@ def main():
                     interior_weighting=dict(output=0, gt_boundary_radius=2,
                                            normalization="sum_weighted_bce/sum_pixel_weights"),
                     support_power=model.context.support_power,
-                    support=args.support,
+                    support=("mass" if hra_module else ("none" if local_module else args.support)),
                     kv_hierarchy=args.kv_hierarchy,
                     freeze_tau=args.freeze_tau,
-                    prototype_pooling=args.prototype_pooling,
-                    aggregate=(args.aggregate if args.module == "manifold" else "not_used"),
-                    kv_tokens=(sum(2 * grid * grid for grid in model.context.grid_sizes)
-                               if args.module in ("hyperbolic", "matched", "difference", "manifold") else 0),
+                    prototype_pooling=("lorentz" if hra_module else ("none" if local_module else args.prototype_pooling)),
+                    aggregate=(args.aggregate if args.module == "manifold"
+                               else (model.context.aggregate_mode if hra_module else "not_used")),
+                    kv_tokens=sum(model.context.tokens_per_scale),
                     self_reference=model.context.self_reference,
                     reliability_prior={"none": "not_used", "qkv": "weighted class posterior square",
                                        "hyperbolic": "weighted class occupancy; no entropy penalty",
                                        "matched": "weighted class occupancy; no entropy penalty",
                                        "difference": "temporal-difference class occupancy; no entropy penalty",
-                                       "manifold": "temporal-difference class occupancy; no entropy penalty"}[args.module],
+                                       "manifold": "temporal-difference class occupancy; no entropy penalty",
+                                       "hra": "temporal-difference class occupancy share; no entropy penalty",
+                                       "local": "not_used"}[args.module],
                     context_readout={"none": "identity", "qkv": "self-referenced conditional value difference",
                                      "hyperbolic": "learned gate on spatially centered retrieved context",
                                      "matched": "learned gate on spatially centered retrieved context",
                                      "difference": "learned gate on spatially centered retrieved context",
-                                     "manifold": "lorentz barycenter with level path and position-aware gate"}[args.module],
-                    hyperbolic_radius="asinh(norm(projected_features) / sqrt(head_dim))" if args.module in ("hyperbolic", "matched", "difference", "manifold") else None,
+                                     "manifold": "lorentz barycenter with level path and position-aware gate",
+                                     "hra": "axis-configurable barycenter with level path and position-aware gate",
+                                     "local": "local depthwise detail residual on the fused feature"}[args.module],
+                    hyperbolic_radius=("asinh(norm(projected_features) / sqrt(head_dim))"
+                                       if args.module in ("hyperbolic", "matched", "difference", "manifold") or hra_lift
+                                       else None),
                     hyperbolic_key="lift_of_pooled_temporal_difference_content" if args.module in ("difference", "manifold")
-                    else ("lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None),
+                    else ("pooled_change_evidence_class_prototypes_with_configurable_member_geometry" if hra_module
+                          else ("lift_of_shared_pooled_content" if args.module in ("hyperbolic", "matched") else None)),
                     context_gamma_shape=[4, 64], local_gamma_shape=[2, 64],
                     local_scales=[1, 2], local_detail="depthwise3x3 + pointwise on X - avg3(X)",
                     source_files=identity,
@@ -580,7 +631,9 @@ def main():
                                     "hyperbolic": "direct_projection_class_keys_and_gated_euclidean_values",
                                     "matched": "direct_projection_class_keys_and_gated_euclidean_values",
                                     "difference": "class_keys_from_temporal_difference_and_gated_euclidean_values",
-                                    "manifold": "class_keys_from_change_evidence_averaged_on_the_lorentz_barycenter"}[args.module],
+                                    "manifold": "class_keys_from_change_evidence_averaged_on_the_lorentz_barycenter",
+                                    "hra": "class_keys_from_change_evidence_with_per_axis_member_distance_and_value_geometry",
+                                    "local": "highpass_detail_on_the_fused_feature"}[args.module],
                     source_archive=str(args.output_dir.parents[1] / "source_code.tar.gz"),
                     dataset=str(args.dataset_root), pretrained=args.pretrained,
                     deploy_verification=DEPLOY_POLICY)
