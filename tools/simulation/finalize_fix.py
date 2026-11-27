@@ -402,7 +402,34 @@ def main():
             if r["dataset"] not in datasets:
                 continue
             rows.append([r["dataset"], r["gridset"], r["checkpoint"], f"{r['F1']:.3f}"])
-        lines += [md_table(["dataset", "gridset", "checkpoint", "F1"], rows), ""]
+        lines += [md_table(["dataset", "gridset", "checkpoint", "F1"], rows), "",
+                  "### 3.5 结论（正文引用口径）", ""]
+        def _p(ds, arm):
+            r = next((r for r in s9a["paired"] if r["dataset"] == ds and r["arm"] == arm), None)
+            return f"{r['seed_delta_pp']:+.3f} pp [{r['ci_low']:+.3f}, {r['ci_high']:+.3f}]" if r else "n/a"
+        for ds in datasets:
+            spread = None
+            per_ckpt = defaultdict(list)
+            for r in s9a["budget"]:
+                if r["dataset"] == ds:
+                    per_ckpt[r["checkpoint"]].append(r["F1"])
+            if per_ckpt:
+                spread = max(max(v) - min(v) for v in per_ckpt.values())
+            small = [r for r in s9a["paired"]
+                     if r["dataset"] == ds and r["arm"] in
+                     ("SCALE-OFF", "COUNT-OFF", "SUPPORT-OFF", "DISTONLY", "GUIDE",
+                      "DE", "KE", "VE", "KVE", "DECAL")]
+            max_small = max((abs(r["seed_delta_pp"]) for r in small), default=float("nan"))
+            lines.append(
+                f"- **{ds}**：`NOCTX` {_p(ds, 'NOCTX')}、`UNIFORM` {_p(ds, 'UNIFORM')}、"
+                f"`AGG` {_p(ds, 'AGG')}、`DEAGG` {_p(ds, 'DEAGG')}；"
+                f"其余小项（先验拆分、单距离、单侧）绝对值最大 {max_small:.3f} pp"
+                + (f"；同一 checkpoint 内 224→32 的 F1 极差 {spread:.3f} pp。" if spread is not None else "。"))
+        lines += ["",
+                  "读法：唯一稳定的大效应是**去掉检索回写**（`NOCTX` 大跌）与**把注意力换成 uniform**；"
+                  "`AGG`/`DEAGG` 在两库符号相反（LEVIR 显著变差、SYSU 略好但 CI 含 0），"
+                  "所以「聚合几何更好」不是一个可迁移的结论；`SCALE-OFF` 与 `COUNT-OFF` 的数值现在可以区分，"
+                  "但都落在 0.36 pp 噪声内；预算 224→32 在同一 checkpoint 内近似平坦（极差 ≤0.14 pp）。", ""]
     if s8b:
         lines += ["## 4. S8b 修正结果", "",
                   "样本：等配额分层采样，实际张数与分层计数（来自各 summary JSON）：", "",
@@ -438,6 +465,24 @@ def main():
                             for r in s8b["ratios"] if r.get("objective")]), "",
                   "注意：旧报告把 `sse`、测地距离与方向余弦混在同一张表里比较，本版分列并给出各自定义；",
                   "旧表里 DP-V-* 被静默丢弃，本版 10 臂全部输出。", ""]
+    if s8b:
+        def _s8b(arm):
+            return next((r for r in s8b["table"] if r["arm"] == arm), None)
+        fix_row, dpe, dpv, ada = _s8b("FIX"), _s8b("DP-K-E"), _s8b("DP-V-H"), _s8b("ADA-K-E")
+        if fix_row and dpe and dpv and ada:
+            lines += ["### 4.4 结论", "",
+                      "统一成 `sum J(R,c)/M_{s,c}` 后：",
+                      f"- `FIX` 的 K 测地误差 `K_hyp2`={fnum(fix_row,'K_hyp2'):.4f}、`K_sse`={fnum(fix_row,'K_sse'):.4f}；"
+                      f"`DP-K-E` 降到 {fnum(dpe,'K_hyp2'):.4f}/{fnum(dpe,'K_sse'):.4f}"
+                      f"（−{(1-fnum(dpe,'K_hyp2')/fnum(fix_row,'K_hyp2'))*100:.1f}% geodesic，"
+                      f"−{(1-fnum(dpe,'K_sse')/fnum(fix_row,'K_sse'))*100:.1f}% SSE）。",
+                      f"- `DP-V-H` 把 `V_hyp2` 从 {fnum(fix_row,'V_hyp2'):.4f} 降到 {fnum(dpv,'V_hyp2'):.4f}；"
+                      f"`K_hyp2`={fnum(dpv,'K_hyp2'):.4f}、`K_cos`={fnum(dpv,'K_cos'):.4f}"
+                      f"（旧口径 {fnum(dpv,'K_cos_ambient'):.4f}），方向一致性与旧报告相反：修正后固定网格已接近 0.84，"
+                      "自适应分区的增益体现在测地误差而不是方向余弦。",
+                      f"- `ADA-K-E`（greedy 启发式）`K_hyp2`={fnum(ada,'K_hyp2'):.4f}、`J_KE`={fnum(ada,'J_KE'):.4f}，"
+                      f"比 `FIX` 的 {fnum(fix_row,'J_KE'):.4f} 更差（+{(fnum(ada,'J_KE')/fnum(fix_row,'J_KE')-1)*100:.1f}%），"
+                      "说明旧报告里 greedy 的优势主要来自未归一化目标；DP 的优势在新目标下仍然存在。", ""]
     if s13:
         lines += ["## 5. S13 修正结果", "",
                   "### 5.1 合成 prior-梯度（各臂共享同一 base logits）", ""]
