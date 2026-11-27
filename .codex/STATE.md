@@ -1,3 +1,12 @@
+# 2026-11-27 · CASA-MinorGoal / Run11 起跑（HRA 三轴：成员池化 / 距离 / V 聚合）
+
+- 用户 m00002 要求用 Run10 的 TAR、按 §6 改造 HRA、只上 GPU0 训练；协议 `casa_minor_run11_hra_v1`，`train_scripts/CASA-MinorGoal/Run11/`，提交 `9a73ed9`。
+- 代码：`HRAContext(ManifoldContext)` 把几何拆成 `--hra-pool`/`--hra-distance`/`--hra-value` 三轴（默认全 `lorentz`），数据流/guide/learned-share 先验/gamma 回写/DCR 不变；全 `lorentz` + `8,4,4,4` 与 Run10 `R_FULL` 逐 logit 一致（本地 `max|Δ|=0.000e+00`）。新增 `--module local`（`LocalContext`：guide + 最细两层 DW 残差、无检索）与 `--guide-source diff`（`CTRL` 的 guide 改读 `D_s`）。
+- 臂：`CTRL`(none+cg+guide_diff)、`LOCAL`、`H32`(全 H, `2,2,2,2`)、`E32`(全 E)、`E32_HV`(E/E/H)、`H224`(全 H, `8,4,4,4`) × seed 2334/2335 × SYSU/LEVIR = 24 项；bs32、40k step、val 选模、test 0.5、仅 GPU0 两槽（reservation CTRL/LOCAL 9,800、hra 10,200、H224 13,600 MiB）。
+- 门限：`LOCAL vs CTRL`、`H32 vs LOCAL`、`E32 vs LOCAL` 用 0.59；`E32_HV vs E32` 用 0.36；`H224 vs H32` 用 −0.36（noise 0.39）。`H32 vs E32` 只记录、不作门限。
+- 预检（服务器）：`[READY] Run11 audit and smoke tests passed: 12 arms, 24 jobs on GPUs (0,)`；折叠 maxdiff ≤2.682e-07、二值差 0；参数 CTRL 2,072,404/2,025,795、LOCAL 2,077,204/2,030,595、四个 hra 臂 2,090,099/2,043,490。
+- 队列 2026-11-27 13:15 起跑于 GPU0（GPU1 被外部 `/home/bqwang/.../train_sdf.py` 占满，不碰）；日志 `outputs/CASA-CD/CASA-MinorGoal/Run11/pipeline.log`，预计 34.2 h。
+
 # 2026-11-24 · CASA-MinorGoal / Run10 起跑（精简主干：128² 主输出 + 竞争门 + 三档检索减法）
 
 - 用户 m10638 逐条批准 TAR/HRA/DCR 三组改动后重建 Run10（旧 Run10 全部删除），协议 `casa_minor_run10_lean_v1`，`train_scripts/CASA-MinorGoal/Run10/`。
